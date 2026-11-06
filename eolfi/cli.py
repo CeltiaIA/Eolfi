@@ -277,6 +277,16 @@ def _parser() -> argparse.ArgumentParser:
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
 
+    up = sub.add_parser("up", help="Arranca todo junto: Eolas local (CeltIA), el puente de chats web y el panel")
+    up.add_argument("--port", type=int, default=8777)
+    up.add_argument("--celtiaia", default=os.environ.get("CELTIAIA_HOME", r"D:\celtiaia"),
+                    help="Repositorio CeltIA con launch-eolas.ps1 (también CELTIAIA_HOME)")
+    up.add_argument("--no-eolas", action="store_true", help="No arranca Eolas")
+    up.add_argument("--no-bridge", action="store_true", help="No arranca el puente de chats web")
+    up.add_argument("--browser", default=None, help="Navegador del puente (como en «eolfi bridge»)")
+    up.add_argument("--no-open", action="store_true", help="No abre el panel en el navegador")
+    up.add_argument("--reload", action="store_true", help="Reinicia el panel al cambiar el código de eolfi/")
+
     sv = sub.add_parser("serve", help="Servidor de desarrollo (API + panel web)")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8777)
@@ -745,6 +755,9 @@ def _run_bridge(install_only: bool, browser: str | None = None, engine: str | No
     import os
 
     env = dict(os.environ)
+    # La terminal de VS Code exporta ELECTRON_RUN_AS_NODE=1: Electron arrancaría como Node y main.mjs fallaría
+    # («does not provide an export named 'BrowserWindow'»).
+    env.pop("ELECTRON_RUN_AS_NODE", None)
     if browser:
         env["EOLFI_BROWSER"] = browser
     if engine:
@@ -752,6 +765,181 @@ def _run_bridge(install_only: bool, browser: str | None = None, engine: str | No
     npx = shutil.which("npx") or npm
     cmd = [npx, "electron", "."] if npx != npm else [npm, "start"]
     return subprocess.run(cmd, cwd=bridge, env=env).returncode
+
+
+def _http_ok(url: str, headers: dict[str, str] | None = None, timeout: float = 3) -> bool:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers or {}), timeout=timeout) as r:
+            return 200 <= r.status < 300
+    except (OSError, ValueError):
+        return False
+
+
+def _bridge_running() -> bool:
+    from eolfi.generador.llm import LLMError, read_bridge
+
+    try:
+        b = read_bridge()
+    except LLMError:
+        return False
+    return _http_ok(b["url"] + "/v1/status", {"Authorization": f"Bearer {b['token']}"})
+
+
+def _kill_tree(proc) -> None:
+    """Para un proceso y sus hijos (en Windows, terminate() deja vivos Electron/Chrome o eolas.exe)."""
+    import subprocess
+
+    if proc.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.terminate()
+    try:
+        proc.wait(10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _port_listening(host: str, port: int) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _wait_http(url: str, seconds: float) -> bool:
+    import time
+
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if _http_ok(url, timeout=2):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _start_eolas(eolas_url: str, celtiaia, logs) -> bool:
+    """Conecta con Eolas en local y, si no está, lo arranca con el launcher de CeltIA (D:\\celtiaia)."""
+    import shutil
+    import subprocess
+    import urllib.parse
+
+    tags = eolas_url + "/api/tags"
+    if _http_ok(tags):
+        _progress(f"Eolas ya está activo en {eolas_url}")
+        return True
+    u = urllib.parse.urlsplit(eolas_url)
+    host, port = u.hostname or "127.0.0.1", u.port or 11435
+    if host not in ("127.0.0.1", "localhost"):
+        _progress(f"Aviso: Eolas apunta a {eolas_url}, que no es este equipo; no lo arranco.")
+        return False
+    if _port_listening(host, port):
+        # Otro supervisor lo está levantando (o cargando el modelo): lanzar otro fallaría por el puerto ocupado.
+        _progress(f"El puerto {port} está ocupado pero Eolas aún no responde; espero a que termine de arrancar...")
+        if _wait_http(tags, 120):
+            _progress(f"Eolas listo en {eolas_url}")
+            return True
+        _progress(f"Aviso: algo ocupa el puerto {port} y no responde como Eolas; sigo sin Eolas.")
+        return False
+    launcher = celtiaia / "launch-eolas.ps1"
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if not launcher.is_file() or not shell:
+        _progress(f"Aviso: no encuentro {launcher} (o PowerShell); sigo sin Eolas. Usa --celtiaia o CELTIAIA_HOME.")
+        return False
+    _progress(f"Arrancando Eolas desde {celtiaia} (registro: {logs / 'eolas.log'})...")
+    # Como «npm start» de CeltIA, en segundo plano (-Detach) y sin abrir su página (-NoBrowser).
+    cmd = [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(launcher),
+           "-Detach", "-NoBrowser", "-EolasPort", str(port)]
+    with open(logs / "eolas.log", "ab") as log:
+        try:
+            r = subprocess.run(cmd, cwd=celtiaia, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                               timeout=180)
+        except subprocess.TimeoutExpired:
+            r = None
+    if r is not None and r.returncode != 0:
+        _progress(f"Aviso: el launcher de Eolas falló (código {r.returncode}); mira {logs / 'eolas.log'}")
+        return False
+    if _wait_http(tags, 60):
+        _progress(f"Eolas listo en {eolas_url} (para pararlo: {launcher} -Stop)")
+        return True
+    _progress("Aviso: Eolas aún no responde; el panel lo detectará cuando esté listo.")
+    return False
+
+
+def _run_up(args) -> int:
+    """`eolfi up`: Eolas local de CeltIA + puente de chats web + panel, en un solo comando. Lo que ya esté en
+    marcha se reutiliza; al salir (Ctrl+C) se para lo arrancado aquí, salvo Eolas, que queda como servicio."""
+    import subprocess
+    import threading
+    import time
+    import webbrowser
+    from pathlib import Path
+
+    from eolfi.generador.llm import PRESETS
+
+    logs = Path.home() / ".eolfi" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    started: list[tuple[str, subprocess.Popen]] = []
+    os.environ.setdefault("EOLFI_DEFAULT_AI", "eolas")
+    os.environ["EOLFI_BOOT_ID"] = str(int(time.time()))
+    eolas_url = PRESETS["eolas"]["base_url"].rstrip("/")
+    panel = f"http://127.0.0.1:{args.port}"
+
+    try:
+        # 1. Eolas (motor local de CeltIA). Es un servicio compartido con CeltIA: se lanza con -Detach (supervisor
+        #    propio que reinicia Eolas si cae) y sigue activo al cerrar Eolfi; se para con launch-eolas.ps1 -Stop.
+        if not args.no_eolas:
+            _start_eolas(eolas_url, Path(args.celtiaia), logs)
+
+        # 2. Puente de chats web: los proveedores web se eligen después en el panel, si hacen falta
+        if args.no_bridge:
+            pass
+        elif _bridge_running():
+            _progress("El puente de chats web ya está activo")
+        else:
+            env = dict(os.environ)
+            env.pop("ELECTRON_RUN_AS_NODE", None)
+            cmd = [sys.executable, "-m", "eolfi", "bridge"] + (["--browser", args.browser] if args.browser else [])
+            log = open(logs / "bridge.log", "ab")  # noqa: SIM115
+            proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            started.append(("puente", proc))
+            _progress(f"Arrancando el puente de chats web (registro: {logs / 'bridge.log'})...")
+
+        # 3. Panel
+        if _http_ok(panel + "/api/health"):
+            _progress(f"El panel de Eolfi ya estaba en {panel}: lo reutilizo (elige Eolas en «Proveedores» si no "
+                      "sale por defecto). Ctrl+C para parar lo arrancado aquí.")
+            if not args.no_open:
+                webbrowser.open(panel)
+            while any(p.poll() is None for _, p in started):
+                time.sleep(1)
+            return 0
+        if not args.no_open:
+            def _open():
+                for _ in range(40):
+                    if _http_ok(panel + "/api/health", timeout=1):
+                        webbrowser.open(panel)
+                        return
+                    time.sleep(0.25)
+            threading.Thread(target=_open, daemon=True).start()
+        from eolfi import server
+
+        if args.reload:
+            return server.serve_with_reload(["--db", args.db, "serve", "--port", str(args.port)])
+        return server.serve(args.db, "127.0.0.1", args.port, False, "samples")
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        for name, proc in reversed(started):
+            if proc.poll() is None:
+                _progress(f"Parando {name}...")
+                _kill_tree(proc)
 
 
 def _vscode_login(server: str = "http://127.0.0.1:8777") -> int:
@@ -906,6 +1094,8 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi import mcp_server
 
         return mcp_server.main(args.db, args.root)
+    if args.cmd == "up":
+        return _run_up(args)
     if args.cmd == "serve":
         from eolfi import server
 

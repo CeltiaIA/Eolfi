@@ -13,8 +13,13 @@ const PLACEHOLDER = {
 
 // -- proveedores -----------------------------------------------------------
 async function loadProviders() {
-  const { providers } = await api("/api/providers");
+  const { providers, default_ai: defaultAi, boot } = await api("/api/providers");
   state.providers = providers;
+  // Arranque con `eolfi up`: la IA por defecto (Eolas) se aplica una vez por arranque; después manda la elección.
+  if (defaultAi && localStorage.getItem(STORE.boot) !== String(boot)) {
+    localStorage.setItem(STORE.ai, defaultAi);
+    localStorage.setItem(STORE.boot, String(boot));
+  }
   renderProvidersView();
   const ul = $("#providers");
   ul.replaceChildren(...providers.map((p) =>

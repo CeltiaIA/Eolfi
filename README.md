@@ -106,8 +106,15 @@ y el agente de VS Code (`eolfi_casos`, `eolfi_caso_analizar`) usan el mismo esta
 ## Servidor de desarrollo
 
 ```bash
-python -m eolfi serve --reload        # http://127.0.0.1:8777
+python -m eolfi up                    # todo junto: Eolas (D:\celtiaia), puente de chats web y panel
+python -m eolfi serve --reload        # solo el panel: http://127.0.0.1:8777
 ```
+
+`eolfi up` reutiliza lo que ya esté en marcha; si no, arranca Eolas con `launch-eolas.ps1 -Detach -NoBrowser`
+del repositorio CeltIA (`--celtiaia` o `CELTIAIA_HOME`, por defecto `D:\celtiaia`) y el puente, y abre el panel
+con **Eolas como IA por defecto**; los proveedores web se eligen después en «Proveedores». Ctrl+C para el panel
+y el puente; Eolas queda activo (servicio compartido con CeltIA): `D:\celtiaia\launch-eolas.ps1 -Stop`.
+`--no-bridge`, `--no-eolas`, `--no-open`, `--reload`. Registros en `~/.eolfi/logs/`.
 
 En el panel: pestañas Binario / Web / Repositorio para analizar, casillas en
 "Objetivos" para comparar dos o usarlos como fuentes, y la tarjeta

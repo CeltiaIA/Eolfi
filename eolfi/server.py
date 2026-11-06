@@ -353,6 +353,11 @@ class EolfiApp:
             ia_rows = list(pool.map(ia, PRESETS))
             local_rows = list(pool.map(local, ALL_PROVIDERS))
         out = {"providers": ia_rows + local_rows}
+        # `eolfi up` fija la IA de arranque (Eolas); el panel la aplica una vez por arranque y luego respeta
+        # lo que elija el usuario.
+        if os.environ.get("EOLFI_DEFAULT_AI"):
+            out["default_ai"] = os.environ["EOLFI_DEFAULT_AI"]
+            out["boot"] = os.environ.get("EOLFI_BOOT_ID", "")
         self._providers_cache = (time.time(), out)
         return out
 
