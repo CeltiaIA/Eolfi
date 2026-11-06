@@ -34,7 +34,7 @@ Comandos:
   corpus [--library DIR] [--dry-run]
                                  Guarda código y textos de las fuentes en el corpus de Alejandría.
   mcp [--root CARPETA ...]      Servidor MCP (stdio) para Copilot (modo agente), Claude Code u
-                                 otros clientes MCP.
+                                 otros clientes MCP; consulta Alejandría en caso de duda.
   serve [--port 8777] [--reload] [--root CARPETA ...] [--allow-remote]
                                  Servidor de desarrollo: API JSON + panel web. --root limita las
                                  rutas locales (también EOLFI_ROOTS).
@@ -276,6 +276,8 @@ def _parser() -> argparse.ArgumentParser:
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
+    mc.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
+                    help="Biblioteca Alejandría local (también EOLFI_LIBRARY)")
 
     up = sub.add_parser("up", help="Arranca todo junto: Eolas local (CeltIA), el puente de chats web y el panel")
     up.add_argument("--port", type=int, default=8777)
@@ -1093,7 +1095,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "mcp":
         from eolfi import mcp_server
 
-        return mcp_server.main(args.db, args.root)
+        return mcp_server.main(args.db, args.root, args.library)
     if args.cmd == "up":
         return _run_up(args)
     if args.cmd == "serve":

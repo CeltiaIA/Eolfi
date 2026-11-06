@@ -26,7 +26,7 @@ def test_initialize_y_lista(tmp_path):
     assert old["result"]["protocolVersion"] == "2025-06-18"
     tools = srv.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})["result"]["tools"]
     names = {t["name"] for t in tools}
-    assert {"eolfi_triage", "eolfi_incognitas", "eolfi_informe", "eolfi_repo"} <= names
+    assert {"eolfi_triage", "eolfi_incognitas", "eolfi_informe", "eolfi_repo", "eolfi_biblioteca_buscar"} <= names
     for t in tools:
         assert t["inputSchema"]["type"] == "object"
     assert srv.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
@@ -95,3 +95,19 @@ def test_salida_recortada(tmp_path, monkeypatch):
     srv._add("larga", "Larga", "x", {"type": "object", "properties": {}}, lambda a: "x" * 500)
     r = _call(srv, "larga")
     assert "recortado" in r["content"][0]["text"] and len(r["content"][0]["text"]) < 200
+
+
+def test_consulta_biblioteca_es_solo_referencia(tmp_path):
+    import json
+    lib = tmp_path / "Alejandria"
+    (lib / "manifests").mkdir(parents=True)
+    doc = lib / "corpus" / "texto" / "Eolfi" / "concepto.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text("Una referencia de configuración local", encoding="utf-8")
+    (lib / "manifests" / "corpus.index.json").write_text(
+        json.dumps({"entries": [{"path": "corpus/texto/Eolfi/concepto.md"}]}), encoding="utf-8")
+    srv = EolfiMCP(str(tmp_path / "e.db"), library=str(lib))
+    result = _call(srv, "eolfi_biblioteca_buscar", {"consulta": "configuración"})
+    assert not result["isError"]
+    assert "no evidencia del objetivo actual" in result["content"][0]["text"]
+    assert result["structuredContent"]["resultados"][0]["ruta"] == "corpus/texto/Eolfi/concepto.md"
