@@ -1,0 +1,17 @@
+{
+  "name": "eolfi-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Luis Manuel Cousido Hermida y CeltIA (Celtia IA)",
+  "description": "Puente de Eolfi para DeepSeek web, Gemini web y Meta AI web",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "^45.2.2"
+  }
+}

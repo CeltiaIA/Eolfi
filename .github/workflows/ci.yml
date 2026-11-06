@@ -1,0 +1,59 @@
+# CI de Eolfi: pruebas de Python, del puente (Node) y e2e del panel con accesibilidad (axe-core fijado).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pruebas del puente (sin Electron ni navegador)
+        working-directory: eolfi/bridge
+        run: node --test
+      - name: Pruebas de la extensión de VS Code (con un «vscode» falso)
+        working-directory: eolfi/vscode-bridge
+        run: node --test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python -m pip install -e .
+      - name: Panel de extremo a extremo + axe (usa el Chrome del runner)
+        working-directory: tests/e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npm test

@@ -1,0 +1,44 @@
+LICENCIA DE SOFTWARE PROPIETARIO — USO PRIVADO
+Eolfi
+
+Copyright (c) 2026 Luis Manuel Cousido Hermida y CeltIA (Celtia IA).
+Todos los derechos reservados.
+
+1. Titularidad
+   Eolfi —su código fuente y objeto, la extensión de VS Code (eolfi/vscode-bridge), el puente de chats web
+   (eolfi/bridge), el panel web, la documentación, los adaptadores, las pruebas y cualquier obra derivada—
+   es propiedad exclusiva de Luis Manuel Cousido Hermida y de CeltIA (Celtia IA) (en adelante, «los
+   titulares»).
+
+2. Software privado y confidencial
+   Este software es privado y confidencial. No se concede ninguna licencia, expresa ni implícita, a ninguna
+   persona o entidad distinta de los titulares. El hecho de tener acceso a una copia no otorga ningún derecho.
+
+3. Prohibiciones
+   Salvo autorización previa y por escrito de los titulares, queda prohibido:
+   a) copiar, reproducir, distribuir, publicar, sublicenciar, vender, alquilar o ceder el software, en todo o
+      en parte;
+   b) modificarlo, adaptarlo, traducirlo o crear obras derivadas;
+   c) descompilarlo, desensamblarlo o aplicarle ingeniería inversa, salvo en la medida en que la ley
+      aplicable lo permita expresamente pese a esta limitación;
+   d) subirlo a repositorios públicos, registros de paquetes (PyPI, npm, Marketplace de VS Code u otros) o
+      cualquier servicio accesible por terceros;
+   e) usarlo para prestar servicios a terceros.
+
+4. Componentes de terceros
+   Los componentes de terceros que Eolfi usa o descarga (por ejemplo Electron y las dependencias de
+   eolfi/bridge/node_modules, el servidor de VS Code, Ghidra, rizin, capa u otras herramientas externas)
+   se rigen por sus propias licencias, que esta licencia no modifica.
+
+5. Resultados generados
+   Los informes, evidencias y proyectos que Eolfi genera para los titulares pertenecen a los titulares,
+   sin perjuicio de los derechos de terceros sobre el material analizado.
+
+6. Ausencia de garantía
+   El software se proporciona «tal cual», sin garantía de ningún tipo. Los titulares no responden de los
+   daños derivados de su uso.
+
+7. Ley aplicable
+   Esta licencia se rige por la legislación española.
+
+Contacto para autorizaciones: los titulares.

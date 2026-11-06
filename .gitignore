@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.db
+*.sqlite
+build/
+dist/
+*.egg-info/
+.venv/
+samples/*
+!samples/.gitkeep
+generated/
+samples/repos/
+tests/e2e/node_modules/
+
+# Secretos: nunca a git (la plantilla .env.example sí, sin valores)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Datos locales de Eolfi
+*.db-shm
+*.db-wal
+backups/
+.pytest_cache/
+node_modules/
+*.vsix

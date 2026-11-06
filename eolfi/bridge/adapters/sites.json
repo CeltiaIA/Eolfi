@@ -1,0 +1,178 @@
+{
+  "chatgpt": {
+    "title": "ChatGPT web",
+    "origin": "https://chatgpt.com",
+    "home": "https://chatgpt.com/",
+    "conversationPath": "^/c/[\\w-]{8,}",
+    "authHostSuffixes": [
+      ".openai.com",
+      "auth.openai.com",
+      "accounts.google.com",
+      "login.microsoftonline.com",
+      "appleid.apple.com"
+    ],
+    "calibrated": true,
+    "submit": "enter",
+    "editor": [
+      "textarea[name='prompt']",
+      "textarea#mobile-composer-prompt",
+      "#prompt-textarea[contenteditable='true']",
+      "div.ProseMirror[contenteditable='true']",
+      "textarea#prompt-textarea"
+    ],
+    "send": [
+      "button[data-testid='send-button']",
+      "button#composer-submit-button",
+      "button[aria-label='Enviar mensaje']",
+      "button[aria-label='Send prompt']",
+      "button[aria-label='Enviar indicación']"
+    ],
+    "stop": [
+      "button[data-testid='stop-button']",
+      "button[aria-label='Stop streaming']",
+      "button[aria-label='Detener transmisión']"
+    ],
+    "user": [
+      "[data-message-role='user']",
+      "[data-message-author-role='user']"
+    ],
+    "assistant": [
+      "[data-message-role='assistant']",
+      "[data-message-author-role='assistant']"
+    ],
+    "idAttr": [
+      "data-message-id"
+    ],
+    "loggedOut": [
+      "[data-mobile-new-chat-auth^='login']",
+      "button[data-testid='login-button']",
+      "a[href*='auth/login']"
+    ],
+    "blocked": [
+      "[role='dialog'][aria-modal='true']",
+      "[role='dialog'][data-state='open']"
+    ],
+    "verified": {
+      "date": "2026-11-05",
+      "editor": true,
+      "logged_out_marker": true,
+      "messages": true,
+      "note": "Sin sesión (modo invitado). Mensajes data-message-role=user/assistant y fin con data-message-complete, comprobados con un mensaje de prueba real.",
+      "pending": "botón de parar y respuestas largas (solo se probó una respuesta corta)"
+    },
+    "completeAttr": "data-message-complete"
+  },
+  "copilot": {
+    "title": "Microsoft Copilot web",
+    "origin": "https://copilot.microsoft.com",
+    "home": "https://copilot.microsoft.com/",
+    "conversationPath": "^/chats/[\\w-]{6,}",
+    "authHostSuffixes": [
+      ".live.com",
+      "login.microsoftonline.com",
+      "login.live.com",
+      "accounts.google.com",
+      "appleid.apple.com"
+    ],
+    "calibrated": false,
+    "submit": "button",
+    "editor": [
+      "textarea#userInput",
+      "textarea[data-testid='composer-input']",
+      "textarea[placeholder*='Copilot']"
+    ],
+    "send": [
+      "button[data-testid='submit-button']",
+      "button[aria-label='Submit message']",
+      "button[aria-label='Enviar mensaje']"
+    ],
+    "stop": [
+      "button[data-testid='stop-button']",
+      "button[aria-label='Stop responding']",
+      "button[aria-label='Interrumpir la respuesta']"
+    ],
+    "user": [
+      "[data-content='user-message']",
+      "[data-testid='user-message']"
+    ],
+    "assistant": [
+      "[data-content='ai-message']",
+      "[data-testid='ai-message']"
+    ],
+    "idAttr": [
+      "data-message-id",
+      "id"
+    ],
+    "loggedOut": [
+      "button[data-testid='sign-in-button']",
+      "a[href*='login.live.com']"
+    ],
+    "blocked": [
+      "[role='dialog'][aria-modal='true']"
+    ],
+    "verified": {
+      "date": "2026-11-05",
+      "editor": false,
+      "messages": false,
+      "note": "Redirige a «Sign into Copilot»: exige iniciar sesión con cuenta de Microsoft antes de calibrar."
+    }
+  },
+  "lechat": {
+    "title": "Le Chat (Mistral) web",
+    "origin": "https://chat.mistral.ai",
+    "home": "https://chat.mistral.ai/chat",
+    "conversationPath": "^/(chat|work)/[\\w-]{8,}",
+    "authHostSuffixes": [
+      ".mistral.ai",
+      "auth.mistral.ai",
+      "accounts.google.com",
+      "login.microsoftonline.com",
+      "appleid.apple.com"
+    ],
+    "calibrated": true,
+    "submit": "enter",
+    "editor": [
+      "[data-chat-input-bar] [contenteditable='true']",
+      "div.ProseMirror[contenteditable='true']",
+      "textarea[name='message.text']"
+    ],
+    "send": [
+      "button[type='submit'][aria-label='Send question']",
+      "button[aria-label='Enviar pregunta']",
+      "form button[type='submit']"
+    ],
+    "stop": [
+      "button[aria-label='Stop generation']",
+      "button[aria-label='Detener la generación']"
+    ],
+    "user": [
+      "[data-message-author-role='user']"
+    ],
+    "assistant": [
+      "[data-message-author-role='assistant'] [data-message-part-type='answer']"
+    ],
+    "idAttr": [
+      "data-message-id"
+    ],
+    "loggedOut": [
+      "a[href*='/login']",
+      "button[data-testid='login-button']"
+    ],
+    "blocked": [
+      "[role='dialog'][aria-modal='true']",
+      "[role='dialog'][data-state='open']"
+    ],
+    "verified": {
+      "date": "2026-11-05",
+      "editor": true,
+      "logged_out_marker": false,
+      "messages": true,
+      "note": "Con sesión. Respuesta en la parte data-message-part-type=answer (la de «pensando» se ignora); fin cuando aparecen sus botones Like/Copy. Comprobado con un mensaje real. Las conversaciones están ahora en /work/<id>.",
+      "pending": "botón de parar y respuestas largas (solo se probó una respuesta corta)"
+    },
+    "completeWithin": {
+      "container": "[data-message-id]",
+      "selector": "button[aria-label='Like'], button[aria-label='Me gusta']"
+    }
+  }
+}

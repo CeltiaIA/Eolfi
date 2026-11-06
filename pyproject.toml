@@ -1,0 +1,45 @@
+[project]
+name = "eolfi"
+dynamic = ["version"]   # una sola fuente: eolfi/__init__.py
+description = "Sistema local de agentes para ingeniería inversa con modelo de evidencias"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Propietaria: todos los derechos reservados (ver LICENSE)"}
+authors = [{name = "Luis Manuel Cousido Hermida"}, {name = "CeltIA (Celtia IA)"}]
+keywords = ["ingeniería inversa", "reverse engineering", "evidencias", "generador de proyectos"]
+classifiers = [
+    "License :: Other/Proprietary License",
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Topic :: Security",
+    "Topic :: Software Development :: Disassemblers",
+    "Natural Language :: Spanish",
+]
+dependencies = []          # el núcleo usa solo la librería estándar
+
+[project.optional-dependencies]
+ai = ["anthropic"]          # modo asistido: eolfi assist / create --ai
+dev = ["pytest"]
+
+[project.scripts]
+eolfi = "eolfi.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "eolfi.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["eolfi*"]
+
+[tool.setuptools.package-data]
+"eolfi.providers" = ["ghidra_scripts/*.java"]
+"eolfi" = ["web/*", "bridge/*.mjs", "bridge/package.json", "bridge/package-lock.json", "bridge/adapters/*.mjs", "bridge/adapters/*.json", "bridge/engine/*.mjs", "bridge/test/*.mjs", "vscode-bridge/*.js", "vscode-bridge/package.json", "vscode-bridge/agent/*/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

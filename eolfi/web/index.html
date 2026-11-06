@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eolfi — panel de evidencias</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script src="/theme.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#detail">Saltar al contenido</a>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="8"/><path d="M10 9h12M10 16h9M10 23h12M10 9v14" fill="none" stroke-width="2.6" stroke-linecap="round"/></svg>
+      <h1>Eolfi</h1>
+      <span id="version" class="muted small version"></span>
+    </div>
+    <nav class="views" aria-label="Vistas">
+      <a href="#analisis" id="open-analysis" aria-current="page">Análisis</a>
+      <a href="#chats" id="open-chats">Chats web</a>
+      <a href="#proveedores" id="open-providers">Proveedores</a>
+      <a href="#trabajos" id="open-jobs">Trabajos <span id="jobs-badge" class="badge" hidden></span></a>
+    </nav>
+    <div class="tools">
+      <details class="menu">
+        <summary class="ghost-btn">Exportar</summary>
+        <div class="menu-list">
+          <a href="/api/export.sarif" download>SARIF 2.1.0 <span class="muted small">VS Code, GitHub</span></a>
+          <a href="/api/export.json" download>Paquete JSON <span class="muted small">evidencias</span></a>
+          <a href="/api/export.stix" download>STIX 2.1 <span class="muted small">inteligencia</span></a>
+        </div>
+      </details>
+      <label class="theme-pick"><span class="visually-hidden">Tema</span>
+        <select id="theme" aria-label="Tema del panel">
+          <option value="auto">Tema: sistema</option>
+          <option value="light">Tema: claro</option>
+          <option value="dark">Tema: oscuro</option>
+        </select>
+      </label>
+      <button type="button" id="open-help" class="icon-btn" aria-haspopup="dialog" title="Atajos de teclado (?)">?</button>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <section class="card">
+        <h2>Analizar</h2>
+        <div class="tabs" role="tablist" aria-label="Tipo de fuente">
+          <button type="button" role="tab" id="tab-binary" data-kind="binary" aria-selected="true" aria-controls="analyze-panel">Binario</button>
+          <button type="button" role="tab" id="tab-web" data-kind="web" aria-selected="false" aria-controls="analyze-panel">Web</button>
+          <button type="button" role="tab" id="tab-repo" data-kind="repo" aria-selected="false" aria-controls="analyze-panel">Repositorio</button>
+        </div>
+        <div id="analyze-panel" role="tabpanel" aria-labelledby="tab-binary">
+        <form id="upload-form">
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="Elegir un archivo para analizar (o soltarlo aquí)">
+            <input type="file" id="file" hidden>
+            <span id="drop-text">Suelta un archivo o haz clic</span>
+          </div>
+          <div class="row">
+            <select id="mode" aria-label="Modo de triaje">
+              <option value="local">Local (stdlib)</option>
+              <option value="default">Por defecto (+capa, rizin)</option>
+              <option value="deep">Profundo (+Ghidra, lento)</option>
+            </select>
+            <button type="submit" id="go">Analizar archivo</button>
+          </div>
+        </form>
+        <form id="path-form" class="row">
+          <input id="path" placeholder="…o ruta local: C:\ruta\binario.exe o una carpeta" aria-label="Ruta local">
+          <button type="button" class="pick" data-pick="path" title="Elegir carpeta" aria-label="Elegir carpeta"><span aria-hidden="true">📁</span></button>
+          <button type="submit" id="path-go">Analizar</button>
+        </form>
+        <details id="web-opts" class="small" hidden>
+          <summary>Opciones de la web</summary>
+          <div class="row">
+            <label>Recursos como mucho <input type="number" id="web-max" min="1" max="200" value="40"></label>
+            <label><input type="checkbox" id="web-cross"> también de otros dominios</label>
+            <label><input type="checkbox" id="web-robots"> ignorar robots.txt</label>
+          </div>
+        </details>
+        <p id="analysis-active" class="small muted" hidden></p>
+        </div>
+        <p id="status" class="muted" role="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Crear proyecto nuevo</h2>
+        <form id="create-form" class="stack">
+          <div class="row between"><span class="small muted">Fuentes</span>
+            <button type="button" class="pick small-btn" data-pick="create-sources" data-append="1"><span aria-hidden="true">📁</span> Añadir carpeta</button></div>
+          <textarea id="create-sources" rows="3" aria-label="Fuentes"
+            placeholder="Una fuente por línea: URL web, URL git, carpeta (C:\ruta) o nombre de un objetivo ya analizado. Los objetivos marcados abajo también cuentan."></textarea>
+          <div class="row">
+            <input id="create-name" placeholder="Nombre del proyecto (p. ej. Alejandria 2)" aria-label="Nombre del proyecto">
+            <select id="create-target" aria-label="Tecnología">
+              <option value="auto">Auto</option>
+              <option value="react">React</option>
+              <option value="vue">Vue</option>
+              <option value="svelte">Svelte</option>
+              <option value="next">Next.js</option>
+              <option value="static">Estático</option>
+              <option value="fastapi">FastAPI</option>
+              <option value="express">Express</option>
+              <option value="django">Django</option>
+              <option value="expo">Móvil: Android e iOS (Expo)</option>
+              <option value="desktop">Escritorio: Windows, macOS y Linux (Electron)</option>
+              <option value="tauri">Escritorio nativo ligero: Windows, macOS y Linux (Tauri)</option>
+              <option value="dotnet">Escritorio nativo .NET: Windows, macOS y Linux (C# + Avalonia)</option>
+              <option value="cli">Línea de comandos: Windows, macOS y Linux (Python)</option>
+            </select>
+          </div>
+          <select id="create-ai-provider" aria-label="Proveedor de IA">
+            <option value="claude">IA: Claude</option>
+            <option value="eolas">IA: Eolas V1 (local)</option>
+            <option value="deepseek">IA: DeepSeek (API)</option>
+            <option value="gemini">IA: Gemini (API)</option>
+            <option value="openai">IA: OpenAI o compatible (API)</option>
+            <option value="web">IA: chat web automático (puente)</option>
+            <option value="deepseek-web">IA: DeepSeek web (puente)</option>
+            <option value="gemini-web">IA: Gemini web (puente)</option>
+            <option value="meta-web">IA: Meta AI web (puente)</option>
+            <option value="lechat-web">IA: Le Chat de Mistral web (puente)</option>
+            <option value="copilot-vscode">IA: VS Code</option>
+            <option value="gemma">IA: Gemma 4 local (llama.cpp)</option>
+          </select>
+          <textarea id="create-ai" rows="2" aria-label="Petición para la IA"
+            placeholder="Opcional · IA: describe la lógica a implementar (p. ej. carrito con total y validación). Requiere eolfi[ai]."></textarea>
+          <div class="row">
+            <input id="create-out" placeholder="Carpeta destino (por defecto generated/&lt;nombre&gt;; si es la de origen, se hace copia de seguridad)" aria-label="Carpeta destino">
+            <button type="button" class="pick" data-pick="create-out" title="Elegir carpeta destino" aria-label="Elegir carpeta destino"><span aria-hidden="true">📁</span></button>
+            <button type="button" id="create-vscode" class="small-btn" title="Abre la carpeta destino en VS Code dentro de Eolfi">VS Code</button>
+          </div>
+          <details class="small">
+            <summary>Opciones avanzadas</summary>
+            <div class="stack">
+              <label><input type="checkbox" id="create-reanalyze"> volver a analizar las fuentes (aunque ya estén analizadas)</label>
+              <input id="create-ai-model" placeholder="Modelo de IA (opcional, p. ej. claude-opus-5-5)" aria-label="Modelo de IA">
+              <input id="create-ai-base" placeholder="URL del servidor de IA (opcional, compatible OpenAI u Ollama)" aria-label="URL del servidor de IA">
+            </div>
+          </details>
+          <div class="row">
+            <label class="small"><input type="checkbox" id="create-sqlite"> base de datos SQLite</label>
+            <label class="small"><input type="checkbox" id="create-auth"> inicio de sesión</label>
+          </div>
+          <div class="row between">
+            <label class="small"><input type="checkbox" id="create-verify" checked> instalar, compilar y probar</label>
+            <button type="submit" id="create-go">Crear</button>
+          </div>
+        </form>
+        <div id="create-result" class="small"></div>
+      </section>
+
+      <section class="card">
+        <h2>Proveedores</h2>
+        <ul id="providers" class="plain"></ul>
+      </section>
+
+      <section class="card grow">
+        <div class="row between"><h2>Objetivos</h2>
+          <button type="button" id="compare-btn" class="small-btn" disabled>Comparar 2</button></div>
+        <ul id="subjects" class="plain selectable"></ul>
+      </section>
+    </aside>
+
+    <section id="detail">
+      <div id="empty" class="empty">
+        <svg class="empty-art" viewBox="0 0 120 120" aria-hidden="true" focusable="false"><circle cx="52" cy="52" r="30"/><path d="M74 74l26 26"/><path d="M40 52h24M52 40v24"/></svg>
+        <h2>Elige un objetivo o analiza uno nuevo.</h2>
+        <p class="muted">Cada hallazgo se guarda como evidencia: lo <strong>observado</strong> separado de lo <strong>inferido</strong>, y lo que falta como incógnita.</p>
+        <ul class="hints">
+          <li><kbd>/</kbd> escribe una ruta o busca en las evidencias</li>
+          <li>Suelta un binario, APK, JAR o WASM en «Analizar»</li>
+          <li><kbd>?</kbd> atajos de teclado</li>
+        </ul>
+      </div>
+      <div id="chats" hidden>
+        <div class="row between">
+          <h2>Chats web</h2>
+          <span id="bridge-state" class="muted small"></span>
+        </div>
+        <div class="tabs chat-tabs" role="tablist" aria-label="Chat">
+          <button type="button" role="tab" data-chat="deepseek" aria-selected="false" aria-controls="chat-panel">DeepSeek <span class="dot" aria-hidden="true"></span><span class="visually-hidden state"></span></button>
+          <button type="button" role="tab" data-chat="gemini" aria-selected="false" aria-controls="chat-panel">Gemini <span class="dot" aria-hidden="true"></span><span class="visually-hidden state"></span></button>
+          <button type="button" role="tab" data-chat="meta" aria-selected="true" aria-controls="chat-panel">Meta AI <span class="dot" aria-hidden="true"></span><span class="visually-hidden state"></span></button>
+        </div>
+        <div class="chat-layout" id="chat-panel" role="tabpanel" aria-label="Chat seleccionado">
+          <figure class="live">
+            <img id="live-img" tabindex="0" alt="Vista en directo e interactiva de la ventana del chat en el puente">
+            <figcaption class="muted small"><span id="live-caption">Vista en directo</span> · interactiva: haz clic,
+              usa la rueda y, con la vista seleccionada, escribe (Intro, Retroceso, Tab, Esc y flechas incluidas)</figcaption>
+          </figure>
+          <div class="chat-side">
+            <div id="chat-log" class="chat-log" role="log" aria-label="Historial del chat"></div>
+            <p id="chat-live" class="visually-hidden" aria-live="polite"></p>
+            <form id="chat-form" class="stack">
+              <textarea id="chat-input" rows="3" aria-label="Mensaje"
+                placeholder="Escribe al chat seleccionado… (Intro envía · Mayús+Intro, salto de línea)"></textarea>
+              <div class="row between">
+                <span id="chat-status" class="muted small" role="status"></span>
+                <span class="row">
+                  <button type="button" id="chat-new" class="ghost-btn" title="Empieza una conversación nueva en este chat">Nueva conversación</button>
+                  <button type="button" id="chat-selftest" class="ghost-btn" title="Comprueba qué partes de la página encuentra el adaptador (no escribe nada)">Autodiagnóstico</button>
+                  <button type="submit" id="chat-send">Enviar</button>
+                </span>
+              </div>
+            </form>
+            <div id="chat-diag" class="small" hidden></div>
+            <details id="compare-box" class="small">
+              <summary>Comparar varios chats (una sola aprobación, respuestas lado a lado)</summary>
+              <form id="compare-form" class="stack">
+                <fieldset class="row" id="compare-choice"><legend class="visually-hidden">Chats que comparar</legend></fieldset>
+                <textarea id="compare-input" rows="2" aria-label="Mensaje para comparar"
+                  placeholder="El mismo mensaje se envía a los chats marcados"></textarea>
+                <div class="row between"><span id="compare-status" class="muted" role="status"></span>
+                  <button type="submit" id="compare-go">Comparar</button></div>
+              </form>
+              <div id="compare-results" class="compare-grid"></div>
+            </details>
+          </div>
+        </div>
+      </div>
+      <div id="providers-view" hidden>
+        <h2 tabindex="-1">Proveedores</h2>
+        <p class="muted small">Elige qué inteligencia artificial usa Eolfi y qué proveedores de análisis se ejecutan.
+          La elección se guarda en este navegador.</p>
+
+        <fieldset class="card">
+          <legend>Inteligencia artificial (modo asistido y «Crear»)</legend>
+          <div id="ai-choice" class="choice-list" role="radiogroup" aria-label="Proveedor de IA"></div>
+          <p class="muted small">«sí» = disponible ahora (clave definida, servidor local activo o puente con sesión).
+            Las de tipo «web» usan tus sesiones de DeepSeek, Gemini y Meta AI a través del puente.</p>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend>Análisis de binarios</legend>
+          <div class="row">
+            <button type="button" class="small-btn" data-preset="local">Local</button>
+            <button type="button" class="small-btn" data-preset="default">Por defecto (+capa, rizin)</button>
+            <button type="button" class="small-btn" data-preset="deep">Profundo (+Ghidra)</button>
+            <button type="button" class="small-btn" id="analysis-reset">Usar el modo del formulario</button>
+          </div>
+          <div id="analysis-choice" class="choice-list" role="group" aria-label="Proveedores de análisis"></div>
+          <p id="analysis-note" class="muted small" role="status"></p>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend>VS Code</legend>
+          <p class="muted small">Para usar la extensión de Eolfi en VS Code hay que vincularla: genera un código y
+            escríbelo en VS Code con el comando «Eolfi: iniciar sesión». El código vale 10 minutos y una sola vez.</p>
+          <div class="row"><button type="button" id="pair-auto" title="Abre VS Code y lo vincula sin mostrar ningún código">Vincular este VS Code</button>
+            <button type="button" id="pair-go" class="small-btn">Ver un código para escribirlo</button>
+            <strong id="pair-code" class="pair-code" aria-live="polite"></strong></div>
+          <ul id="clients" class="plain small"></ul>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend>Tema</legend>
+          <div class="choice-list" role="radiogroup" aria-label="Tema del panel">
+            <label><input type="radio" name="theme-radio" value="auto"> Automático (como el sistema)</label>
+            <label><input type="radio" name="theme-radio" value="light"> Claro</label>
+            <label><input type="radio" name="theme-radio" value="dark"> Oscuro</label>
+          </div>
+        </fieldset>
+      </div>
+      <div id="jobs-view" hidden>
+        <div class="row between">
+          <h2 tabindex="-1">Trabajos</h2>
+          <span id="jobs-state" class="muted small" role="status"></span>
+        </div>
+        <p class="muted small">Análisis, descargas y proyectos en segundo plano. Se guardan en la base de evidencias:
+          el historial sobrevive a los reinicios del servidor.</p>
+        <table class="jobs">
+          <caption class="visually-hidden">Trabajos recientes</caption>
+          <thead><tr><th scope="col">Estado</th><th scope="col">Tipo</th><th scope="col">Qué</th>
+            <th scope="col">Inicio</th><th scope="col">Duración</th><th scope="col"><span class="visually-hidden">Acciones</span></th></tr></thead>
+          <tbody id="jobs"></tbody>
+        </table>
+      </div>
+      <div id="vscode-view" hidden>
+        <div class="row between">
+          <h2 tabindex="-1">VS Code</h2>
+          <span class="row small">
+            <span id="vscode-state" class="muted" role="status"></span>
+            <a id="vscode-external" target="_blank" rel="noopener" hidden>Abrir en otra pestaña</a>
+            <button type="button" id="vscode-stop" class="small-btn">Detener</button>
+          </span>
+        </div>
+        <div id="vscode-license" class="card small" hidden>
+          <p>VS Code dentro de Eolfi usa <code>code serve-web</code>, la versión web de tu VS Code, solo en este equipo.
+            La primera vez descarga de Microsoft el servidor de VS Code, que tiene su propia licencia.</p>
+          <p><a id="vscode-license-link" target="_blank" rel="noopener">Leer la licencia del servidor de VS Code</a></p>
+          <label><input type="checkbox" id="vscode-accept"> He leído y acepto la licencia del servidor de VS Code</label>
+          <div class="row"><button type="button" id="vscode-go" disabled>Aceptar y abrir VS Code</button></div>
+        </div>
+        <iframe id="vscode-frame" title="VS Code integrado" hidden allow="clipboard-read; clipboard-write"></iframe>
+      </div>
+      <div id="content" hidden>
+        <h2 id="subject-title"></h2>
+        <code id="subject-sha" class="muted"></code>
+        <p class="small">Informe: <a id="report-html" download>HTML</a> · <a id="report-md" download>Markdown</a></p>
+        <div id="summary" class="tiles"></div>
+
+        <h3>Incógnitas <label class="muted small"><input type="checkbox" id="show-resolved"> ver resueltas</label></h3>
+        <ul id="incognitas" class="plain"></ul>
+
+        <h3>Evidencias</h3>
+        <input id="filter" placeholder="Filtrar por operación o proveedor" aria-label="Filtro">
+        <div id="evidence"></div>
+      </div>
+    </section>
+  </main>
+  <dialog id="help" aria-labelledby="help-title">
+    <h2 id="help-title">Atajos de teclado</h2>
+    <dl class="shortcuts">
+      <dt><kbd>Alt</kbd>+<kbd>1</kbd></dt><dd>Análisis</dd>
+      <dt><kbd>Alt</kbd>+<kbd>2</kbd></dt><dd>Chats web</dd>
+      <dt><kbd>Alt</kbd>+<kbd>3</kbd></dt><dd>Proveedores</dd>
+      <dt><kbd>Alt</kbd>+<kbd>4</kbd></dt><dd>Trabajos</dd>
+      <dt><kbd>/</kbd></dt><dd>Buscar en las evidencias (o escribir una ruta)</dd>
+      <dt><kbd>?</kbd></dt><dd>Esta ayuda</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Cerrar el selector de carpetas o esta ayuda</dd>
+    </dl>
+    <p class="muted small">El botón Atrás del navegador vuelve a la vista o al objetivo anterior.</p>
+    <form method="dialog"><button type="submit">Cerrar</button></form>
+  </dialog>
+  <script src="/app.js"></script>
+</body>
+</html>
