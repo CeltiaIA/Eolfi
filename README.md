@@ -501,7 +501,7 @@ extensión 0.6.0, Eolfi llega al chat por las vías nuevas y funciona con **el m
 
 - **Servidor MCP** (`python -m eolfi mcp`): `eolfi_triage`, `eolfi_evidencias`, `eolfi_incognitas`,
   `eolfi_resolver`, `eolfi_informe`, `eolfi_comparar`, `eolfi_web`, `eolfi_repo`, `eolfi_inyeccion`,
-  `eolfi_biblioteca_buscar` (consulta local de referencia en Alejandría), `eolfi_doctor`. La extensión lo registra sola (VS Code ≥ 1.101), limitado a las carpetas abiertas.
+  `eolfi_biblioteca_buscar` (consulta local de referencia en Alejandría), `eolfi_biblioteca_leer` (recupera un documento concreto bajo demanda, sin copiar toda la biblioteca), `eolfi_doctor`. La extensión lo registra sola (VS Code ≥ 1.101), limitado a las carpetas abiertas.
   Fuera de VS Code (Claude Code u otro cliente MCP): `{"command": "python", "args": ["-m", "eolfi", "mcp", "--root", "D:/proyectos"]}`
   con `PYTHONPATH` en la carpeta de Eolfi.
 - **Herramientas de la extensión**: `eolfi_carpetas`, `eolfi_auditar` (archivo por archivo, con informe y
@@ -610,8 +610,9 @@ python -m eolfi corpus               # importa y audita la biblioteca
 
 `--library` (o `EOLFI_LIBRARY`) elige otra biblioteca. Eolfi no copia nada por su cuenta: usa los scripts de la
 propia biblioteca, así la validación, la deduplicación y la auditoría son las mismas.
-La herramienta MCP `eolfi_biblioteca_buscar` solo lee el índice y archivos permitidos bajo `corpus/codigo` y
-`corpus/texto`; omite carpetas locales de respaldo/salidas antiguas y limita el tamaño de lectura. Sus resultados
+Las herramientas MCP `eolfi_biblioteca_buscar` y `eolfi_biblioteca_leer` solo leen el índice y archivos permitidos bajo
+`corpus/codigo` y `corpus/texto`; Eolfi puede recuperar documentos concretos a petición y leerlos por fragmentos
+sin copiar la biblioteca entera. Se omiten carpetas locales de respaldo/salidas antiguas y se limita el tamaño de lectura. Sus resultados
 son referencias del corpus, no evidencias del objetivo analizado. Configura `EOLFI_LIBRARY` o pasa `--library`
 para elegir otra biblioteca.
 
