@@ -200,3 +200,37 @@ test('formatos nuevos: un ejecutable firmado muestra firma, empresa e integridad
   assert.match(summary, /Empresa\s*Microsoft Corporation/);
   await axe('resumen de un binario firmado');
 });
+
+test('casos: crear, analizar con el caso activo, ver progreso y abrir el informe navegable', async () => {
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#version:not(:empty)');
+  await page.click('#panel-cases-tab');
+  await page.fill('#case-name', 'Caso e2e');
+  await page.click('#case-go');
+  await page.waitForSelector('#case-view:not([hidden])');
+  assert.match(await page.textContent('#case-active'), /Caso activo: Caso e2e/);
+  const caseId = (await page.evaluate(() => location.hash)).slice('#caso/'.length);
+  // Con el caso activo, el análisis normal del panel se registra en él.
+  await page.click('#panel-analyze-tab');
+  await page.fill('#path', join(tmp, 'muestra.elf'));
+  await page.selectOption('#mode', 'local');
+  await page.click('#path-go');
+  await page.waitForFunction(() => /Listo en/.test(document.querySelector('#status').textContent), null, { timeout: 60000 });
+  await page.goto(`${BASE}/#caso/${caseId}`);
+  await page.waitForFunction(() => /triage/.test(document.querySelector('#case-body')?.textContent || ''), null, { timeout: 15000 });
+  const body = await page.textContent('#case-body');
+  assert.match(body, /completado/);
+  assert.match(body, /Herramientas: .*eolfi\.triage/);
+  assert.match(body, /content/);
+  await axe('vista de un caso');
+  const report = await page.getAttribute('#case-report', 'href');
+  assert.equal(report, `/api/cases/${caseId}/report`);
+  await page.goto(BASE + report);
+  assert.match(await page.title(), /Caso de Eolfi: Caso e2e/);
+  const broken = await page.evaluate(() => [...document.querySelectorAll('a[href^="#"]')]
+    .filter((a) => !document.getElementById(a.getAttribute('href').slice(1))).length);
+  assert.equal(broken, 0);
+  await axe('informe del caso');
+  await page.goto(BASE + '/');
+  await page.evaluate(() => localStorage.removeItem('eolfi.case'));
+});

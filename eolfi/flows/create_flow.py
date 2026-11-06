@@ -3,7 +3,7 @@
 1. Cada fuente se analiza (o se reutiliza si ya está en la base).
 2. Los análisis se fusionan en una especificación (eolfi.generador.spec).
 3. Se genera código nuevo desde plantillas propias (eolfi.generador.generators).
-4. Opcional: se instala, se fijan versiones, se compila y se prueba.
+4. Se instala, se fijan versiones, se compila y se prueba antes de considerar terminado el proyecto.
 """
 from __future__ import annotations
 
@@ -118,11 +118,50 @@ def backup_folder(folder: Path) -> Path:
 
 
 def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str = "nuevo-proyecto",
-                   target: str = "auto", do_verify: bool = False, force: bool = False,
+                   target: str = "auto", do_verify: bool = True, force: bool = False,
                    reanalyze: bool = False, workdir: str = "samples/repos", ai_brief: str | None = None,
                    ai_client=None, ai_provider: str = "claude", ai_model: str | None = None,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
-                   progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+                   progress: Callable[[str], None] | None = None, case_id: str | None = None,
+                   provenance: str = "") -> dict[str, Any]:
+    """case_id: cada fuente analizada queda en el caso (con su propio registro «analysis») y la reconstrucción
+    se registra como «reconstruction», con la verificación y sus pasos. Sin verificación verde: «partial»."""
+    from eolfi.core.cases import case_run
+
+    params = {"sources": sources, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
+              "force": force, "reanalyze": reanalyze, "db": db, "auth": auth, "ai": bool(ai_brief),
+              "ai_provider": ai_provider if ai_brief else None}
+    with case_run(store, case_id, "create", params,
+                  provenance or "fuentes indicadas por el operador para una reconstrucción") as run:
+        rep = _create_project(sources, store, out, name=name, target=target, do_verify=do_verify, force=force,
+                              reanalyze=reanalyze, workdir=workdir, ai_brief=ai_brief, ai_client=ai_client,
+                              ai_provider=ai_provider, ai_model=ai_model, ai_base_url=ai_base_url, db=db,
+                              auth=auth, progress=progress, case_id=case_id)
+        if run.active:
+            for src in rep["sources"]:
+                run.associate(src["subject"])
+            run.associate(rep["subject"], path=rep["out"])
+            ver = rep.get("verification")
+            errors = []
+            if ver is None:
+                errors.append("proyecto no verificado")
+            elif not ver["ok"]:
+                failed = [s["step"] for s in ver["steps"] if s["exit"] != 0]
+                errors.append(f"verificación fallida: {', '.join(failed) or ver.get('error', '?')}")
+            if rep.get("assist") and not rep["assist"].get("ok"):
+                errors.append("la IA no consiguió un estado verde")
+            run.finish(status="done" if not errors else "partial", errors=errors,
+                       evidence_ids=[x for x in (rep["evidence_id"], rep.get("verification_evidence_id")) if x],
+                       result={"out": rep["out"], "target": rep["target"], "files": rep["files"],
+                               "sources": rep["sources"], "verification": ver})
+            rep["case_record"] = run.record_id
+        return rep
+
+
+def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str, target: str,
+                    do_verify: bool, force: bool, reanalyze: bool, workdir: str, ai_brief: str | None,
+                    ai_client, ai_provider: str, ai_model: str | None, ai_base_url: str | None, db: str,
+                    auth: bool, progress: Callable[[str], None] | None, case_id: str | None) -> dict[str, Any]:
     from eolfi.generador.generators import generate
     from eolfi.generador.spec import build_spec
 
@@ -148,13 +187,13 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
         log(f"analizando {src} como {kind}…")
         if kind == "web":
             from eolfi.flows.learn_flow import run_web
-            rep = run_web(src, store, progress=log)
+            rep = run_web(src, store, progress=log, case_id=case_id)
         elif kind == "repo":
             from eolfi.flows.learn_flow import run_repo
-            rep = run_repo(src, store, workdir=workdir, progress=log)
+            rep = run_repo(src, store, workdir=workdir, progress=log, case_id=case_id)
         else:
             from eolfi.flows.triage_flow import LOCAL_PROVIDERS, run_triage
-            rep = run_triage(src, store, LOCAL_PROVIDERS)
+            rep = run_triage(src, store, LOCAL_PROVIDERS, case_id=case_id)
         subjects.append(rep["subject"])
         analyzed.append({"source": src, "kind": kind, "subject": rep["subject"]})
 
@@ -244,7 +283,7 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
         if ver is None:
             from eolfi.generador.verify import verify
             ver = verify(out_path, spec["target"], progress=log)
-        store.add_evidence(Evidence(
+        result["verification_evidence_id"], _ = store.add_evidence(Evidence(
             subject=subject, provider="eolfi.generador", provider_version="0.1.0", operation="project_verification",
             params={"target": spec["target"]}, result=ver, authority=Authority.CONTROLLED_REPRO,
             confidence=Confidence.HIGH, environment=env,

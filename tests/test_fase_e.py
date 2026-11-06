@@ -77,7 +77,7 @@ def test_django_target_has_security_headers_middleware(tmp_path):
 
     site = build_site(tmp_path / "s")
     out = tmp_path / "dj"
-    create_project([str(site)], EvidenceStore(str(tmp_path / "e.db")), out, name="X", target="django")
+    create_project([str(site)], EvidenceStore(str(tmp_path / "e.db")), out, name="X", target="django", do_verify=False)
     assert "core.middleware.SecurityHeadersMiddleware" in (out / "config" / "settings.py").read_text(encoding="utf-8")
     mw = (out / "core" / "middleware.py").read_text(encoding="utf-8")
     assert "frame-ancestors 'none'" in mw and "nosniff" in mw
@@ -395,7 +395,8 @@ def test_licencia_propietaria():
 
     root = Path(__file__).resolve().parents[1]
     lic = (root / "LICENSE").read_text(encoding="utf-8")
-    assert "Luis Manuel Cousido Hermida" in lic and "CeltIA" in lic and "Todos los derechos reservados" in lic
+    assert "Copyright (c) 2026 Luis Manuel Cousido Hermida." in lic
+    assert "Todos los derechos reservados" in lic
     assert "Proprietary" in (root / "pyproject.toml").read_text(encoding="utf-8")
     assert "Propietaria" in eolfi.__license__
     import tempfile

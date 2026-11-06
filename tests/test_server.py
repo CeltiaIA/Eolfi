@@ -32,10 +32,36 @@ def test_static_and_health(srv):
     port, _ = srv
     st, body, hdrs = req(port, "GET", "/")
     assert st == 200 and b"<title>Eolfi" in body
+    assert b'id="create-verify" checked disabled' in body
     assert "script-src 'self'" in hdrs["Content-Security-Policy"]
     assert req(port, "GET", "/app.js")[0] == 200
+    for path in ("/runtime.js", "/subjects.js"):
+        status, body, headers = req(port, "GET", path)
+        assert status == 200 and body
+        assert headers["Content-Type"].startswith("text/javascript")
     st, h, _ = req(port, "GET", "/api/health")
     assert st == 200 and h["ok"] is True
+
+
+@pytest.mark.parametrize("disconnect", [BrokenPipeError, ConnectionResetError, ConnectionAbortedError])
+def test_response_write_ignores_closed_client(tmp_path, disconnect):
+    from types import SimpleNamespace
+
+    httpd = make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    response = SimpleNamespace(close_connection=False, command="GET")
+    response.send_response = lambda _status: None
+    response.send_header = lambda _name, _value: None
+    response.end_headers = lambda: None
+
+    def abort(_body):
+        raise disconnect("the client closed the connection")
+
+    response.wfile = SimpleNamespace(write=abort)
+    try:
+        httpd.RequestHandlerClass._send(response, 200, b"body", "text/plain")
+        assert response.close_connection is True
+    finally:
+        httpd.server_close()
 
 
 def test_upload_triage_and_browse(srv):
@@ -138,10 +164,12 @@ def test_learn_create_and_stix(srv):
     assert rep["summary"]["title"] == "Demo"
     out = tmp / "nuevo"
     st, rep, _ = req(port, "POST", "/api/create",
-                     json.dumps({"sources": [rep["subject"]], "name": "Desde API", "target": "static", "out": str(out)}),
+                     json.dumps({"sources": [rep["subject"]], "name": "Desde API", "target": "static", "out": str(out),
+                                 "verify": False}),
                      {"X-Eolfi": "1"})
     assert st == 200, rep
     assert (out / "index.html").is_file() and rep["target"] == "static"
+    assert rep["verification"]["ok"] is True  # la API ignora el bypass antiguo y verifica siempre
     st, again, _ = req(port, "POST", "/api/create",
                        json.dumps({"sources": [rep["sources"][0]["subject"]], "target": "static", "out": str(out)}),
                        {"X-Eolfi": "1"})

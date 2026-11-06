@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 from typing import Any, Callable
 
+from eolfi.core.cases import case_run
 from eolfi.core.evidence import EvidenceStore
 from eolfi.core.models import Incognita, Status
 from eolfi.flows.triage_flow import environment_string, record_findings
@@ -15,7 +16,27 @@ REPO = SimpleNamespace(name="eolfi.repo", version="0.1.0")
 
 def run_web(source: str, store: EvidenceStore, *, max_assets: int = 40, cross_origin: bool = False,
             ignore_robots: bool = False, save_dir: str | None = None,
-            progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+            progress: Callable[[str], None] | None = None, case_id: str | None = None,
+            provenance: str = "") -> dict[str, Any]:
+    params = {"source": source, "max_assets": max_assets, "cross_origin": cross_origin,
+              "ignore_robots": ignore_robots}
+    with case_run(store, case_id, "web", params, provenance or f"fuente web indicada por el operador: {source}") as run:
+        rep = _run_web(source, store, max_assets=max_assets, cross_origin=cross_origin,
+                       ignore_robots=ignore_robots, save_dir=save_dir, progress=progress)
+        _finish(run, rep)
+        return rep
+
+
+def _finish(run, rep: dict[str, Any]) -> None:
+    """Asocia el objetivo al caso y registra el resultado del flujo (si hay caso)."""
+    if run.active:
+        run.associate(rep["subject"])
+        run.finish(status="done", evidence_ids=rep["evidence_ids"], result={"summary": rep["summary"]})
+        rep["case_record"] = run.record_id
+
+
+def _run_web(source: str, store: EvidenceStore, *, max_assets: int, cross_origin: bool, ignore_robots: bool,
+             save_dir: str | None, progress: Callable[[str], None] | None) -> dict[str, Any]:
     from eolfi.sites.fetch import Fetcher
     from eolfi.sites.webpage import analyze_web
 
@@ -50,7 +71,17 @@ def run_web(source: str, store: EvidenceStore, *, max_assets: int = 40, cross_or
 
 
 def run_repo(source: str, store: EvidenceStore, *, workdir: str = "samples/repos",
-             progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+             progress: Callable[[str], None] | None = None, case_id: str | None = None,
+             provenance: str = "") -> dict[str, Any]:
+    with case_run(store, case_id, "repo", {"source": source},
+                  provenance or f"repositorio indicado por el operador: {source}") as run:
+        rep = _run_repo(source, store, workdir=workdir, progress=progress)
+        _finish(run, rep)
+        return rep
+
+
+def _run_repo(source: str, store: EvidenceStore, *, workdir: str,
+              progress: Callable[[str], None] | None) -> dict[str, Any]:
     from eolfi.sites.repo import analyze_repo
 
     subject, findings = analyze_repo(source, workdir=workdir, progress=progress)

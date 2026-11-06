@@ -1,60 +1,15 @@
-// Panel de Eolfi. Todo el texto procedente de binarios se pinta con
-// textContent: nunca se interpreta como HTML (los binarios son hostiles).
-"use strict";
+// Panel de Eolfi. Todo el texto procedente de binarios se pinta como texto.
+import { $, el, api, runJob, setStatus, fmtTime, short } from "./runtime.js";
+import { createSubjectView } from "./subjects.js";
+import { createCaseView } from "./cases.js";
 
-const $ = (sel) => document.querySelector(sel);
-const state = { subject: null, subjects: [], kind: "binary", selected: new Set(), req: 0, view: "empty" };
+const STORE = { ai: "eolfi.ai", analysis: "eolfi.analysis", theme: "eolfi.theme", boot: "eolfi.boot", panel: "eolfi.panel" };
+const state = { subject: null, subjects: [], kind: "binary", selected: new Set(), req: 0, view: "empty", panel: "analyze" };
 const PLACEHOLDER = {
   binary: "…o ruta local: C:\\ruta\\binario.exe o una carpeta",
   web: "URL (https://…), archivo .html o carpeta del sitio",
   repo: "Carpeta local o URL git (https://github.com/usuario/repo)",
 };
-
-function el(tag, attrs = {}, ...children) {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") n.className = v;
-    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
-    else n.setAttribute(k, v);
-  }
-  for (const c of children) n.append(c instanceof Node ? c : document.createTextNode(String(c ?? "")));
-  return n;
-}
-
-async function api(path, opts = {}) {
-  const headers = { ...(opts.headers || {}) };
-  if (opts.method && opts.method !== "GET") headers["X-Eolfi"] = "1";
-  const r = await fetch(path, { ...opts, headers });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-  return data;
-}
-
-// Trabajo en segundo plano: el servidor no deja la petición colgada minutos (Ghidra, clonar,
-// instalar y probar); el panel consulta el progreso y lo muestra mientras tanto.
-async function runJob(kind, body, onLog = () => {}) {
-  const { job_id: id } = await api("/api/jobs", { method: "POST", body: JSON.stringify({ kind, body }) });
-  let since = 0;
-  for (;;) {
-    const d = await api(`/api/jobs?id=${id}&since=${since}`);
-    if (d.log.length) onLog(d.log, d.elapsed);
-    since = d.next;
-    if (d.status === "done") return d.result;
-    if (d.status === "error" || d.status === "cancelled") {
-      const e = new Error(d.error); e.code = d.code; e.needsConfirm = !!d.needs_confirm; throw e;
-    }
-    await new Promise((r) => setTimeout(r, 700));
-  }
-}
-
-function setStatus(msg, bad = false) {
-  const s = $("#status");
-  s.textContent = msg;
-  s.classList.toggle("bad", bad);   // clase, no estilo en línea (la CSP lo bloquea)
-}
-
-const fmtTime = (t) => new Date(t * 1000).toLocaleString();
-const short = (sha) => (sha.startsWith("cmd:") || sha.startsWith("resilience:") ? sha.slice(0, 28) : sha.slice(0, 12));
 
 // -- proveedores -----------------------------------------------------------
 async function loadProviders() {
@@ -69,31 +24,12 @@ async function loadProviders() {
 }
 
 // -- objetivos -------------------------------------------------------------
-async function loadSubjects() {
-  const { subjects } = await api("/api/subjects");
-  state.subjects = subjects;
-  const ul = $("#subjects");
-  if (!subjects.length) {
-    ul.replaceChildren(el("li", { class: "muted" }, "Aún no hay evidencias."));
-    return;
-  }
-  ul.replaceChildren(...subjects.map((s) => {
-    const box = el("input", { type: "checkbox", "aria-label": `Seleccionar «${s.names[0] || short(s.subject)}» para crear o comparar`,
-      onclick: (e) => e.stopPropagation(),
-      onchange: (e) => { e.target.checked ? state.selected.add(s.subject) : state.selected.delete(s.subject); updateCompare(); } });
-    box.checked = state.selected.has(s.subject);
-    // Botón real (teclado y lector de pantalla) en lugar de un <li> con onclick.
-    const li = el("li", {}, box,
-      el("button", { type: "button", class: "subject-btn", onclick: () => selectSubject(s.subject),
-                     "aria-current": s.subject === state.subject ? "true" : "false" },
-        el("div", {}, (s.names[0] || short(s.subject)),
-          el("span", { class: "badge" }, s.format || s.kind),
-          s.open_incognitas ? el("span", { class: "badge warn" }, `${s.open_incognitas} ?`) : ""),
-        el("div", { class: "muted small" }, `${s.evidence} evidencias · ${fmtTime(s.last_seen)}`)));
-    if (s.subject === state.subject) li.classList.add("active");
-    return li;
-  }));
-}
+const { loadSubjects, renderSubjects } = createSubjectView({ $, el, api, fmtTime, short, state,
+  updateCompare: () => updateCompare(), selectSubject: (subject) => selectSubject(subject) });
+
+// -- casos: el caso activo se añade a cada trabajo (mismo estado que la CLI y el agente) -----
+const cases = createCaseView({ $, el, api, fmtTime, setStatus, showView: (v) => showView(v) });
+const withCase = (body) => cases.withCase(body);
 
 function updateCompare() {
   const b = $("#compare-btn");
@@ -113,6 +49,7 @@ function showView(view) {
   $("#providers-view").hidden = view !== "providers";
   $("#jobs-view").hidden = view !== "jobs";
   $("#vscode-view").hidden = view !== "vscode";
+  $("#case-view").hidden = view !== "case";
   // Cabecera: todas las vistas a la vista, la actual marcada (aria-current).
   const current = { chats: "#open-chats", providers: "#open-providers", jobs: "#open-jobs", content: "#open-analysis", empty: "#open-analysis" }[view];
   for (const id of ["#open-analysis", "#open-chats", "#open-providers", "#open-jobs"]) {
@@ -347,6 +284,7 @@ async function runTriage(promise, label) {
     document.body.classList.remove("busy");
     $("#go").disabled = false;
     $("#path-go").disabled = false;
+    if (cases.active()) cases.loadCases();   // el registro (también si falló) ya está en el caso
   }
 }
 
@@ -363,12 +301,48 @@ async function uploadFile(file) {
       setStatus(`Subiendo ${file.name} (${(file.size / 1048576).toFixed(1)} MB)…`);
       const up = await api(`/api/upload?store=1&name=${encodeURIComponent(file.name)}`, {
         method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } });
-      return runJob("triage", { upload: up.upload, name: file.name, mode, ...(sel ? { providers: sel } : {}) }, liveStatus);
+      return runJob("triage", withCase({ upload: up.upload, name: file.name, mode, ...(sel ? { providers: sel } : {}) }), liveStatus);
     }, file.name);
   } finally { uploading = false; }
 }
 
 function wire() {
+  const panelTabs = [...document.querySelectorAll("[data-panel-tab]")];
+  const panelNames = new Set(panelTabs.map((tab) => tab.dataset.panelTab));
+  try {
+    const saved = localStorage.getItem(STORE.panel);
+    if (panelNames.has(saved)) state.panel = saved;
+  } catch { /* Prefer the default panel when browser storage is unavailable. */ }
+  const showPanel = (name, focus = false) => {
+    if (!panelNames.has(name)) return;
+    state.panel = name;
+    try { localStorage.setItem(STORE.panel, name); } catch { /* Tab switching must still work without storage. */ }
+    for (const tab of panelTabs) {
+      const selected = tab.dataset.panelTab === name;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+      if (selected && focus) tab.focus();
+    }
+  };
+  panelTabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => showPanel(tab.dataset.panelTab));
+    tab.addEventListener("keydown", (event) => {
+      let next = index;
+      if (event.key === "ArrowRight") next = (index + 1) % panelTabs.length;
+      else if (event.key === "ArrowLeft") next = (index + panelTabs.length - 1) % panelTabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = panelTabs.length - 1;
+      else return;
+      event.preventDefault();
+      showPanel(panelTabs[next].dataset.panelTab, true);
+    });
+  });
+  showPanel(state.panel);
+  $("#subject-search").addEventListener("input", renderSubjects);
+  $("#subject-format").addEventListener("change", renderSubjects);
+  $("#subject-unknowns").addEventListener("change", renderSubjects);
+
   const drop = $("#drop");
   const input = $("#file");
   input.addEventListener("change", () => { $("#drop-text").textContent = input.files[0]?.name || "Suelta un archivo o haz clic"; });
@@ -396,14 +370,14 @@ function wire() {
     }
     if (state.kind === "binary") {
       const sel = analysisSelection();
-      runTriage(() => runJob("triage", { path, mode: $("#mode").value, ...(sel ? { providers: sel } : {}) }, liveStatus), path);
+      runTriage(() => runJob("triage", withCase({ path, mode: $("#mode").value, ...(sel ? { providers: sel } : {}) }), liveStatus), path);
     } else if (state.kind === "web") {
-      const body = { source: path, max_assets: Number($("#web-max").value) || 40 };
+      const body = withCase({ source: path, max_assets: Number($("#web-max").value) || 40 });
       if ($("#web-cross").checked) body.cross_origin = true;
       if ($("#web-robots").checked) body.ignore_robots = true;
       runTriage(() => runJob("web", body, liveStatus), path);
     } else {
-      runTriage(() => runJob(state.kind, { source: path }, liveStatus), path);
+      runTriage(() => runJob(state.kind, withCase({ source: path }), liveStatus), path);
     }
   });
 
@@ -426,7 +400,7 @@ function wire() {
   $("#compare-btn").addEventListener("click", async () => {
     const [a, b] = [...state.selected];
     try {
-      const r = await api("/api/compare", { method: "POST", body: JSON.stringify({ a, b }) });
+      const r = await api("/api/compare", { method: "POST", body: JSON.stringify(withCase({ a, b })) });
       await loadSubjects();
       if (r.subject) await selectSubject(r.subject);
       setStatus(`Comparación: ${Object.keys(r.changed).length} aspectos cambiaron.`);
@@ -456,13 +430,13 @@ function wire() {
     try {
       let r;
       try {
-        r = await runJob("create", body, createLog);
+        r = await runJob("create", withCase(body), createLog);
       } catch (err) {
         // Escribir sobre la carpeta de origen exige confirmarlo (se hace copia de seguridad antes).
         if (!err.needsConfirm ||
             !confirm(`${err.message}\n\n¿Continuar? Si marcaste «instalar, compilar y probar», se verifica antes en una carpeta limpia.`)) throw err;
         createLines.length = 0;
-        r = await runJob("create", { ...body, force: true }, createLog);
+        r = await runJob("create", withCase({ ...body, force: true }), createLog);
       }
       renderCreate(r);
       await loadSubjects();
@@ -493,8 +467,11 @@ function renderCreate(r) {
   }
   if (r.error) { box.replaceChildren(el("p", { class: "bad", role: "alert" }, r.error)); return; }
   const v = r.verification;
+  const verified = v?.ok === true;
   box.replaceChildren(
-    el("p", {}, el("strong", {}, `✓ Proyecto ${r.target}`), ` · ${r.files} archivos`),
+    el("p", { class: verified ? "muted" : "bad", role: verified ? "status" : "alert" },
+      el("strong", {}, verified ? `✓ Proyecto ${r.target} verificado` : `Proyecto ${r.target} sin verificación satisfactoria`),
+      ` · ${r.files} archivos`),
     el("code", {}, r.out),
     ...(r.backup ? [el("p", { class: "small" }, "Copia de seguridad del original: ", el("code", {}, r.backup))] : []),
     el("p", {}, el("button", { type: "button", class: "small-btn", onclick: () => openVSCode(r.out) }, "Abrir en VS Code (dentro de Eolfi)")),
@@ -503,7 +480,7 @@ function renderCreate(r) {
       ...v.steps.map((s) => el("div", { class: "step" }, el("span", { class: "badge " + (s.exit === 0 ? "ok" : "bad") },
         s.exit === 0 ? "OK" : "FALLO"), `${s.step} (${s.seconds} s)`)),
       ...v.steps.filter((s) => s.tail).map((s) => el("pre", {}, s.tail)),
-    ] : [el("p", { class: "muted" }, "Sin verificar.")]),
+    ] : [el("p", { class: "bad", role: "alert" }, "El proyecto no se considera terminado hasta completar la verificación.")]),
     ...(r.assist ? [
       el("p", {}, el("strong", {}, r.assist.ok ? "✓ IA: " : "✗ IA (deshecho): "), r.assist.summary || ""),
       ...(r.assist.notes || []).map((n) => el("p", { class: "muted" }, "· " + n)),
@@ -734,6 +711,10 @@ function wireChats() {
 const ROUTES = { "#chats": "chats", "#proveedores": "providers", "#trabajos": "jobs", "#vscode": "vscode", "#analisis": "analysis", "": "analysis" };
 function route() {
   const h = location.hash;
+  if (h.startsWith("#caso/")) {
+    cases.openCase(decodeURIComponent(h.slice("#caso/".length)));
+    return;
+  }
   if (h.startsWith("#objetivo/")) {
     const subject = decodeURIComponent(h.slice("#objetivo/".length));
     if (subject !== state.subject) selectSubject(subject); else showView("content");
@@ -750,13 +731,14 @@ document.addEventListener("visibilitychange", () => {
 
 (async function init() {
   wire();
+  cases.wire();
   wireChats();
   wireJobs();
   route();
   try {
     const h = await api("/api/health");
     $("#version").textContent = `v${h.version} · ${h.db}`;
-    await Promise.all([loadProviders(), loadSubjects()]);
+    await Promise.all([loadProviders(), loadSubjects(), cases.loadCases()]);
   } catch (err) {
     setStatus(`No se pudo conectar con la API: ${err.message}`, true);
   }
@@ -859,7 +841,6 @@ document.addEventListener("click", (e) => {
 
 
 // -- Pestaña «Proveedores»: IA, proveedores de análisis y tema ---------------------------
-const STORE = { ai: "eolfi.ai", analysis: "eolfi.analysis", theme: "eolfi.theme" };
 const MODE_SETS = {
   local: (p) => p.mode === "local",
   default: (p) => p.mode === "local" || p.mode === "default",

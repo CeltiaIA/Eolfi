@@ -64,6 +64,13 @@ function makeClient(base, authToken = null) {
     },
     incognitas: (subject) => req('GET', `/api/incognitas?subject=${encodeURIComponent(subject)}`),
     report: (subject, format = 'md') => req('GET', `/api/report?format=${format}&subject=${encodeURIComponent(subject)}`),
+    // Casos de análisis: el mismo estado que el panel y la CLI (eolfi case …).
+    cases: () => req('GET', '/api/cases'),
+    caseGet: (id) => req('GET', `/api/cases/${encodeURIComponent(id)}`),
+    caseCreate: (name, description = '') => req('POST', '/api/cases', { name, description }),
+    caseLink: (id, subject, provenance = '') => req('POST', `/api/cases/${encodeURIComponent(id)}/artifacts`, { subject, provenance }),
+    caseRecord: (id, kind, payload) => req('POST', `/api/cases/${encodeURIComponent(id)}/records`, { kind, payload }),
+    caseReportUrl: (id) => new URL(`/api/cases/${encodeURIComponent(id)}/report`, base).href,
   };
 }
 

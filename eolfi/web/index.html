@@ -44,7 +44,16 @@
 
   <main>
     <aside>
-      <section class="card">
+      <section class="workspace card" aria-label="Panel de trabajo">
+        <div class="workspace-tabs tabs" role="tablist" aria-label="Paneles">
+          <button type="button" role="tab" id="panel-analyze-tab" data-panel-tab="analyze" aria-selected="true" aria-controls="panel-analyze">Analizar</button>
+          <button type="button" role="tab" id="panel-subjects-tab" data-panel-tab="subjects" aria-selected="false" aria-controls="panel-subjects">Objetivos</button>
+          <button type="button" role="tab" id="panel-create-tab" data-panel-tab="create" aria-selected="false" aria-controls="panel-create">Crear proyecto</button>
+          <button type="button" role="tab" id="panel-cases-tab" data-panel-tab="cases" aria-selected="false" aria-controls="panel-cases">Casos</button>
+        </div>
+        <p id="case-active" class="small case-active" role="status" aria-live="polite"></p>
+        <p id="workspace-alert" class="workspace-alert" role="alert" hidden></p>
+        <div id="panel-analyze" role="tabpanel" aria-labelledby="panel-analyze-tab" tabindex="0">
         <h2>Analizar</h2>
         <div class="tabs" role="tablist" aria-label="Tipo de fuente">
           <button type="button" role="tab" id="tab-binary" data-kind="binary" aria-selected="true" aria-controls="analyze-panel">Binario</button>
@@ -82,17 +91,21 @@
         <p id="analysis-active" class="small muted" hidden></p>
         </div>
         <p id="status" class="muted" role="status"></p>
-      </section>
+        <details class="provider-summary small">
+          <summary>Disponibilidad de proveedores</summary>
+          <ul id="providers" class="plain"></ul>
+        </details>
+        </div>
 
-      <section class="card">
-        <h2>Crear proyecto nuevo</h2>
+      <div id="panel-create" role="tabpanel" aria-labelledby="panel-create-tab" tabindex="0" hidden>
+        <h2>Crear proyecto</h2>
         <form id="create-form" class="stack">
           <div class="row between"><span class="small muted">Fuentes</span>
             <button type="button" class="pick small-btn" data-pick="create-sources" data-append="1"><span aria-hidden="true">📁</span> Añadir carpeta</button></div>
           <textarea id="create-sources" rows="3" aria-label="Fuentes"
             placeholder="Una fuente por línea: URL web, URL git, carpeta (C:\ruta) o nombre de un objetivo ya analizado. Los objetivos marcados abajo también cuentan."></textarea>
           <div class="row">
-            <input id="create-name" placeholder="Nombre del proyecto (p. ej. Alejandria 2)" aria-label="Nombre del proyecto">
+            <input id="create-name" placeholder="Nombre del proyecto" aria-label="Nombre del proyecto">
             <select id="create-target" aria-label="Tecnología">
               <option value="auto">Auto</option>
               <option value="react">React</option>
@@ -110,22 +123,27 @@
               <option value="cli">Línea de comandos: Windows, macOS y Linux (Python)</option>
             </select>
           </div>
-          <select id="create-ai-provider" aria-label="Proveedor de IA">
-            <option value="claude">IA: Claude</option>
-            <option value="eolas">IA: Eolas V1 (local)</option>
-            <option value="deepseek">IA: DeepSeek (API)</option>
-            <option value="gemini">IA: Gemini (API)</option>
-            <option value="openai">IA: OpenAI o compatible (API)</option>
-            <option value="web">IA: chat web automático (puente)</option>
-            <option value="deepseek-web">IA: DeepSeek web (puente)</option>
-            <option value="gemini-web">IA: Gemini web (puente)</option>
-            <option value="meta-web">IA: Meta AI web (puente)</option>
-            <option value="lechat-web">IA: Le Chat de Mistral web (puente)</option>
-            <option value="copilot-vscode">IA: VS Code</option>
-            <option value="gemma">IA: Gemma 4 local (llama.cpp)</option>
-          </select>
-          <textarea id="create-ai" rows="2" aria-label="Petición para la IA"
-            placeholder="Opcional · IA: describe la lógica a implementar (p. ej. carrito con total y validación). Requiere eolfi[ai]."></textarea>
+          <details class="small">
+            <summary>IA opcional</summary>
+            <div class="stack">
+              <select id="create-ai-provider" aria-label="Proveedor de IA">
+                <option value="claude">IA: Claude</option>
+                <option value="eolas">IA: Eolas V1 (local)</option>
+                <option value="deepseek">IA: DeepSeek (API)</option>
+                <option value="gemini">IA: Gemini (API)</option>
+                <option value="openai">IA: OpenAI o compatible (API)</option>
+                <option value="web">IA: chat web automático (puente)</option>
+                <option value="deepseek-web">IA: DeepSeek web (puente)</option>
+                <option value="gemini-web">IA: Gemini web (puente)</option>
+                <option value="meta-web">IA: Meta AI web (puente)</option>
+                <option value="lechat-web">IA: Le Chat de Mistral web (puente)</option>
+                <option value="copilot-vscode">IA: VS Code</option>
+                <option value="gemma">IA: Gemma 4 local (llama.cpp)</option>
+              </select>
+              <textarea id="create-ai" rows="2" aria-label="Petición para la IA"
+                placeholder="Describe opcionalmente la lógica a implementar. Requiere eolfi[ai]."></textarea>
+            </div>
+          </details>
           <div class="row">
             <input id="create-out" placeholder="Carpeta destino (por defecto generated/&lt;nombre&gt;; si es la de origen, se hace copia de seguridad)" aria-label="Carpeta destino">
             <button type="button" class="pick" data-pick="create-out" title="Elegir carpeta destino" aria-label="Elegir carpeta destino"><span aria-hidden="true">📁</span></button>
@@ -134,32 +152,55 @@
           <details class="small">
             <summary>Opciones avanzadas</summary>
             <div class="stack">
+              <div class="row">
+                <label class="small"><input type="checkbox" id="create-sqlite"> base de datos SQLite</label>
+                <label class="small"><input type="checkbox" id="create-auth"> inicio de sesión</label>
+              </div>
               <label><input type="checkbox" id="create-reanalyze"> volver a analizar las fuentes (aunque ya estén analizadas)</label>
               <input id="create-ai-model" placeholder="Modelo de IA (opcional, p. ej. claude-opus-5-5)" aria-label="Modelo de IA">
               <input id="create-ai-base" placeholder="URL del servidor de IA (opcional, compatible OpenAI u Ollama)" aria-label="URL del servidor de IA">
             </div>
           </details>
-          <div class="row">
-            <label class="small"><input type="checkbox" id="create-sqlite"> base de datos SQLite</label>
-            <label class="small"><input type="checkbox" id="create-auth"> inicio de sesión</label>
-          </div>
           <div class="row between">
-            <label class="small"><input type="checkbox" id="create-verify" checked> instalar, compilar y probar</label>
+              <label class="small"><input type="checkbox" id="create-verify" checked disabled> verificación obligatoria: instalar, compilar y probar</label>
             <button type="submit" id="create-go">Crear</button>
           </div>
         </form>
         <div id="create-result" class="small"></div>
-      </section>
+      </div>
 
-      <section class="card">
-        <h2>Proveedores</h2>
-        <ul id="providers" class="plain"></ul>
-      </section>
-
-      <section class="card grow">
+      <div id="panel-subjects" role="tabpanel" aria-labelledby="panel-subjects-tab" tabindex="0" hidden>
         <div class="row between"><h2>Objetivos</h2>
           <button type="button" id="compare-btn" class="small-btn" disabled>Comparar 2</button></div>
+        <div class="stack subject-filters" role="search" aria-label="Filtrar objetivos">
+          <input id="subject-search" type="search" placeholder="Buscar por nombre o formato" aria-label="Buscar objetivos por nombre o formato">
+          <div class="row">
+            <select id="subject-format" aria-label="Filtrar por formato"><option value="">Todos los formatos</option></select>
+            <select id="subject-unknowns" aria-label="Filtrar por incógnitas">
+              <option value="">Todas</option>
+              <option value="open">Con incógnitas</option>
+              <option value="none">Sin incógnitas</option>
+            </select>
+          </div>
+          <p id="subject-filter-status" class="small muted" role="status" aria-live="polite"></p>
+        </div>
         <ul id="subjects" class="plain selectable"></ul>
+      </div>
+
+      <div id="panel-cases" role="tabpanel" aria-labelledby="panel-cases-tab" tabindex="0" hidden>
+        <h2>Casos</h2>
+        <p class="small muted">Un caso agrupa artefactos, ejecuciones, evidencias e incógnitas. Con un caso activo, cada análisis
+          y proyecto nuevo se registra en él (también desde la CLI con <code>--case</code> y desde el agente de VS Code).</p>
+        <form id="case-form" class="stack">
+          <input id="case-name" placeholder="Nombre del caso" aria-label="Nombre del caso" maxlength="240">
+          <textarea id="case-desc" rows="2" aria-label="Descripción del caso" placeholder="Objetivo, alcance y autorización (opcional)"></textarea>
+          <div class="row between">
+            <label class="small">Importar caso <input type="file" id="case-import" accept=".json,application/json"></label>
+            <button type="submit" id="case-go">Crear caso</button>
+          </div>
+        </form>
+        <ul id="cases" class="plain selectable"></ul>
+      </div>
       </section>
     </aside>
 
@@ -263,6 +304,24 @@
           </div>
         </fieldset>
       </div>
+      <div id="case-view" hidden>
+        <div class="row between">
+          <h2 id="case-title" tabindex="-1">Caso</h2>
+          <div class="row">
+            <button type="button" id="case-use" class="small-btn">Usar como caso activo</button>
+            <button type="button" id="case-refresh" class="small-btn">Actualizar</button>
+            <a id="case-report" class="small-btn" href="#" target="_blank" rel="noopener">Informe HTML</a>
+            <a id="case-export" class="small-btn" href="#" download>Exportar</a>
+          </div>
+        </div>
+        <p id="case-meta" class="muted small"></p>
+        <div class="row">
+          <input id="case-link-ref" placeholder="Asociar objetivo ya analizado: nombre, sha256 o ruta" aria-label="Objetivo que asociar al caso">
+          <input id="case-link-prov" placeholder="Procedencia declarada" aria-label="Procedencia declarada del objetivo">
+          <button type="button" id="case-link" class="small-btn">Asociar</button>
+        </div>
+        <div id="case-body" aria-live="polite"></div>
+      </div>
       <div id="jobs-view" hidden>
         <div class="row between">
           <h2 tabindex="-1">Trabajos</h2>
@@ -324,6 +383,6 @@
     <p class="muted small">El botón Atrás del navegador vuelve a la vista o al objetivo anterior.</p>
     <form method="dialog"><button type="submit">Cerrar</button></form>
   </dialog>
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

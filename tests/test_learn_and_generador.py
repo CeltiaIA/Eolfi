@@ -260,6 +260,26 @@ def test_create_static_and_verify(tmp_path):
     assert r["verification"]["ok"], r["verification"]
 
 
+def test_create_verifies_by_default(tmp_path, monkeypatch):
+    from eolfi.generador import verify as verify_module
+
+    calls = []
+    monkeypatch.setattr(verify_module, "verify", lambda project, target, **kw:
+                        calls.append((project.resolve(), target)) or {"ok": True, "steps": []})
+    site = build_site(tmp_path / "site")
+    out = tmp_path / "nuevo"
+    result = create_project([str(site)], EvidenceStore(":memory:"), out, target="static")
+    assert calls == [(out.resolve(), "static")]
+    assert result["verification"]["ok"] is True
+
+
+def test_create_cli_keeps_verify_mandatory_without_flag():
+    from eolfi.cli import _parser
+
+    args = _parser().parse_args(["create", "--from", "fuente", "--out", "destino"])
+    assert args.verify is True
+
+
 @pytest.mark.skipif(sys.platform != "win32" and not shutil.which("python3"), reason="requiere Python")
 def test_fastapi_generated_app_imports(tmp_path):
     """El backend generado se importa y responde (sin instalar nada: FastAPI ya está o se salta)."""
@@ -363,7 +383,7 @@ def test_pe_binary_source_creates_desktop_project(tmp_path):
     exe = tmp_path / "app.exe"
     exe.write_bytes(_build_min_pe())
     store = EvidenceStore(str(tmp_path / "e.db"))
-    r = create_project([str(exe)], store, tmp_path / "nuevo", name="Mi app")
+    r = create_project([str(exe)], store, tmp_path / "nuevo", name="Mi app", do_verify=False)
     assert r["target"] == "desktop"
     assert r["spec"]["source_platforms"] == ["windows"]
     assert r["spec"]["platforms"] == ["windows", "macos", "linux"]
@@ -413,5 +433,6 @@ def test_console_exe_source_creates_cli_project(tmp_path):
     struct.pack_into("<H", pe, 64 + 24 + 68, 3)   # subsystem = windows_cui (consola)
     exe = tmp_path / "tool.exe"
     exe.write_bytes(bytes(pe))
-    r = create_project([str(exe)], EvidenceStore(str(tmp_path / "e.db")), tmp_path / "nuevo", name="Mi herramienta")
+    r = create_project([str(exe)], EvidenceStore(str(tmp_path / "e.db")), tmp_path / "nuevo", name="Mi herramienta",
+                       do_verify=False)
     assert r["target"] == "cli"

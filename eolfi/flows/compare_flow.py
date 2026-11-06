@@ -142,7 +142,25 @@ SPECIAL = {
 SKIP = {"web_fetch", "web_assets", "web_structure", "web_blueprint", "repo_blueprint", "repo_git", "entropy"}
 
 
-def compare(store: EvidenceStore, subject_a: str, subject_b: str) -> dict[str, Any]:
+def compare(store: EvidenceStore, subject_a: str, subject_b: str, *, case_id: str | None = None,
+            provenance: str = "") -> dict[str, Any]:
+    """case_id: asocia ambos objetivos y la comparación derivada, y deja un registro «comparison»."""
+    from eolfi.core.cases import case_run
+
+    with case_run(store, case_id, "compare", {"a": subject_a, "b": subject_b},
+                  provenance or "objetivos ya analizados elegidos por el operador") as run:
+        rep = _compare(store, subject_a, subject_b)
+        if run.active:
+            for s in (subject_a, subject_b, rep["subject"]):
+                run.associate(s)
+            run.finish(status="done", evidence_ids=[rep["evidence_id"]],
+                       result={"only_in_a": rep["only_in_a"], "only_in_b": rep["only_in_b"],
+                               "changed": sorted(rep["changed"]), "headline": rep["headline"]})
+            rep["case_record"] = run.record_id
+        return rep
+
+
+def _compare(store: EvidenceStore, subject_a: str, subject_b: str) -> dict[str, Any]:
     a, b = _latest(store, subject_a), _latest(store, subject_b)
     if not a:
         raise ValueError(f"sin evidencias para {subject_a}")

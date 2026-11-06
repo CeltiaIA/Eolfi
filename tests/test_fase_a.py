@@ -308,7 +308,7 @@ def _gen(tmp_path, target, **kw):
 
     site = Path(build_site(tmp_path / "site"))
     out = tmp_path / target
-    create_project([str(site)], EvidenceStore(str(tmp_path / "e.db")), out, target=target, **kw)
+    create_project([str(site)], EvidenceStore(str(tmp_path / "e.db")), out, target=target, do_verify=False, **kw)
     return out
 
 

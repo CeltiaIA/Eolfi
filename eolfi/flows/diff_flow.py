@@ -205,6 +205,57 @@ def run_diff(
     mutate: int = 0,
     seed_value: int = 1337,
     check_determinism: bool = False,
+    case_id: str | None = None,
+    provenance: str = "",
+) -> dict[str, Any]:
+    """case_id: registra referencia/candidato (archivos con hash) y un registro «comparison» con el resultado."""
+    from eolfi.core.cases import case_run, file_identity
+
+    params = {"reference": reference if isinstance(reference, str) else " ".join(reference),
+              "candidate": candidate if isinstance(candidate, str) else " ".join(candidate),
+              "corpus": str(corpus), "normalize": normalize, "threshold": threshold, "mutate": mutate,
+              "seed": seed_value, "timeout": timeout, "compare_stderr": compare_stderr,
+              "check_determinism": check_determinism}
+    with case_run(store, case_id, "diff", params,
+                  provenance or "comandos de referencia y candidato indicados por el operador") as run:
+        rep = _run_diff(reference, candidate, corpus, store, timeout=timeout, compare_stderr=compare_stderr,
+                        normalize=normalize, threshold=threshold, mutate=mutate, seed_value=seed_value,
+                        check_determinism=check_determinism)
+        if run.active:
+            for role, argv in (("referencia", split_command(reference)), ("candidato", split_command(candidate))):
+                for f in _file_tokens(argv):
+                    sha, info = file_identity(f)
+                    info["metadata"] = {"role": role}
+                    run.artifact(sha, **info)
+            if rep["subject"].startswith("cmd:"):
+                run.artifact(rep["subject"], size=None, format="command", identity="derived", content_sha256="",
+                             metadata={"role": "referencia", "note": "huella del comando: no hay archivo local"})
+            status = "done" if rep["comparable"] else "partial"
+            errors = [f"{c['input']}: {c.get('reason') or c['status']}" for c in rep["cases"]
+                      if c["status"] in ("reference_error", "nondeterministic", "skipped")][:200]
+            run.finish(status=status, evidence_ids=[rep["evidence_id"]], errors=errors,
+                       tools=[{"name": PROVIDER, "version": VERSION, "status": "ran"}],
+                       result={k: rep[k] for k in ("total", "comparable", "equivalent", "mismatches",
+                                                   "reference_errors", "nondeterministic", "ratio", "threshold",
+                                                   "passed", "mismatched_inputs", "incognitas_opened",
+                                                   "incognitas_closed")})
+            rep["case_record"] = run.record_id
+        return rep
+
+
+def _run_diff(
+    reference: str | list[str],
+    candidate: str | list[str],
+    corpus: str | Path,
+    store: EvidenceStore,
+    *,
+    timeout: float,
+    compare_stderr: bool,
+    normalize: str,
+    threshold: float,
+    mutate: int,
+    seed_value: int,
+    check_determinism: bool,
 ) -> dict[str, Any]:
     if normalize not in ("exact", "newlines", "lines"):
         raise ValueError("normalize debe ser exact, newlines o lines")

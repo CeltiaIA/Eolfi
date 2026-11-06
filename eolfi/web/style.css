@@ -119,10 +119,21 @@ nav.views .ico { font-size: 12px; opacity: .7; }
 .menu-list a:hover, .menu-list a:focus-visible { background: var(--accent-soft); }
 
 /* -- diseño ------------------------------------------------------------------- */
-main { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: var(--s4); padding: var(--s4) var(--s5);
+main { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: var(--s4); padding: var(--s4) var(--s5);
   height: calc(100vh - var(--topbar-h)); }
 aside { display: flex; flex-direction: column; gap: var(--s3); min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s4); box-shadow: var(--shadow-1); }
+aside .workspace { min-height: 0; overflow: auto; }
+aside .workspace h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+aside .workspace-tabs { position: sticky; top: calc(-1 * var(--s4)); z-index: 2; margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) var(--s4);
+  padding: var(--s2); border: 0; border-bottom: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+aside .workspace-tabs button { font-size: 12px; }
+aside .workspace-alert { margin: 0 0 var(--s3); padding: var(--s2) var(--s3); border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  border-radius: var(--r-sm); background: var(--bad-soft); color: var(--bad); font-size: 12px; overflow-wrap: anywhere; }
+aside .workspace [role="tabpanel"] { outline: none; }
+aside .workspace [role="tabpanel"]:focus-visible { box-shadow: var(--ring); border-radius: var(--r-sm); }
+aside .provider-summary { margin-top: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s2); }
+aside .provider-summary #providers { margin-top: var(--s2); }
 aside .card > h2, aside .card > .row > h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .card.grow { flex: 1; overflow: auto; min-height: 140px; }
 #detail { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s5); overflow: auto; box-shadow: var(--shadow-1); }
@@ -146,6 +157,7 @@ aside label.small { white-space: normal; }
 .tabs button { flex: 1; background: transparent; color: var(--muted); border: 0; padding: 6px 8px; font-size: 13px; border-radius: 7px; }
 .tabs button:hover:not(:disabled) { background: transparent; color: var(--text); }
 .tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow-1); }
+.tabs button:focus-visible { box-shadow: var(--ring); position: relative; z-index: 1; }
 .drop { display: grid; place-items: center; gap: 4px; min-height: 92px; border: 1.5px dashed var(--line-strong); border-radius: var(--r);
   padding: var(--s4); text-align: center; cursor: pointer; color: var(--muted); background: var(--panel-2); transition: border-color var(--t); }
 .drop::before { content: "⇪"; font-size: 20px; line-height: 1; opacity: .6; }
@@ -287,3 +299,17 @@ dl.shortcuts dd { margin: 0; }
   #detail { padding: var(--s4); }
   .empty { margin-top: var(--s5); }
 }
+@media (max-width: 360px) {
+  nav.views { flex-wrap: wrap; overflow: visible; border-radius: var(--r-lg); }
+  nav.views a { flex: 1 1 calc(50% - 2px); }
+  #panel-create .row > #create-name,
+  #panel-create .row > #create-target { flex-basis: 100%; width: 100%; }
+}
+
+/* Casos de análisis */
+.case-active { margin: 6px 0 0; }
+a.small-btn { display: inline-block; border-radius: 6px; text-decoration: none; }
+.case-records > li { border-top: 1px solid var(--line); padding: 6px 0; }
+#case-body h3 { margin: 14px 0 6px; font-size: 14px; }
+#case-body pre { max-height: 12rem; overflow: auto; }
+.warn { color: var(--warn); }

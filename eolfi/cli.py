@@ -12,6 +12,8 @@ Comandos:
   export <salida> [--format json|sarif] [--artifact RUTA ...]
                                  Exporta el paquete de evidencias.
   import <paquete.json>          Importa un paquete (validado).
+  case create|list|show|link|artifact|record|report|export|import   (y --case ID en triage, web, repo, diff, compare, create)
+                                 Gestiona casos persistentes y paquetes completos.
   resilience fuzz <semilla>      Fuerza entradas malformadas sin tumbar.
   resilience inject <archivo>    Busca patrones de inyección de prompts.
   web <url|archivo|carpeta>       Analiza una página/sitio web para aprender cómo está hecho.
@@ -70,7 +72,15 @@ def _default_library() -> str:
     return str(Path.home() / "Alejandria")
 
 
+def _case_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--case", dest="case_id", default=None,
+                   help="Registra artefactos y resultado en este caso (eolfi case create …)")
+    p.add_argument("--provenance", default="", help="Procedencia declarada de la entrada (se guarda en el caso)")
+
+
 def _parser() -> argparse.ArgumentParser:
+    from eolfi.core.cases import RECORD_KINDS
+
     ap = argparse.ArgumentParser(prog="eolfi", description="Eolfi — ingeniería inversa local con modelo de evidencias")
     ap.add_argument("--db", default="eolfi.db", help="Ruta de la base de evidencias")
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
@@ -82,6 +92,7 @@ def _parser() -> argparse.ArgumentParser:
     t.add_argument("--summary", action="store_true", help="Omite la lista de evidence_ids")
     t.add_argument("--deep", action="store_true", help="Incluye Ghidra headless (lento)")
     t.add_argument("--local", action="store_true", help="Solo proveedores stdlib (sin herramientas externas)")
+    _case_args(t)
 
     e = sub.add_parser("evidence", help="Lista evidencias")
     e.add_argument("--subject", default=None)
@@ -105,6 +116,7 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--threshold", type=float, default=1.0, help="Ratio mínimo de equivalencia (0-1)")
     d.add_argument("--mutate", type=int, default=0, help="Añade N entradas mutadas al corpus")
     d.add_argument("--determinism", action="store_true", help="Ejecuta la referencia dos veces para detectar no determinismo")
+    _case_args(d)
 
     ex = sub.add_parser("export", help="Exporta paquete de evidencias")
     ex.add_argument("out")
@@ -115,6 +127,41 @@ def _parser() -> argparse.ArgumentParser:
 
     im = sub.add_parser("import", help="Importa paquete de evidencias")
     im.add_argument("inp")
+
+    cs = sub.add_parser("case", help="Gestiona casos persistentes de análisis")
+    css = cs.add_subparsers(dest="case_cmd", required=True)
+    css.add_parser("list", help="Lista los casos")
+    cnew = css.add_parser("create", help="Crea un caso")
+    cnew.add_argument("name")
+    cnew.add_argument("--description", default="")
+    cshow = css.add_parser("show", help="Muestra el caso, objetivos, evidencias e incógnitas")
+    cshow.add_argument("case_id")
+    clink = css.add_parser("link", help="Asocia un objetivo ya analizado (identidad y herramientas desde sus evidencias)")
+    clink.add_argument("case_id")
+    clink.add_argument("subject", help="sha256, prefijo, nombre o ruta ya analizada")
+    clink.add_argument("--provenance", default="", help="Procedencia declarada del artefacto")
+    crep = css.add_parser("report", help="Informe HTML navegable del caso (o JSON)")
+    crep.add_argument("case_id")
+    crep.add_argument("--format", choices=["html", "json"], default="html")
+    crep.add_argument("--out", help="Archivo de salida (por defecto, la salida estándar)")
+    cart = css.add_parser("artifact", help="Asocia un artefacto por SHA-256 (o subject de Eolfi)")
+    cart.add_argument("case_id")
+    cart.add_argument("subject")
+    cart.add_argument("--size", type=int, default=None, help="Bytes (omitir si se desconoce)")
+    cart.add_argument("--format", required=True)
+    cart.add_argument("--version", default="")
+    cart.add_argument("--provenance", required=True)
+    cart.add_argument("--path", default="")
+    cart.add_argument("--platform", default="")
+    crec = css.add_parser("record", help="Añade una observación/especificación/etc. desde JSON")
+    crec.add_argument("case_id")
+    crec.add_argument("kind", choices=sorted(RECORD_KINDS))
+    crec.add_argument("payload", help="Objeto JSON o @ruta a un archivo JSON")
+    cexport = css.add_parser("export", help="Exporta caso, evidencias e incógnitas a JSON")
+    cexport.add_argument("case_id")
+    cexport.add_argument("out")
+    cimport = css.add_parser("import", help="Importa un paquete completo de caso validado")
+    cimport.add_argument("inp")
 
     r = sub.add_parser("resilience", help="Banco de pruebas de resiliencia")
     rs = r.add_subparsers(dest="rcmd", required=True)
@@ -131,10 +178,12 @@ def _parser() -> argparse.ArgumentParser:
     wb.add_argument("--cross-origin", action="store_true", help="Descarga también assets de otros dominios")
     wb.add_argument("--ignore-robots", action="store_true", help="No respetar robots.txt (solo con permiso)")
     wb.add_argument("--save", default=None, help="Guarda una copia de estudio de HTML/CSS/JS en esta carpeta")
+    _case_args(wb)
 
     rp = sub.add_parser("repo", help="Analiza un repositorio local o remoto")
     rp.add_argument("source", help="Carpeta local o URL git")
     rp.add_argument("--workdir", default="samples/repos", help="Dónde clonar los repos remotos")
+    _case_args(rp)
 
     cr = sub.add_parser("create", help="Crea un proyecto NUEVO a partir de una o varias fuentes")
     cr.add_argument("--from", dest="sources", action="append", required=True,
@@ -143,7 +192,8 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--name", default="Nuevo proyecto")
     cr.add_argument("--target", default="auto",
                     choices=["auto", "static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet"])
-    cr.add_argument("--verify", action="store_true", help="Instala, fija versiones, compila y prueba")
+    cr.add_argument("--verify", action="store_true", default=True,
+                    help="Verificación obligatoria (opción conservada por compatibilidad)")
     # dest propio: con dest «db» pisaba el --db global y «create --db sqlite» creaba una base de
     # evidencias llamada «sqlite» en la carpeta actual (PLAN_MEJORAS servidor A1).
     cr.add_argument("--db", "--backend-db", dest="backend_db", choices=["memory", "sqlite"], default="memory",
@@ -153,6 +203,7 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--force", action="store_true", help="Escribe aunque la carpeta no esté vacía")
     cr.add_argument("--reanalyze", action="store_true", help="Vuelve a analizar fuentes ya conocidas")
     cr.add_argument("--workdir", default="samples/repos")
+    _case_args(cr)
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
     for sp in (cr,):
@@ -178,6 +229,7 @@ def _parser() -> argparse.ArgumentParser:
     cp = sub.add_parser("compare", help="Compara dos objetivos analizados")
     cp.add_argument("a")
     cp.add_argument("b")
+    _case_args(cp)
 
     dc = sub.add_parser("decompile", help="Decompila funciones concretas con Ghidra (lento)")
     dc.add_argument("target")
@@ -255,7 +307,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
         from eolfi.flows import triage_flow as tf
 
         provs = tf.LOCAL_PROVIDERS if args.local else tf.DEEP_PROVIDERS if args.deep else tf.DEFAULT_PROVIDERS
-        rep = tf.run_triage(args.target, store, provs)
+        rep = tf.run_triage(args.target, store, provs, case_id=args.case_id, provenance=args.provenance)
         if args.summary:
             rep.pop("evidence_ids", None)
         _print(rep)
@@ -280,6 +332,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
             args.ref, args.cand, args.corpus, store,
             timeout=args.timeout, compare_stderr=args.stderr, normalize=args.normalize,
             threshold=args.threshold, mutate=args.mutate, check_determinism=args.determinism,
+            case_id=args.case_id, provenance=args.provenance,
         )
         _print(rep)
         return 0 if rep["passed"] else 4
@@ -301,32 +354,79 @@ def _dispatch(args, store: EvidenceStore) -> int:
             _print({"exported": args.out, "format": "json"})
     elif args.cmd == "import":
         _print({"imported_new": store.import_package(args.inp)})
+    elif args.cmd == "case":
+        from eolfi.core.cases import CaseStore
+
+        cases = CaseStore(store)
+        if args.case_cmd == "list":
+            _print(cases.list())
+        elif args.case_cmd == "create":
+            _print(cases.create(args.name, args.description))
+        elif args.case_cmd == "show":
+            _print(cases.get(args.case_id))
+        elif args.case_cmd == "link":
+            from eolfi.flows.create_flow import resolve_subject
+
+            subject = resolve_subject(store, args.subject)
+            if not subject:
+                raise ValueError(f"objetivo no encontrado o ambiguo: {args.subject}")
+            _print(cases.associate(args.case_id, subject, provenance=args.provenance))
+        elif args.case_cmd == "report":
+            from eolfi.core.case_report import build_case_report, render_case_html
+
+            rep = build_case_report(cases.get(args.case_id))
+            text = render_case_html(rep) if args.format == "html" else json.dumps(rep, ensure_ascii=False, indent=2)
+            if args.out:
+                from pathlib import Path
+                Path(args.out).write_text(text, encoding="utf-8")
+                _print({"case_id": args.case_id, "report": args.out, "format": args.format,
+                        "conclusions": len(rep["conclusions"]), "open_incognitas": rep["open_incognitas"]})
+            else:
+                sys.stdout.write(text)
+        elif args.case_cmd == "artifact":
+            created = cases.add_artifact(args.case_id, args.subject, size=args.size, format=args.format,
+                                         provenance=args.provenance, version=args.version,
+                                         path=args.path, platform=args.platform)
+            _print({"case_id": args.case_id, "subject": args.subject, "created": created})
+        elif args.case_cmd == "record":
+            from pathlib import Path
+            raw = Path(args.payload[1:]).read_text(encoding="utf-8") if args.payload.startswith("@") else args.payload
+            payload = json.loads(raw)
+            record_id = cases.add_record(args.case_id, args.kind, payload)
+            _print({"case_id": args.case_id, "record_id": record_id, "kind": args.kind})
+        elif args.case_cmd == "export":
+            cases.export(args.case_id, args.out)
+            _print({"case_id": args.case_id, "exported": args.out})
+        elif args.case_cmd == "import":
+            _print({"imported": cases.import_case(args.inp)})
     elif args.cmd == "web":
         from eolfi.flows.learn_flow import run_web
 
         rep = run_web(args.source, store, max_assets=args.max_assets, cross_origin=args.cross_origin,
-                      ignore_robots=args.ignore_robots, save_dir=args.save, progress=_progress)
+                      ignore_robots=args.ignore_robots, save_dir=args.save, progress=_progress,
+                      case_id=args.case_id, provenance=args.provenance)
         rep.pop("evidence_ids", None)
         _print(rep)
     elif args.cmd == "repo":
         from eolfi.flows.learn_flow import run_repo
 
-        rep = run_repo(args.source, store, workdir=args.workdir, progress=_progress)
+        rep = run_repo(args.source, store, workdir=args.workdir, progress=_progress, case_id=args.case_id,
+                       provenance=args.provenance)
         rep.pop("evidence_ids", None)
         _print(rep)
     elif args.cmd == "create":
         from eolfi.flows.create_flow import create_project
 
         rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
-                             do_verify=args.verify, force=args.force, reanalyze=args.reanalyze,
+                             do_verify=True, force=args.force, reanalyze=args.reanalyze,
                              workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                              ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
-                             progress=_progress)
+                             progress=_progress, case_id=args.case_id, provenance=args.provenance)
         rep.pop("spec", None)
         _print(rep)
         if rep.get("assist") and not rep["assist"]["ok"]:
             return 6
-        return 0 if rep.get("verification", {}).get("ok", True) else 5
+        return 0 if rep.get("verification", {}).get("ok", False) else 5
     elif args.cmd == "bridge":
         if args.login:
             return _login_mode(args.browser)
@@ -368,7 +468,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
         a, b = resolve_subject(store, args.a), resolve_subject(store, args.b)
         if not a or not b:
             raise ValueError(f"objetivo no encontrado o ambiguo: {args.a if not a else args.b}")
-        _print(compare(store, a, b))
+        _print(compare(store, a, b, case_id=args.case_id, provenance=args.provenance))
     elif args.cmd == "decompile":
         from pathlib import Path
 

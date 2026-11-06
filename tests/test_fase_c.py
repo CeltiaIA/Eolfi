@@ -123,7 +123,7 @@ def test_static_site_has_skip_link_and_honest_form(tmp_path):
 
     site = build_site(tmp_path / "s")
     out = tmp_path / "o"
-    create_project([str(site)], EvidenceStore(str(tmp_path / "e.db")), out, name="X", target="static")
+    create_project([str(site)], EvidenceStore(str(tmp_path / "e.db")), out, name="X", target="static", do_verify=False)
     html = (out / "index.html").read_text(encoding="utf-8")
     assert 'class="skip-link" href="#contenido"' in html and 'id="contenido"' in html
     assert 'aria-pressed="false"' in html

@@ -50,7 +50,7 @@ def _project(tmp_path):
     s = EvidenceStore(":memory:")
     site = build_site(tmp_path / "site")
     out = tmp_path / "nuevo"
-    create_project([str(site)], s, out, name="Bicis", target="static")
+    create_project([str(site)], s, out, name="Bicis", target="static", do_verify=False)
     return out
 
 

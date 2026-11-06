@@ -37,7 +37,8 @@ from eolfi.core.models import Status
 WEB_DIR = Path(__file__).with_name("web")
 MAX_UPLOAD = 256 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
-_STATIC = {"/": "index.html", "/app.js": "app.js", "/theme.js": "theme.js", "/style.css": "style.css",
+_STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
+           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/style.css": "style.css",
            "/favicon.svg": "favicon.svg",
            "/favicon.ico": "favicon.svg"}
 _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -48,6 +49,9 @@ _CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'
         "connect-src 'self'; frame-src http://127.0.0.1:*; frame-ancestors 'self' vscode-webview:; "
         "base-uri 'none'; form-action 'none'")
 _LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
+_CASE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# Informe de caso: HTML autocontenido sin scripts; solo necesita estilos en línea.
+_REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 
 
 class JobCancelled(BaseException):
@@ -131,7 +135,7 @@ class EolfiApp:
         job = {"id": secrets.token_hex(8), "kind": kind, "status": "queued", "log": [], "started": time.time(),
                "label": str(payload.get("name") or payload.get("source") or payload.get("path")
                             or ", ".join(map(str, payload.get("sources") or [])))[:160],
-               "body": payload}
+               "body": payload, **({"case_id": cid} if (cid := self._case_id(payload)) else {})}
 
         def run() -> None:
             self._tl.job = job
@@ -216,7 +220,8 @@ class EolfiApp:
     def job_status(self, q: dict[str, str]) -> dict[str, Any]:
         if not q.get("id"):   # sin id: los de esta ejecución y el historial guardado (más recientes primero)
             with self._jobs_guard:
-                live = [{k: j[k] for k in self._JOB_FIELDS if k in j} for j in reversed(list(self.jobs.values()))]
+                live = [{k: j[k] for k in self._JOB_FIELDS + ("case_id",) if k in j}
+                        for j in reversed(list(self.jobs.values()))]
             seen = {j["id"] for j in live}
             s = self._history()
             try:
@@ -624,7 +629,8 @@ class EolfiApp:
             if mode not in ("local", "default", "deep"):
                 raise ApiError(400, f"modo inválido: {mode}")
             return self._triage(str(dst), mode, name=str(body.get("name") or "upload")[:200],
-                                providers=body.get("providers"))
+                                providers=body.get("providers"), case_id=self._case_id(body),
+                                provenance=f"subida desde el panel: {str(body.get('name') or 'upload')[:200]}")
         path = body.get("path")
         if not isinstance(path, str) or not path:
             raise ApiError(400, "falta 'path'")
@@ -632,12 +638,13 @@ class EolfiApp:
         if Path(path).is_dir():
             # Una carpeta en «Binario»: se analiza como repositorio/carpeta (código, pila, estructura).
             self._progress(f"{path} es una carpeta: se analiza como repositorio")
-            rep = self.learn("repo", {"source": path})
+            rep = self.learn("repo", {"source": path, "case_id": body.get("case_id")})
             rep.setdefault("analyzed_as", "repo")
             return rep
         if not Path(path).is_file():
             raise ApiError(404, f"no existe el archivo ni la carpeta: {path}")
-        return self._triage(path, body.get("mode", "default"), name=Path(path).name, providers=body.get("providers"))
+        return self._triage(path, body.get("mode", "default"), name=Path(path).name, providers=body.get("providers"),
+                            case_id=self._case_id(body))
 
     def triage_upload(self, data: bytes, name: str, mode: str, providers: str | None = None) -> dict[str, Any]:
         if not data:
@@ -651,7 +658,8 @@ class EolfiApp:
             dst.write_bytes(data)
         return self._triage(str(dst), mode, name=name, providers=providers)
 
-    def _triage(self, path: str, mode: str, name: str, providers: Any = None) -> dict[str, Any]:
+    def _triage(self, path: str, mode: str, name: str, providers: Any = None, case_id: str | None = None,
+                provenance: str = "") -> dict[str, Any]:
         from eolfi.flows import triage_flow as tf
 
         provs = {"local": tf.LOCAL_PROVIDERS, "default": tf.DEFAULT_PROVIDERS, "deep": tf.DEEP_PROVIDERS}.get(mode)
@@ -671,7 +679,7 @@ class EolfiApp:
             s = self.store()
             self._progress(f"triaje «{mode}» de {name}: {len(provs)} proveedores (Ghidra puede tardar minutos)")
             try:
-                rep = tf.run_triage(path, s, provs, isolate=self.isolate)
+                rep = tf.run_triage(path, s, provs, isolate=self.isolate, case_id=case_id, provenance=provenance)
                 self._progress(f"proveedores ejecutados: {', '.join(rep.get('providers_run', []))}")
             finally:
                 s.close()
@@ -685,6 +693,7 @@ class EolfiApp:
         if not isinstance(src, str) or not src.strip():
             raise ApiError(400, "falta 'source'")
         self._check_local_source(src.strip())
+        case_id = self._case_id(body)
         with self._job(f"{kind}:{src.strip()}"):
             s = self.store()
             try:
@@ -692,10 +701,11 @@ class EolfiApp:
                     from eolfi.flows.learn_flow import run_web
                     rep = run_web(src.strip(), s, max_assets=max(1, min(int(body.get("max_assets", 40)), 200)),
                                   cross_origin=bool(body.get("cross_origin")), progress=self._progress,
-                                  ignore_robots=bool(body.get("ignore_robots")))
+                                  ignore_robots=bool(body.get("ignore_robots")), case_id=case_id)
                 else:
                     from eolfi.flows.learn_flow import run_repo
-                    rep = run_repo(src.strip(), s, workdir=str(self.samples / "repos"), progress=self._progress)
+                    rep = run_repo(src.strip(), s, workdir=str(self.samples / "repos"), progress=self._progress,
+                                   case_id=case_id)
             except (FileNotFoundError, ValueError) as exc:
                 raise ApiError(400, str(exc)) from exc
             finally:
@@ -714,11 +724,12 @@ class EolfiApp:
         self._check_root(out, "carpeta destino")
         for src in sources:
             self._check_local_source(src.strip())
+        case_id = self._case_id(body)
         with self._job("create:" + str(Path(out).resolve())):
             s = self.store()
             try:
                 rep = create_project([x.strip() for x in sources], s, out, name=name,
-                                     target=str(body.get("target") or "auto"), do_verify=bool(body.get("verify")),
+                                     target=str(body.get("target") or "auto"), do_verify=True,
                                      force=bool(body.get("force")), workdir=str(self.samples / "repos"),
                                      ai_brief=(str(body["ai_brief"])[:4000] if body.get("ai_brief") else None),
                                      ai_provider=str(body.get("ai_provider") or "claude"),
@@ -726,7 +737,7 @@ class EolfiApp:
                                      ai_base_url=(str(body["ai_base_url"])[:300] if body.get("ai_base_url") else None),
                                      reanalyze=bool(body.get("reanalyze")),
                                      db="sqlite" if body.get("db") == "sqlite" else "memory",
-                                     auth=bool(body.get("auth")), progress=self._progress)
+                                     auth=bool(body.get("auth")), progress=self._progress, case_id=case_id)
             except FileExistsError as exc:
                 raise ApiError(409, str(exc)) from exc
             except OverwriteSourceError as exc:
@@ -746,15 +757,103 @@ class EolfiApp:
         from eolfi.flows.compare_flow import compare
         from eolfi.flows.create_flow import resolve_subject
 
+        case_id = self._case_id(body)
         with self._job("compare"):
             s = self.store()
             try:
                 a, b = resolve_subject(s, str(body.get("a", ""))), resolve_subject(s, str(body.get("b", "")))
                 if not a or not b:
                     raise ApiError(404, "objetivo no encontrado o ambiguo")
-                return compare(s, a, b)
+                return compare(s, a, b, case_id=case_id)
             finally:
                 s.close()
+
+    # -- casos de análisis (mismo estado que la CLI y el agente de VS Code) ----------
+    def _case_id(self, body: dict[str, Any]) -> str | None:
+        """case_id opcional de un trabajo: se valida antes de empezar a trabajar."""
+        cid = body.get("case_id")
+        if cid in (None, ""):
+            return None
+        if not isinstance(cid, str) or not _CASE_ID.fullmatch(cid):
+            raise ApiError(400, "case_id inválido")
+        s = self.store()
+        try:
+            from eolfi.core.cases import CaseStore
+            CaseStore(s)._require(cid)
+        except ValueError as exc:
+            raise ApiError(404, str(exc)) from exc
+        finally:
+            s.close()
+        return cid
+
+    def _cases(self, fn):
+        from eolfi.core.cases import CaseStore
+
+        with self.lock:
+            s = self.store()
+            try:
+                return fn(CaseStore(s), s)
+            except ValueError as exc:
+                raise ApiError(404 if "no encontrado" in str(exc) else 400, str(exc)) from exc
+            finally:
+                s.close()
+
+    def cases_list(self, _q) -> dict[str, Any]:
+        return {"cases": self._cases(lambda c, _s: c.list())}
+
+    def case_create(self, body: dict[str, Any]) -> dict[str, Any]:
+        return self._cases(lambda c, _s: c.create(body.get("name", ""), body.get("description", "")))
+
+    def case_get(self, case_id: str) -> dict[str, Any]:
+        case = self._cases(lambda c, _s: c.get(case_id))
+        case["evidence"] = _decode_rows(case["evidence"], ("params", "result", "links"))
+        case["incognitas"] = _decode_rows(case["incognitas"], ("evidence_for", "evidence_against", "depends_on"))
+        with self._jobs_guard:   # progreso de los trabajos de este caso que siguen vivos
+            case["jobs"] = [{k: j[k] for k in self._JOB_FIELDS + ("case_id",) if k in j} | {"log": j["log"][-20:]}
+                            for j in reversed(list(self.jobs.values())) if j.get("case_id") == case_id]
+        return case
+
+    def case_associate(self, case_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        from eolfi.flows.create_flow import resolve_subject
+
+        ref, prov = body.get("subject"), body.get("provenance", "")
+        if not isinstance(ref, str) or not ref.strip() or not isinstance(prov, str):
+            raise ApiError(400, "falta 'subject' (sha256, nombre o ruta ya analizada)")
+
+        def run(c, s):
+            subject = resolve_subject(s, ref.strip())
+            if not subject:
+                raise ApiError(404, f"objetivo no encontrado o ambiguo: {ref[:120]}")
+            return c.associate(case_id, subject, provenance=prov)
+        return self._cases(run)
+
+    def case_record(self, case_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        kind, payload = body.get("kind"), body.get("payload")
+        if not isinstance(kind, str) or not isinstance(payload, dict):
+            raise ApiError(400, "kind (texto) y payload (objeto) son obligatorios")
+        rid = self._cases(lambda c, _s: c.add_record(case_id, kind, payload))
+        return {"case_id": case_id, "record_id": rid, "kind": kind}
+
+    def case_export(self, case_id: str) -> dict[str, Any]:
+        return self._cases(lambda c, _s: c.package(case_id))
+
+    def case_import(self, body: dict[str, Any]) -> dict[str, Any]:
+        import tempfile
+
+        pkg = body.get("package")
+        if not isinstance(pkg, dict):
+            raise ApiError(400, "falta 'package' (el JSON exportado del caso)")
+        name = re.sub(r"[^\w.-]", "_", str(body.get("name") or "caso-importado.json"))[-80:] or "caso.json"
+        with tempfile.TemporaryDirectory(prefix="eolfi-caso-") as tmp:
+            path = Path(tmp) / name
+            path.write_text(json.dumps(pkg, ensure_ascii=False), encoding="utf-8")
+            created = self._cases(lambda c, _s: c.import_case(path))
+        return {"imported": created, "case_id": pkg.get("case", {}).get("case_id")}
+
+    def case_report(self, case_id: str) -> str:
+        from eolfi.core.case_report import build_case_report, render_case_html
+
+        return render_case_html(build_case_report(self._cases(lambda c, _s: c.get(case_id))))
 
     # -- puente de chats web (DeepSeek / Gemini / Meta AI) ----------------
     # El token del puente se queda en el servidor: el navegador nunca lo ve.
@@ -909,21 +1008,26 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
 
         # -- utilidades ------------------------------------------------
         def _send(self, status: int, body: bytes, ctype: str, extra: dict[str, str] | None = None):
-            self.send_response(status)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Content-Security-Policy", _CSP)
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Cross-Origin-Resource-Policy", "same-origin")   # <img src> desde otra web: bloqueado
-            for k, v in (extra or {}).items():
-                self.send_header(k, v)
-            if self.close_connection:
-                self.send_header("Connection", "close")   # el cliente reabre: el cuerpo no leído no se reutiliza
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                extra = dict(extra or {})
+                self.send_header("Content-Security-Policy", extra.pop("Content-Security-Policy", _CSP))
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cross-Origin-Resource-Policy", "same-origin")   # <img src> desde otra web: bloqueado
+                for k, v in (extra or {}).items():
+                    self.send_header(k, v)
+                if self.close_connection:
+                    self.send_header("Connection", "close")   # el cliente reabre: el cuerpo no leído no se reutiliza
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # Cerrar la pestaña durante una petición AJAX es normal; no es un error del servidor.
+                self.close_connection = True
 
         def _json(self, status: int, obj: Any, extra: dict[str, str] | None = None):
             self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
@@ -1055,6 +1159,20 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     }
                     if path in routes:
                         return self._json(200, routes[path](q))
+                    if path == "/api/cases":
+                        return self._json(200, app.cases_list(q))
+                    m = re.fullmatch(r"/api/cases/([0-9a-f-]{36})(/report|/export)?", path)
+                    if m and _CASE_ID.fullmatch(m.group(1)):
+                        if m.group(2) == "/report":
+                            extra = {"Content-Security-Policy": _REPORT_CSP}
+                            if q.get("download") == "1":
+                                extra["Content-Disposition"] = f'attachment; filename="eolfi-caso-{m.group(1)[:8]}.html"'
+                            return self._send(200, app.case_report(m.group(1)).encode("utf-8"),
+                                              "text/html; charset=utf-8", extra)
+                        if m.group(2) == "/export":
+                            return self._json(200, app.case_export(m.group(1)), {
+                                "Content-Disposition": f'attachment; filename="eolfi-caso-{m.group(1)[:8]}.json"'})
+                        return self._json(200, app.case_get(m.group(1)))
                     if path == "/api/bridge/selftest":
                         return self._json(200, app.bridge_selftest(q))
                     if path in ("/api/bridge/status", "/api/bridge/events"):
@@ -1099,6 +1217,14 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         return self._json(200, app.pair_exchange(self._obj()))
                     if path == "/api/bridge/compare":
                         return self._json(200, app.bridge_compare(self._obj()))
+                    if path == "/api/cases":
+                        return self._json(201, app.case_create(self._obj()))
+                    if path == "/api/cases/import":
+                        return self._json(200, app.case_import(self._obj()))
+                    m = re.fullmatch(r"/api/cases/([0-9a-f-]{36})/(artifacts|records)", path)
+                    if m and _CASE_ID.fullmatch(m.group(1)):
+                        fn = app.case_associate if m.group(2) == "artifacts" else app.case_record
+                        return self._json(200, fn(m.group(1), self._obj()))
                     if path == "/api/compare":
                         return self._json(200, app.compare(self._obj()))
                     if path == "/api/upload":

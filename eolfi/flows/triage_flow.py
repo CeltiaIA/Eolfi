@@ -119,12 +119,40 @@ def run_triage(
     providers: list[Provider] | None = None,
     *,
     isolate: bool = False,
+    case_id: str | None = None,
+    provenance: str = "",
 ) -> dict[str, Any]:
     """isolate=True: los proveedores locales (stdlib) corren en un subproceso con plazo y, en Linux/macOS,
-    límite de memoria. Las herramientas externas ya son procesos aparte."""
+    límite de memoria. Las herramientas externas ya son procesos aparte.
+
+    case_id: registra el artefacto (hash, tamaño, formato, procedencia, herramientas) y un registro tipado
+    «analysis» del resultado en ese caso; si el triaje falla, el registro queda con estado error."""
+    from eolfi.core.cases import case_run
+
     path = Path(target)
     if not path.is_file():
         raise FileNotFoundError(target)
+    names = [p.name for p in (providers if providers is not None else DEFAULT_PROVIDERS)]
+    with case_run(store, case_id, "triage", {"target": str(path), "providers": names, "isolate": isolate},
+                  provenance or f"archivo local declarado por el operador: {path}") as run:
+        rep = _run_triage(path, store, providers, isolate=isolate)
+        if run.active:
+            run.associate(rep["subject"], path=str(path.resolve()))
+            tools = [{"name": n, "version": "", "status": "skipped"} for n in rep["providers_skipped"]]
+            tools += [{"name": n, "version": "", "status": "failed"} for n in rep["providers_failed"]]
+            from eolfi.core.cases import tools_for
+
+            tools = [t | {"status": "ran"} for t in tools_for(store, rep["subject"], rep["evidence_ids"])] + tools
+            run.finish(status="partial" if rep["providers_failed"] else "done", evidence_ids=rep["evidence_ids"],
+                       tools=tools, result={"summary": rep["summary"], "providers_run": rep["providers_run"],
+                                            "providers_skipped": rep["providers_skipped"],
+                                            "providers_failed": rep["providers_failed"]},
+                       errors=[f"proveedor {n} falló: {rep['provider_errors'].get(n, '?')}" for n in rep["providers_failed"]])
+            rep["case_record"] = run.record_id
+        return rep
+
+
+def _run_triage(path: Path, store: EvidenceStore, providers: list[Provider] | None, *, isolate: bool) -> dict[str, Any]:
     subject = sha256_file(path)
     env = environment_string()
     providers = providers if providers is not None else DEFAULT_PROVIDERS
@@ -133,6 +161,7 @@ def run_triage(
     ran: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
+    errors: dict[str, str] = {}
     import copy
 
     for shared in providers:
@@ -162,6 +191,7 @@ def run_triage(
                     findings = prov.run(str(path))
         except Exception as exc:  # noqa: BLE001 — un proveedor no tumba el triaje
             failed.append(prov.name)
+            errors[prov.name] = f"{type(exc).__name__}: {str(exc)[:300]}"
             # Pregunta estable (sin el texto del error, que cambia en cada ejecución: antes se duplicaba);
             # el detalle va en el registro.
             store.add_incognita(
@@ -195,6 +225,7 @@ def run_triage(
         "providers_run": ran,
         "providers_skipped": skipped,
         "providers_failed": failed,
+        "provider_errors": errors,
         "evidence_ids": recorded,
         "summary": summarize(store, subject),
         "open_incognitas": len(store.list_incognitas(Status.OPEN, subject=subject)),
