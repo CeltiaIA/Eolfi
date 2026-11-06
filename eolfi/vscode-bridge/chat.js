@@ -681,7 +681,9 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
           model = { id: 'local', name };
         } catch (e) {
           if (e.status === 401) throw e;
-          stream.markdown(`\n\n⚠️ El modelo local tampoco pudo seguir: ${e.message || e}. Todos los modelos de Copilot con herramientas están en su límite de peticiones; vuelve a intentarlo en unos minutos (\`@eolfi /auditar\` sí sigue).`);
+          stream.markdown(preferLocal()
+            ? `\n\n⚠️ El modelo local no pudo seguir: ${e.message || e}. Tienes el modelo local como principal, así que no uso Copilot: revisa que Eolas siga en marcha y vuelve a intentarlo.`
+            : `\n\n⚠️ El modelo local tampoco pudo seguir: ${e.message || e}. Todos los modelos de Copilot con herramientas están en su límite de peticiones; vuelve a intentarlo en unos minutos (\`@eolfi /auditar\` sí sigue).`);
         }
         break;
       }
