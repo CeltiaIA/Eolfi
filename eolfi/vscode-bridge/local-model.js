@@ -13,6 +13,36 @@ function safeJson(v) {
   try { return JSON.parse(String(v || '{}')); } catch { return {}; }
 }
 
+// Gemma 4 a través de Eolas: la llamada a herramienta y el razonamiento llegan como texto en content
+// («<|channel>thought…<channel|>» y «<|tool_call>call:nombre{clave:<|"|>valor<|"|>}<tool_call|>»).
+const GEMMA_THOUGHT = /<\|channel>(?:thought)?([\s\S]*?)<channel\|>/g;
+const GEMMA_CALL = /<\|tool_call>call:([\w.-]+)(\{[\s\S]*?\})<tool_call\|>/g;
+
+function gemmaArgs(s) {
+  const strs = [];
+  let t = s.replace(/<\|"\|>([\s\S]*?)<\|"\|>/g, (_, v) => { strs.push(v); return `"\u0000${strs.length - 1}\u0000"`; });
+  t = t.replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":');
+  t = t.replace(/"\u0000(\d+)\u0000"/g, (_, i) => JSON.stringify(strs[+i]));
+  return safeJson(t);
+}
+
+// A veces solo llega el cierre «<channel|>» (el marcador de apertura se pierde): lo anterior es razonamiento.
+function stripThought(text, reasoning = []) {
+  const s = String(text || '').replace(GEMMA_THOUGHT, (_, r) => { reasoning.push(r.trim()); return ''; });
+  const k = s.lastIndexOf('<channel|>');
+  if (k < 0) return s;
+  reasoning.push(s.slice(0, k).trim());
+  return s.slice(k + '<channel|>'.length);
+}
+
+function splitGemma(text) {
+  const reasoning = [];
+  const calls = [];
+  let content = stripThought(String(text || '').replace(GEMMA_THOUGHT, (_, r) => { reasoning.push(r.trim()); return ''; }), reasoning);
+  content = content.replace(GEMMA_CALL, (_, name, args) => { calls.push({ name, arguments: gemmaArgs(args) }); return ''; });
+  return { content: content.trim(), reasoning: reasoning.join('\n'), calls };
+}
+
 function isLoopback(url) {
   try { const u = new URL(url); return u.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname); } catch { return false; }
 }
@@ -125,7 +155,9 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
       const msg = d.message || d.choices?.[0]?.message || {};
       const calls = (msg.tool_calls || []).map((c, i) => ({ id: c.id || `local-${Date.now()}-${i}`, name: c.function?.name || c.name,
         arguments: safeJson(c.function?.arguments ?? c.arguments) }));
-      return { content: String(msg.content || ''), reasoning: String(msg.reasoning_content || msg.thinking || ''), tool_calls: calls.filter((c) => c.name) };
+      const g = splitGemma(msg.content);
+      if (!calls.length) g.calls.forEach((c, i) => calls.push({ id: `local-${Date.now()}-${i}`, ...c }));
+      return { content: g.content, reasoning: String(msg.reasoning_content || msg.thinking || g.reasoning || ''), tool_calls: calls.filter((c) => c.name) };
     } finally { clearTimeout(t); }
   }
 
@@ -150,7 +182,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         throw e;
       }
       const d = await r.json();
-      return String(d.message?.content ?? d.choices?.[0]?.message?.content ?? d.response ?? '');
+      return stripThought(String(d.message?.content ?? d.choices?.[0]?.message?.content ?? d.response ?? '')).trim();
     } finally { clearTimeout(t); }
   }
 

@@ -653,3 +653,10 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
   complete() pasaba a Copilot sin preguntar. Ahora reintenta en local una vez y, si sigue fallando, para la auditoría
   con el motivo (no gasta de Copilot); un error de tamaño sube para que se parta el lote. El error de Eolas incluye el
   cuerpo de la respuesta. Pruebas 113.
+- Extensión 0.6.5 (Eolas con Gemma por llama-server): las llamadas a herramientas de Gemma llegaban como texto
+  («<|tool_call>call:nombre{...}<tool_call|>») y el razonamiento se colaba en la respuesta. local-model.js las convierte
+  en llamadas reales y quita el razonamiento; los encabezados del informe se normalizan a «### `ruta`». Prueba e2e en
+  vivo (e2e/local-eolas-live.js): Eolfi usa Eolas y Copilot no se llama (8/8).
+- Extensión 0.6.6: pie «Modelo: X · en tu equipo, sin Copilot» en las respuestas del agente y «Modelos usados» en las
+  auditorías (ajuste eolfi.agent.showModel, activo por defecto). Licencia: titular único Luis Manuel Cousido Hermida;
+  nuevo LICENCIAS-TERCEROS.md. Pruebas 117 (1 solo en Windows).

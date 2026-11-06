@@ -63,3 +63,32 @@ test('chatTools con llama-server (API OpenAI): envía las herramientas y lee las
   assert.strictEqual(sent.tool_choice, 'auto');
   assert.deepStrictEqual(sent.chat_template_kwargs, { enable_thinking: false });
 });
+
+test('Gemma 4 vía Eolas: herramienta y razonamiento como texto en content', async () => {
+  const content = '<|channel>thought\nVoy a leerlo.<channel|><|tool_call>call:eolfi_read_file{path:<|"|>notas.txt<|"|>,limit:20}<tool_call|>';
+  const fetchFn = async (url) => {
+    if (url.endsWith(':11435/api/tags')) return reply(200, { models: [{ name: 'gemma-4-12b-it:latest' }] });
+    if (url.endsWith(':11435/api/chat')) return reply(200, { message: { content } });
+    return reply(404, {});
+  };
+  const m = makeLocalModel({ fetchFn });
+  const r = await m.chatTools([{ role: 'user', content: 'lee notas.txt' }], [{ name: 'eolfi_read_file', description: 'lee' }]);
+  assert.strictEqual(r.tool_calls.length, 1);
+  assert.strictEqual(r.tool_calls[0].name, 'eolfi_read_file');
+  assert.deepStrictEqual(r.tool_calls[0].arguments, { path: 'notas.txt', limit: 20 });
+  assert.strictEqual(r.content, '');
+  assert.match(r.reasoning, /Voy a leerlo/);
+});
+
+test('Gemma: razonamiento con solo el cierre «<channel|>» no llega a la respuesta', async () => {
+  const fetchFn = async (url) => {
+    if (url.endsWith(':11435/api/tags')) return reply(200, { models: [{ name: 'gemma-4-12b-it:latest' }] });
+    if (url.endsWith(':11435/api/chat')) return reply(200, { message: { content: 'Paso 1: leer.<channel|>CALABAZA-42' } });
+    return reply(404, {});
+  };
+  const m = makeLocalModel({ fetchFn });
+  const r = await m.chatTools([{ role: 'user', content: 'x' }], []);
+  assert.strictEqual(r.content, 'CALABAZA-42');
+  assert.match(r.reasoning, /Paso 1/);
+  assert.strictEqual(await m.complete('x'), 'CALABAZA-42');
+});

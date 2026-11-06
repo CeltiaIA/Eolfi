@@ -371,7 +371,9 @@ async function runAudit({ root, report, resume = true, token = null, deps }) {
     deps.progress(`Archivo ${Math.min(i, st.files.length)} de ${st.files.length}: ${rel(items[items.length - 1].path)}`);
     let text = items.filter((x) => x.skip).map((x) => `### \`${rel(x.path)}\`\n- Omitido: ${x.skip}.`).join('\n\n');
     for (const b of batches(review)) {
-      const out = await reviewBatch(b, root, context, deps.complete, token, deps.progress);
+      // Encabezados como pide el prompt («### `ruta`»), aunque el modelo omita las comillas invertidas.
+      const out = String(await reviewBatch(b, root, context, deps.complete, token, deps.progress) || '')
+        .replace(/^###[ \t]+([^`\s][^\s]*)/gm, (m, p) => (b.some((x) => rel(x.path) === p) ? `### \`${p}\`` : m));
       text += `${text ? '\n\n' : ''}${out || b.map((p) => `### \`${rel(p.path)}\`\n- (El modelo no devolvió revisión.)`).join('\n\n')}`;
     }
     if (text) {
