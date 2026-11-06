@@ -71,6 +71,11 @@ function makeClient(base, authToken = null) {
     caseLink: (id, subject, provenance = '') => req('POST', `/api/cases/${encodeURIComponent(id)}/artifacts`, { subject, provenance }),
     caseRecord: (id, kind, payload) => req('POST', `/api/cases/${encodeURIComponent(id)}/records`, { kind, payload }),
     caseReportUrl: (id) => new URL(`/api/cases/${encodeURIComponent(id)}/report`, base).href,
+    // Observación de caja negra (eolfi observe): run/replay ejecutan el objetivo y exigen authorized=true.
+    observeGet: (id) => req('GET', `/api/observe/${encodeURIComponent(id)}`),
+    observeRun: (body) => req('POST', '/api/observe/run', body),
+    observeReplay: (body) => req('POST', '/api/observe/replay', body),
+    observeCompare: (body) => req('POST', '/api/observe/compare', body),
   };
 }
 

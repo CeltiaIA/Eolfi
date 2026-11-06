@@ -234,3 +234,29 @@ test('casos: crear, analizar con el caso activo, ver progreso y abrir el informe
   await page.goto(BASE + '/');
   await page.evaluate(() => localStorage.removeItem('eolfi.case'));
 });
+
+test('casos: las sesiones de observación se ven en el caso (alcance, factores no fijados, repetición)', async () => {
+  const post = async (path, body) => {
+    const r = await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Eolfi': '1' }, body: JSON.stringify(body) });
+    return [r.status, await r.json()];
+  };
+  const [, kase] = await post('/api/cases', { name: 'Observación e2e' });
+  const script = { eolfi_observation_script: 1, name: 'eco', authorization: 'muestra sintética propia de la prueba',
+    steps: [{ id: 'eco', action: 'run', argv: ['{python}', '-c', 'print("hola")'] }] };
+  assert.equal((await post('/api/observe/run', { script, case_id: kase.case_id }))[0], 403);   // sin authorized=true
+  const [st, run] = await post('/api/observe/run', { script, case_id: kase.case_id, authorized: true });
+  assert.equal(st, 200, JSON.stringify(run));
+  const [st2] = await post('/api/observe/replay', { evidence_id: run.evidence_id, case_id: kase.case_id, authorized: true });
+  assert.equal(st2, 200);
+  await page.goto(`${BASE}/#caso/${kase.case_id}`);
+  await page.waitForFunction(() => /Repetición:/.test(document.querySelector('#case-body')?.textContent || ''), null, { timeout: 15000 });
+  const body = await page.textContent('#case-body');
+  assert.match(body, /Observación: 1 pasos/);
+  assert.match(body, /Cobertura limitada: .*system_calls \(not_available\)/);
+  assert.match(body, /Factores no fijados: reloj/);
+  assert.match(body, /Repetición: reproducible/);
+  assert.match(body, /Paso eco: el proceso terminó con código 0/);
+  await axe('caso con observaciones');
+  await page.goto(BASE + '/');
+  await page.evaluate(() => localStorage.removeItem('eolfi.case'));
+});

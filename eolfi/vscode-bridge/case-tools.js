@@ -21,7 +21,34 @@ const DEFS = {
       ruta: { type: 'string', description: 'Ruta local, URL web o URL git' },
       modo: { type: 'string', enum: ['local', 'default', 'deep'], description: 'binario: proveedores (por defecto local)' },
     }, required: ['case_id', 'tipo', 'ruta'] } },
+  observe: { name: 'eolfi_observar', description: 'Observación de caja negra con Eolfi (mismo estado que `eolfi observe` y el panel). accion: ver (sesión por evidence_id) | comparar (a, b: primer cambio observable; la atribución de causa es siempre hipótesis) | ejecutar (guion: ruta o objeto) | repetir (evidence_id). ejecutar y repetir EJECUTAN el objetivo: solo con muestras autorizadas y confirmando con autorizado=true tras preguntar al usuario.',
+    inputSchema: { type: 'object', properties: {
+      accion: { type: 'string', enum: ['ver', 'comparar', 'ejecutar', 'repetir'] },
+      evidence_id: { type: 'string' }, a: { type: 'string' }, b: { type: 'string' },
+      guion: { description: 'ejecutar: ruta del guion JSON o el guion como objeto' },
+      variables: { type: 'object', description: 'Variables {var:NOMBRE} (textos)' },
+      case_id: { type: 'string' },
+      autorizado: { type: 'boolean', description: 'true solo si el usuario confirmó que puede ejecutar el objetivo' },
+    }, required: ['accion'] } },
 };
+
+function summarizeSession(rep) {
+  const lines = [`Sesión ${rep.evidence_id || ''} «${rep.name || rep.session?.name || ''}» estado ${rep.status || rep.session?.status || '?'}`];
+  const s = rep.session || rep;
+  for (const st of (s.steps || []).slice(0, 50)) {
+    const bits = [st.action, st.status];
+    if (st.exit_status) bits.push(st.exit_status.kind === 'exit' ? `código ${st.exit_status.code}` : (st.exit_status.signal_name || st.exit_status.name));
+    if (st.effects?.files?.length) bits.push(`${st.effects.files.length} cambios de archivo`);
+    if (st.traces?.length) bits.push(`${st.traces.length} trazas`);
+    if (st.error) bits.push(`error: ${st.error}`);
+    lines.push(`- ${st.id}: ${bits.join(' · ')}`);
+  }
+  const na = Object.entries(s.coverage || {}).filter(([, v]) => typeof v === 'object' && v.status !== 'observed')
+    .map(([k, v]) => `${k}: ${v.status}`);
+  if (na.length) lines.push(`Cobertura limitada: ${na.join('; ')}`);
+  if (s.unfixed_factors?.length) lines.push(`Factores no fijados: ${s.unfixed_factors.map((f) => f.factor).join(', ')}`);
+  return lines.join('\n');
+}
 
 function summarizeCase(c) {
   const open = (c.incognitas || []).filter((i) => i.status !== 'resolved');
@@ -41,7 +68,7 @@ function summarizeCase(c) {
 }
 
 function makeCaseTools({ client, log = () => {} }) {
-  const defs = () => [DEFS.cases, DEFS.analyze];
+  const defs = () => [DEFS.cases, DEFS.analyze, DEFS.observe];
 
   async function run(call, stream, token) {
     const input = call.input || {};
@@ -70,6 +97,37 @@ function makeCaseTools({ client, log = () => {} }) {
         }
         case 'informe': return `Informe navegable: ${c.caseReportUrl(need())}`;
         default: return 'accion debe ser listar, ver, crear, asociar, registrar o informe.';
+      }
+    }
+    if (call.name === 'eolfi_observar') {
+      const c = await client();
+      const caseId = input.case_id ? String(input.case_id) : undefined;
+      const variables = input.variables && typeof input.variables === 'object'
+        ? Object.fromEntries(Object.entries(input.variables).map(([k, v]) => [k, String(v)])) : {};
+      switch (input.accion) {
+        case 'ver': return summarizeSession(await c.observeGet(String(input.evidence_id || '')));
+        case 'comparar': {
+          const r = await c.observeCompare({ a: String(input.a || ''), b: String(input.b || ''), case_id: caseId });
+          if (r.identical) return `Sin cambios observables entre ${r.a} y ${r.b} (${r.steps_compared} pasos).`;
+          const fc = r.first_change;
+          return [`Primer cambio observable: paso ${fc.step}, ${fc.aspect} (${r.differences_total} diferencias).`,
+            ...(fc.detail || []).slice(0, 12),
+            `Hipótesis (sin confirmar): ${r.attribution.candidates.join(', ') || 'ningún factor de contexto difiere'}`].join('\n');
+        }
+        case 'ejecutar':
+        case 'repetir': {
+          if (input.autorizado !== true) return 'No ejecutado: la observación ejecuta el objetivo. Pregunta al usuario y repite con autorizado=true si lo confirma.';
+          stream?.progress?.('Eolfi ejecuta y observa el objetivo…');
+          if (input.accion === 'repetir') {
+            const r = await c.observeReplay({ evidence_id: String(input.evidence_id || ''), variables, case_id: caseId, authorized: true });
+            return [`Repetición ${r.replay}: ${r.reproducible ? 'reproducible' : 'NO reproducible'}.`,
+              ...r.prechecks.map((p) => `! ${p.factor}: ${p.detail}`),
+              ...r.non_reproducible.slice(0, 20).map((d) => `- ${d.step}: ${d.aspect}`),
+              `Factores no fijados: ${r.unfixed_factors.map((f) => f.factor).join(', ')}`].join('\n');
+          }
+          return summarizeSession(await c.observeRun({ script: input.guion, variables, case_id: caseId, authorized: true }));
+        }
+        default: return 'accion debe ser ver, comparar, ejecutar o repetir.';
       }
     }
     if (call.name === 'eolfi_caso_analizar') {
@@ -109,4 +167,4 @@ function combineTools(...sets) {
   };
 }
 
-module.exports = { makeCaseTools, combineTools, summarizeCase, DEFS };
+module.exports = { makeCaseTools, combineTools, summarizeCase, summarizeSession, DEFS };

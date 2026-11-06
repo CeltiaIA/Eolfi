@@ -35,7 +35,7 @@ include = ["eolfi*"]
 
 [tool.setuptools.package-data]
 "eolfi.providers" = ["ghidra_scripts/*.java"]
-"eolfi" = ["web/*", "bridge/*.mjs", "bridge/package.json", "bridge/package-lock.json", "bridge/adapters/*.mjs", "bridge/adapters/*.json", "bridge/engine/*.mjs", "bridge/test/*.mjs", "vscode-bridge/*.js", "vscode-bridge/package.json", "vscode-bridge/agent/*/*.md", "observe/*.mjs"]
+"eolfi" = ["web/*", "bridge/*.mjs", "bridge/package.json", "bridge/package-lock.json", "bridge/adapters/*.mjs", "bridge/adapters/*.json", "bridge/engine/*.mjs", "bridge/test/*.mjs", "vscode-bridge/*.js", "vscode-bridge/package.json", "vscode-bridge/agent/*/*.md", "observe/*.mjs", "observe/*.ps1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

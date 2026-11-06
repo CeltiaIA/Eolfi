@@ -773,6 +773,66 @@ class EolfiApp:
             finally:
                 s.close()
 
+    # -- observación de caja negra (mismo estado que `eolfi observe`) --------------------
+    def observe_get(self, evidence_id: str) -> dict[str, Any]:
+        from eolfi.observe import load_session
+
+        s = self.store()
+        try:
+            return load_session(s, evidence_id)
+        except ValueError as exc:
+            raise ApiError(404, str(exc)) from exc
+        finally:
+            s.close()
+
+    def observe_compare(self, body: dict[str, Any]) -> dict[str, Any]:
+        from eolfi.observe import run_compare
+
+        case_id = self._case_id(body)
+        with self._job("observe_compare"):
+            s = self.store()
+            try:
+                return run_compare(s, str(body.get("a", "")), str(body.get("b", "")), case_id=case_id)
+            except ValueError as exc:
+                raise ApiError(404 if "no es una sesión" in str(exc) else 400, str(exc)) from exc
+            finally:
+                s.close()
+
+    def observe_execute(self, action: str, body: dict[str, Any], remote: bool) -> dict[str, Any]:
+        """run/replay EJECUTAN el objetivo: solo en modo local y con authorized=true explícito."""
+        from eolfi.observe import ScriptError, run_observation, run_replay
+
+        if remote:
+            raise ApiError(403, "la observación ejecuta programas: no está disponible en modo remoto")
+        if body.get("authorized") is not True:
+            raise ApiError(403, "la observación EJECUTA el objetivo: envía authorized=true para confirmarlo")
+        variables = body.get("variables") or {}
+        if not isinstance(variables, dict) or not all(isinstance(k, str) and isinstance(v, str)
+                                                      for k, v in variables.items()):
+            raise ApiError(400, "variables debe ser un objeto de textos")
+        case_id = self._case_id(body)
+        with self._job("observe"):
+            s = self.store()
+            try:
+                if action == "replay":
+                    return run_replay(s, str(body.get("evidence_id", "")), authorized=True, variables=variables,
+                                      case_id=case_id)
+                script = body.get("script")
+                if isinstance(script, str):
+                    self._check_root(script, "guion")
+                elif not isinstance(script, dict):
+                    raise ApiError(400, "falta 'script' (ruta del guion u objeto)")
+                elif "target" in script and isinstance(script["target"], dict):
+                    self._check_root(str(script["target"].get("path", "")), "objetivo")
+                return run_observation(script, s, authorized=True, variables=variables, case_id=case_id,
+                                       provenance=str(body.get("provenance", "")))
+            except (ScriptError, FileNotFoundError) as exc:
+                raise ApiError(400, str(exc)) from exc
+            except ValueError as exc:
+                raise ApiError(404 if "no es una sesión" in str(exc) else 400, str(exc)) from exc
+            finally:
+                s.close()
+
     # -- casos de análisis (mismo estado que la CLI y el agente de VS Code) ----------
     def _case_id(self, body: dict[str, Any]) -> str | None:
         """case_id opcional de un trabajo: se valida antes de empezar a trabajar."""
@@ -1178,6 +1238,9 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             return self._json(200, app.case_export(m.group(1)), {
                                 "Content-Disposition": f'attachment; filename="eolfi-caso-{m.group(1)[:8]}.json"'})
                         return self._json(200, app.case_get(m.group(1)))
+                    m = re.fullmatch(r"/api/observe/([0-9a-f]{64})", path)
+                    if m:
+                        return self._json(200, app.observe_get(m.group(1)))
                     if path == "/api/bridge/selftest":
                         return self._json(200, app.bridge_selftest(q))
                     if path in ("/api/bridge/status", "/api/bridge/events"):
@@ -1230,6 +1293,11 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     if m and _CASE_ID.fullmatch(m.group(1)):
                         fn = app.case_associate if m.group(2) == "artifacts" else app.case_record
                         return self._json(200, fn(m.group(1), self._obj()))
+                    if path == "/api/observe/compare":
+                        return self._json(200, app.observe_compare(self._obj()))
+                    if path in ("/api/observe/run", "/api/observe/replay"):
+                        return self._json(200, app.observe_execute(path.rsplit("/", 1)[1], self._obj(),
+                                                                   bool(getattr(self.server, "token", None))))
                     if path == "/api/compare":
                         return self._json(200, app.compare(self._obj()))
                     if path == "/api/upload":

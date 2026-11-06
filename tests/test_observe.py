@@ -108,7 +108,7 @@ def test_process_session_captures_io_files_children_and_cleans_up(store, tmp_pat
     assert rep["setup"]["inicial.txt"]["size"] == 7
     assert rep["cleanup"]["sandbox"] == "eliminado"
     assert rep["coverage"]["system_calls"]["status"] == "not_available"
-    assert rep["coverage"]["ui_desktop_mobile"]["status"] == "not_available"
+    assert rep["coverage"]["ui_mobile"]["status"] == "not_available" and rep["coverage"]["ui_desktop"] == "not_requested"
     assert rep["coverage"]["children"]["status"] == "sampled"
     assert {f["factor"] for f in rep["unfixed_factors"]} >= {"reloj", "planificación y PID", "rutas conocidas del SO"}
     assert "no es un sandbox de seguridad" in rep["isolation"]
@@ -392,3 +392,89 @@ def test_cli_observe(tmp_path, capsys):
     bad = tmp_path / "malo.json"
     bad.write_text("{}", encoding="utf-8")
     assert main(["--db", db, "observe", "check", str(bad)]) == 1
+
+
+# -- API del servidor (la que usan el panel y el agente de VS Code) ---------------------------------------
+def test_observe_api_run_replay_compare_and_guards(tmp_path):
+    from eolfi.server import make_server
+    from tests.test_server import req
+
+    W = {"X-Eolfi": "1"}
+    httpd = make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        t = samples.write(tmp_path, "app.py", samples.APP_V1)
+        body = {"script": _script(t, _app_steps())}
+        st, d, _ = req(port, "POST", "/api/observe/run", json.dumps(body), W)
+        assert st == 403 and "authorized" in d["error"]
+        st, case, _ = req(port, "POST", "/api/cases", json.dumps({"name": "obs"}), W)
+        st, a, _ = req(port, "POST", "/api/observe/run", json.dumps({**body, "authorized": True,
+                                                                    "case_id": case["case_id"]}), W)
+        assert st == 200 and a["status"] == "done" and a["case_record"]
+        st, got, _ = req(port, "GET", f"/api/observe/{a['evidence_id']}")
+        assert st == 200 and got["session"]["steps"][0]["exit_code"] == 0
+        st, r, _ = req(port, "POST", "/api/observe/replay", json.dumps({"evidence_id": a["evidence_id"],
+                                                                       "authorized": True}), W)
+        assert st == 200 and r["reproducible"] is True
+        st, c, _ = req(port, "POST", "/api/observe/compare", json.dumps({"a": a["evidence_id"], "b": r["replay"],
+                                                                        "case_id": case["case_id"]}), W)
+        assert st == 200 and c["identical"] is True
+        st, d, _ = req(port, "POST", "/api/observe/compare", json.dumps({"a": "0" * 64, "b": r["replay"]}), W)
+        assert st == 404
+        st, d, _ = req(port, "GET", "/api/observe/" + "0" * 64)
+        assert st == 404
+        st, kase, _ = req(port, "GET", f"/api/cases/{case['case_id']}")
+        assert [x["payload"]["flow"] for x in kase["records"]] == ["observe", "observe_compare"]
+        from eolfi.server import ApiError, EolfiApp as App  # modo remoto: nunca se ejecuta nada
+        with pytest.raises(ApiError) as exc:
+            App(str(tmp_path / "s.db")).observe_execute("run", {**body, "authorized": True}, remote=True)
+        assert exc.value.status == 403 and "remoto" in str(exc.value)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+
+# -- interfaz de escritorio (Windows UI Automation) ------------------------------------------------------
+def test_desktop_step_validation():
+    with pytest.raises(ScriptError, match="automation_id o name"):
+        validate_script(_script(None, [{"action": "desktop", "argv": ["x"], "actions": [{"do": "invoke"}]}]))
+    with pytest.raises(ScriptError, match="set_value necesita value"):
+        validate_script(_script(None, [{"action": "desktop", "argv": ["x"],
+                                        "actions": [{"do": "set_value", "automation_id": "a"}]}]))
+    s = validate_script(_script(None, [{"action": "desktop", "argv": ["x"], "actions": [{"do": "read"}]}]))
+    assert s["steps"][0]["close"] is True and s["steps"][0]["timeout"] == 60.0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="UI Automation solo en Windows")
+def test_desktop_scenario_windows_uia(store, tmp_path):
+    t = samples.write(tmp_path, "app.ps1", samples.WINFORMS)
+    script = _script(t, [{"id": "ui", "action": "desktop", "timeout": 60,
+                          "argv": ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", "{target}"],
+                          "actions": [{"id": "escribir", "do": "set_value", "automation_id": "entrada", "value": "hola"},
+                                      {"id": "pulsar", "do": "invoke", "automation_id": "convertir"}]}],
+                     environment={"passthrough": ["PATH", "PSModulePath"]})
+    rep = run_observation(script, store, authorized=True)
+    step = rep["steps"][0]
+    assert step["status"] == "ok", json.dumps(step)[:3000]
+    assert [a["id"] for a in step["actions"]] == ["_inicio", "escribir", "pulsar"]
+    def elem(action, aid):
+        return next(e for w in action["windows"] for e in w["elements"] if e.get("automation_id") == aid)
+    ini, esc, pul = step["actions"]
+    assert ini["windows"][0]["title"] == "Muestra Eolfi"
+    assert elem(ini, "resultado")["name"] == "(vacio)"
+    assert elem(esc, "entrada")["value"] == "hola"
+    assert elem(pul, "resultado")["name"] == "HOLA"
+    assert elem(pul, "convertir")["type"] == "Button"
+    assert ini["windows_sha256"] != pul["windows_sha256"]
+    assert "convertido:hola" in step["stdout"]["preview"] and "cerrado" in step["stdout"]["preview"]
+    assert step["exit_code"] == 0 and step["killed_after_close"] is False
+    created = [e["path"] for e in step["effects"]["files"] if e["change"] == "created"]
+    assert "{sandbox}/ultimo.txt" in created          # efecto de la acción «pulsar»
+    assert all(p == "{sandbox}/ultimo.txt" or p.startswith("{sandbox}/.home/") for p in created), created
+    assert rep["coverage"]["ui_desktop"]["status"] == "observed"
+    assert rep["coverage"]["ui_mobile"]["status"] == "not_available"
+    # Repetición: la misma interfaz y efectos.
+    r = run_replay(store, rep["evidence_id"], authorized=True)
+    assert r["reproducible"] is True, r["non_reproducible"]

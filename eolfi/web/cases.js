@@ -3,6 +3,29 @@
 const STATUS = { done: ["completado", "ok"], partial: ["parcial", "warn"], error: ["error", "bad"],
   cancelled: ["cancelado", "bad"], running: ["en marcha", "warn"], queued: ["en cola", "warn"] };
 const CLAIM = { observed: "Observada", derived: "Derivada", hypothesis: "Hipótesis" };
+
+// Resumen de los registros de observación de caja negra (eolfi observe): alcance, factores no fijados y cambios.
+function observationSummary(el, p) {
+  const r = p.result || {};
+  if (p.flow === "observe") {
+    const limited = Object.entries(r.coverage || {}).filter(([, v]) => v && typeof v === "object" && v.status !== "observed")
+      .map(([k, v]) => `${k} (${v.status})`);
+    return el("div", { class: "small observation" },
+      el("div", {}, `Observación: ${r.steps ?? "?"} pasos · sesión ${String(r.session_id || "").slice(0, 8)}`),
+      limited.length ? el("div", { class: "muted" }, `Cobertura limitada: ${limited.join(", ")}`) : "",
+      r.unfixed_factors?.length ? el("div", { class: "muted" }, `Factores no fijados: ${r.unfixed_factors.join(", ")}`) : "");
+  }
+  if (p.flow === "replay") {
+    return el("div", { class: "small observation" }, `Repetición: ${r.reproducible ? "reproducible" : "NO reproducible"}`
+      + ` · ${r.non_reproducible ?? 0} aspectos difieren` + (r.prechecks?.length ? ` · ${r.prechecks.map((x) => x.factor).join(", ")} cambió` : ""));
+  }
+  if (p.flow === "observe_compare") {
+    const fc = r.first_change;
+    return el("div", { class: "small observation" }, r.identical ? "Sin cambios observables entre las sesiones."
+      : `Primer cambio observable: paso ${fc?.step}, ${fc?.aspect} · ${r.differences_total} diferencias`);
+  }
+  return "";
+}
 const KEY = "eolfi.case";
 
 export function createCaseView({ $, el, api, fmtTime, setStatus, showView, onChange = () => {} }) {
@@ -108,6 +131,7 @@ export function createCaseView({ $, el, api, fmtTime, setStatus, showView, onCha
         p.tools?.length ? el("div", { class: "muted small" }, "Herramientas: "
           + p.tools.map((t) => `${t.name} ${t.version || ""}${t.status ? ` (${t.status})` : ""}`.trim()).join(", ")) : "",
         p.environment ? el("div", { class: "muted small" }, `Entorno: ${Object.values(p.environment).join(" ")}`) : "",
+        observationSummary(el, p),
         ...(p.claims || []).map((x) => el("div", { class: "small" }, el("span", { class: "badge" }, CLAIM[x.status] || x.status), x.text)));
     })) : el("p", { class: "muted small" }, "Sin registros: activa el caso y analiza un objetivo."));
     parts.push(el("h3", {}, "Artefactos"));

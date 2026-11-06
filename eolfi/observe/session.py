@@ -339,6 +339,83 @@ def _browser_step(step: dict[str, Any], values: dict[str, str], variables: dict[
     return out
 
 
+UIA_DRIVER = Path(__file__).with_name("uia_driver.ps1")
+
+
+def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[str, str],
+                  norm: _Normalizer) -> dict[str, Any]:
+    """Lanza la aplicación, la conduce con UI Automation y registra ventanas/árbol de accesibilidad por acción."""
+    from eolfi.flows.diff_flow import _kill_tree
+
+    if sys.platform != "win32":
+        return {"status": "unavailable", "error": "la captura de interfaz de escritorio solo está implementada en "
+                                                  "Windows (UI Automation)"}
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if shell is None:
+        return {"status": "unavailable", "error": "PowerShell no disponible para UI Automation"}
+    t0 = time.monotonic()
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err, \
+            tempfile.TemporaryDirectory(prefix="eolfi-obs-uia-") as tmp:
+        try:
+            proc = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
+        except OSError as exc:
+            return {"status": "error", "error": f"{type(exc).__name__}: {exc}", "duration_ms": 0}
+        rpath = Path(tmp, "request.json")
+        rpath.write_text(json.dumps({"pid": proc.pid, "timeout_ms": int(step["timeout"] * 1000),
+                                     "actions": step["actions"], "close": step["close"]}), encoding="utf-8")
+        res: dict[str, Any]
+        try:
+            drv = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass",
+                                  "-File", str(UIA_DRIVER), str(rpath)], capture_output=True,
+                                 timeout=step["timeout"] + 30)
+            raw = drv.stdout.decode("utf-8", "replace").strip()
+            res = json.loads(raw[raw.find("{"):]) if "{" in raw else {
+                "status": "error", "error": "sin respuesta del controlador: "
+                + drv.stderr.decode("utf-8", "replace")[-800:]}
+        except subprocess.TimeoutExpired:
+            res = {"status": "timeout", "error": "el controlador de UI Automation no terminó a tiempo"}
+        except json.JSONDecodeError:
+            res = {"status": "error", "error": "respuesta inválida del controlador de UI Automation"}
+        killed = False
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _kill_tree(proc)
+            proc.wait()
+            killed = True
+        out.seek(0)
+        err.seek(0)
+        stdout, stderr = out.read(MAX_OUTPUT), err.read(MAX_OUTPUT)
+    actions = [json.loads(norm.text(json.dumps(a, ensure_ascii=False))) for a in res.get("actions") or []]
+    for a in actions:
+        wins = a.get("windows") or []
+        a["windows"] = wins if isinstance(wins, list) else [wins]
+        a["windows_sha256"] = _sha(json.dumps(a["windows"], sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    rec: dict[str, Any] = {"status": res.get("status", "error"), "duration_ms": round((time.monotonic() - t0) * 1000),
+                           "driver": {"name": "Windows UI Automation (PowerShell)", "path": shell},
+                           "actions": actions, "exit_code": proc.returncode,
+                           "exit_status": probes.exit_status(proc.returncode), "killed_after_close": killed,
+                           "stdout": _output(stdout, norm), "stderr": _output(stderr, norm)}
+    if res.get("error"):
+        rec["error"] = str(res["error"])[:1000]
+    if killed and rec["status"] == "ok":
+        rec["status"] = "partial"
+        rec["error"] = "la aplicación no se cerró tras la última acción: se terminó"
+    return rec
+
+
+def _ui_desktop_coverage(steps: list[dict[str, Any]]) -> Any:
+    desk = [s for s in steps if s["action"] == "desktop"]
+    if not desk:
+        return "not_requested"
+    if all(s["status"] == "ok" for s in desk):
+        return {"status": "observed", "method": "Windows UI Automation",
+                "limits": "árbol de accesibilidad acotado (300 elementos por ventana) de las ventanas del proceso "
+                          "lanzado; sin capturas de imagen; controles sin UI Automation no se ven"}
+    return {"status": "partial", "reason": "; ".join(sorted({str(s.get("error", s["status"]))[:200]
+                                                             for s in desk if s["status"] != "ok"}))}
+
+
 # -- sesión ------------------------------------------------------------------------------------------
 def static_unfixed_factors(script: dict[str, Any]) -> list[dict[str, str]]:
     """Factores externos que el guion no puede fijar, conocidos antes de ejecutar."""
@@ -394,9 +471,10 @@ def _coverage(script: dict[str, Any], steps: list[dict[str, Any]]) -> dict[str, 
                    "observed" if all(s["status"] == "ok" for s in browser) else
                    {"status": "partial", "reason": "; ".join(sorted({str(s.get('error', s['status']))[:200]
                                                                      for s in browser if s["status"] != "ok"}))}),
-        "ui_desktop_mobile": {"status": "not_available",
-                              "reason": "Eolfi no automatiza interfaces nativas de escritorio/móvil; ver REA "
-                                        "capture_native_ui_scenario / capture_adb_screen"},
+        "ui_desktop": _ui_desktop_coverage(steps),
+        "ui_mobile": {"status": "not_available",
+                      "reason": "Eolfi no automatiza interfaces móviles; ver REA capture_adb_screen / "
+                                "capture_native_ui_scenario con un dispositivo autorizado"},
     }
 
 
@@ -525,6 +603,16 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
                                **({} if existed else {"error": "el archivo no existía"}))
                 elif step["action"] == "http":
                     rec.update(_http_step(step, values, variables, script["allow_hosts"], jar, norm))
+                elif step["action"] == "desktop":
+                    cwd = root / step["cwd"] if "cwd" in step else root
+                    cwd.mkdir(parents=True, exist_ok=True)
+                    argv = [expand(a, values, variables) for a in step["argv"]]
+                    senv = {**env, **{k: expand(v, values, variables) for k, v in step["env"].items()}}
+                    argv[0] = _resolve_program(argv[0], cwd, senv)
+                    if os.path.isfile(argv[0]) and argv[0] not in programs:
+                        programs[argv[0]] = _identity(Path(argv[0]))
+                    rec["argv"] = [norm.text(a) for a in argv]
+                    rec.update(_desktop_step(step, argv, cwd, senv, norm))
                 elif step["action"] == "browser":
                     rec.update(_browser_step(step, values, variables, script["allow_hosts"], norm, playwright))
             except ScriptError:
@@ -587,6 +675,8 @@ def _claims(session: dict[str, Any], eid: str) -> list[dict[str, Any]]:
                     f"(sha256 {s['stdout']['sha256'][:12]}), {len(s['effects']['files'])} cambios de archivo")
         elif s["action"] == "http" and s.get("traces") and "response" in s["traces"][0]:
             text = f"Paso {s['id']}: {s['traces'][0]['request']['method']} respondió {s['traces'][0]['response']['status']}"
+        elif s["action"] == "desktop" and s["status"] == "ok":
+            text = f"Paso {s['id']}: {len(s.get('actions', []))} instantáneas de interfaz (UI Automation)"
         elif s["action"] == "browser" and s["status"] == "ok":
             text = f"Paso {s['id']}: {len(s.get('actions', []))} acciones de navegador con {len(s.get('traces', []))} peticiones"
         else:

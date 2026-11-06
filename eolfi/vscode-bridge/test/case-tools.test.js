@@ -28,7 +28,7 @@ function fakeClient(calls) {
 test('eolfi_casos lista, ve, crea, asocia, registra e informa con el mismo estado del servidor', async () => {
   const calls = [];
   const tools = makeCaseTools({ client: async () => fakeClient(calls) });
-  assert.deepStrictEqual(tools.names(), ['eolfi_casos', 'eolfi_caso_analizar']);
+  assert.deepStrictEqual(tools.names(), ['eolfi_casos', 'eolfi_caso_analizar', 'eolfi_observar']);
   const run = (input) => tools.run({ name: 'eolfi_casos', input }, null, null);
   assert.match(await run({ accion: 'listar' }), /Caso \(c1\).*último: triage done/);
   const shown = await run({ accion: 'ver', case_id: 'c1' });
@@ -99,4 +99,36 @@ test('el cliente usa las rutas de casos de la API con token y cabecera anti-CSRF
     assert.ok(seen.every((s) => s.auth === 'Bearer tok' && s.csrf === '1'));
     assert.strictEqual(c.caseReportUrl('c1'), `${base}/api/cases/c1/report`);
   } finally { server.close(); }
+});
+
+test('eolfi_observar: ver, comparar y no ejecutar sin autorización explícita', async () => {
+  const calls = [];
+  const session = { evidence_id: 'e1', name: 'g', status: 'partial', steps: [
+    { id: 'arranque', action: 'run', status: 'ok', exit_status: { kind: 'exit', code: 0 }, effects: { files: [{}, {}] } },
+    { id: 'ui', action: 'browser', status: 'unavailable', error: 'sin Node', effects: { files: [] } }],
+    coverage: { system_calls: { status: 'not_available' }, process_io: 'observed' }, unfixed_factors: [{ factor: 'reloj' }] };
+  const client = { ...fakeClient(calls),
+    observeGet: async (id) => { calls.push(['oget', id]); return { evidence_id: id, session }; },
+    observeCompare: async (b) => { calls.push(['ocmp', b]); return { a: b.a, b: b.b, identical: false, differences_total: 2,
+      first_change: { step: 'arranque', aspect: 'stderr', detail: ['-aviso v1', '+aviso v2'] },
+      attribution: { status: 'hypothesis', candidates: ['objetivo (sha256)'] } }; },
+    observeRun: async (b) => { calls.push(['orun', b]); return { evidence_id: 'e2', ...session }; },
+    observeReplay: async (b) => { calls.push(['orep', b]); return { replay: 'e3', reproducible: false, prechecks: [],
+      non_reproducible: [{ step: 'azar', aspect: 'stdout' }], unfixed_factors: [{ factor: 'reloj' }] }; } };
+  const tools = makeCaseTools({ client: async () => client });
+  const run = (input) => tools.run({ name: 'eolfi_observar', input }, null, null);
+  const shown = await run({ accion: 'ver', evidence_id: 'e1' });
+  assert.match(shown, /arranque: run · ok · código 0 · 2 cambios de archivo/);
+  assert.match(shown, /ui: browser · unavailable · error: sin Node/);
+  assert.match(shown, /system_calls: not_available/);
+  assert.match(shown, /Factores no fijados: reloj/);
+  const cmp = await run({ accion: 'comparar', a: 'x', b: 'y', case_id: 'c1' });
+  assert.match(cmp, /Primer cambio observable: paso arranque, stderr/);
+  assert.match(cmp, /Hipótesis \(sin confirmar\): objetivo \(sha256\)/);
+  assert.match(await run({ accion: 'ejecutar', guion: 'g.json' }), /No ejecutado/);
+  assert.match(await run({ accion: 'repetir', evidence_id: 'e1', autorizado: 'true' }), /No ejecutado/);
+  assert.ok(!calls.some((c) => c[0] === 'orun' || c[0] === 'orep'));
+  await run({ accion: 'ejecutar', guion: 'g.json', autorizado: true, variables: { port: 8 } });
+  assert.deepStrictEqual(calls.find((c) => c[0] === 'orun')[1], { script: 'g.json', variables: { port: '8' }, case_id: undefined, authorized: true });
+  assert.match(await run({ accion: 'repetir', evidence_id: 'e1', autorizado: true }), /NO reproducible[\s\S]*azar: stdout/);
 });

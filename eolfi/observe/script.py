@@ -39,7 +39,8 @@ SCRIPT_VERSION = 1
 MAX_SCRIPT_BYTES = 1024 * 1024
 MAX_STEPS = 200
 MAX_BROWSER_ACTIONS = 100
-STEP_ACTIONS = {"run", "write_file", "delete_file", "http", "browser"}
+STEP_ACTIONS = {"run", "write_file", "delete_file", "http", "browser", "desktop"}
+DESKTOP_DO = {"invoke", "set_value", "toggle", "select", "wait_for", "read"}
 BROWSER_DO = {"goto", "click", "fill", "press", "check", "select", "wait_for", "reload"}
 HTTP_METHODS = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "[::1]"}
@@ -210,6 +211,43 @@ def _step(raw: Any, i: int, seen: set[str]) -> dict[str, Any]:
                     isinstance(vp[k], int) and 100 <= vp[k] <= 8000 for k in vp):
                 _err(f"{label}.viewport: {{width, height}} enteros")
             step["viewport"] = dict(vp)
+    elif action == "desktop":
+        allowed |= {"argv", "timeout", "env", "cwd", "actions", "close"}
+        argv = raw.get("argv")
+        if not isinstance(argv, list) or not argv or len(argv) > 500 or not all(
+                isinstance(a, str) and len(a) <= 8000 for a in argv) or not argv[0]:
+            _err(f"{label}.argv: lista no vacía de textos")
+        step["argv"] = list(argv)
+        step["timeout"] = _timeout(raw.get("timeout"), label, 60.0)
+        step["env"] = _str_map(raw.get("env"), f"{label}.env")
+        if "cwd" in raw:
+            step["cwd"] = _rel_path(raw["cwd"], f"{label}.cwd")
+        if not isinstance(raw.get("close", True), bool):
+            _err(f"{label}.close: booleano")
+        step["close"] = raw.get("close", True)
+        acts = raw.get("actions", [])
+        if not isinstance(acts, list) or len(acts) > MAX_BROWSER_ACTIONS:
+            _err(f"{label}.actions: lista de hasta {MAX_BROWSER_ACTIONS} acciones")
+        aseen: set[str] = set()
+        step["actions"] = []
+        for j, a in enumerate(acts):
+            al = f"{label}.actions[{j}]"
+            if not isinstance(a, dict) or a.get("do") not in DESKTOP_DO or not set(a) <= {
+                    "id", "do", "automation_id", "name", "value", "description"}:
+                _err(f"{al}: «do» debe ser uno de {sorted(DESKTOP_DO)}")
+            aid = a.get("id", f"accion{j + 1}")
+            if not isinstance(aid, str) or not _ID.fullmatch(aid) or aid in aseen:
+                _err(f"{al}.id inválido o repetido")
+            aseen.add(aid)
+            act = {"id": aid, "do": a["do"]}
+            for k in ("automation_id", "name", "value", "description"):
+                if k in a:
+                    act[k] = _text(a[k], f"{al}.{k}", 2000)
+            if a["do"] != "read" and not (act.get("automation_id") or act.get("name")):
+                _err(f"{al}: «{a['do']}» necesita automation_id o name")
+            if a["do"] == "set_value" and "value" not in act:
+                _err(f"{al}: set_value necesita value")
+            step["actions"].append(act)
     extra = set(raw) - allowed
     if extra:
         _err(f"{label}: claves no admitidas para «{action}»: {sorted(extra)}")

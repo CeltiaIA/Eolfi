@@ -60,3 +60,24 @@ def write(dirpath: Path, name: str, source: str) -> Path:
     p = Path(dirpath, name)
     p.write_text(source, encoding="utf-8")
     return p
+
+# Aplicación de escritorio sintética (WinForms en PowerShell): texto → botón → etiqueta en mayúsculas y archivo.
+WINFORMS = r'''
+Add-Type -AssemblyName System.Windows.Forms
+$f = New-Object System.Windows.Forms.Form
+$f.Text = 'Muestra Eolfi'
+$t = New-Object System.Windows.Forms.TextBox
+$t.Name = 'entrada'; $t.AccessibleName = 'Entrada'; $t.Top = 10; $t.Left = 10
+$b = New-Object System.Windows.Forms.Button
+$b.Name = 'convertir'; $b.Text = 'Convertir'; $b.Top = 40; $b.Left = 10
+$l = New-Object System.Windows.Forms.Label
+$l.Name = 'resultado'; $l.Text = '(vacio)'; $l.Top = 70; $l.Left = 10; $l.Width = 200
+$b.Add_Click({
+  $l.Text = $t.Text.ToUpper()
+  [Console]::Out.WriteLine('convertido:' + $t.Text)
+  Set-Content -Path (Join-Path (Get-Location) 'ultimo.txt') -Value $t.Text -Encoding ASCII
+})
+$f.Controls.AddRange(@($t, $b, $l))
+[void]$f.ShowDialog()
+[Console]::Out.WriteLine('cerrado')
+'''

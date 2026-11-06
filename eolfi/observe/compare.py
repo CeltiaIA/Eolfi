@@ -76,6 +76,14 @@ def observables(step: dict[str, Any]) -> list[tuple[str, Any]]:
                                               "cookies": [[c.get("domain"), c.get("name")] for c in st.get("cookies", [])]}),
                      (f"{p}.consola", a.get("console")), (f"{p}.errores", a.get("page_errors")),
                      (f"{p}.diálogos", a.get("dialogs"))]
+    elif act == "desktop":
+        obs_ += [("código de salida", step.get("exit_code")), ("stdout", _out(step.get("stdout"))),
+                 ("stderr", _out(step.get("stderr")))]
+        for a in step.get("actions", []):
+            p = a.get("id", "?")
+            obs_ += [(f"{p}.estado", a.get("status")),
+                     (f"{p}.ventanas", [w.get("title") for w in a.get("windows", [])]),
+                     (f"{p}.interfaz", a.get("windows_sha256"))]
     effects = step.get("effects", {})
     obs_.append(("archivos", _file_effects(effects.get("files", []))))
     if "registry" in effects:
