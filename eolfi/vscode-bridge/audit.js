@@ -16,14 +16,60 @@ const CODE_EXT = new Set(['.py', '.pyw', '.js', '.mjs', '.cjs', '.ts', '.tsx', '
   '.json', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.xml', '.gradle', '.dockerfile']);
 const CODE_NAMES = new Set(['dockerfile', 'makefile', 'jenkinsfile', 'procfile', 'pyproject.toml', 'package.json', 'requirements.txt']);
 const SKIP_FILES = /(^|[\\/])(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|composer\.lock)$|\.min\.(js|css)$|\.map$|\.bundle\.js$/i;
-const MAX_FILE = 300 * 1024;        // más grande: se audita por partes
+const MAX_FILE = 2 * 1024 * 1024;   // más grande: no se audita (volcados de datos, bundles); entre 60 000 caracteres y esto, por partes
 const PART = 60000;                 // caracteres por parte de un archivo grande
 const BATCH_CHARS = 45000;          // caracteres de código por petición al modelo
 const BATCH_FILES = 5;
 
-function inventory(root, { isSecretPath = () => false, max = 3000 } = {}) {
+// Patrones del .gitignore de la raíz: lo que el proyecto no versiona (compilados, candidatos, volcados) no se audita.
+// Soporta lo habitual: «carpeta/», «*.log», «docs/audit/rea/*.json», «models/**», «**/x» y negaciones «!».
+function globToRegex(glob) {
+  let r = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      if (glob[i + 2] === '/') { r += '(?:.*/)?'; i += 2; } else { r += '.*'; i += 1; }
+    } else if (c === '*') r += '[^/]*';
+    else if (c === '?') r += '[^/]';
+    else r += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return r;
+}
+
+function gitignore(root) {
+  let text = '';
+  try { text = fs.readFileSync(path.join(root, '.gitignore'), 'utf8'); } catch { return () => false; }
+  const rules = [];
+  for (let line of text.split(/\r?\n/)) {
+    line = line.trim();
+    if (!line || line.startsWith('#')) continue;
+    const neg = line.startsWith('!');
+    if (neg) line = line.slice(1);
+    const dirOnly = line.endsWith('/');
+    line = line.replace(/\/+$/, '');
+    const anchored = line.includes('/');
+    line = line.replace(/^\//, '');
+    if (!line) continue;
+    const body = globToRegex(line);
+    const re = new RegExp(anchored ? `^${body}(?:/.*)?$` : `(?:^|/)${body}(?:/.*)?$`, process.platform === 'win32' ? 'i' : '');
+    rules.push({ neg, dirOnly, re });
+  }
+  // rel: ruta relativa con «/»; isDir: si es carpeta. La última regla que coincide manda (como git).
+  return (rel, isDir) => {
+    let ignored = false;
+    for (const r of rules) {
+      if (r.dirOnly && !isDir && !r.re.test(rel.split('/').slice(0, -1).join('/'))) continue;
+      if (r.re.test(rel)) ignored = !r.neg;
+    }
+    return ignored;
+  };
+}
+
+function inventory(root, { isSecretPath = () => false, max = 3000, maxSize = MAX_FILE } = {}) {
   const files = [];
   const skipped = [];
+  const ignored = gitignore(root);
+  const relOf = (full) => path.relative(root, full).replace(/\\/g, '/');
   const walk = (dir) => {
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -31,7 +77,9 @@ function inventory(root, { isSecretPath = () => false, max = 3000 } = {}) {
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name.toLowerCase()) && !e.name.endsWith('.egg-info')) walk(full);
+        if (SKIP_DIRS.has(e.name.toLowerCase()) || e.name.endsWith('.egg-info')) continue;
+        if (ignored(relOf(full), true)) { skipped.push({ path: full, why: 'carpeta ignorada por .gitignore' }); continue; }
+        walk(full);
         continue;
       }
       if (!e.isFile()) continue;
@@ -39,9 +87,11 @@ function inventory(root, { isSecretPath = () => false, max = 3000 } = {}) {
       if (!CODE_EXT.has(ext) && !CODE_NAMES.has(e.name.toLowerCase())) continue;
       if (isSecretPath(full)) { skipped.push({ path: full, why: 'secretos' }); continue; }
       if (SKIP_FILES.test(full)) { skipped.push({ path: full, why: 'generado o minificado' }); continue; }
+      if (ignored(relOf(full), false)) { skipped.push({ path: full, why: 'ignorado por .gitignore' }); continue; }
       let size = 0;
       try { size = fs.statSync(full).size; } catch { continue; }
       if (size === 0) continue;
+      if (size > maxSize) { skipped.push({ path: full, why: `demasiado grande (${Math.round(size / 1024)} KB): datos o bundle, no se audita` }); continue; }
       if (files.length >= max) { skipped.push({ path: full, why: `más de ${max} archivos` }); continue; }
       files.push({ path: full, size });
     }
@@ -65,6 +115,12 @@ function pieces(file, text) {
   let len = 0;
   let from = 1;
   lines.forEach((l, i) => {
+    if (l.length > PART) {   // una sola línea más larga que una parte: va sola, troceada por caracteres
+      if (cur.length) { out.push({ path: file, part: out.length + 1, text: cur.join('\n'), from }); cur = []; len = 0; }
+      for (let k = 0; k < l.length; k += PART) out.push({ path: file, part: out.length + 1, text: l.slice(k, k + PART), from: i + 1 });
+      from = i + 2;
+      return;
+    }
     cur.push(l);
     len += l.length + 1;
     if (len >= PART) { out.push({ path: file, part: out.length + 1, text: cur.join('\n'), from }); cur = []; len = 0; from = i + 2; }
@@ -75,12 +131,18 @@ function pieces(file, text) {
 
 // ¿El modelo dice que el lote no le cabe? (llama.cpp: «exceeds the available context size»; OpenAI y otros: «context
 // length», «too many tokens», «maximum context»…)
-const TOO_BIG = /exceeds? the available context|context (size|length|window)|too many tokens|maximum context|prompt is too long|input is too long/i;
+// GitHub Copilot: «Message exceeds token limit»; otros: «request too large», «token limit», HTTP 413.
+const TOO_BIG = /exceeds? the available context|context (size|length|window)|too many tokens|maximum context|prompt is too long|input is too long|token limit|request (entity )?too large|payload too large|\b413\b/i;
 
 // Parte un trozo por la mitad de sus líneas (conserva el número de la primera línea de cada mitad).
 function splitPiece(p) {
   const lines = p.text.split('\n');
-  if (lines.length < 2) return [p];
+  if (lines.length < 2) {   // una sola línea larga: por la mitad de sus caracteres
+    if (p.text.length < 2000) return [p];
+    const base = { path: p.path, part: p.part || 1, parts: p.parts || 1, from: p.from };
+    const mid = Math.ceil(p.text.length / 2);
+    return [{ ...base, text: p.text.slice(0, mid) }, { ...base, text: p.text.slice(mid) }];
+  }
   const mid = Math.ceil(lines.length / 2);
   const base = { path: p.path, part: p.part || 1, parts: p.parts || 1 };
   return [{ ...base, text: lines.slice(0, mid).join('\n'), from: p.from }, { ...base, text: lines.slice(mid).join('\n'), from: p.from + mid }];
@@ -89,10 +151,14 @@ function splitPiece(p) {
 // Revisa un lote; si no cabe en el contexto del modelo, lo parte en dos y revisa cada mitad (hasta 4 niveles).
 async function reviewBatch(batch, root, context, complete, token, progress = () => {}, depth = 0) {
   try { return String(await complete(batchPrompt(batch, root, context), token) || '').trim(); } catch (e) {
-    if (!TOO_BIG.test(String(e && e.message)) || depth >= 4) throw e;
-    const halves = batch.length > 1 ? [batch.slice(0, Math.ceil(batch.length / 2)), batch.slice(Math.ceil(batch.length / 2))]
+    if (!TOO_BIG.test(String(e && e.message))) throw e;
+    const halves = depth >= 6 ? [] : batch.length > 1 ? [batch.slice(0, Math.ceil(batch.length / 2)), batch.slice(Math.ceil(batch.length / 2))]
       : splitPiece(batch[0]).map((x) => [x]);
-    if (halves.length < 2) throw e;
+    if (halves.length < 2) {
+      const rel = (x) => path.relative(root, x).replace(/\\/g, '/');
+      progress(`No cabe en el contexto del modelo ni partido: lo anoto y sigo (${batch.map((x) => path.basename(x.path)).join(', ')}).`);
+      return batch.map((x) => `### \`${rel(x.path)}\`${x.part ? ` — parte ${x.part} de ${x.parts} (desde la línea ${x.from})` : ''}\n- Omitido: no cabe en el contexto del modelo (${String(e.message).slice(0, 120)}).`).join('\n\n');
+    }
     progress(`El lote no cabe en el contexto del modelo: lo parto en dos (${batch.map((x) => path.basename(x.path)).join(', ')})…`);
     const out = [];
     for (const h of halves) out.push(await reviewBatch(h, root, context, complete, token, progress, depth + 1));
@@ -249,6 +315,20 @@ async function runAudit({ root, report, resume = true, token = null, deps }) {
       && Number.isInteger(st.next) && st.next >= 0 && st.next <= st.files.length;
     if (!ok) st = null;   // estado dañado o ajeno: se empieza de cero
   }
+  if (st && !st.done) {
+    // El inventario pudo cambiar (reglas nuevas: .gitignore, tamaño máximo): lo pendiente se recalcula, lo hecho se queda.
+    const inv = inventory(root, { isSecretPath: deps.isSecretPath });
+    const done = st.files.slice(0, st.next);
+    const doneSet = new Set(done);
+    const rest = inv.files.map((f) => f.path).filter((f) => !doneSet.has(f));
+    const before = st.files.length;
+    if (rest.length !== before - st.next) {
+      st.files = [...done, ...rest];
+      st.skipped = inv.skipped;
+      saveState(sf, st);
+      deps.say(`ℹ️ Inventario actualizado: quedan **${rest.length}** archivos por revisar (antes ${before - st.next}); se omiten ${inv.skipped.length} (ignorados por .gitignore, demasiado grandes, dependencias…).\n\n`);
+    }
+  }
   if (!st || st.done) {
     const inv = inventory(root, { isSecretPath: deps.isSecretPath });
     st = { root, report, files: inv.files.map((f) => f.path), skipped: inv.skipped, next: 0, highlights: [], started: new Date().toISOString(), done: false };
@@ -333,5 +413,5 @@ async function runAudit({ root, report, resume = true, token = null, deps }) {
   return { done: true, total: st.files.length, highlights: st.highlights.length, real: real.length, falsos: nF, diseno: nD };
 }
 
-module.exports = { inventory, pieces, batches, batchPrompt, runAudit, stateFile, highlights, SKIP_DIRS, reviewBatch, splitPiece, TOO_BIG,
+module.exports = { gitignore, globToRegex, MAX_FILE, inventory, pieces, batches, batchPrompt, runAudit, stateFile, highlights, SKIP_DIRS, reviewBatch, splitPiece, TOO_BIG,
   loadContext, verifyHighlights, parseHighlight, excerpt, parseVerdicts, CONTEXT_FILE };

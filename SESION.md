@@ -634,3 +634,11 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
   y reglas de alcance («NO EVALUADA», no concluir «sin vulnerabilidades» sin cobertura). Prompt de auditoría
   actualizado. Pruebas de la extensión 101 (7 nuevas). Copia previa en backups/antes-comprobaciones-2026-11-06.
   Pendiente: probarlo de verdad en VS Code con /auditar sobre D:\celtiaia.
+- Extensión 0.6.2 («se cortó a los 13» en D:\celtiaia): /auditar paraba en el archivo 13 de 2151 con «Message exceeds
+  token limit.». Causas: docs/audit/rea/force-main-preload-static.json (55 MB en UNA línea) entraba entero porque
+  MAX_FILE no se aplicaba y pieces() solo partía por líneas; TOO_BIG no reconocía ese mensaje de Copilot, así que no
+  se partía el lote; y si no cabía ni partido, se paraba toda la auditoría. Además el inventario no miraba .gitignore
+  (runtime/ aportaba ~1600 de los 2151). Ahora: .gitignore de la raíz respetado (carpetas, globs, negaciones),
+  archivos >2 MB omitidos, líneas enormes troceadas, TOO_BIG con «token limit»/413 (sin confundir el rate limit), lo
+  que no cabe se anota como omitido y sigue, y al continuar se recalcula lo pendiente (D:\celtiaia: 479 archivos).
+  Pruebas de la extensión 108.
