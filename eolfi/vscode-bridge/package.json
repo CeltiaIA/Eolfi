@@ -6,7 +6,7 @@
   "publisher": "eolfi",
   "private": true,
   "license": "UNLICENSED",
-  "author": "Luis Manuel Cousido Hermida y CeltIA (Celtia IA)",
+  "author": "Luis Manuel Cousido Hermida",
   "engines": {
     "vscode": "^1.101.0"
   },

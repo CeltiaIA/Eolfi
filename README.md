@@ -1,6 +1,6 @@
 # Eolfi
 
-> **Software propietario y privado.** © 2026 Luis Manuel Cousido Hermida y CeltIA (Celtia IA). Todos los
+> **Software propietario y privado.** © 2026 Luis Manuel Cousido Hermida. Todos los
 > derechos reservados; no se concede ninguna licencia de uso, copia ni distribución. Ver [LICENSE](LICENSE).
 
 Sistema **local** de agentes para ingeniería inversa. Orquesta herramientas

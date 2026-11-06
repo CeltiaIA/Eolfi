@@ -7,5 +7,5 @@ retos de aprendizaje o software que tengas derecho a analizar.
 """
 
 __version__ = "0.8.0"
-__author__ = "Luis Manuel Cousido Hermida y CeltIA (Celtia IA)"
+__author__ = "Luis Manuel Cousido Hermida"
 __license__ = "Propietaria: todos los derechos reservados (ver LICENSE)"

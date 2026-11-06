@@ -5,7 +5,7 @@ description = "Sistema local de agentes para ingeniería inversa con modelo de e
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Propietaria: todos los derechos reservados (ver LICENSE)"}
-authors = [{name = "Luis Manuel Cousido Hermida"}, {name = "CeltIA (Celtia IA)"}]
+authors = [{name = "Luis Manuel Cousido Hermida"}]
 keywords = ["ingeniería inversa", "reverse engineering", "evidencias", "generador de proyectos"]
 classifiers = [
     "License :: Other/Proprietary License",
