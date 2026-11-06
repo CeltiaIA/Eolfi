@@ -26,7 +26,7 @@ def test_initialize_y_lista(tmp_path):
     assert old["result"]["protocolVersion"] == "2025-06-18"
     tools = srv.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})["result"]["tools"]
     names = {t["name"] for t in tools}
-    assert {"eolfi_triage", "eolfi_incognitas", "eolfi_informe", "eolfi_repo", "eolfi_biblioteca_buscar"} <= names
+    assert {"eolfi_triage", "eolfi_incognitas", "eolfi_informe", "eolfi_repo", "eolfi_biblioteca_buscar", "eolfi_biblioteca_leer"} <= names
     for t in tools:
         assert t["inputSchema"]["type"] == "object"
     assert srv.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
@@ -111,3 +111,7 @@ def test_consulta_biblioteca_es_solo_referencia(tmp_path):
     assert not result["isError"]
     assert "no evidencia del objetivo actual" in result["content"][0]["text"]
     assert result["structuredContent"]["resultados"][0]["ruta"] == "corpus/texto/Eolfi/concepto.md"
+    read = _call(srv, "eolfi_biblioteca_leer", {"ruta": "corpus/texto/Eolfi/concepto.md"})
+    assert not read["isError"]
+    assert "Una referencia de configuración local" in read["structuredContent"]["contenido"]
+    assert _call(srv, "eolfi_biblioteca_leer", {"ruta": "../secret.md"})["isError"]

@@ -10,6 +10,7 @@ ALLOWED_SUFFIXES = {".md", ".txt", ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", 
 EXCLUDED_PARTS = {".git", ".claude", ".eolfi", "backups", "backup", "generated", "build", "dist", "node_modules", "samples", "venv", ".venv", "__pycache__"}
 MAX_FILE_BYTES = 512_000
 MAX_ENTRIES = 25_000
+MAX_READ_CHARS = 30_000
 
 
 def _normal(text: str) -> str:
@@ -68,3 +69,35 @@ class AlexandriaLibrary:
             {"ruta": path, "relevancia": score, "fragmento": excerpt}
             for score, path, excerpt in hits[:limit]
         ], "recortado": len(entries) > MAX_ENTRIES}
+
+    def read(self, relative_path: str, offset: int = 0) -> dict:
+        """Recupera un documento específico del corpus bajo demanda; nunca copia la biblioteca."""
+        if not isinstance(relative_path, str) or not relative_path.strip() or len(relative_path) > 500:
+            raise ValueError("Indica una ruta relativa devuelta por la búsqueda (máximo 500 caracteres).")
+        if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= 10_000_000:
+            raise ValueError("El desplazamiento debe ser un entero entre 0 y 10.000.000.")
+        manifest = self.root / "manifests" / "corpus.index.json"
+        if not manifest.is_file():
+            raise FileNotFoundError(f"No se encuentra el índice de Alejandría: {manifest}")
+        data = json.loads(manifest.read_text(encoding="utf-8-sig"))
+        entries = data.get("entries", []) if isinstance(data, dict) else []
+        rel = relative_path.replace("\\", "/").lstrip("/")
+        indexed = {e.get("path", "").replace("\\", "/").lstrip("/")
+                   for e in entries[:MAX_ENTRIES] if isinstance(e, dict) and isinstance(e.get("path"), str)}
+        if rel not in indexed:
+            raise ValueError("La ruta no aparece en el índice del corpus; busca primero en Alejandría.")
+        candidate = (self.root / rel).resolve()
+        corpus_roots = [(self.root / "corpus" / name).resolve() for name in ("codigo", "texto")]
+        if not any(candidate == base or base in candidate.parents for base in corpus_roots):
+            raise ValueError("La ruta está fuera de corpus/codigo y corpus/texto.")
+        parts = {p.casefold() for p in candidate.relative_to(self.root).parts}
+        if parts & EXCLUDED_PARTS or candidate.suffix.casefold() not in ALLOWED_SUFFIXES:
+            raise ValueError("Ese tipo de archivo o carpeta no está permitido para consulta.")
+        if not candidate.is_file() or candidate.stat().st_size > MAX_FILE_BYTES:
+            raise ValueError("El documento no existe o supera el límite de lectura (512 KB).")
+        content = candidate.read_text(encoding="utf-8", errors="replace")
+        chunk = content[offset:offset + MAX_READ_CHARS]
+        next_offset = offset + len(chunk)
+        return {"ruta": rel, "desde": offset, "contenido": chunk, "recortado": next_offset < len(content),
+                "siguiente_desde": next_offset if next_offset < len(content) else None,
+                "caracteres_totales": len(content)}
