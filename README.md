@@ -87,6 +87,22 @@ python -m eolfi resilience inject ./miprograma
 La base de evidencias por defecto es `eolfi.db` (cámbiala con `--db`).
 Con `EOLFI_DEBUG=1` los errores muestran el traceback completo.
 
+## Casos de análisis
+
+Un caso agrupa artefactos (con hash, tamaño, formato, procedencia, herramientas, versiones y entorno), las ejecuciones
+de cada flujo con su estado (`done`, `partial`, `error`, `cancelled`), evidencias, incógnitas y conclusiones
+(`observed`, `derived` o `hypothesis`; una hipótesis nunca se exporta ni importa como hecho).
+
+```bash
+python -m eolfi case create "Calculadora v2" --description "muestra propia"
+python -m eolfi triage muestra.exe --local --case <case_id> --provenance "compilada por mí"
+python -m eolfi case report <case_id> --out caso.html
+python -m eolfi case export <case_id> caso.json
+```
+
+`--case` también funciona con `web`, `repo`, `diff`, `compare` y `create`. El panel (pestaña «Casos», con caso activo)
+y el agente de VS Code (`eolfi_casos`, `eolfi_caso_analizar`) usan el mismo estado a través de `/api/cases`.
+
 ## Servidor de desarrollo
 
 ```bash
@@ -125,8 +141,9 @@ En el panel: pestañas Binario / Web / Repositorio para analizar, casillas en
     `POST /api/repo` (`{"source"}`), `POST /api/compare` (`{"a", "b"}`).
   - Subida: `POST /api/upload?store=1&name=` (cuerpo binario, a disco por bloques; devuelve
     `{"upload": sha256}`) y después el trabajo `triage` con `{"upload", "name", "mode"}`.
-  - Crear: `POST /api/create` (`{"sources", "name", "target", "out", "verify", "force", "db", "auth",
+  - Crear: `POST /api/create` (`{"sources", "name", "target", "out", "force", "db", "auth",
     "reanalyze", "ai_brief", "ai_provider", "ai_model", "ai_base_url"}`).
+    La instalación, compilación y pruebas son obligatorias; el antiguo campo `verify` se ignora.
   - Incógnitas: `POST /api/incognitas/<id>/resolve`.
   - Puente: `GET /api/bridge/status|events|screen`, `POST /api/bridge/chat|input` (el token del puente
     se queda en el servidor; el navegador nunca lo ve).
@@ -173,7 +190,7 @@ python -m eolfi create \
     --from https://una-web.com/ \
     --from https://github.com/usuario/repo \
     --from D:/otra/carpeta \
-    --name "Mi proyecto" --out D:/proyectos/mi-proyecto --verify
+    --name "Mi proyecto" --out D:/proyectos/mi-proyecto
 ```
 
 1. Analiza cada fuente (o reutiliza un objetivo ya analizado: `--from <sha|url:…>`).
@@ -222,7 +239,7 @@ python -m eolfi create \
    un APK/AAB, IPA, React Native, Flutter o .NET MAUI → **móvil** (Android e
    iOS); el resto, web o backend. La especificación guarda `platforms` (dónde
    funcionará lo generado) y `source_platforms` (sistemas de las apps analizadas).
-4. Con `--verify`: instala las dependencias en su **última versión**, las
+4. La verificación es **obligatoria**: instala las dependencias en su **última versión**, las
    fija en `package.json`/`requirements.txt`, compila y pasa las pruebas
    (Python usa un `.venv` propio, nunca el global).
 
@@ -344,8 +361,10 @@ python -m eolfi vscode-do open --path src/app.py --line 40
 - **Terminal e internet en el agente**: `@eolfi` ejecuta órdenes (PowerShell/bash) dentro del proyecto y lee o
   busca en la web, con tu permiso una vez por sesión («Permitir en esta sesión» o «Solo esta vez»). Borrar archivos
   se confirma orden a orden; formatear, apagar, tocar el registro o la seguridad, volcar variables de entorno, forzar
-  `git push` o tocar secretos está bloqueado; la web solo a hosts públicos y sin seguir redirecciones. Todo queda en
-  el canal «Eolfi» y en `~/.eolfi/agent-log.jsonl`. Ajustes `eolfi.agent.terminal` y `eolfi.agent.web`.
+  `git push` o tocar secretos está bloqueado. También puede leer localhost o la LAN si `eolfi.agent.privateNetwork`
+  está activo: muestra URL e IP y pide permiso para cada petición (también en modo automático), sin seguir
+  redirecciones. Todo queda en el canal «Eolfi» y en `~/.eolfi/agent-log.jsonl`. Ajustes `eolfi.agent.terminal`,
+  `eolfi.agent.web` y `eolfi.agent.privateNetwork`.
 - **Prueba e2e en un VS Code real**: `cd eolfi/vscode-bridge && npm run e2e [archivo]` (con `python -m eolfi serve`
   arrancado). Abre una instancia aparte con un perfil y un historial temporales, inicia sesión con un código, usa el
   manejador del chat con un stream congelado como el de VS Code y revoca su vinculación al acabar.
@@ -354,8 +373,9 @@ python -m eolfi vscode-do open --path src/app.py --line 40
   carpeta, busca en todo con `eolfi_historial` y tú con `@eolfi /historial <palabras>`. Ajustes `eolfi.agent.history`
   y `eolfi.agent.historyDays` (365).
 - **Modos de trabajo**: ✋ **manual** (por defecto: diff para cada cambio, terminal e internet una vez por sesión,
-  borrar orden a orden y REA que ejecuta algo con confirmación) o 🚀 **automático** (sin pedir permisos; lo bloqueado
-  sigue bloqueado, todo se registra y los cambios de cada petición se deshacen). Botón «Manual/Auto» en la barra de
+  borrar orden a orden y REA que ejecuta algo con confirmación) o 🚀 **automático** (las operaciones normales no
+  preguntan; cada borrado y conexión a red privada siguen pidiendo confirmación; todo se registra y los cambios de
+  cada petición se deshacen). Botón «Manual/Auto» en la barra de
   estado, `@eolfi /auto` / `@eolfi /manual` o el ajuste `eolfi.agent.mode`.
 - **Como el modo Agente de Copilot**: cada cambio de `@eolfi` se abre en un diff (archivo ↔ propuesta) con
   «Aplicar» / «Descartar»; al final lista los archivos cambiados con enlaces y un botón «Deshacer estos cambios»; las
@@ -389,6 +409,10 @@ python -m eolfi vscode-do open --path src/app.py --line 40
   (`~/.copilot/mcp-config.json` → «rea», o los ajustes `eolfi.rea.*`). Busca entre sus ~230 herramientas y usa la
   adecuada; solo pide confirmación para las que ejecutan algo o tocan procesos y dispositivos (Frida, depuradores,
   rizin, capturas en vivo, adb, instalar…).
+- **Otros MCP de Codex**: `mcp_herramientas` y `mcp_usar` descubren y llaman los servidores locales `stdio` de
+  `~/.codex/config.toml` (o la ruta `eolfi.mcp.codex.config`; recarga VS Code si cambias el archivo/ruta). Eolfi pide permiso antes de iniciar cada servidor;
+  herramientas no marcadas como solo lectura se confirman en cada llamada, incluso en automático. Solo se pasan al
+  proceso las variables declaradas por ese servidor; no se importan servidores remotos/OAuth ni la sesión de Codex.
 - **Secretos**: el agente nunca lee, busca, analiza ni escribe `.env`, claves (`.pem`, `.key`, `id_rsa`…),
   credenciales ni carpetas como `.ssh` (su contenido no llega al modelo). `/ayuda` lista lo que hace, lo que no
   hace y lo que no puede hacer.

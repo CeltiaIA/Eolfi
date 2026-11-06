@@ -1,5 +1,7 @@
 # Plan de correcciones e implementaciones de Eolfi
 
+> **Documento histórico:** su estado corresponde a las fases de auditoría de noviembre de 2026. El backlog activo está en [PLAN_INGENIERIA_INVERSA_EOLFI.md](PLAN_INGENIERIA_INVERSA_EOLFI.md); consulta este archivo como registro de correcciones anteriores.
+
 Auditoría del 2026-11-04, hecha carpeta por carpeta y archivo por archivo por 5 agentes de revisión en modo solo lectura.
 Prioridad: **A** = alta (seguridad o datos), **M** = media, **B** = baja. `[V]` = fallo reproducido por el agente.
 Cada fase debe acabar con `python -m pytest -q` y `node --test` en verde.

@@ -1445,3 +1445,1173 @@ Se recomienda priorizar estas correcciones antes de habilitar los flujos afectad
 
 - `eolfi/bridge/package-lock.json`: generado o minificado
 - `tests/e2e/package-lock.json`: generado o minificado
+
+# Auditoría archivo por archivo — Eolfi
+
+- Carpeta: `d:\Eolfi`
+- Fecha: 2026-11-06
+- Archivos a revisar: 148
+- Omitidos: 2 (dependencias, compilados, muestras, minificados o secretos)
+
+## Revisión por archivo
+
+### `.claude/launch.json`
+- **Propósito:** Configura el lanzamiento de Eolfi como servidor en el puerto 8777, con recarga automática.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Configuración concisa; no indica un entorno o directorio de trabajo específico.
+- **Mejoras:**
+  - [baja] Documentar cuándo usar `--reload` (L7).
+
+### `.github/workflows/ci.yml`
+- **Propósito:** Ejecuta pruebas de Python, del puente y pruebas e2e en GitHub Actions.
+- **Seguridad:** Las acciones de GitHub se fijan a etiquetas mutables (`@v4`), no a SHA; un cambio de etiqueta podría alterar el código ejecutado (L20-L24, L33-L34, L47-L52).
+- **Errores y robustez:** No se define un límite de tiempo para los trabajos, por lo que una ejecución bloqueada podría consumir tiempo del runner (L11-L18, L30-L32, L44-L46).
+- **Calidad:** Buena separación de trabajos y matriz multiplataforma para Python.
+- **Mejoras:**
+  - [media] Fijar las acciones a SHA completos y mantenerlos actualizados (L20-L24, L33-L34, L47-L52).
+  - [baja] Definir `timeout-minutes` para los trabajos (L11-L18, L30-L32, L44-L46).
+
+### `.vscode/extensions.json`
+- **Propósito:** Recomienda la extensión de VS Code de Eolfi.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Configuración mínima y clara.
+- **Mejoras:**
+  - Sin mejoras necesarias.
+
+### `.vscode/settings.json`
+- **Propósito:** Habilita el uso del archivo de entorno en terminales de Python.
+- **Seguridad:** `python.terminal.useEnvFile` puede exponer variables del archivo de entorno a los comandos ejecutados en la terminal (L2).
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Configuración mínima.
+- **Mejoras:**
+  - [media] Evitar incluir secretos en el archivo de entorno o desactivar esta opción si no se necesita (L2).
+
+### `eolfi/__init__.py`
+- **Propósito:** Documenta el paquete y define su versión, autoría y licencia.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Metadatos y docstring claros.
+- **Mejoras:**
+  - Sin mejoras necesarias.
+
+### `eolfi/__main__.py`
+- **Propósito:** Punto de entrada del módulo; llama a la CLI y propaga su código de salida.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Implementación breve y clara.
+- **Mejoras:** [baja] Añadir una prueba del punto de entrada, L3-L4.
+
+### `eolfi/bridge/adapters/core.mjs`
+- **Propósito:** Proporciona utilidades compartidas para los adaptadores: espera de respuestas, cancelación, comprobación de origen y gestión de conversaciones.
+- **Seguridad:** [media] `MAX_REPLY_MS` no tiene límite superior; un valor como `Infinity` en la variable de entorno puede anular el tope de espera, L20.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Las funciones comunes están bien separadas; `stableHits` resulta innecesario, pues solo se incrementa para comprobar inmediatamente si vale al menos uno, L29, L42-L45.
+- **Mejoras:** [media] Limitar superiormente `MAX_REPLY_MS`, L20. [baja] Simplificar la comprobación de estabilidad, L42-L45.
+
+### `eolfi/bridge/adapters/declarative.mjs`
+- **Propósito:** Implementa un adaptador configurable mediante selectores para leer y enviar mensajes en chats web.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** [media] Los selectores de la configuración pueden ser inválidos; `readState()` los usa sin capturar errores, por lo que operaciones de estado o envío pueden fallar, L67-L75.
+- **Calidad:** `discover()` recorre todos los elementos del documento y sus atributos; puede ser costoso en páginas grandes, L99-L108.
+- **Mejoras:** [media] Validar los selectores al cargar la configuración o manejar sus errores en `readState()`, L23-L32, L67-L75. [baja] Comprobar el origen justo antes de enviar Enter; actualmente la comprobación precede a la escritura y a otras operaciones asíncronas, L175-L185.
+
+### `eolfi/bridge/adapters/deepseek.mjs`
+- **Propósito:** Automatiza el envío y la lectura de respuestas de DeepSeek usando la interfaz visible del chat.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** [media] La detección de respuesta completa depende de una heurística basada en botones que puede variar con cambios en la interfaz, L128-L131.
+- **Calidad:** Los selectores y criterios de finalización dependen de detalles específicos del DOM, L9, L124-L131.
+- **Mejoras:** [media] Comprobar el origen justo antes de enviar Enter; la comprobación actual ocurre antes de escribir y de otras operaciones asíncronas, L71-L78. [baja] Añadir pruebas para cambios en la estructura del DOM y la heurística de finalización, L124-L131.
+
+### `eolfi/bridge/adapters/gemini.mjs`
+- **Propósito:** Automatiza el envío y la lectura de respuestas de Gemini desde su interfaz web.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** [media] La expresión regular de detección del botón de parada contiene un carácter de retroceso literal en lugar de `\b`; puede no detectar el botón y aplicar el plazo de estabilidad alternativo, L187-L198. [baja] `wire` elimina los espacios iniciales y finales del mensaje, L61.
+- **Calidad:** La lógica de envío y limpieza de borradores es extensa y combina varias heurísticas, L54-L134.
+- **Mejoras:** [alta] Sustituir el carácter de retroceso por el límite de palabra `\b`, L187. [media] Comprobar el origen justo antes de enviar Enter, L85-L101. [baja] Preservar el texto original si los espacios exteriores deben enviarse, L61.
+
+### `eolfi/bridge/adapters/meta.mjs`
+- **Propósito:** Controla Meta AI web mediante la interfaz visible. Comprueba el envío y asocia la respuesta al turno solicitado.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** `uncertain` puede crecer sin límite si se acumulan conversaciones cuyo envío falla después de enviarse (L103).
+- **Calidad:** Los selectores y la lectura de respuestas dependen de detalles internos de la página (L7-L10, L125-L168).
+- **Mejoras:**
+  - [baja] Añadir límites o limpieza para `uncertain` (L48, L103).
+  - [baja] Añadir pruebas de regresión para cambios en el DOM de Meta AI (L121-L170).
+
+### `eolfi/bridge/adapters/sites.json`
+- **Propósito:** Define orígenes, selectores y señales de estado para los adaptadores web de ChatGPT, Copilot y Le Chat.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Copilot está marcado como no calibrado y sus selectores no se han verificado (L77, L113-L118); el estado queda explícito en la configuración.
+- **Calidad:** La configuración es legible y documenta lo verificado y lo pendiente.
+- **Mejoras:**
+  - [baja] Completar la calibración de Copilot antes de habilitarlo como adaptador calibrado (L77, L113-L118).
+
+### `eolfi/bridge/approval.mjs`
+- **Propósito:** Solicita aprobación para envíos y permite conceder permisos temporales por proveedor y conversación.
+- **Seguridad:** Si `showMessageBox` devuelve una respuesta distinta de `2`, se considera aprobada, incluso si no es `0` o `1` (L51). Conviene fallar de forma cerrada ante respuestas inesperadas.
+- **Errores y robustez:** Un rechazo de `showMessageBox` se propaga al llamador (L48); no se maneja en este módulo.
+- **Calidad:** La lógica de aprobación y caducidad está concentrada y es fácil de seguir.
+- **Mejoras:**
+  - [media] Aceptar explícitamente solo las respuestas `0` y `1`; denegar las demás (L51).
+  - [baja] Añadir pruebas para respuestas inesperadas y cadenas de proveedor o conversación con `|` (L7, L13, L50-L51).
+
+### `eolfi/bridge/engine/chrome.mjs`
+- **Propósito:** Lanza y controla navegadores Chromium mediante CDP por tubería, y adapta sus pestañas a una interfaz similar a Electron.
+- **Seguridad:** El perfil contiene datos de sesión, pero se crea sin fijar ni comprobar permisos restrictivos (L373, L401). En equipos compartidos, otros usuarios podrían tener acceso según los permisos existentes y la umask.
+- **Errores y robustez:** El búfer de CDP puede crecer sin límite si no llega un separador nulo (L74-L80). Los clics y desplazamientos no validan que sus coordenadas sean finitas y estén dentro del rango esperado (L286-L297).
+- **Calidad:** El archivo reúne transporte CDP, gestión de pestañas, entrada, capturas y perfil; separar esas responsabilidades facilitaría el mantenimiento (L66-L504).
+- **Mejoras:**
+  - [media] Crear el perfil con permisos restrictivos y verificar los permisos de directorios existentes (L373, L401).
+  - [media] Limitar el tamaño máximo de cada mensaje CDP y del búfer pendiente (L74-L80).
+  - [media] Validar coordenadas y `deltaY` antes de enviar eventos al navegador (L286-L297).
+  - [baja] Separar el transporte CDP y la gestión de pestañas en módulos independientes (L66-L175, L189-L325, L372-L504).
+
+### `eolfi/bridge/main.mjs`
+- **Propósito:** Inicia el puente Electron, abre las ventanas de los proveedores y conecta sus adaptadores con el servidor local.
+- **Seguridad:** [media] L84 permite ventanas secundarias para destinos autorizados, pero no aplica a esas ventanas los controles de navegación de L85. [media] L72 acepta cualquier subdominio de `google.com`, `deepseek.com` y `meta.ai`, no solo hosts de autenticación. [media] En Windows, si `icacls` falla, L170 deja las credenciales con permisos heredados.
+- **Errores y robustez:** [media] L125–143: si el cliente cancela una comparativa mientras espera aprobación, el diálogo no se cancela y, si se aprueba, aún se intenta enviar con la señal ya abortada.
+- **Calidad:** `openWindow` y `input` concentran lógica de navegación y entrada (L77–91, L133–152); convendría separarla para facilitar pruebas.
+- **Mejoras:**
+  - [alta] Aplicar controles de navegación a ventanas secundarias o denegar su apertura (L84).
+  - [media] Restringir los hosts de navegación a los necesarios para autenticación (L72).
+  - [media] Hacer que la cancelación del cliente aborte también la aprobación de comparativas (L125–134).
+  - [media] Garantizar permisos privados para las credenciales en Windows incluso si falla `icacls` (L167–170).
+
+### `eolfi/bridge/package.json`
+- **Propósito:** Declara el paquete Electron del puente, su punto de entrada y los comandos para iniciarlo y ejecutar pruebas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** La descripción enumera solo DeepSeek, Gemini y Meta AI (L7), aunque el código admite otros sitios configurados.
+- **Mejoras:**
+  - [baja] Actualizar la descripción para reflejar los proveedores configurables (L7).
+
+### `eolfi/bridge/server.mjs`
+- **Propósito:** Expone la API local del puente para estado, mensajes, aprobaciones, eventos y control de las ventanas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** [media] En `/v1/compare`, la desconexión aborta la señal de envío (L125), pero no cancela la aprobación pendiente ni impide continuar tras una aprobación tardía (L130–143).
+- **Calidad:** La función que implementa el servidor reúne rutas, validación y gestión de eventos en un bloque extenso (L50–283), lo que dificulta su mantenimiento.
+- **Mejoras:**
+  - [media] Enlazar la cancelación de la petición con la aprobación y comprobar la cancelación antes de enviar (L125–143).
+  - [baja] Separar los manejadores de rutas en funciones para facilitar pruebas y mantenimiento (L50–283).
+
+### `eolfi/bridge/test/adapters.test.mjs`
+- **Propósito:** Comprueba que los scripts de los adaptadores compilan, que el estado de sesión se representa correctamente y que no se ejecutan fuera del sitio esperado.
+- **Seguridad:** Sin hallazgos. `new Function` (L19) solo compila el script de prueba; no lo ejecuta.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Las pruebas usan dobles simulados (L18–19); no verifican el comportamiento de los adaptadores frente a cambios reales de las páginas.
+- **Mejoras:**
+  - [baja] Añadir pruebas de integración controladas para validar el comportamiento ante cambios de DOM (L14–36).
+
+### `eolfi/bridge/test/engine-concurrency.test.mjs`
+- **Propósito:** Prueba aperturas concurrentes de páginas y arranques concurrentes del motor usando simulaciones.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** La prueba titulada “se abren en paralelo” no verifica concurrencia entre sitios: los abre secuencialmente con `await` (L21–31).
+- **Mejoras:**
+  - [baja] Abrir sitios distintos con `Promise.all` y comprobar que el segundo no espera al primero (L21–31).
+
+### `eolfi/bridge/test/engine.test.mjs`
+- **Propósito:** Prueba el motor CDP con un navegador real cuando se activa mediante una variable de entorno.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La limpieza no espera a que se cierre el servidor y usa una espera fija antes de borrar el perfil; puede dejar recursos abiertos o competir con el navegador (L27-L29).
+- **Calidad:** La prueba cubre navegación, escritura, captura y reutilización de ventana; requiere un navegador instalado y configurado.
+- **Mejoras:**
+  - [baja] Esperar al cierre del servidor y a la finalización del navegador antes de borrar el perfil (L26-L29).
+
+### `eolfi/bridge/test/fase-a.test.mjs`
+- **Propósito:** Comprueba la caducidad de aprobaciones, la selección de conversación y la normalización de saltos de línea.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los tiempos fijos de espera hacen que la prueba de caducidad dependa de la planificación del proceso (L13-L15, L22).
+- **Calidad:** Las pruebas cubren casos relevantes; el adaptador y los contenidos falsos son simples y legibles.
+- **Mejoras:**
+  - [baja] Sustituir las esperas temporizadas por control de reloj o sincronización explícita para reducir la flakiness (L13-L15, L22).
+
+### `eolfi/bridge/test/fase-b.test.mjs`
+- **Propósito:** Verifica respuestas del puente ante ventanas cerradas, reinicio de estado, revocación y cuerpos grandes.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** El cierre del servidor no se espera, por lo que la prueba puede terminar antes de completar la limpieza (L22).
+- **Calidad:** Las pruebas cubren casos de error y usan un adaptador compartido, cuyo estado depende del orden de ejecución (L7-L9, L35-L39).
+- **Mejoras:**
+  - [baja] Esperar a que el servidor cierre y aislar el estado del adaptador por prueba (L7-L9, L22).
+
+### `eolfi/bridge/test/fase-c.test.mjs`
+- **Propósito:** Comprueba que el puente exige `panelToken` y que la lista de teclas no incluye propiedades heredadas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Pruebas pequeñas y directas; no se observan problemas relevantes.
+- **Mejoras:**
+  - [baja] Añadir casos de valores inválidos de `panelToken`, además de su ausencia e igualdad con `token` (L7-L9).
+
+### `eolfi/bridge/test/fase-d.test.mjs`
+- **Propósito:** Prueba aprobación y revocación, envío a DeepSeek, tramas CDP, navegación y validaciones del servidor.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La prueba de navegación usa esperas fijas para comprobar que no se resolvió la promesa, lo que puede ser sensible a la carga del proceso (L133-L140). Los flujos falsos de CDP no se cierran explícitamente (L97-L110).
+- **Calidad:** Buena cobertura de casos límite; algunas pruebas dependen de detalles internos, como `_markClosed` (L113-L120).
+- **Mejoras:**
+  - [baja] Reemplazar las esperas fijas de navegación por sincronización determinista (L133-L140).
+  - [baja] Cerrar los flujos falsos al terminar la prueba de tramas (L97-L110).
+
+### `eolfi/bridge/test/fase-e.test.mjs`
+- **Propósito:** Prueba la espera de respuestas y la carga y validación de configuraciones de sitios declarativos.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los directorios temporales no se eliminan (L40-L45, L57-L62). Las pruebas de espera dependen de intervalos y reloj de pared, por lo que pueden ser inestables bajo carga (L14-L21, L24-L26).
+- **Calidad:** La preparación de archivos temporales se repite.
+- **Mejoras:**
+  - [media] Eliminar los directorios temporales al terminar cada prueba (L40-L45, L57-L62).
+  - [baja] Reducir la dependencia de tiempos fijos en las pruebas de espera (L14-L21, L24-L26).
+
+### `eolfi/bridge/test/panel.test.mjs`
+- **Propósito:** Prueba la separación de credenciales del panel, el envío ocupado y la cancelación durante la aprobación.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Las pausas fijas para sincronizar las pruebas pueden causar fallos intermitentes en equipos lentos (L45-L46, L54-L59). El cierre del servidor no se espera explícitamente (L22).
+- **Calidad:** El estado compartido entre pruebas (`approvals`, `release` y `sent`) puede dificultar el diagnóstico de fallos (L7-L9).
+- **Mejoras:**
+  - [media] Sincronizar las pruebas con señales explícitas en vez de pausas fijas (L45-L46, L54-L59).
+  - [baja] Esperar el cierre del servidor en el hook `after` (L22).
+
+### `eolfi/bridge/test/server.test.mjs`
+- **Propósito:** Prueba la autenticación, las conversaciones, la cancelación, el historial y las rutas de captura y entrada.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La prueba de cancelación usa un temporizador que no se limpia (L59-L62). El cierre del segundo servidor no se espera explícitamente (L112). Si una aserción falla antes de restaurar `allow`, el estado compartido queda alterado (L44-L48, L93-L95).
+- **Calidad:** Las pruebas dependen de estado global mutable compartido (L7-L7).
+- **Mejoras:**
+  - [media] Restaurar `allow` con limpieza garantizada, incluso si falla una aserción (L44-L48, L93-L95).
+  - [baja] Limpiar el temporizador y esperar el cierre del servidor de la prueba de entrada (L59-L62, L112).
+  - [baja] Aislar el estado compartido entre pruebas (L7-L7).
+
+### `eolfi/cli.py`
+- **Propósito:** Define los comandos y argumentos de la CLI de Eolfi y los despacha a los flujos correspondientes. También gestiona el puente de navegador y la extensión de VS Code.
+- **Seguridad:** El perfil de navegador conserva sesiones y cookies, pero su creación no fija permisos privados (L433-L436); conviene restringirlos explícitamente, sobre todo en sistemas Unix. Sin otros hallazgos.
+- **Errores y robustez:** El archivo de bloqueo se escribe sin creación exclusiva ni coordinación entre procesos (L435-L440), por lo que dos inicios de sesión simultáneos pueden compartir el perfil y eliminar el bloqueo ajeno. Si falla la enumeración de procesos, `_profile_browsers` devuelve una lista vacía (L504-L515), que puede interpretarse como perfil libre (L547-L549). `_close_browser` no garantiza cerrar el socket ante errores intermedios (L579-L592).
+- **Calidad:** `_dispatch` concentra muchos comandos y responsabilidades (L240-L401); sería más legible dividirlo por grupos. Conviene añadir pruebas de concurrencia en el inicio de sesión y de fallos de comunicación CDP (L411-L479, L569-L593).
+- **Mejoras:**
+  - [media] Aplicar permisos restrictivos al perfil y verificar los permisos heredados del directorio base (L433-L436).
+  - [media] Crear el bloqueo de forma atómica y gestionar explícitamente sesiones concurrentes (L435-L440).
+  - [media] Distinguir errores al enumerar procesos de la confirmación de que el perfil está libre (L504-L515, L547-L549).
+  - [baja] Cerrar el socket con `try/finally` y validar la respuesta del handshake WebSocket (L579-L592).
+  - [baja] Extraer el despacho de comandos en funciones más pequeñas (L240-L401).
+
+### `eolfi/core/evidence.py`
+- **Propósito:** Guarda evidencias e incógnitas en SQLite y exporta o importa paquetes JSON validados.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La importación puede propagar `TypeError` si `evidence` o `incognita` no son listas (L232-L235). El cruce de confianza y la inserción no son atómicos: escrituras concurrentes pueden omitir un conflicto; además, la incógnita se confirma antes de insertar la evidencia (L89-L103, L106-L123).
+- **Calidad:** La fusión de incógnitas y la importación concentran varias responsabilidades en bloques extensos (L138-L163, L215-L275). No se ven pruebas en este archivo.
+- **Mejoras:**
+  - [media] Validar que las colecciones importadas sean listas y convertir errores de estructura en `ValueError` (L230-L235).
+  - [media] Hacer atómicos el registro de evidencias y la detección de conflictos (L89-L103, L106-L123).
+
+### `eolfi/core/models.py`
+- **Propósito:** Define los modelos de evidencias e incógnitas, sus estados y la serialización canónica usada para calcular identificadores.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** `frozen=True` no hace inmutables los diccionarios y listas contenidos en `Evidence`; pueden modificarse después de calcular su identificador y cambiarlo (L41-L66).
+- **Calidad:** `Evidence` e `Incognita` no validan los tipos ni rangos de sus campos al construirse (L41-L55, L79-L89). No se ven pruebas en este archivo.
+- **Mejoras:**
+  - [media] Copiar o hacer inmutables los campos mutables de `Evidence` para estabilizar su huella (L48-L55, L57-L66).
+  - [baja] Añadir validación de campos y estados en los modelos (L41-L55, L79-L89).
+
+### `eolfi/core/report.py`
+- **Propósito:** Construye informes de evidencias e incógnitas y los representa en Markdown o HTML.
+- **Seguridad:** El escapado Markdown solo cubre barras verticales y saltos de línea; contenido hostil puede introducir marcado o HTML en el informe y afectar a visores que admitan HTML sin procesar (L110-L123).
+- **Errores y robustez:** La extracción de hallazgos presupone que `zip_anomalies` y `signer` son diccionarios; resultados con otras formas pueden causar `AttributeError` (L35-L36, L38-L43).
+- **Calidad:** La función `_findings` combina la extracción y el formateo de distintos tipos de resultados (L27-L64). No se ven pruebas en este archivo.
+- **Mejoras:**
+  - [alta] Escapar el marcado y el HTML en los campos del informe Markdown (L110-L123).
+  - [media] Comprobar los tipos de `zip_anomalies` y `signer` antes de acceder a sus campos (L35-L43).
+
+### `eolfi/core/sarif.py`
+- **Propósito:** Exporta evidencias e incógnitas a SARIF 2.1.0, incluyendo artefactos, reglas y resultados.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La exportación presupone JSON válido en las columnas de resultados, parámetros y evidencias relacionadas; una base con datos malformados hará fallar `build_sarif` (L90, L105, L125-L126).
+- **Calidad:** La construcción de cada resultado está integrada directamente en `build_sarif`, que gestiona ambas clases de objetos (L83-L133). No se ven pruebas en este archivo.
+- **Mejoras:**
+  - [baja] Manejar los errores de decodificación JSON con un mensaje que identifique la fila afectada (L90, L105, L125-L126).
+
+### `eolfi/core/stix.py`
+- **Propósito:** Construye y exporta un bundle STIX 2.1 con objetos por objetivo, evidencias, incógnitas y técnicas ATT&CK.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** `_ts` puede lanzar una excepción si recibe una marca temporal fuera del rango admitido por `datetime.fromtimestamp`; los registros creados localmente no se validan aquí (L40-L41, L96-L96).
+- **Calidad:** `build_stix` concentra la construcción de varios tipos de objetos y sus relaciones en una función extensa (L67-L153). No se ven pruebas en este archivo.
+- **Mejoras:**
+  - [media] Validar o gestionar marcas temporales fuera de rango antes de convertirlas a STIX (L40-L41, L96-L96).
+
+### `eolfi/corpus.py`
+- **Propósito:** Integra Eolfi con la biblioteca local Alejandría. Lee su configuración y ejecuta sus scripts de organización y auditoría.
+- **Seguridad:** El subproceso hereda todo `os.environ` (L62-L65), incluidos posibles secretos, aunque el comando y los argumentos están protegidos frente a inyección. [media]
+- **Errores y robustez:** `json.loads` puede propagar `JSONDecodeError` si la configuración no es JSON válido (L25).
+- **Calidad:** La separación entre configuración y ejecución es clara; el comentario sobre el comando fijo documenta una salvaguarda importante.
+- **Mejoras:**
+  - [media] Pasar al subproceso solo las variables de entorno necesarias, evitando exponer secretos (L62-L65).
+  - [baja] Informar de forma más clara cuando `fuentes.json` no se puede analizar (L25).
+
+### `eolfi/dotenv.py`
+- **Propósito:** Analiza archivos `.env` y carga variables que todavía no estén definidas en el entorno.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Un archivo con codificación UTF-8 inválida puede causar `UnicodeDecodeError`, que no se captura junto con `OSError` (L60-L63).
+- **Calidad:** Implementación pequeña y legible; el parser ignora silenciosamente las líneas que no coinciden con el formato esperado (L31-L36).
+- **Mejoras:**
+  - [baja] Manejar e informar errores de decodificación del archivo (L60-L63).
+  - [baja] Añadir pruebas para comillas, comentarios y líneas mal formadas (L22-L37).
+
+### `eolfi/flows/compare_flow.py`
+- **Propósito:** Compara evidencias de dos objetivos y registra las diferencias como una nueva evidencia.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** JSON corrupto en una evidencia puede detener la comparación con `JSONDecodeError` (L22-L23).
+- **Calidad:** Los helpers separan bien los tipos de comparación; `SPECIAL` concentra muchas reglas específicas y lambdas que pueden ser difíciles de ampliar (L118-L140).
+- **Mejoras:**
+  - [media] Manejar evidencia con JSON inválido e indicar qué objetivo u operación falló (L22-L23).
+  - [baja] Añadir pruebas para resultados incompletos y tipos inesperados en las evidencias (L63-L140).
+
+### `eolfi/flows/create_flow.py`
+- **Propósito:** Analiza o reutiliza fuentes, genera un proyecto y, opcionalmente, lo verifica y solicita asistencia de IA.
+- **Seguridad:** Sin hallazgos. Las rutas y destinos se procesan conforme a las salvaguardas descritas en el contexto.
+- **Errores y robustez:** La copia de seguridad usa una marca de tiempo con precisión de un segundo; una segunda copia con el mismo nombre puede fallar (L114-L116). La búsqueda de carpetas también puede propagar errores del sistema de archivos al resolver rutas (L95).
+- **Calidad:** `create_project` concentra clasificación, análisis, generación, verificación y registro de evidencia en una función extensa (L120-L265).
+- **Mejoras:**
+  - [media] Evitar colisiones de nombre en copias de seguridad consecutivas (L114-L116).
+  - [baja] Manejar errores de permisos o enlaces al buscar y resolver carpetas (L95).
+  - [baja] Dividir `create_project` en etapas con responsabilidades más acotadas (L120-L265).
+  - [baja] Añadir pruebas para colisiones de copias de seguridad y fallos durante la generación o verificación (L106-L117, L207-L260).
+
+### `eolfi/flows/diff_flow.py`
+- **Propósito:** Ejecuta referencia y candidato sobre un corpus y compara sus resultados. Registra evidencias e incógnitas por discrepancias.
+- **Seguridad:** [alta] En Windows, `_safe_input` conserva parte de la extensión original al crear el nombre “neutro”; una extensión con metacaracteres puede seguir siendo interpretada por `.bat`/`.cmd` (L158-L170). La ejecución directa de comandos usa los permisos del usuario, aunque el archivo lo advierte (L9-L10, L72-L73; decisión de diseño).
+- **Errores y robustez:** El límite de salida se comprueba mientras el proceso sigue ejecutándose; un proceso que termine rápido puede escribir mucho en los temporales antes de la comprobación (L80-L99). La mutación lee entradas completas antes de aplicar el límite de tamaño (L225-L228, L235-L238), y `mutate` no tiene un máximo (L220-L230).
+- **Calidad:** La validación no restringe `threshold` al intervalo esperado ni valida `timeout` o `mutate` (L195-L210).
+- **Mejoras:**
+  - [alta] Generar nombres temporales con extensión fija o validada para `.bat`/`.cmd` (L163-L170).
+  - [media] Aplicar límites de tamaño antes de leer o mutar entradas y acotar `mutate` (L220-L228, L235-L238).
+  - [media] Limitar la salida durante la escritura, no solo al revisar el archivo temporal (L80-L99).
+  - [baja] Validar `threshold`, `timeout` y `mutate` (L195-L210).
+
+### `eolfi/flows/learn_flow.py`
+- **Propósito:** Ejecuta los flujos de análisis de páginas web y repositorios. Registra evidencias, añade incógnitas y devuelve resúmenes.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Funciones breves y delegación clara; no se observan pruebas en este archivo.
+- **Mejoras:**
+  - [baja] Añadir pruebas de integración para ambos flujos y sus resúmenes (L16-L49, L52-L80).
+
+### `eolfi/flows/triage_flow.py`
+- **Propósito:** Ejecuta proveedores de análisis, registra evidencias y convierte fallos o hallazgos en incógnitas. Construye un resumen a partir de las evidencias almacenadas.
+- **Seguridad:** [media] El aislamiento de proveedores locales es optativo: con el valor predeterminado `isolate=False`, se ejecutan directamente en el proceso mediante `prov.run` (L116-L124, L154-L162), pese a que el contexto indica que los analizadores se aíslan en un subproceso.
+- **Errores y robustez:** Los errores de proveedores se registran y no detienen el triaje, según el diseño (L163-L177). `record_findings` puede propagar errores de conversión o almacenamiento y detener el flujo (L45-L64, L182).
+- **Calidad:** La lógica de resumen está separada en una función auxiliar; no se observan pruebas en este archivo.
+- **Mejoras:**
+  - [media] Aislar por defecto los proveedores locales o ajustar la salvaguarda documentada para reflejar el comportamiento real (L116-L124, L154-L162).
+  - [baja] Añadir pruebas para fallos de proveedores, registro de evidencias y resúmenes (L45-L64, L204-L256).
+
+### `eolfi/generador/assist.py`
+- **Propósito:** Envía el contexto de un proyecto a un proveedor de IA, aplica los archivos devueltos en rutas permitidas y verifica los cambios. Si la verificación falla, intenta repararlos o restaura el contenido original.
+- **Seguridad:** L130-L137: `collect_context` puede leer archivos externos al proyecto si encuentra un enlace simbólico a un archivo editable, y luego incluir su contenido en el contexto enviado al proveedor. L143-L162: el brief y los archivos se interpolan sin escapar en delimitadores XML; contenido malicioso podría confundir al modelo e influir en el código generado. L194-L219: la comprobación de ruta y la escritura no son atómicas; un cambio concurrente de enlaces simbólicos podría redirigir la escritura. L211-L215: contar aserciones no impide debilitarlas (por ejemplo, sustituirlas por aserciones triviales).
+- **Errores y robustez:** L173-L181: `validate_reply` acepta respuestas sin `summary` o `notes` y sin comprobar sus tipos; una respuesta incompleta puede considerarse válida. L244-L245: JSON mal formado o una especificación sin `target` válido puede producir excepciones no normalizadas. L224-L230: la restauración no es atómica y puede fallar; si falla durante la gestión de errores en L270-L278, puede ocultar la excepción original.
+- **Calidad:** `_apply` (L184-L221) concentra validación, protección de archivos y escritura. La comprobación de pruebas existentes se basa solo en contar palabras clave, no en preservar su eficacia.
+- **Mejoras:**
+  - [alta] L130-L137: rechazar enlaces simbólicos o comprobar que el destino real de cada archivo leído permanece dentro de `root`.
+  - [media] L143-L162: delimitar y escapar el contenido no confiable; indicar explícitamente al proveedor que los archivos y el brief son datos, no instrucciones.
+  - [media] L194-L219: evitar la carrera entre comprobación y escritura mediante operaciones seguras frente a enlaces simbólicos y escritura atómica.
+  - [media] L211-L215: sustituir el conteo de aserciones por una protección que detecte debilitamientos reales de pruebas.
+  - [baja] L173-L181: validar tipos y campos obligatorios de la respuesta antes de aplicarla.
+  - [baja] L224-L230: hacer la restauración más robusta y evitar que un fallo al restaurar oculte el error inicial.
+
+### `eolfi/generador/generators_backend.py`
+- **Propósito:** Genera backends FastAPI y Express, con almacenamiento en memoria o SQLite y autenticación opcional. También genera migraciones, frontend y pruebas.
+- **Seguridad:** [alta] El servidor Express no especifica una dirección de escucha y, por defecto, puede quedar accesible desde la red; la autenticación es opcional, por lo que las escrituras pueden quedar sin protección (L867, L931-L932). [media] El límite de intentos por correo puede bloquear temporalmente el inicio de sesión de una víctima tras cinco intentos fallidos (L241-L244, L265-L266; equivalente JS: L723-L724, L758).
+- **Errores y robustez:** En el backend Express con SQLite, `users.create` captura cualquier excepción y la convierte en `false`; el registro ignora ese resultado y responde como si hubiera tenido éxito, incluso ante fallos de base de datos (L812-L813, L751-L752). Las operaciones de escritura SQLite en Python no revierten explícitamente la transacción si falla una operación antes del `commit` (L141-L146, L149-L153, L158-L162).
+- **Calidad:** El archivo concentra plantillas extensas de dos lenguajes y sus pruebas, lo que dificulta revisar y mantener cada backend por separado (L32-L831). Las pruebas CRUD cubren solo el primer recurso generado, no cada recurso (L505-L505, L608-L617, L935-L935, L1022-L1030). La dependencia `express` usa `latest`, por lo que las instalaciones no son reproducibles (L840).
+- **Mejoras:**
+  - [alta] Escuchar en loopback por defecto o hacer configurable el host, y advertir si se habilitan escrituras sin autenticación (L867, L931-L932).
+  - [media] Distinguir los errores de base de datos de los registros duplicados y propagar los fallos al manejador HTTP (L812-L813, L751-L752).
+  - [media] Revertir explícitamente las transacciones Python cuando falle una escritura (L141-L146, L149-L162).
+  - [media] Sustituir el bloqueo rígido por correo por una limitación que no permita provocar fácilmente una denegación de inicio de sesión (L241-L244, L723-L724).
+  - [baja] Añadir pruebas para todos los recursos generados y fijar una versión de Express (L608-L617, L840, L1022-L1030).
+
+### `eolfi/generador/generators_cli.py`
+- **Propósito:** Genera una CLI Python multiplataforma con almacenamiento local JSON, comandos por recurso y pruebas.
+- **Seguridad:** La descripción no tiene límite de longitud (L161); una entrada excesiva puede consumir espacio de almacenamiento. Sin otros hallazgos.
+- **Errores y robustez:** `_load` acepta cualquier lista JSON sin validar sus elementos (L82); datos malformados pueden causar `KeyError` o `TypeError` en L96, L102, L106 y L134. Escrituras concurrentes pueden perder cambios o asignar IDs repetidos (L95-L98); si falla la escritura, puede quedar un temporal (L86-L89).
+- **Calidad:** La normalización puede convertir recursos distintos en el mismo nombre, causando conflictos al registrar subcomandos (L256). Las pruebas no cubren datos JSON malformados ni escrituras concurrentes.
+- **Mejoras:** [media] Validar el esquema de los registros y acotar la descripción (L82, L161). [media] Evitar colisiones tras normalizar recursos (L256). [baja] Añadir sincronización y limpiar temporales al fallar (L86-L98).
+
+### `eolfi/generador/generators_desktop.py`
+- **Propósito:** Genera una aplicación de escritorio Electron, su interfaz estática, configuración de empaquetado y pruebas.
+- **Seguridad:** La comprobación de ruta del protocolo es léxica y no resuelve enlaces simbólicos; un enlace dentro de `renderer/` podría hacer que `net.fetch` sirva un archivo externo (L109-L113). Las dependencias usan la etiqueta mutable `latest`, con riesgo de cambios o comprometimiento de la cadena de suministro (L235).
+- **Errores y robustez:** Una URL con codificación porcentual inválida puede hacer fallar `decodeURIComponent` en el manejador del protocolo (L109). La prueba de humo no informa claramente el caso de `spawnSync` con error de ejecución (`r.error`) (L284-L292).
+- **Calidad:** `ELECTRON_DEV` no se utiliza (L22). Las pruebas comprueban patrones de configuración, pero no prueban el confinamiento real del protocolo (L143-L183).
+- **Mejoras:** [media] Resolver la ruta real y verificar que permanezca dentro de `renderer/` (L109-L113). [media] Fijar versiones de dependencias para builds reproducibles (L235). [baja] Gestionar `r.error` en la prueba de humo y cubrir casos de protocolo inválidos (L109, L284-L292).
+
+### `eolfi/generador/generators_dotnet.py`
+- **Propósito:** Genera una aplicación de escritorio C# con Avalonia, un modelo de contenido, pruebas xUnit y archivos de solución.
+- **Seguridad:** El título se interpola sin escape XML en `ApplicationTitle`; un `&` puede invalidar el `.csproj` (L89). Las versiones NuGet comodín están cubiertas por el contexto como decisión de diseño.
+- **Errores y robustez:** `_section_text` recorre recursivamente el contenido sin límite de profundidad ni de elementos, por lo que estructuras muy profundas o grandes pueden agotar la pila o el tiempo (L44-L60).
+- **Calidad:** Las pruebas no cubren títulos con caracteres especiales en el XML generado ni verifican que cada página tenga secciones (L210-L230).
+- **Mejoras:** [media] Escapar el título para XML antes de insertarlo (L89). [media] Limitar profundidad y volumen del recorrido de contenido (L44-L60). [baja] Añadir pruebas para esos casos y para secciones por página (L210-L230).
+
+### `eolfi/generador/generators_mobile.py`
+- **Propósito:** Genera una app Expo con navegación, secciones, formulario de ejemplo y, si hay recursos configurados, una demo de API. También crea configuración de compilación y pruebas de Jest.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La prueba del formulario se genera si `ContactForm` existe en `spec["sections"]`, pero no comprueba que esté en la página inicial; puede fallar al buscar el botón en la portada (L339-L350). La respuesta de la API se convierte a `ApiItem[]` sin validar su estructura, por lo que datos inesperados pueden provocar errores al renderizar (L228-L232, L252).
+- **Calidad:** `Section` concentra la lógica de varias secciones y del formulario en un componente extenso (L136-L202). Las pruebas cubren navegación y formulario, pero no la carga de la API ni respuestas malformadas (L351-L361).
+- **Mejoras:**
+  - [media] Generar o ubicar la prueba del formulario según la página que realmente contiene `ContactForm` (L339-L350).
+  - [media] Validar la forma de la respuesta antes de tratarla como `ApiItem[]` (L228-L232).
+  - [baja] Añadir pruebas para estados de error y carga de la demo de API (L243-L252).
+
+### `eolfi/generador/generators_more.py`
+- **Propósito:** Genera proyectos Svelte, Next.js y Django a partir de una especificación. Incluye páginas, API de ejemplo y pruebas.
+- **Seguridad:** Las API generadas permiten escrituras sin autenticación ni límites de frecuencia: Next.js, L546-L550; Django, L848-L859 y L862-L880. La exención CSRF de Django está documentada, pero no evita abuso de los endpoints públicos. Los cuerpos JSON se leen sin límite de tamaño, lo que permite consumir memoria con solicitudes grandes: Next.js, L547 y L565; Django, L835-L845.
+- **Errores y robustez:** En Svelte, los fallos de `api.create` quedan sin gestionar y el indicador de error no se restablece tras una carga exitosa (L129-L143). En React, también queda sin gestionar el fallo de `api.create`, y `error` no se restablece al reintentar (L356-L364). Django puede dejar escapar `UnicodeDecodeError` al analizar bytes que no sean UTF-8, pues solo captura `JSONDecodeError` (L835-L838).
+- **Calidad:** `gen_svelte`, `gen_next` y `gen_django` son extensas y mezclan generación de archivos con plantillas largas (L30-L270, L276-L632, L642-L998). La prueba CRUD solo cubre el primer recurso, no todos los generados (L575-L631, L948-L998). Las dependencias `latest` y la ausencia de versión de Django reducen la reproducibilidad (L37-L38, L282-L284, L646).
+- **Mejoras:**
+  - [alta] Añadir límites de tamaño al cuerpo de las solicitudes antes de parsearlo (L547, L565, L835-L845).
+  - [media] Documentar y proteger las API de escritura con autenticación y controles contra abuso si se exponen públicamente (L546-L550, L848-L880).
+  - [media] Gestionar errores de creación en ambos clientes y permitir reintentar tras un fallo de carga (L129-L143, L356-L364).
+  - [media] Capturar también errores de decodificación de JSON en Django y devolver una respuesta 4xx (L835-L838).
+  - [baja] Fijar versiones de dependencias para que los proyectos generados sean reproducibles (L37-L38, L282-L284, L646).
+  - [baja] Ampliar las pruebas CRUD para cubrir cada recurso generado (L575-L631, L948-L998).
+
+### `eolfi/generador/generators_tauri.py`
+- **Propósito:** Genera el esqueleto de una aplicación de escritorio Tauri, con configuración, permisos, pruebas y recursos gráficos.
+- **Seguridad:** [media] `@tauri-apps/cli` usa la versión mutable `latest` (L182), lo que reduce la reproducibilidad y permite que futuras instalaciones incorporen cambios de la dependencia.
+- **Errores y robustez:** Si `w` no ofrece `write_bytes`, se guarda `icon.png.b64` (L186-L190), pero la configuración espera archivos PNG (L159-L160); la compilación puede fallar por faltar `icon.png`.
+- **Calidad:** Las pruebas generadas cubren configuración y enlaces, pero no prueban `crate_name`, `_png`, `_hex` ni la ruta alternativa de escritura (L83-L116, L23-L58, L184-L190).
+- **Mejoras:**
+  - [media] Fijar una versión concreta de `@tauri-apps/cli` en lugar de `latest` (L182).
+  - [media] Garantizar que ambas rutas de escritura produzcan `src-tauri/icons/icon.png`, o informar claramente del requisito de `write_bytes` (L186-L190).
+  - [baja] Añadir pruebas para las funciones auxiliares y la ruta alternativa de escritura (L23-L58, L184-L190).
+
+### `eolfi/generador/generators.py`
+- **Propósito:** Genera proyectos para distintos objetivos a partir de una especificación. Escribe código, configuración, pruebas y documentación en el directorio indicado.
+- **Seguridad:** [alta] `_check_spec` valida título y recursos, pero no los slugs de `spec["pages"]` (L65-L74); estos se usan para construir rutas y nombres de archivo (L119-L120, L341-L342), que `_writer` escribe sin comprobar que queden dentro de `out` (L48-L53). Una especificación manipulada podría provocar escritura fuera del directorio de salida. [alta] El servidor estático generado comprueba la ruta normalizada, pero sigue enlaces simbólicos al leer archivos (L323-L329); un enlace bajo la raíz podría permitir servir archivos externos. [media] `listen(port)` no fija una interfaz local (L333), por lo que el servidor podría quedar accesible desde otras interfaces. [baja] Una ruta con codificación porcentual inválida hace que `decodeURIComponent` lance antes del `try` (L323, L327), dejando la petición sin una respuesta controlada.
+- **Errores y robustez:** En el cliente estático, el acceso directo a `sessionStorage` puede fallar si el almacenamiento está bloqueado (L286). En el cliente React, los errores de creación no se capturan y el estado de error de carga no se restablece tras una carga exitosa (L480-L488). El servidor estático devuelve 404 para cualquier error de lectura, ocultando también fallos distintos de archivo inexistente (L327-L332).
+- **Calidad:** Archivo muy extenso que mezcla lógica de generación con plantillas completas de varios lenguajes y objetivos. Hay pruebas generadas para algunos objetivos, pero no se observan pruebas del servidor estático ni de especificaciones malformadas.
+- **Mejoras:**
+  - [alta] Validar todos los slugs antes de generar y verificar que cada ruta de escritura resuelta permanezca dentro de `out` (L65-L74, L48-L53).
+  - [alta] Rechazar enlaces simbólicos que escapen de la raíz al servir archivos (L325-L329).
+  - [media] Vincular el servidor estático a una interfaz explícita, preferiblemente local (L333).
+  - [media] Capturar errores de decodificación y responder con un estado 400 (L323).
+  - [media] Manejar los errores de almacenamiento y de las solicitudes API en los clientes generados (L286, L480-L488).
+
+### `eolfi/generador/llm.py`
+- **Propósito:** Integra proveedores de modelos por API, locales y web. Valida respuestas JSON y gestiona puentes con el navegador y VS Code.
+- **Seguridad:** [media] Algunas consultas de estado leen respuestas HTTP sin límite de tamaño, lo que permite consumir memoria si el servicio local devuelve una respuesta enorme (L79-L80, L545-L547, L554-L555, L572-L573).
+- **Errores y robustez:** Una respuesta HTTP con JSON válido pero de tipo inesperado puede provocar excepciones no normalizadas; también puede escapar `UnicodeDecodeError` (L183-L184). El rollback ignora los fallos y luego borra todos los diarios, impidiendo reintentar los cambios no restaurados (L515-L517). Si falla la escritura de una respuesta inválida, el error de disco sustituye al error de parseo (L404-L406).
+- **Calidad:** El rollback se añade a la clase mediante asignación dinámica, fuera de su definición (L504-L521). Conviene probar respuestas malformadas y fallos parciales de rollback.
+- **Mejoras:**
+  - [media] Limitar el tamaño leído en las consultas de estado (L79-L80, L545-L547, L554-L555, L572-L573).
+  - [media] Validar que las respuestas HTTP sean objetos JSON y normalizar errores de decodificación (L183-L184).
+  - [media] Conservar los diarios cuyo rollback falle y comunicar el fallo al llamador (L515-L517).
+  - [baja] Definir `rollback` directamente en `VSCodeCopilotProvider` (L504-L521).
+
+### `eolfi/generador/spec.py`
+- **Propósito:** Combina evidencias de varias fuentes para elegir un objetivo y construir una especificación de proyecto con páginas, secciones, diseño y recursos.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Evidencias con estructura inesperada pueden provocar `KeyError` o `TypeError` al acceder a tecnologías (L246-L249), endpoints (L317) o fuentes tipográficas (L335).
+- **Calidad:** La extracción, elección de objetivo y construcción de la especificación están concentradas en una función extensa (`build_spec`, L193-L347), lo que dificulta su mantenimiento y pruebas.
+- **Mejoras:**
+  - [media] Validar el esquema de las evidencias antes de acceder a sus campos (L244-L275, L315-L340).
+  - [baja] Separar la agregación de evidencias de la construcción de la especificación (L193-L347).
+
+### `eolfi/generador/templates.py`
+- **Propósito:** Define un DSL de elementos y renderizadores para generar plantillas HTML, JSX, Vue, Svelte y Django, además de estilos comunes.
+- **Seguridad:** [media] `render_django` inserta nombres y valores de atributos sin escapar ni validar (L426); las funciones de renderizado también emiten nombres de etiqueta sin validarlos (L166-L169, L209-L212, L237-L242, L405-L410). Las secciones actuales usan nodos internos, pero construir un `El` con datos no confiables podría permitir inyección en la salida.
+- **Errores y robustez:** Los renderizadores reciben `Any` y presuponen nodos, rutas y datos con la forma esperada; valores mal formados pueden causar excepciones (L154-L175, L190-L217, L220-L247, L390-L433).
+- **Calidad:** Hay lógica de renderizado repetida entre varios destinos, lo que aumenta el riesgo de comportamientos inconsistentes (L160-L175, L190-L217, L220-L247, L390-L433).
+- **Mejoras:**
+  - [alta] Validar etiquetas y escapar/validar nombres y valores de atributos antes de emitir plantillas (L166-L169, L426).
+  - [media] Añadir validación de tipos y estructura para nodos y datos recibidos por los renderizadores (L154-L160).
+  - [baja] Reducir la duplicación compartiendo lógica de recorrido y validación entre renderizadores (L160-L175, L190-L247, L390-L433).
+
+### `eolfi/generador/verify.py`
+- **Propósito:** Instala dependencias, compila y ejecuta pruebas de proyectos generados. Registra el resultado y, según el objetivo, fija versiones de paquetes.
+- **Seguridad:** [media] El entorno conserva variables que pueden contener credenciales, como `PIP_INDEX_URL`, `PIP_EXTRA_INDEX_URL` y proxies; el código ejecutado en las pruebas puede leerlas (L29-L31, L35-L38). [media] `_run` captura toda la salida en memoria, sin límite de bytes, lo que permite agotar memoria mediante salida excesiva de un proceso (L94-L100).
+- **Errores y robustez:** La fijación de requisitos añade `>=` a cada línea, incluso si ya contiene un operador de versión; también separa el archivo por espacios y puede alterar opciones, comentarios o marcadores (L362-L368). No se comprueba el resultado de `pip freeze` antes de procesar su salida (L356-L360).
+- **Calidad:** `_verify` concentra la lógica de numerosos objetivos y repite patrones de instalación y ejecución (L176-L378). No se incluyen pruebas de esta función en el archivo.
+- **Mejoras:**
+  - [alta] Excluir variables de entorno con credenciales o eliminar credenciales de sus valores antes de lanzar los procesos (L29-L38).
+  - [media] Limitar la salida capturada por `_run` para evitar consumo de memoria sin cota (L94-L100).
+  - [media] Analizar y actualizar `requirements.txt` respetando sus especificadores y sintaxis, y comprobar el resultado de `pip freeze` (L356-L368).
+  - [baja] Extraer la lógica por objetivo en funciones más pequeñas (L193-L378).
+
+### `eolfi/llamacpp.py`
+- **Propósito:** Carga la configuración de llama.cpp y permite iniciar, comprobar y detener el servidor local.
+- **Seguridad:** [media] `extra_args` se añade después de los argumentos que fijan `--host 127.0.0.1`; según cómo procese llama-server los argumentos repetidos, podría permitir sustituir esa restricción y exponer el servicio (L103-L107). [media] `stop()` confía en el PID del archivo sin verificar que corresponda a llama-server; un PID obsoleto o manipulado podría terminar otro proceso (L150-L164).
+- **Errores y robustez:** Si el servidor no queda listo dentro de `wait`, se lanza `TimeoutError` sin detenerlo ni retirar el archivo PID (L137-L145). Dos llamadas simultáneas a `start()` pueden iniciar procesos duplicados y sobrescribir el PID (L125-L137). La configuración convierte `port` a entero, pero no valida su rango (L91-L95).
+- **Calidad:** La configuración se carga sin validar los tipos de todos sus campos, por lo que valores malformados pueden provocar errores posteriores (L77-L95). No se incluyen pruebas en el archivo.
+- **Mejoras:**
+  - [alta] Impedir que `extra_args` reemplace las opciones que limitan el servidor a loopback, o validar los argumentos efectivos (L103-L107).
+  - [media] Verificar la identidad del proceso antes de detenerlo y limpiar el PID si el arranque expira (L137-L145, L150-L164).
+  - [media] Serializar el arranque y validar el puerto dentro del rango permitido (L91-L95, L122-L137).
+
+### `eolfi/mcp_server.py`
+- **Propósito:** Expone operaciones de Eolfi mediante un servidor MCP por stdio. Registra herramientas, procesa solicitudes JSON-RPC y limita el tamaño de las respuestas de texto.
+- **Seguridad:** [media] No hay un límite de tamaño para las líneas de entrada: una solicitud enorme puede consumir memoria y tiempo al leerse y decodificarse (L314-L320). Los límites declarados en los esquemas no se validan en el servidor; por ejemplo, `max_assets` se convierte a entero y se pasa al flujo sin imponer el máximo declarado (L136-L138, L228-L232).
+- **Errores y robustez:** Si `params` no es un objeto, las llamadas a `.get()` pueden lanzar una excepción no controlada y detener el servidor (L281-L286, L300-L306). `call_tool()` solo captura un conjunto limitado de excepciones, así que otros errores de un flujo también pueden interrumpir el servicio (L260-L266).
+- **Calidad:** El registro de herramientas y sus esquemas están centralizados, pero varios manejadores no declaran tipos para sus argumentos o retornos (L146-L253). No se incluyen pruebas del protocolo en el archivo.
+- **Mejoras:**
+  - [media] Aplicar un límite de bytes a cada mensaje antes de decodificarlo (L314-L320).
+  - [media] Validar que `params` sea un objeto y convertir errores inesperados de herramientas en respuestas MCP controladas (L281-L286, L260-L266).
+  - [media] Validar en el servidor los límites numéricos declarados en los esquemas (L136-L138, L228-L232).
+
+### `eolfi/providers/apksig.py`
+- **Propósito:** Extrae metadatos de firmas APK v1, v2, v3 y v4. No verifica criptográficamente las firmas, como indica el archivo.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Si el bloque leído queda truncado, `struct.unpack_from` puede lanzar `struct.error` en L70, excepción que no captura `apk_signature` en L131-L133.
+- **Calidad:** Los límites de 64 pares y 64 elementos de secuencia pueden dejar datos sin procesar silenciosamente en L38-L40 y L74-L79.
+- **Mejoras:**
+  - [media] Capturar y convertir `struct.error` en un hallazgo legible en L129-L133.
+  - [baja] Informar si se alcanzan los límites de elementos sin consumir todo el bloque en L38-L40 y L74-L79.
+
+### `eolfi/providers/apple.py`
+- **Propósito:** Extrae metadatos de IPA, perfiles de aprovisionamiento y firmas de código, además de señalar algunas configuraciones de riesgo.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los offsets de identificador y Team ID no se validan frente al cuerpo ni se comprueba que exista el terminador nulo; un CodeDirectory malformado puede producir metadatos incorrectos en L85-L95. Valores plist con tipos inesperados pueden provocar excepciones al consultar ATS o listas en L135-L148.
+- **Calidad:** `analyze_ipa` concentra extracción, análisis y generación de hallazgos en una función extensa (L126-L187). Solo analiza la primera app encontrada en un IPA con varias (L129-L133).
+- **Mejoras:**
+  - [media] Validar offsets y terminadores antes de extraer identificador y Team ID en L85-L95.
+  - [media] Comprobar los tipos de los valores plist antes de operar con ellos en L135-L148.
+  - [baja] Separar el análisis de la app y la generación de hallazgos en funciones auxiliares en L126-L187.
+
+### `eolfi/providers/arsc.py`
+- **Propósito:** Busca IDs solicitados en una tabla `resources.arsc` y resuelve sus nombres y valores, incluidos algunos alias.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Se leen campos del paquete antes de comprobar que su cabecera cabe en el bloque (L79-L85). También se lee el valor de una entrada sin validar que su tamaño y sus campos estén dentro del chunk de tipo (L129-L142); datos malformados pueden hacer que se interprete contenido de chunks contiguos.
+- **Calidad:** `_type_chunk` concentra la validación de índices, lectura de entradas y resolución de valores (L102-L149).
+- **Mejoras:**
+  - [media] Validar los límites de la cabecera del paquete respecto a `psize` antes de leer sus campos en L79-L85.
+  - [media] Validar el tamaño de cada entrada y sus campos respecto al chunk antes de leerlos en L129-L142.
+  - [baja] Dividir `_type_chunk` en pasos de validación y decodificación en L102-L149.
+
+### `eolfi/providers/axml.py`
+- **Propósito:** Decodifica XML binario de Android y resume manifiestos, componentes, permisos y algunos indicadores de seguridad.
+- **Seguridad:** La asociación de filtros y componentes depende del nivel de profundidad, sin validar la estructura de apertura y cierre de elementos (L183-L185, L232-L235); un documento malformado puede afectar los hallazgos calculados.
+- **Errores y robustez:** Se leen campos de inicio de elemento antes de validar que `chsize` abarque esos campos (L161-L167), lo que puede interpretar datos de fuera de la cabecera del chunk.
+- **Calidad:** `summarize_manifest` combina interpretación, asociación de componentes y generación de hallazgos en una función extensa (L196-L285).
+- **Mejoras:**
+  - [media] Validar el tamaño de la cabecera del elemento antes de leer sus campos en L161-L167.
+  - [media] Validar la correspondencia y anidación de elementos antes de asociar filtros a componentes en L183-L185 y L232-L235.
+  - [baja] Separar el resumen de componentes y la evaluación de hallazgos en funciones auxiliares en L196-L285.
+
+### `eolfi/providers/base.py`
+- **Propósito:** Define la interfaz abstracta común para proveedores de herramientas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Interfaz breve y clara; los contratos de `available` y `run` están documentados.
+- **Mejoras:**
+  - [baja] Añadir pruebas de conformidad para implementaciones de `Provider` (L8-L19).
+
+### `eolfi/providers/binfmt.py`
+- **Propósito:** Analiza archivos PE, ELF, Mach-O y WASM, y genera hallazgos sobre estructura y mitigaciones.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La excepción de `pe_extra.analyze` no se captura en `_pe_extra` (L686), por lo que un error del analizador auxiliar puede interrumpir el proveedor.
+- **Calidad:** `parse_pe` y `parse_elf` concentran mucha lógica; separarla facilitaría el mantenimiento.
+- **Mejoras:**
+  - [media] Capturar y normalizar errores de `pe_extra.analyze` para que no interrumpan el análisis (L686).
+
+### `eolfi/providers/der.py`
+- **Propósito:** Lee estructuras DER, certificados X.509 y datos PKCS#7 para extraer metadatos de firmas.
+- **Seguridad:** `oid()` acumula componentes sin un límite propio de longitud (L94-L99); con DER sin acotar, un OID enorme podría consumir recursos excesivos.
+- **Errores y robustez:** `parse_pkcs7` indexa el primer elemento de una estructura anidada sin comprobar que exista (L181); entradas malformadas pueden provocar `IndexError`.
+- **Calidad:** `MAX_DEPTH` está definido pero no se usa (L15); `oid()` no contempla correctamente que el primer subidentificador pueda abarcar varios bytes (L93).
+- **Mejoras:**
+  - [media] Limitar la longitud del OID y el trabajo de decodificación (L94-L99).
+  - [media] Validar la estructura anidada antes de indexarla y convertir errores de forma consistente (L181).
+  - [baja] Corregir la decodificación de OID para subidentificadores multibyte (L93).
+
+### `eolfi/providers/dex.py`
+- **Propósito:** Analiza estructuras DEX y archivos ZIP de aplicaciones, incluyendo manifiestos, bibliotecas nativas y metadatos de firmas.
+- **Seguridad:** [media] En ZIP64, `_eocd_entries` devuelve `None` (L198); `ZipFile.infolist()` carga el directorio central antes de aplicar el límite de entradas (L205-L208), por lo que un archivo con muchas entradas puede consumir recursos antes del rechazo.
+- **Errores y robustez:** [media] Se accede a `manifest["application"]` sin comprobar que exista (L274); un manifiesto sin esa clave puede interrumpir el análisis.
+- **Calidad:** `analyze_zip` concentra muchas tareas en una función extensa (L201-L341); `_mobile_frameworks(names)` se calcula dos veces (L338-L339). Conviene probar ZIP64 y manifiestos sin `application`.
+- **Mejoras:**
+  - [media] Validar el número de entradas ZIP64 antes de cargar el directorio central (L184-L208).
+  - [media] Comprobar la presencia y el tipo de `application` antes de acceder a ella (L274).
+
+### `eolfi/providers/dotnet.py`
+- **Propósito:** Analiza cabeceras CLR, metadatos .NET, referencias, P/Invoke, indicios de ofuscación y bundles single-file.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** `_off` no comprueba que el rango completo solicitado quede dentro de la sección o del directorio (L94-L101); `Reader` limita lecturas al archivo, pero no a esos límites estructurales.
+- **Calidad:** `_T` y `_C` son lambdas de alias que reducen algo la claridad (L31-L32). Serían útiles pruebas para metadatos truncados y bundles malformados.
+- **Mejoras:**
+  - [media] Validar que el rango RVA completo y el tamaño de cabecera CLR sean coherentes con sus límites (L94-L101, L130-L139).
+  - [baja] Sustituir las lambdas de esquema por funciones nombradas o alias más explícitos (L31-L32).
+
+### `eolfi/providers/external.py`
+- **Propósito:** Integra capa, rizin/radare2 y Ghidra como proveedores opcionales. Ejecuta las herramientas sobre una copia temporal y normaliza sus resultados.
+- **Seguridad:** [media] En Windows, los lanzadores `.bat`/`.cmd` pueden interpretar metacaracteres en la ruta del ejecutable o del script: se valida la ruta del objetivo, pero no todas las rutas de los argumentos (L137-L139, L402-L405). La salida de los procesos se captura sin límite de tamaño, lo que permite agotar memoria si una herramienta produce salida excesiva (L153-L155).
+- **Errores y robustez:** Algunas salidas JSON con tipos inesperados pueden provocar excepciones no controladas, por ejemplo elementos no objeto en funciones de rizin (L325-L337) o formas inválidas en resultados de capa (L188-L207). Si falla `taskkill` y un descendiente conserva las tuberías, el segundo `communicate` puede agotar su plazo y dejar recursos sin cerrar (L159-L174).
+- **Calidad:** La entrada manual y salida manual del gestor de contexto de staging en rizin y Ghidra duplica lógica y dificulta el mantenimiento (L271-L278, L389-L396). No se muestran pruebas de estas rutas de error.
+- **Mejoras:**
+  - [alta] Validar también las rutas del ejecutable y del script antes de invocar lanzadores `.bat`/`.cmd` en Windows (L137-L139, L402-L405).
+  - [media] Limitar la salida capturada de los subprocesos y tratar el exceso explícitamente (L153-L155).
+  - [media] Validar la forma de los datos JSON antes de acceder a sus campos (L188-L207, L325-L337).
+  - [baja] Sustituir `__enter__`/`__exit__` manuales por bloques `with` (L271-L278, L389-L396).
+
+### `eolfi/providers/ghidra_scripts/EolfiExport.java`
+- **Propósito:** Exporta metadatos del programa, funciones, símbolos externos y, opcionalmente, pseudocódigo de Ghidra en JSON.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Las excepciones al convertir una especificación en dirección se ignoran y se continúa buscando por nombre, lo que puede ocultar errores de entrada (L130-L144). La cancelación puede dejar una exportación parcial que luego resulte difícil de distinguir de una completa (L74-L75, L157-L160).
+- **Calidad:** Construye JSON manualmente, con una función de escape propia que conviene mantener cubierta por pruebas (L30-L51). No se muestran pruebas de los límites de funciones, símbolos y pseudocódigo.
+- **Mejoras:**
+  - [media] Registrar o devolver información sobre errores al resolver direcciones o nombres, en vez de ignorarlos (L130-L144).
+  - [baja] Indicar explícitamente en la exportación si el análisis fue cancelado (L74-L75, L157-L160).
+  - [baja] Añadir pruebas para el escape JSON y los límites de exportación (L30-L51, L25-L28).
+
+### `eolfi/providers/isolated.py`
+- **Propósito:** Ejecuta un proveedor local en un proceso separado y limita memoria y tiempo para contener fallos durante el análisis.
+- **Seguridad:** [media] Un valor negativo de `EOLFI_ISOLATED_MEMORY` puede hacer que `setrlimit` falle; la excepción se ignora y el proceso continúa sin límite de memoria (L15, L26-L29).
+- **Errores y robustez:** La conversión de `EOLFI_ISOLATED_MEMORY` puede fallar al importar el módulo y un valor no numérico en `EOLFI_ISOLATED_SECONDS` puede interrumpir la ejecución (L15, L34). La desestructuración de argumentos falla si el proceso se invoca con una cantidad distinta de tres (L19).
+- **Calidad:** `main` combina validación, configuración de límites, ejecución y serialización; no se muestran pruebas para configuraciones inválidas.
+- **Mejoras:**
+  - [media] Validar que el límite de memoria sea positivo y no continuar sin límite si la configuración falla (L15, L26-L29).
+  - [media] Validar la cantidad de argumentos y los valores de tiempo antes de usarlos (L19, L34).
+  - [baja] Separar la configuración de límites y la ejecución del proveedor en funciones auxiliares (L18-L36).
+
+### `eolfi/providers/java.py`
+- **Propósito:** Analiza archivos `.class` para extraer metadatos de clases y analiza JAR para resumir manifiesto, dependencias, paquetes y versiones de bytecode.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La decodificación con UTF-8 estándar no implementa por completo el UTF-8 modificado de Java, por lo que algunos nombres o cadenas pueden mostrarse incorrectamente (L40-L43). La lectura de clases en el JAR no captura `EOFError`, que podría producirse ante un archivo truncado (L125-L132).
+- **Calidad:** El análisis de campos y métodos comparte lógica, pero los nombres se almacenan completos solo para después limitar la salida de métodos (L72-L85, L93). No se muestran pruebas para clases malformadas ni manifiestos con continuaciones.
+- **Mejoras:**
+  - [media] Decodificar el UTF-8 modificado de Java o documentar y probar con claridad la limitación actual (L40-L43).
+  - [media] Manejar `EOFError` durante la lectura de clases del JAR (L125-L132).
+  - [baja] Añadir pruebas para referencias inválidas del pool de constantes y entradas truncadas (L61-L70, L72-L85).
+
+### `eolfi/providers/macho.py`
+- **Propósito:** Analiza binarios Mach-O delgados y universales. Extrae metadatos de cabeceras, segmentos, bibliotecas y símbolos.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** `LC_SYMTAB` no tiene tamaño mínimo en `_MIN_CMDSIZE` (L190-L191, L248-L254), aunque se leen campos hasta `off + 20`; un comando corto puede hacer que se interpreten bytes del comando siguiente como datos de símbolos.
+- **Calidad:** `parse_macho` y `_parse_thin` concentran bastante lógica; las validaciones de comandos podrían quedar más consistentes en una tabla única.
+- **Mejoras:**
+  - [media] Añadir `LC_SYMTAB: 24` a `_MIN_CMDSIZE` y probar comandos truncados (L190-L191, L248-L254).
+  - [baja] Verificar que la tabla de símbolos y su tabla de cadenas queden dentro de la arquitectura analizada (L199-L204).
+
+### `eolfi/providers/pe_extra.py`
+- **Propósito:** Extrae información adicional de archivos PE: Authenticode, imphash, cabecera Rich, callbacks TLS y VERSIONINFO.
+- **Seguridad:** Sin hallazgos. El docstring aclara que no se valida la confianza ni la firma criptográfica del firmante (L3-L5).
+- **Errores y robustez:** `_Layout.off` permite mapear RVA dentro del tamaño virtual aunque excedan los bytes disponibles en disco de la sección (L30-L40); puede devolver datos de otra zona del archivo y generar resultados incorrectos. `analyze` no captura, por ejemplo, `KeyError` si la estructura `info` está incompleta (L277-L280).
+- **Calidad:** `version_info` y `_parse_vs` son relativamente complejas; no se muestran pruebas para recursos malformados.
+- **Mejoras:**
+  - [media] Limitar el mapeo RVA a los bytes respaldados por `raw_size` y validar el offset calculado (L30-L37).
+  - [baja] Añadir pruebas de secciones con tamaño virtual mayor que el tamaño en disco y de estructuras `info` incompletas (L30-L40, L277-L280).
+
+### `eolfi/providers/strings.py`
+- **Propósito:** Extrae cadenas ASCII imprimibles por bloques y devuelve un muestreo limitado.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La lectura recorre el archivo completo sin límite de tiempo ni de bytes (L43-L46); archivos muy grandes o lentos pueden prolongar mucho la ejecución. `min_len` se usa para compilar una expresión regular sin validación (L20-L23).
+- **Calidad:** `Path` está importado pero no se utiliza (L5). No se muestran pruebas para cadenas que atraviesan bloques ni para parámetros límite.
+- **Mejoras:**
+  - [media] Validar `min_len` y `limit` al construir el proveedor (L20-L23).
+  - [baja] Añadir un límite de procesamiento configurable para archivos enormes (L43-L46).
+  - [baja] Eliminar el import no usado y probar cadenas que cruzan el límite entre bloques (L5, L48-L64).
+
+### `eolfi/providers/triage.py`
+- **Propósito:** Calcula el SHA-256, el tamaño y una detección de formato por bytes mágicos; también busca indicios de PyInstaller.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** El tamaño, la cabecera, la cola y el hash se obtienen en operaciones separadas (L77-L84); si el archivo cambia durante el análisis, los resultados pueden corresponder a versiones distintas.
+- **Calidad:** La detección de PyInstaller es una heurística, limitación que ya se comunica en el resultado (L101).
+- **Mejoras:**
+  - [media] Leer y calcular tamaño/hash sobre el mismo descriptor, o detectar cambios del archivo durante el análisis (L77-L84).
+  - [baja] Añadir pruebas para archivos modificados durante el análisis y para firmas ambiguas (L49-L65, L77-L84).
+
+### `eolfi/providers/wasm.py`
+- **Propósito:** Analiza secciones WebAssembly y extrae importaciones, exportaciones, memoria, nombres y señales de la cadena de herramientas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Algunas lecturas comprueban el límite del archivo, pero no el de la sección actual; por ejemplo, el tipo de importación y exportación se leen directamente con `r.u8` (L100-L101, L122-L123). Una entrada malformada puede hacer que se consuman bytes de otra sección. `_names` tampoco comprueba que el subbloque declarado termine dentro de su sección (L149-L161). Si se alcanzan `MAX_SECTIONS`, el análisis devuelve un resultado parcial sin indicarlo (L72).
+- **Calidad:** Se ignoran silenciosamente errores de secciones personalizadas (L85-L96), lo que dificulta distinguir entre ausencia de datos y datos malformados.
+- **Mejoras:**
+  - [media] Comprobar cada lectura y subbloque contra el límite de su sección, no solo el del archivo (L21-L26, L52-L57, L100-L101, L122-L123, L149-L161).
+  - [media] Indicar explícitamente si se alcanzó el límite de secciones y el resultado es parcial (L72, L129-L130).
+  - [baja] Registrar los errores de secciones personalizadas en el resultado en lugar de descartarlos (L85-L96).
+
+### `eolfi/security/resilience.py`
+- **Propósito:** Muta un archivo semilla y ejecuta el triaje en subprocesos para registrar fallos. También busca patrones de posible inyección de prompts en archivos binarios.
+- **Seguridad:** L81 hereda todo `os.environ` para el subproceso, lo que puede exponer secretos pese al filtrado previsto en el contexto. L169 devuelve `treated_as_data: True` sin comprobar que el agente realmente trate el contenido como dato; puede dar una falsa garantía.
+- **Errores y robustez:** L90-L92 captura toda la salida del subproceso en memoria y solo limita el tiempo, no el consumo de memoria. L84-L108 no valida ni acota `iters` o `timeout`, por lo que pueden provocar ejecuciones excesivamente largas; si falla una operación distinta del timeout, L82-L108 puede dejar archivos temporales.
+- **Calidad:** L137-L170 detecta patrones, pero no verifica su tratamiento por el agente; convendrían pruebas para límites de recursos, limpieza ante excepciones y resultados del escaneo.
+- **Mejoras:**
+  - [alta] L81: construir un entorno mínimo sin secretos para el subproceso.
+  - [alta] L90-L92: limitar memoria y tamaño de la salida capturada.
+  - [media] L169: no afirmar que el contenido se trató como dato sin verificarlo.
+  - [media] L82-L108: garantizar la limpieza de temporales también ante excepciones.
+  - [baja] L68-L70: validar y acotar `iters` y `timeout`.
+
+### `eolfi/server.py` — parte 1 de 2
+- **Propósito:** Implementa la lógica de la API de Eolfi y su servidor HTTP, incluyendo trabajos en segundo plano, análisis, vinculación de clientes y puente de chats.
+- **Seguridad:** [media] El historial persiste el cuerpo completo de cada trabajo, que puede incluir valores sensibles como `ai_base_url` o URLs con credenciales (L180-L189). [media] La cola no limita la cantidad de trabajos: cada solicitud crea un hilo y los trabajos activos o en cola no se eliminan al superar `MAX_JOBS` (L163-L168); además, las subidas sin `store=1` se mantienen completas en memoria hasta 256 MiB por solicitud (L1040, L1104-L1107). [media] El contador de fallos de vinculación y el mapa de códigos se modifican sin sincronización, por lo que solicitudes concurrentes pueden interferir con el límite de intentos (L475-L496).
+- **Errores y robustez:** La lectura de `fmt["result"]` presupone JSON válido; un registro malformado puede fallar al listar objetivos (L377). Los errores de trabajos y peticiones devuelven mensajes de excepción sin filtrar, que pueden revelar rutas o detalles internos (L154-L155, L1129-L1131).
+- **Calidad:** `EolfiApp` y `_route` concentran muchas responsabilidades, y `_route` es extenso (L1019-L1131), lo que dificulta revisar y probar rutas de forma aislada.
+- **Mejoras:**
+  - [media] Limitar y sincronizar la admisión de trabajos, no solo el número de trabajos en ejecución (L163-L168).
+  - [media] Evitar persistir campos sensibles del cuerpo del trabajo o redactarlos antes de guardarlos (L186-L189).
+  - [media] Limitar la concurrencia y usar subidas por bloques también en la ruta que analiza directamente el archivo (L1040, L1104-L1107).
+  - [media] Proteger con un bloqueo los códigos y el contador de fallos de vinculación (L475-L496).
+  - [baja] Manejar explícitamente resultados JSON malformados al construir la lista de objetivos (L377).
+  - [baja] Separar el enrutamiento HTTP en funciones por grupo de rutas (L1019-L1131).
+
+### `eolfi/server.py` — parte 2 de 2
+- **Propósito:** Inicia y detiene el servidor HTTP. También vigila cambios en archivos de código y reinicia el proceso hijo.
+- **Seguridad:** [baja] El token de acceso aparece en la URL impresa en la terminal (L1203-L1205), donde podría quedar guardado en registros o historial.
+- **Errores y robustez:** Si el proceso hijo no termina tras `terminate()`, se llama a `kill()` sin esperar después a que finalice (L1247-L1252). Ante `KeyboardInterrupt`, se termina el hijo sin esperar su salida (L1253-L1255).
+- **Calidad:** La vigilancia vuelve a recorrer el árbol de archivos cada 0,7 segundos (L1234-L1245); puede resultar costosa en árboles grandes. No se observan pruebas en este fragmento.
+- **Mejoras:**
+  - [media] Esperar al proceso después de `kill()` y tras `terminate()` al interrumpir (L1247-L1255).
+  - [baja] Evitar imprimir el token completo o advertir que la URL puede quedar registrada en la terminal (L1203-L1205).
+
+### `eolfi/sites/fetch.py`
+- **Propósito:** Descarga recursos HTTP(S) con límites, respeto de `robots.txt` y controles contra SSRF. Devuelve el contenido como bytes o texto.
+- **Seguridad:** [alta] Si `allow_private` se habilitó al comenzar por una URL local explícita, `_pinned_socket` deja de validar que la IP conectada sea pública (L103, L125, L171-192). Una URL posterior cuyo DNS cambie a una IP privada puede eludir la protección; valida la IP conectada salvo para el host local explícitamente autorizado.
+- **Errores y robustez:** [media] Al comprobar `robots.txt` de un destino de redirección se hace una descarga anidada (L296); `_raw_get` reemplaza y luego limpia `_timers` y `_deadline` compartidos (L249-261). La petición exterior puede continuar sin temporizador de plazo total para la conexión y las cabeceras (L229-246).
+- **Calidad:** El estado de plazos y temporizadores compartido dificulta razonar sobre descargas anidadas; convendría encapsularlo por petición. No se incluyen pruebas de este archivo para valorar su cobertura.
+- **Mejoras:**
+  - [alta] Limitar la excepción de IP privada al host local expresamente autorizado; validar siempre la IP fijada para los demás hosts (L103, L125).
+  - [media] Evitar que las consultas anidadas de `robots.txt` modifiquen el estado de plazo de la petición exterior (L249-261, L296).
+
+### `eolfi/sites/repo.py`
+- **Propósito:** Analiza repositorios locales o clonados para resumir lenguajes, dependencias, estructura, calidad y documentación. Lee archivos como datos y no ejecuta scripts del repositorio.
+- **Seguridad:** [media] La comprobación de host en L174-L178 y la conexión posterior de Git en L198-L201 no fijan la IP validada; una resolución DNS distinta podría permitir acceso a una dirección privada. [media] La comprobación de enlaces en L247-L249 y L252-L258 puede sufrir una carrera: un archivo local podría reemplazarse por un enlace simbólico antes de leerlo. [baja] `parse_package_json` incluye textos de scripts en el resultado (L273-L276), lo que podría exponer secretos incrustados en esos valores.
+- **Errores y robustez:** `os.walk` puede omitir errores de recorrido sin notificarlos (L408); además, fallos al leer archivos se silencian y pueden producir resultados incompletos (L259-L260, L474-L475). El límite de tamaño por blob no limita el volumen total descargado durante el clon (L197-L201).
+- **Calidad:** Los analizadores de manifiestos son heurísticos y distintos formatos se procesan con expresiones regulares; conviene validar sus resultados con pruebas de formatos atípicos. No se muestran pruebas en este archivo.
+- **Mejoras:**
+  - [alta] Fijar y verificar la IP usada por Git, o impedir resoluciones a direcciones privadas durante la conexión (L174-L178, L198-L201).
+  - [media] Evitar carreras de enlaces simbólicos al abrir archivos, por ejemplo, comprobando el tipo de archivo en el momento de apertura (L247-L258, L462-L465).
+  - [media] Establecer un límite al tamaño total descargado o al espacio consumido por el clon (L197-L201).
+  - [baja] Evitar incluir valores de scripts en los resultados, o redactar posibles secretos antes de devolverlos (L273-L276).
+  - [baja] Registrar los errores de recorrido y lectura para distinguir resultados incompletos de análisis completos (L408, L259-L260, L474-L475).
+
+### `eolfi/sites/stack.py`
+- **Propósito:** Define las huellas de tecnologías y detecta stacks a partir de contenido web, dependencias y rutas de repositorios. También calcula tecnologías implícitas y comandos de scaffold.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** La tabla `TECHS` es extensa y concentra datos de detección difíciles de revisar; faltan pruebas visibles para casos límite de coincidencia. El parámetro `deps` de `_special_repo` no se usa (L266).
+- **Mejoras:**
+  - [baja] Eliminar el parámetro no usado `deps` de `_special_repo` (L266).
+  - [media] Añadir pruebas para coincidencias de dependencias, rutas y reglas especiales de detección (L229-L255, L266-L273).
+
+### `eolfi/sites/webpage.py`
+- **Propósito:** Analiza HTML local o descargado y resume estructura, recursos, accesibilidad, SEO y tecnologías. Produce hallazgos y un plano orientativo.
+- **Seguridad:** [media] `walk_files` acepta enlaces simbólicos a archivos externos al sitio (L710); `_inventory` los abre y analiza (L720-L721), pudiendo incluir títulos o encabezados de archivos fuera de la raíz en los resultados.
+- **Errores y robustez:** Un JSON-LD con `@graph` no iterable puede lanzar `TypeError` y abortar el análisis (L812). Si el archivo local desaparece entre la comprobación y la carga, `main` puede ser `None` y fallar al acceder a `main.ref` (L522-L525).
+- **Calidad:** `analyze_web` concentra muchas responsabilidades (L497-L689); `_save` recibe `subject` sin utilizarlo (L894-L896). Faltan pruebas visibles para JSON-LD malformado y enlaces simbólicos en el inventario.
+- **Mejoras:**
+  - [alta] Rechazar o resolver y comprobar los enlaces simbólicos antes de abrir archivos del inventario (L710, L720-L721).
+  - [media] Validar que `@graph` sea una lista iterable antes de recorrerlo (L812).
+  - [media] Manejar explícitamente una carga local fallida antes de usar `main` (L522-L525).
+  - [baja] Eliminar el parámetro no usado `subject` de `_save` (L894-L896).
+
+### `eolfi/vscode_tools.py`
+- **Propósito:** Envía acciones de VS Code a la extensión puente mediante HTTP. Permite operaciones del workspace y herramientas autorizadas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin reintentos, decisión adecuada para evitar repetir escrituras o comandos (L26-L27).
+- **Calidad:** Interfaz breve y clara; no se incluyen pruebas en este archivo.
+- **Mejoras:**
+  - [baja] Añadir pruebas para acciones desconocidas y solicitudes HTTP sin reintentos (L21-L27).
+
+### `eolfi/vscode_web.py`
+- **Propósito:** Inicia y detiene VS Code Web en localhost, tras registrar la aceptación de su licencia, y expone su estado y URL.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Si vence la espera de inicio, se lanza una excepción sin detener el proceso (L89-L100). `stop()` no espera a que termine el proceso y descarta su referencia aunque `taskkill` falle o `terminate()` no surta efecto (L111-L119).
+- **Calidad:** `start()` concentra la comprobación de licencia, el arranque y la espera (L59-L109).
+- **Mejoras:**
+  - [media] Detener el proceso al vencer la espera y comprobar su terminación antes de borrar la referencia (L89-L100, L111-L119).
+  - [baja] Añadir pruebas de inicio fallido, timeout y detención.
+
+### `eolfi/vscode-bridge/agent-tools.js`
+- **Propósito:** Ofrece al agente herramientas de terminal y lectura o búsqueda web, con permisos, límites y registro.
+- **Seguridad:** El filtro de IP no bloquea todas las direcciones IPv6 no públicas, por ejemplo el rango site-local obsoleto (L45-L46); la validación podría aceptar destinos que no son públicos (L49-L59). El bloqueo de órdenes y archivos secretos se basa en patrones y división léxica, no en la resolución de rutas o argumentos del intérprete (L19-L35). La ejecución de shell con permiso por sesión es una decisión de diseño aceptada.
+- **Errores y robustez:** Si `runInTerminal` ejecuta la orden y luego rechaza su promesa, se ignora el error y se vuelve a ejecutar mediante `runShell` (L161). La cancelación y el timeout solo matan el proceso shell; no garantizan terminar sus procesos descendientes (L137-L141).
+- **Calidad:** `htmlToText()` usa sustituciones simples y no es un analizador HTML completo (L92-L100).
+- **Mejoras:**
+  - [alta] No volver a ejecutar la orden tras un rechazo de `runInTerminal` (L161).
+  - [media] Denegar todos los rangos IPv6 no globales al validar destinos web (L45-L59).
+  - [media] Fortalecer la detección de rutas secretas y comandos peligrosos teniendo en cuenta la resolución de rutas y la sintaxis del intérprete (L19-L35).
+  - [media] Asegurar la terminación del árbol de procesos al cancelar o agotar el tiempo (L137-L141).
+
+### `eolfi/vscode-bridge/audit.js`
+- **Propósito:** Inventaría archivos, los agrupa para su revisión por un modelo, guarda el progreso y verifica hallazgos de prioridad alta.
+- **Seguridad:** `excerpt()` combina `root` con una ruta tomada del texto del hallazgo sin comprobar que permanezca dentro de la raíz; una ruta manipulada podría leer archivos externos y enviarlos al modelo (L230-L238, L264-L269). El código y el contexto del repositorio se insertan en el prompt del modelo; marcarlos como datos no impide por sí solo la inyección de instrucciones (L182-L218). El archivo contiene plantillas con instrucciones dirigidas al modelo; aquí se tratan como datos, no como instrucciones para esta revisión (L182-L196).
+- **Errores y robustez:** `readText()` lee el archivo completo sin volver a limitar su tamaño; si cambia entre el inventario y la lectura, podría consumir demasiada memoria (L91-L106).
+- **Calidad:** El módulo concentra inventario, fragmentación, reanudación, verificación e informe. Al fragmentar una línea larga, los trozos conservan el mismo número de línea, lo que dificulta localizar hallazgos (L117-L129).
+- **Mejoras:**
+  - [alta] Canonicalizar y comprobar que la ruta de `excerpt()` queda dentro de `root` antes de leerla; contemplar enlaces simbólicos que salgan de la raíz (L230-L238).
+  - [media] Tratar explícitamente el código y el contexto como entradas no confiables al construir las solicitudes al modelo (L205-L218, L264-L269).
+  - [media] Comprobar de nuevo el tamaño del archivo o limitar la lectura (L91-L106).
+  - [baja] Conservar una ubicación inequívoca al fragmentar líneas largas y añadir pruebas para esos casos (L117-L129).
+
+### `eolfi/vscode-bridge/chat.js` — parte 1 de 2
+- **Propósito:** Implementa el participante de chat de Eolfi para VS Code. Gestiona análisis, auditorías, herramientas del agente y selección de modelos.
+- **Seguridad:** L322-323 carga `root` y `report` del archivo de reanudación sin volver a comprobar que estén dentro del workspace; si ese archivo local se modifica, podría eludir las comprobaciones aplicadas al iniciar una auditoría (L329). L456-457 interpola nombres y rutas de carpetas en el prompt del sistema: un nombre controlado podría introducir instrucciones al agente. L468-503 contiene órdenes dirigidas al agente; son cadenas del producto, no instrucciones para esta auditoría.
+- **Errores y robustez:** L99 contiene caracteres de control en la expresión regular, por lo que la detección prevista de códigos 502–504 puede fallar. L287, L308, L610 y L646 usan `EOLFI_RATE_WAIT_SCALE` sin validar el valor; valores negativos o no numéricos pueden alterar los reintentos. L330 hace `statSync` después de `existsSync` sin capturar errores, susceptible a una carrera si la ruta desaparece.
+- **Calidad:** `ask` concentra mucha lógica de modelos, herramientas, reintentos y presentación (L448-722), lo que dificulta su mantenimiento. La gestión de la auditoría y del agente local también podría separarse en módulos; las pruebas no se pueden valorar con este fragmento.
+- **Mejoras:**
+  - [alta] Validar `root` y `report` del estado de reanudación contra el workspace y las rutas permitidas antes de llamar a `runAudit` (L322-323).
+  - [media] No insertar nombres o rutas no confiables en el prompt del sistema; delimitarlos como datos (L456-457).
+  - [media] Corregir y probar la expresión regular de errores transitorios (L99).
+  - [media] Validar y acotar `EOLFI_RATE_WAIT_SCALE` (L287, L308, L610, L646).
+  - [baja] Capturar el posible fallo de `statSync` y simplificar la comprobación de existencia (L330).
+  - [baja] Dividir la lógica de `ask` en funciones o módulos con responsabilidades más acotadas (L448-722).
+
+### `eolfi/vscode-bridge/chat.js` — parte 2 de 2
+- **Propósito:** Gestiona comandos del chat, deriva solicitudes a análisis o auditoría y muestra errores al usuario.
+- **Seguridad:** L849 muestra directamente el mensaje de excepción en el chat; si contiene información sensible o texto controlado externamente, podría revelarla o presentar contenido engañoso.
+- **Errores y robustez:** L844 accede a `e.status` dentro del `catch`; si se lanza `null` o `undefined`, el propio manejador falla.
+- **Calidad:** Las condiciones para reconocer solicitudes de auditoría se reparten entre varias expresiones regulares (L829–L837), lo que dificulta mantenerlas. Las pruebas no son visibles en este fragmento.
+- **Mejoras:**
+  - [media] L844: comprueba que `e` no sea nulo antes de acceder a `status`.
+  - [baja] L849: limita o normaliza el texto de error mostrado al usuario.
+
+### `eolfi/vscode-bridge/checks.js`
+- **Propósito:** Descubre subproyectos y estado de Git, y genera un plan de comprobaciones y exclusiones.
+- **Seguridad:** L138-L153 contiene instrucciones imperativas dirigidas a un modelo; si se incorporan a un prompt, pueden influir en él (no se han tratado como instrucciones aquí). L131-L134 interpola rutas de `.gitignore` en órdenes de escáner; nombres con comillas o metacaracteres pueden alterar la orden si se ejecuta en una shell.
+- **Errores y robustez:** L57-L59 limita el recorrido, pero los errores de lectura de directorios se descartan silenciosamente.
+- **Calidad:** `gitignoredDirs` solo interpreta reglas simples de `.gitignore` (L16-L28); no refleja reglas complejas ni negaciones.
+- **Mejoras:**
+  - [alta] L131-L134: pasar exclusiones como argumentos separados y validar/escapar rutas antes de generar órdenes.
+  - [media] L57-L59: incluir en el resultado un aviso cuando el recorrido se interrumpe por errores de lectura.
+
+### `eolfi/vscode-bridge/core.js`
+- **Propósito:** Atiende peticiones del puente, selecciona modelos y gestiona herramientas y acciones del workspace.
+- **Seguridad:** L209-L210 y L228-L230 dejan de almacenar el cuerpo al superar el máximo, pero siguen leyendo la petición hasta el final; una conexión que envíe datos lentamente o en exceso puede consumir recursos.
+- **Errores y robustez:** L239-L240 crea un `CancellationTokenSource` para invocar una herramienta, pero no lo libera. L172 silencia errores al deshacer cambios, por lo que un fallo de recuperación queda oculto.
+- **Calidad:** L120-L169 concentra el bucle de conversación, ejecución de herramientas y gestión de resultados; convendría separarlo.
+- **Mejoras:**
+  - [media] L239-L240: liberar el token de cancelación en un `finally`.
+  - [media] L172: registrar o devolver el fallo del deshacer en vez de descartarlo.
+  - [baja] L120-L169: extraer la gestión de rondas y herramientas a funciones separadas.
+
+### `eolfi/vscode-bridge/e2e/launch.js`
+- **Propósito:** Lanza VS Code con perfil temporal para ejecutar la prueba e2e y mostrar su resultado.
+- **Seguridad:** L19-L21 construye una orden de shell en Windows y solo entrecomilla espacios y comillas; rutas con metacaracteres pueden alterar la orden.
+- **Errores y robustez:** L20-L21 no registra errores de lanzamiento; la prueba puede esperar hasta cinco minutos aunque VS Code no arranque. L35 puede lanzar una excepción si el resultado no es JSON válido.
+- **Calidad:** L26 realiza esperas ocupadas síncronas mientras intenta borrar el perfil temporal.
+- **Mejoras:**
+  - [alta] L19-L21: evitar la composición manual de una orden para `shell` o aplicar escape específico y completo para `cmd.exe`.
+  - [media] L20-L21: manejar el evento de error del proceso y terminar la espera con un mensaje claro.
+  - [baja] L26: sustituir la espera ocupada por reintentos asíncronos.
+
+### `eolfi/vscode-bridge/e2e/run.js`
+- **Propósito:** Prueba la extensión dentro de VS Code y escribe los resultados de los pasos e2e.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** L83-L89 revoca la vinculación solo al completar el flujo; una excepción anterior puede dejarla activa. L16-L19 no establece límite de respuesta ni tiempo de espera para las peticiones HTTP.
+- **Calidad:** Los pasos se acumulan en una sola función; el flujo de limpieza no está separado del de prueba.
+- **Mejoras:**
+  - [media] L38-L93: asegurar cierre de sesión y revocación en un bloque de limpieza que también se ejecute ante fallos.
+  - [baja] L14-L19: añadir límites de tamaño y tiempo a las respuestas HTTP.
+
+### `eolfi/vscode-bridge/eolfi-client.js`
+- **Propósito:** Proporciona un cliente HTTP para el servidor Eolfi y resume sus informes.
+- **Seguridad:** L8-L16 acepta cualquier `base` y envía allí las cabeceras de cliente y, si existe, el token; una base no confiable podría recibir credenciales. L18-L20 acumula la respuesta completa sin límite.
+- **Errores y robustez:** L52-L63 puede sondear indefinidamente si un trabajo no termina; la cancelación solo se comprueba entre peticiones.
+- **Calidad:** L66 interpola `format` sin codificar, a diferencia de `subject`.
+- **Mejoras:**
+  - [alta] L8-L16: restringir `base` al destino esperado y no enviar el token a hosts no validados.
+  - [media] L18-L20: limitar el tamaño de respuesta.
+  - [media] L52-L63: añadir un plazo máximo total al sondeo.
+  - [baja] L66: codificar `format` como parámetro URL.
+
+### `eolfi/vscode-bridge/extension.js`
+- **Propósito:** Activa el puente local de VS Code y registra comandos, chat y herramientas de Eolfi. Gestiona sesión, análisis y permisos del agente.
+- **Seguridad:** L192 guarda prompts, respuestas y actividad en un registro sin fijar permisos restrictivos; podría quedar legible según la umask del sistema.
+- **Errores y robustez:** L163 ignora errores al leer la salida de terminal, por lo que puede devolver resultados incompletos sin indicarlo. L158 deja activo el temporizador de 10 segundos si la integración aparece antes. L459 no captura un posible rechazo de `sessionToken()`.
+- **Calidad:** `activate` concentra gran parte del cableado de la extensión (L318-L461); separar el registro de comandos y la configuración del agente facilitaría el mantenimiento.
+- **Mejoras:**
+  - [media] Fijar permisos restrictivos para el registro de actividad (L192).
+  - [baja] Cancelar el temporizador de espera cuando se obtiene la integración de terminal (L156-L159).
+  - [baja] Registrar o propagar errores de lectura de la salida de terminal (L163).
+
+### `eolfi/vscode-bridge/fixtures/fake-mcp.js`
+- **Propósito:** Simula un servidor MCP por entrada/salida estándar para probar el cliente de REA.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** L10 `JSON.parse` puede terminar el proceso ante una línea JSON inválida.
+- **Calidad:** Adecuado como fixture de prueba; el manejo de errores de protocolo es mínimo.
+- **Mejoras:**
+  - [baja] Manejar líneas inválidas sin terminar el proceso o documentar que el fixture asume entrada válida (L9-L10).
+
+### `eolfi/vscode-bridge/history.js`
+- **Propósito:** Persiste el historial del agente en JSONL y permite buscarlo, resumirlo y borrarlo.
+- **Seguridad:** L51-L52 crea y añade datos de conversaciones y archivos sin fijar permisos restrictivos; su legibilidad depende de la umask.
+- **Errores y robustez:** L15 captura cualquier error de lectura y lo trata como historial vacío. L19 acepta cualquier JSON válido: valores como `null` pueden provocar excepciones al procesarse en L27 o L64. L13-L20 lee el archivo completo en memoria, sin aplicar el límite de tamaño antes de la búsqueda.
+- **Calidad:** L65 compara carpetas por prefijo, por lo que una carpeta puede coincidir con otra cuyo nombre solo comparte el inicio.
+- **Mejoras:**
+  - [media] Fijar permisos restrictivos al crear y añadir al historial (L51-L52).
+  - [media] Validar la forma de cada entrada JSON antes de usarla (L19, L27, L64).
+  - [media] Limitar o paginar la lectura antes de cargar el historial completo (L13-L20).
+  - [baja] Comparar carpetas por límite de componente de ruta y no solo por prefijo (L65).
+
+### `eolfi/vscode-bridge/llama-starter.js`
+- **Propósito:** Busca un servidor llama.cpp y un modelo GGUF, arranca el servidor local y lo detiene tras inactividad.
+- **Seguridad:** L81 y L99 ejecutan el binario indicado por la configuración del usuario; no se usa shell, pero conviene tratar esa ruta como una decisión explícita de confianza.
+- **Errores y robustez:** L99-L102 no registra el evento `error` de `spawn`; un binario inexistente o no ejecutable puede causar un error no controlado. L94 comprueba el puerto antes de usarlo, pero otro proceso puede ocuparlo entre ambas operaciones. L102 puede borrar el estado de un proceso nuevo si llega tarde el evento `exit` de uno anterior.
+- **Calidad:** La selección de modelo y servidor está separada en funciones pequeñas; no se valida el rango del puerto configurado (L92).
+- **Mejoras:**
+  - [alta] Manejar el evento `error` del proceso y limpiar el estado de arranque (L99-L102).
+  - [media] Asociar el evento `exit` al proceso que lo originó antes de modificar el estado compartido (L102).
+  - [baja] Validar el rango del puerto configurado (L92-L95).
+
+### `eolfi/vscode-bridge/llamacpp-config.js`
+- **Propósito:** Carga y crea la configuración compartida de llama.cpp y traduce opciones a parámetros de petición.
+- **Seguridad:** L34 admite valores de configuración sin validación de tipo o rango; esos valores se usan posteriormente para configurar el proceso y las peticiones.
+- **Errores y robustez:** L27-L30 agrupa errores de lectura y JSON inválido, y puede sustituir una configuración ilegible o mal formada por valores predeterminados. L43 convierte valores sin comprobar que sean finitos ni válidos para la API.
+- **Calidad:** La combinación de valores predeterminados es sencilla, pero falta validación centralizada del esquema.
+- **Mejoras:**
+  - [media] Validar tipos y rangos de la configuración antes de devolverla (L33-L36).
+  - [media] Distinguir entre archivo ausente, error de lectura y JSON inválido para evitar sobrescrituras inesperadas (L27-L30).
+  - [baja] Rechazar valores no finitos para los parámetros de petición (L43-L44).
+
+### `eolfi/vscode-bridge/lm-integration.js`
+- **Propósito:** Integra el servidor MCP y las herramientas de Eolfi con VS Code. También instala plantillas de agente y prompts en el workspace.
+- **Seguridad:** Las confirmaciones construyen `MarkdownString` con datos de entrada sin escapar (L24, L68); entradas manipuladas podrían confundir visualmente al usuario. `installAgent` escribe bajo la carpeta recibida sin comprobar enlaces simbólicos en los directorios de destino (L83-L96); un `.github` enlazado podría dirigir copias fuera del workspace.
+- **Errores y robustez:** La instalación puede quedar incompleta si una operación de filesystem falla (L89-L97). Los errores de herramientas se devuelven al modelo sin registro local (L71-L74).
+- **Calidad:** La instalación mezcla comprobaciones, creación de directorios y copia en un único bucle (L87-L98).
+- **Mejoras:** [alta] Escapar o mostrar como texto plano los valores de confirmación (L24, L68); [alta] validar la ruta real de destino y rechazar enlaces simbólicos (L91-L96); [baja] manejar fallos de instalación y revertir copias parciales (L89-L97).
+
+### `eolfi/vscode-bridge/local-model.js`
+- **Propósito:** Localiza un servidor llama.cpp en loopback y ofrece métodos para completar texto y conversaciones con herramientas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** `httpFetch` acumula la respuesta completa sin límite de tamaño (L38-L43). Las llamadas concurrentes a `locate()` pueden iniciar más de un servidor (L62-L71). Los listeners de cancelación no se eliminan al terminar la petición (L47-L50, L104-L107, L132-L136).
+- **Calidad:** `complete()` evalúa varias veces `opts({ review: true })` para construir la misma petición (L143).
+- **Mejoras:** [media] Limitar el tamaño de las respuestas y manejar errores del stream (L38-L46); [media] compartir una promesa de localización/inicio concurrente (L62-L71); [baja] reutilizar el resultado de `opts()` y retirar listeners de cancelación (L104-L107, L143).
+
+### `eolfi/vscode-bridge/package.json`
+- **Propósito:** Declara la extensión de VS Code, sus comandos, ajustes, herramientas de modelo y scripts.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Mantiene el participante de chat descrito como obsoleto (L234-L238) junto con su contribución (L294-L340).
+- **Mejoras:** [baja] Retirar la contribución heredada cuando deje de ser necesaria (L234-L238, L294-L340).
+
+### `eolfi/vscode-bridge/rea.js`
+- **Propósito:** Configura y administra un cliente MCP por stdio para REA, incluidas sus herramientas y confirmaciones.
+- **Seguridad:** El entorno configurado para REA se combina después de filtrar las variables heredadas, por lo que puede reintroducir secretos (L31-L32, L52). La salida estándar se acumula hasta recibir una línea completa, sin límite de tamaño (L53-L60).
+- **Errores y robustez:** `dispose()` no rechaza solicitudes pendientes; estas pueden esperar hasta agotar su timeout (L126-L130). `checkArgs()` comprueba campos obligatorios y adicionales, pero no valida tipos ni restricciones del esquema (L171-L179).
+- **Calidad:** La lista paginada de herramientas se acumula sin tope (L108-L115).
+- **Mejoras:** [alta] Filtrar también `env` antes de combinarlo con el entorno del proceso (L31-L32, L52); [media] limitar el búfer de protocolo (L53-L60); [media] validar tipos y restricciones del esquema de argumentos (L171-L179); [baja] rechazar solicitudes pendientes al cerrar el cliente (L126-L130).
+
+### `eolfi/vscode-bridge/scripts/test.js`
+- **Propósito:** Ejecuta las pruebas con un directorio temporal dedicado y lo elimina al finalizar.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Si falla la eliminación del directorio temporal, el error se informa, pero el proceso conserva el resultado exitoso de las pruebas (L12-L15).
+- **Calidad:** La limpieza depende de alcanzar el bloque posterior a `spawnSync` (L11-L12).
+- **Mejoras:** [baja] Considerar fallo la limpieza incompleta y asegurarla también ante excepciones (L11-L15).
+
+### `eolfi/vscode-bridge/test/agent-tools.test.js`
+- **Propósito:** Prueba las herramientas del agente para terminal y web, incluidos permisos, bloqueos, protección contra SSRF y límites de lectura.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los procesos simulados no emiten el evento `error` (L29-L35, L100-L104); no se prueba cómo se manejan fallos al iniciar el proceso.
+- **Calidad:** Buena cobertura de casos de seguridad, pero la mayoría de las interacciones usan mocks y no comprueban integración real.
+- **Mejoras:**
+  - [baja] Añadir pruebas para el fallo de inicio del proceso y su evento `error` (L29-L35).
+
+### `eolfi/vscode-bridge/test/audit-limits.test.js`
+- **Propósito:** Prueba los límites de tamaño de la auditoría, el inventario, el troceado y la reanudación.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los directorios temporales creados en las pruebas no se eliminan (L12-L23, L63-L65, L71-L72, L84-L91, L109-L117); la acumulación puede dejar datos de prueba en el sistema.
+- **Calidad:** Los casos cubren límites y reanudación; el helper `proyecto` crea varios archivos de prueba, incluido uno grande (L12-L23).
+- **Mejoras:**
+  - [media] Registrar limpieza de los directorios temporales con `t.after` (L12-L23, L63-L65, L71-L72, L84-L91, L109-L117).
+
+### `eolfi/vscode-bridge/test/audit-split.test.js`
+- **Propósito:** Comprueba que los lotes y archivos que exceden el contexto se dividan y que otros errores se propaguen.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Pruebas concisas; no cubren divisiones de longitud impar ni límites de una sola línea.
+- **Mejoras:**
+  - [baja] Añadir casos de división con longitud impar y con una sola línea (L27-L33).
+
+### `eolfi/vscode-bridge/test/audit.test.js`
+- **Propósito:** Prueba el inventario de archivos, la revisión por lotes, la pausa y reanudación, y la verificación de hallazgos.
+- **Seguridad:** Sin hallazgos. `eval(input)` aparece como contenido de un archivo de prueba y no se ejecuta en este archivo (L14).
+- **Errores y robustez:** Los directorios temporales creados por las pruebas no se eliminan (L10-L23, L26-L33, L91-L96, L108-L116, L121-L129).
+- **Calidad:** Buena cobertura del flujo de auditoría; las respuestas del modelo se simulan, por lo que no se prueba la integración con un proveedor real (L26-L46).
+- **Mejoras:**
+  - [media] Limpiar los directorios temporales al terminar cada prueba (L10-L23, L26-L33, L91-L96, L108-L116, L121-L129).
+
+### `eolfi/vscode-bridge/test/chat.test.js`
+- **Propósito:** Pruebas unitarias del chat de Eolfi para VS Code. Cubren comandos, herramientas, modelos, memoria y auditorías archivo por archivo.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Se crean directorios temporales sin eliminarlos, por ejemplo en L59–60 y L327–328. Las variables de entorno de pruebas se limpian solo al final de algunos tests, no mediante limpieza garantizada si una aserción falla; por ejemplo, L442–463.
+- **Calidad:** Buena cobertura de flujos y casos de regresión, pero el archivo es extenso y concentra muchos escenarios distintos; se repiten preparaciones de modelos, acciones y carpetas temporales.
+- **Mejoras:**
+  - [media] Registrar la limpieza de directorios y variables de entorno con hooks de prueba que se ejecuten también al fallar, desde L59 y L442.
+  - [baja] Separar las pruebas por áreas (agente, REA, auditorías y memoria) y reutilizar las configuraciones repetidas, desde L58.
+
+### `eolfi/vscode-bridge/test/checks.test.js`
+- **Propósito:** Prueba la detección de subproyectos, exclusiones y pasos del plan de comprobaciones.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los directorios temporales creados por `celtiaia()` no se eliminan (L12); varias pruebas crean uno cada vez (por ejemplo, L29 y L37).
+- **Calidad:** Cubre escenarios variados, incluidos repositorios sin commits y archivos `.gitignore`.
+- **Mejoras:**
+  - [baja] Eliminar los directorios temporales al finalizar las pruebas (L12, L29).
+
+### `eolfi/vscode-bridge/test/core.test.js`
+- **Propósito:** Prueba autenticación, modelos, herramientas y recuperación de escrituras ante fallos.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los servidores se cierran sin esperar a que termine el cierre, lo que podría causar flakiness (L58, L90).
+- **Calidad:** Buena cobertura de rutas relevantes; las dependencias externas se sustituyen por dobles de prueba.
+- **Mejoras:**
+  - [baja] Esperar el cierre de los servidores en los bloques `finally` (L58, L90).
+
+### `eolfi/vscode-bridge/test/folders.test.js`
+- **Propósito:** Prueba la búsqueda de carpetas del workspace y la contención de rutas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Pruebas focalizadas y con limpieza del directorio temporal mediante `finally` (L39).
+- **Mejoras:**
+  - [baja] Añadir casos de enlaces simbólicos y rutas con separadores mixtos para ampliar la cobertura (L16-L39).
+
+### `eolfi/vscode-bridge/test/history.test.js`
+- **Propósito:** Prueba persistencia, búsqueda, filtrado temporal y tolerancia a líneas dañadas del historial.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los directorios temporales creados por `tmpFile()` no se eliminan (L9).
+- **Calidad:** Cubre búsqueda sin distinción de mayúsculas ni tildes y recuperación de datos persistidos.
+- **Mejoras:**
+  - [baja] Limpiar los archivos y directorios temporales al terminar cada prueba (L9, L13, L29, L41).
+
+### `eolfi/vscode-bridge/test/llama-starter.test.js`
+- **Propósito:** Prueba la selección de modelos GGUF, el arranque y parada del servidor local y la configuración.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** La prueba de configuración elimina la variable de entorno, pero no restaura un valor previo, y deja el directorio temporal (L111, L120).
+- **Calidad:** Buen uso de dobles de prueba y cobertura de permisos, reutilización y parada por inactividad.
+- **Mejoras:**
+  - [baja] Restaurar el valor anterior de `EOLFI_LLAMACPP_CONFIG` y eliminar el directorio temporal incluso si falla la prueba (L111-L120).
+
+### `eolfi/vscode-bridge/test/lm-integration.test.js`
+- **Propósito:** Prueba el registro del servidor MCP y las herramientas del modelo, además de la instalación de archivos del agente.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Pruebas de integración claras; los directorios temporales se limpian en bloques `finally`.
+- **Mejoras:** [baja] Añadir casos de error de registro o instalación para comprobar su manejo; L36-L89.
+
+### `eolfi/vscode-bridge/test/local-model.test.js`
+- **Propósito:** Comprueba la selección y comunicación con modelos locales, incluidas las llamadas a herramientas.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Sin hallazgos.
+- **Calidad:** Cubre los flujos principales; no prueba respuestas malformadas ni errores HTTP del servidor.
+- **Mejoras:** [baja] Añadir pruebas para respuestas malformadas y errores HTTP; L15-L65.
+
+### `eolfi/vscode-bridge/test/rea.test.js`
+- **Propósito:** Prueba la lectura de configuración REA, el cliente MCP y las reglas de confirmación.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** El directorio temporal creado en L12 no se elimina.
+- **Calidad:** Casos centrados y legibles; el cliente MCP se dispone en `finally`.
+- **Mejoras:** [baja] Eliminar el directorio temporal al acabar la prueba; L12-L17.
+
+### `eolfi/vscode-bridge/test/workspace.test.js`
+- **Propósito:** Prueba las acciones de workspace, sus límites de ruta, confirmaciones, cambios y deshacer.
+- **Seguridad:** Sin hallazgos.
+- **Errores y robustez:** Los directorios temporales creados por `ws()` y la prueba de enlaces no se limpian; L63-L68, L199-L203.
+- **Calidad:** Buena cobertura de flujos y límites; si no se puede crear el enlace simbólico, la prueba retorna sin marcarse explícitamente como omitida; L203.
+- **Mejoras:** [baja] Limpiar los directorios temporales y marcar explícitamente la prueba como omitida cuando no haya permisos para enlaces; L63-L68, L199-L203.
+
+### `eolfi/vscode-bridge/workspace.js`
+- **Propósito:** Proporciona acciones para consultar y modificar archivos del workspace desde el puente de VS Code. Incluye confirmaciones, filtros de secretos y un diario para deshacer cambios.
+- **Seguridad:** [alta] `open` acepta rutas absolutas sin comprobar que estén dentro del workspace ni filtrar secretos (L223-L238). [alta] La comprobación de secretos usa la ruta léxica: un enlace dentro del workspace puede apuntar a un archivo secreto y permitir leerlo o modificarlo (L91-L100, L193-L197, L249-L250).
+- **Errores y robustez:** [media] `read` y `find` cargan el archivo completo antes de limitar su tamaño; archivos grandes pueden consumir mucha memoria (L195-L197, L213-L215). [baja] `append` ignora errores al crear el directorio, aunque luego puede fallar al aplicar la edición (L299-L309). [baja] `write` registra el diario antes de obtener permiso; si se deniega, una posterior operación de deshacer podría actuar sobre un archivo creado entretanto (L254-L264, L316-L334).
+- **Calidad:** `makeActions` concentra numerosas operaciones y políticas en una sola función (L111-L349). Conviene añadir pruebas específicas para rutas externas, enlaces simbólicos y lecturas de archivos grandes.
+- **Mejoras:**
+  - [alta] Validar `open` con `resolveInside` y `isSecretPath` antes de abrir archivos (L223-L238).
+  - [alta] Aplicar la comprobación de secretos también a la ruta real resuelta (L91-L100, L193-L197, L249-L250).
+  - [media] Evitar cargar archivos completos antes de aplicar los límites, o imponer un límite agregado en `find` (L195-L197, L213-L215).
+  - [baja] Añadir cobertura de pruebas para los casos de rutas, enlaces y límites de tamaño (L91-L100, L193-L197, L223-L250).
+
+---
+
+## Anexo de cobertura del inventario actual (6 de noviembre de 2026)
+
+Al comparar el inventario de `eolfi/vscode-bridge/audit.js` con las rutas de este informe, hay 150 archivos elegibles: 145 ya tienen sección previa y estos cinco archivos añadidos o incorporados después no estaban cubiertos. Los locks de dependencias y los archivos de salida siguen fuera del inventario por diseño. No se encontraron archivos `.go` de producción en el repositorio; la inclusión del lenguaje se comprobó mediante una prueba de regresión con `src/main.go`.
+
+### `eolfi/vscode-bridge/e2e/local-eolas-live.js`
+- **Propósito:** Prueba opcional en vivo del modo de agente y auditoría con un modelo local, comprobando que Copilot no recibe llamadas.
+- **Seguridad:** Crea contenido de prueba temporal y no lo envía a un servicio remoto. El endpoint local se elige desde la configuración llama.cpp.
+- **Errores y robustez:** Si falla antes de la línea final, no elimina el directorio temporal; `process.exit()` abrupto también evita limpieza diferida.
+- **Mejoras:** [baja] Añadir limpieza del directorio temporal en `finally`/`process.on('exit')`; aceptar endpoint de prueba explícito para no depender de puertos configurados del usuario.
+
+### `eolfi/vscode-bridge/test/local-audit.test.js`
+- **Propósito:** Comprueba que el modelo local reintenta fallos recuperables, no usa Copilot como fallback y conserva errores HTTP útiles.
+- **Seguridad:** Sin envío a Copilot en las rutas probadas. La prueba asigna `EOLFI_RATE_WAIT_SCALE` en el ámbito del proceso de tests.
+- **Errores y robustez:** La variable global no se restaura, por lo que puede afectar otros casos ejecutados en el mismo proceso.
+- **Mejoras:** [baja] Restaurar el valor previo de `EOLFI_RATE_WAIT_SCALE` con `t.after`/`try-finally`; cubrir respuesta JSON malformada y error de conexión del modelo local.
+
+### `tests/test_llamacpp.py`
+- **Propósito:** Prueba configuración por defecto, argumentos de llama-server y formato de petición del proveedor local.
+- **Seguridad:** Verifica que el servidor usa loopback `127.0.0.1`.
+- **Errores y robustez:** Cobertura de red simulada; no valida errores de configuración ni arranque real.
+- **Mejoras:** [baja] Añadir casos para límites y valores inválidos del puerto/contexto y errores devueltos por el servidor.
+
+### `tests/test_mcp_server.py`
+- **Propósito:** Comprueba protocolo JSON-RPC, herramientas principales, errores, límites de ruta y stdout limpio.
+- **Seguridad:** Incluye casos de rutas fuera de raíces permitidas y contenido hostil que debe tratarse como dato.
+- **Errores y robustez:** Buen uso de `tmp_path`; el test de subproceso tiene un timeout de 120 s.
+- **Mejoras:** [baja] Añadir cobertura para lotes JSON-RPC y cierre limpio ante EOF; mantener el timeout amplio solo en la prueba de proceso.
+
+### `tests/test_verificacion_auditoria.py`
+- **Propósito:** Regresión para fallos reales confirmados: fusión de `.gitignore.extra`, saneamiento de recursos, códigos de vinculación, entorno aislado, DNS mixto y bombas ZIP.
+- **Seguridad:** Prueba límites de rutas, exclusión de secretos, SSRF y topes de descompresión.
+- **Errores y robustez:** La sustitución global de `zipfile.ZipFile.read` se restaura en `finally`; las demás dependencias de red/proceso están controladas mediante mocks.
+- **Mejoras:** [baja] Dividir los casos por subsistema cuando aumenten y añadir un test para que el verificador conserve incógnitas si la respuesta del modelo es ilegible.
+
+## Actualización sobre Go y recomendación de agentes
+
+- El inventario de auditoría usa `.go` en `CODE_EXT`; se añadió una prueba para exigir que `src/main.go` se incluya y reciba una sección propia.
+- `checks.js` detecta `go.mod` y propone `go test ./...` por cada módulo. No hay código Go de producción en este repositorio actualmente.
+- Se añadió `golang.go` a las extensiones recomendadas de VS Code para que el editor active soporte de lenguaje cuando se trabaje con código Go.
+- **Agentes:** no recomiendo crear ahora un agente separado por lenguaje. El auditor ya es genérico y REA dispone de herramientas especializadas por formato/proveedor; separar perfiles por Go, Python o JavaScript duplicaría prompts y elevaría el mantenimiento. Sí tendría sentido añadir perfiles de flujo (auditoría de repositorio, inspección nativa, Android, navegador) solo si se demuestra que tienen políticas y resultados distintos.
+
+## Ejecución y límites de esta actualización
+
+- Python 3.12.10 es ejecutable por ruta directa (`C:\Users\mejil\AppData\Local\Programs\Python\Python312\python.exe`) y `-m eolfi --help` responde. El alias `python` del PATH apunta a WindowsApps y no arranca; `py -0p` informa que no hay Python instalado. Se intentó registrar la instalación para el lanzador, pero el cambio no persistió entre invocaciones; por tanto, queda pendiente reparar `py`/PATH de forma persistente. Go 1.27.0 está instalado.
+- REA doctor: CLI 6.8.0, REA MCP de Codex alineado, Ghidra 12.1.4 disponible; Hopper y Kuna faltan y la inscripción de VS Code está ausente. El proveedor de escenarios de navegador falló antes de cargar `http://127.0.0.1:18778` en dos intentos y reportó `terminated-owned-process`; no se obtuvo evidencia dinámica de la interfaz.
+- El servidor Eolfi se inició solo en `127.0.0.1:18779`; `/` respondió HTTP 200 y `/api/subjects` devolvió `{"subjects":[]}`. No se expuso a LAN ni Internet. REA no logró capturar `127.0.0.1:18778` antes del estado inicial y limpió el proceso que había lanzado; no hay evidencia de navegación dinámica. La sesión temporal quedó detenida y sus datos/logs de prueba se limpiaron.
+- Prueba ejecutada: `node --test eolfi/vscode-bridge/test/audit.test.js` — 8 pasaron, 0 fallaron. El inventario resultante encontró 150 archivos elegibles y el fixture Go quedó cubierto.
+- Sin agente de lenguaje adicional: la cobertura de Go se añadió al catálogo del editor y se protegió mediante prueba; REA no se configuró ni instaló con herramientas nuevas.
+
+### Pasada estática de REA sobre `eolfi/`
+
+- Evidencia REA: `ev_4a7faf238ec0cf3f2ce87b3661cef9574c3a688d62fc632f6b7fb54e55f77074`; SHA-256 del árbol observado: `d3a3623d6ae15011592b5ab63faaebc5c7563ff1c5941bdc823287ab56a8b1cc`.
+- Alcance: 469 archivos relevantes, incluido un ASAR anidado; se leyeron 11.937.774 bytes y se analizaron 427 archivos JavaScript con 449.061 nodos AST y cero errores de parseo. Se generaron 5.595 observaciones de análisis; ese número no equivale a defectos ni vulnerabilidades confirmados.
+- Cobertura: 415 fuentes parseadas completas y 12 recuperadas parcialmente; 53 fuentes quedaron con semántica desconocida. El grafo semántico alcanzó los topes solicitados (40.000 nodos totales y 10.000 por archivo), fue truncado y mantiene 16.696 incógnitas. La aplicación se reportó parcial.
+- Electron: REA observó estáticamente dos ventanas, un preload, una API de `contextBridge`, dos operaciones IPC, un canal literal con emisor/receptor emparejados y una observación de validación del emisor. Son candidatos estructurales; esta pasada no acredita el registro o ejecución en tiempo de ejecución.
+- Límites: el análisis JavaScript y HTML fue inerte; no ejecutó la aplicación ni el arranque del bundle. No reemplaza las 150 secciones de auditoría del inventario Eolfi ni certifica el código Python, Java, CSS, configuración o seguridad de dependencias.
+
+### Alcance histórico y cobertura del informe
+
+La cabecera inicial de este informe registró 129 archivos en una pasada previa. Al reevaluar el inventario actual del auditor Eolfi se obtuvieron 150 archivos elegibles: 145 coincidían con secciones ya existentes y cinco se añadieron en el anexo. El total actual revisado queda en 150, sin contar los locks y salidas que el inventario excluye expresamente. La ruta `.go` quedó comprobada en fixture; no hay archivos Go de producción elegibles.
+
+## Mejoras implementadas después de la auditoría
+
+- **Acceso local descrito al agente:** se actualizó `eolfi/vscode-bridge/agent/agents/eolfi.agent.md` para explicar que Eolfi puede usar las carpetas y terminal disponibles en la sesión local de VS Code, herramientas REA configuradas y la web pública. También explicita que no hereda las conexiones, credenciales ni los permisos de Codex.
+- **Python para el servidor MCP:** `lm-integration.js` ahora busca la instalación oficial más reciente en `%LOCALAPPDATA%\Programs\Python\Python*` antes de recurrir al alias `python`; un ajuste `eolfi.python` explícito sigue teniendo prioridad. Esto permite que el MCP de Eolfi use la instalación encontrada aunque `py.exe` no la reconozca.
+- **Aislamiento de archivos al abrir/listar/buscar:** se validó `open` contra las carpetas del workspace y el destino real de enlaces simbólicos; abrir fuera del workspace continúa siendo posible con confirmación al abrir una carpeta. `list` y `find` omiten rutas no permitidas y secretos. Lectura, escritura y anexado también comprueban si el destino real corresponde a un archivo secreto.
+- **Red privada:** el agente puede buscar y leer HTTP(S) público con permiso puntual o por sesión. También puede consultar localhost/LAN si `eolfi.agent.privateNetwork` está activo: cada destino requiere una confirmación nueva que muestra URL e IP fijada, sin permiso por sesión ni bypass en modo automático. Se rechazan nombres DNS con respuestas mezcladas entre direcciones públicas y privadas, y no se siguen redirecciones. El interruptor se puede apagar en ajustes.
+- **MCP local de Codex:** se añadió `codex-mcp.js` para descubrir servidores MCP stdio activos de `~/.codex/config.toml`, excluyendo MCP remoto/OAuth. Eolfi ofrece `mcp_herramientas` y `mcp_usar`; cada servidor necesita aprobación antes de iniciar y las herramientas sin marca de solo lectura piden aprobación en cada llamada. Los valores de entorno se pasan únicamente al proceso MCP y se redactan de resultados/logs si reaparecen exactamente. Se puede elegir otro TOML o desactivar la función con `eolfi.mcp.codex.config` y `eolfi.mcp.codex.enabled`.
+- **Alcance de Codex:** la conexión ejecuta servidores MCP locales configurados; no transfiere sesiones autenticadas, conectores HTTP/OAuth ni permisos internos de Codex. Variables de entorno solo estarán disponibles si también existen en el proceso VS Code o están declaradas literalmente en la configuración.
+- **Confirmaciones coherentes:** se corrigió el permiso de terminal para que las órdenes que borran datos pidan aprobación individual también en modo automático. La ayuda del chat y el diálogo para activar ese modo explican que las URLs privadas y los borrados siguen pidiendo confirmación.
+
+Esta implementación se limitó a las rutas señaladas arriba. No se añadieron permisos globales ni se cambiaron los valores predeterminados del modo manual. La suite completa de la extensión pasó: 121 pruebas, 0 fallidas. La suite Python pasó tras actualizar la expectativa obsoleta de `test_licencia_propietaria` para comprobar el titular actual, sin modificar la licencia: 315 aprobadas, 2 omitidas. El lanzador `scripts/test.js` también se corrigió para descubrir `test/*.test.js` cuando no recibe rutas; antes Node intentaba cargar `test` como módulo y fallaba.
+
+### Verificación dinámica del panel y manejo de desconexiones
+
+- REA ejecutó una sesión Chromium aislada sobre el servidor local en 390×844 y 1440×900. Las pestañas Analizar, Objetivos y Crear proyecto se seleccionaron correctamente; la secuencia Flecha derecha, Fin e Inicio cambió las pestañas y mantuvo el `tabpanel` coincidente. Capturas y árbol accesible completos: `ev_d3cc9d635a9a6ad53f78c5610337d61cab182f5031ada7ebc16922769f1f2b39`, `ev_67eadfd33ec1587bed6dfbb6f13f48bb74b9e18e2775e97f16f08d25f119c7c7`, `ev_9b73c7e43288d0783b0c8aaab8bf7471b1e41661e999c72ad2a225745a326ee6`. El Chromium temporal terminó; no se conectó al navegador de Work. No se retuvieron eventos de consola/error de página.
+- La revisión responsive se amplió a 320×720, 390×844, 640×900, 768×1024, 1024×768 y 1440×900. A 320 px se detectó que la navegación superior ocultaba parcialmente «Trabajos» y el campo de nombre se comprimía junto al selector de tecnología. Se apilan esos dos campos y la navegación ocupa dos filas en ese ancho; el placeholder se simplificó. Capturas finales de 320/768/1024: `ev_2791b1a1ae317ac6278c92ef04dc09f27a54baca04bf03ed7a1af23ea3463eec`, `ev_26da2a64d3eb99eb31400cd5503aa9078f3c321b86ee92d084f30d2d1a1d8421`, `ev_7551e480b8fa3e62a4866ed38c652cd2c0d94f7ad0c7698efe226f1def52ccab`. A 640×900 se comprobó el recorrido de foco desde la pestaña al botón «Añadir carpeta» y luego al campo Fuentes, con foco visible (`ev_2f881aefc01ed15c6b6b55e55b979bdeb337f15ffa6ac0c671493991c4435826`). Este ancho aproxima el espacio CSS disponible con zoom alto, pero no cambia el zoom real. La prueba con lector de pantalla y el zoom real siguen pendientes.
+- REA activó además el acceso superior «Trabajos» en 320 px y confirmó sus cuatro enlaces en el árbol de accesibilidad: `ev_869c8a3fd3e2cb613b723b1768e8cbe8749c075414cae657259b6554268cda19`.
+- Se añadió persistencia de la pestaña lateral mediante `localStorage` (`eolfi.panel`), validando el nombre contra las pestañas declaradas y tolerando errores de almacenamiento. REA seleccionó Objetivos, navegó de nuevo a la URL y volvió a observar Objetivos seleccionado (`ev_a70d5c16d49eb7f0e80a58b8deebbf8cb425fce2f75fd6952badcce6084d283a`). `node --check eolfi/web/app.js` terminó correctamente.
+- Los errores ahora aparecen como alerta `role="alert"` bajo las pestañas y persisten al cambiar de panel; REA comprobó una ruta inexistente y luego cambió a Objetivos (`ev_8f70b02b8cc2977a544fc35fa31d40fa9e113c01e97fb12add47d1a66fa12bcb`). Objetivos incluye búsqueda por texto, formato y estado de incógnitas; la combinación `repo`/abiertas/«Eolfi» devolvió 1 de 46 (`ev_a6685714655e7ea1601657a715d871c1f524b2e6fed6fea6472c3ab7cc4d5b07`). La sintaxis JS volvió a verificarse con `node --check`.
+- El formulario de proyecto agrupa IA opcional y ajustes secundarios en bloques plegables, preservando en pantalla las fuentes, tecnología, destino y la verificación antes de crear; REA abrió ambos bloques en la vista móvil (`ev_6aaf0afec9a602e236bbddb11a7db164e592fdee1162822e37bdfdd71ced2dc5`).
+- Al cerrar esa sesión se observó que el cliente puede cancelar una petición API pendiente. `eolfi/server.py` ahora trata `BrokenPipeError`, `ConnectionResetError` y `ConnectionAbortedError` durante la respuesta como desconexiones normales y cierra la conexión; `tests/test_server.py` cubre las tres variantes. La suite Python completa pasa con 315 aprobadas y 2 omitidas.
+
+### Seguimiento de la auditoría: integración MCP
+
+La cifra histórica de 150 archivos corresponde al inventario anterior a esta integración. `eolfi/vscode-bridge/codex-mcp.js` es un nuevo archivo de código elegible, por lo que el inventario actual suma al menos 151; el detalle por archivo de la primera pasada no cubría este archivo nuevo.
+
+#### `eolfi/vscode-bridge/codex-mcp.js`
+
+- **Propósito:** lee con `tomllib` la sección `mcp_servers` de la configuración TOML de Codex y proyecta únicamente entradas activas con `command` stdio, argumentos y entorno válidos.
+- **Seguridad:** no lee config remota ni importa URLs/OAuth. La lectura usa un subproceso de Python con entorno heredado filtrado; los servidores se lanzan mediante `spawn` sin shell tras aprobación visible. Solo reciben el entorno base no secreto más las variables que declararon en `env`/`env_vars`. Los valores de esas variables se eliminan exactamente de descripciones, argumentos de confirmación, respuestas y stderr si reaparecen.
+- **Errores y límites:** requiere Python 3.11+ con `tomllib`; falla cerrado con mensaje sin datos de configuración. La redacción por coincidencia exacta no detecta credenciales transformadas, codificadas o generadas por el propio servidor.
+- **Mejoras:** añadir regresiones para distintas formas TOML válidas, fallos de parseo e inicialización MCP y redacción de valores; verificar el comportamiento con el REPL configurado antes de considerarlo cobertura dinámica.
+
+### Cierre de interfaz y verificación posterior
+
+- El frontend se dividió por áreas: `eolfi/web/runtime.js` concentra utilidades de DOM/API/trabajos/estado; `eolfi/web/subjects.js` contiene lista y filtros de objetivos; `eolfi/web/app.js` importa ambos como módulos ES. `eolfi/server.py` expone los dos recursos en su mapa estático y `tests/test_server.py` verifica estado HTTP y tipo MIME.
+- Chromium aislado de REA cargó la aplicación y generó un árbol accesible completo sin errores de consola ni de página (`ev_1e59cb92e8566b29d525872ebf9c4a25fda32727a317f00dbd7f1c54dfa52f68`). Suite Node: 121/121. Suite Python: 315 aprobadas y 2 omitidas; la prueba de los nuevos estáticos también pasó de forma aislada.
+- La comprobación de zoom con Ctrl+Mayús+= en Chromium headless no cambió la captura (hash igual a la base); no demuestra zoom real. REA tampoco controla un lector instalado: el árbol accesible y el recorrido de foco no sustituyen Narrador/NVDA. La inspección de aplicaciones controlables no mostró Narrador; además, Work declara deshabilitado el control del navegador local. Estos dos puntos siguen pendientes de una sesión de escritorio interactiva habilitada.

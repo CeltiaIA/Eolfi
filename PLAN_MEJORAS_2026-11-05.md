@@ -1,5 +1,7 @@
 # Eolfi: segunda auditoría y plan de correcciones, implementaciones y mejoras
 
+> **Documento histórico:** conserva los hallazgos y cierres de la auditoría del 2026-11-05. El backlog activo está en [PLAN_INGENIERIA_INVERSA_EOLFI.md](PLAN_INGENIERIA_INVERSA_EOLFI.md); consulta este archivo como registro de correcciones anteriores.
+
 Fecha: 2026-11-05. Seis agentes revisaron Eolfi carpeta por carpeta y archivo por archivo, en modo solo lectura.
 Uno de ellos hizo además una comprobación funcional en vivo del panel con las herramientas REA. La primera
 auditoría y sus correcciones están en `PLAN_CORRECCIONES.md`; aquí solo figura lo que queda o lo nuevo.

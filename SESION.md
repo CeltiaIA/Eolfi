@@ -660,3 +660,25 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
 - Extensión 0.6.6: pie «Modelo: X · en tu equipo, sin Copilot» en las respuestas del agente y «Modelos usados» en las
   auditorías (ajuste eolfi.agent.showModel, activo por defecto). Licencia: titular único Luis Manuel Cousido Hermida;
   nuevo LICENCIAS-TERCEROS.md. Pruebas 117 (1 solo en Windows).
+
+## Continuación de hoja de ruta y registro de limpieza (2026-11-06)
+- Se inició el seguimiento transversal de posibles restos obsoletos en `REGISTRO_LIMPIEZA.md`. Incluye candidatos
+  locales (logs, parche, backups, salida generada e índice de muestras) y exige comprobar referencias antes de
+  proponer retirar. No se borró ni movió ningún archivo; la revisión de limpieza queda para el cierre del plan.
+- `PLAN_INGENIERIA_INVERSA_EOLFI.md` sigue siendo el backlog activo. Este trabajo establece el registro y su proceso;
+  en esa intervención aún no se empezó la implementación funcional, que queda registrada a continuación.
+
+## Fase 1 — primera entrega del caso persistente (2026-11-06)
+- Añadido `eolfi.core.cases.CaseStore` en la SQLite del almacén actual: casos, artefactos identificados por SHA-256
+  con tamaño, versión, formato, plataforma y procedencia; registros tipados de ejecución, observación, especificación,
+  reconstrucción y comparación. Referencias de cada
+  registro a artefactos/evidencias se validan.
+- CLI: `eolfi case create|list|show|artifact|record|export|import`. El paquete incluye los artefactos, registros,
+  evidencias e incógnitas del caso; la importación valida el bloque de evidencias en SQLite efímera antes de cargarlo.
+- Pruebas específicas tras el cambio: `tests/test_cases.py` + `tests/test_evidence.py`, 11 aprobadas. Smoke de CLI
+  para crear, asociar, registrar, mostrar, listar, exportar e importar: OK. Suite Python completa en el árbol final:
+  **321 aprobadas, 2 omitidas** (`python.exe 3.12.10 -m pytest -q`, 188,18 s). El alias `python` no funciona en
+  Windows; se usó `C:\Users\mejil\AppData\Local\Programs\Python\Python312\python.exe` y `--basetemp` dentro
+  del workspace para evitar el temp bloqueado del sandbox.
+- La Fase 1 permanece en curso: todavía falta integración automática con los flujos, API/panel/agente y el informe
+  navegable. No se retiró código ni ningún candidato del registro de limpieza.

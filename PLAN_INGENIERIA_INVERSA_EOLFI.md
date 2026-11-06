@@ -1,0 +1,137 @@
+# Hoja de ruta: Eolfi como sistema completo de ingeniería inversa
+
+> Documento vivo. Las fases y objetivos se eliminan de este plan cuando se completan y su resultado queda cubierto por documentación, evidencia y verificación reproducible. No se marca un objetivo como hecho solo porque exista código con ese nombre.
+
+## Propósito
+
+Eolfi debe permitir estudiar un programa desde los artefactos y su comportamiento, aunque no se tenga delante su código fuente, formular una especificación sustentada por evidencias y construir una implementación nueva que reproduzca las funciones observadas. Debe cubrir desde la adquisición controlada del objetivo hasta la comparación y el informe final.
+
+La reconstrucción será independiente: se documentan contratos, estados, entradas, salidas, formatos y comportamiento observable; no se copia ni se presenta como original el código que no se posee. Si una función no se puede demostrar o mejorar con evidencia suficiente, se conserva como incógnita y no se inventa una implementación.
+
+## Criterios permanentes de calidad
+
+- Cada afirmación importante enlaza con evidencia, indica su origen y distingue observación, derivación e hipótesis.
+- La falta de código fuente no bloquea el análisis: se admiten ejecutables, paquetes, capturas, interfaces accesibles, tráfico autorizado y escenarios reproducibles.
+- La especificación reconstruida describe comportamiento y restricciones, no solo una pila tecnológica o una apariencia.
+- La reimplementación se valida frente al original con entradas equivalentes; las diferencias y los límites quedan visibles.
+- Herramientas opcionales pueden faltar sin invalidar los resultados que sí se obtuvieron. Eolfi explica qué cubrió cada herramienta y qué quedó sin cubrir.
+- Todo proyecto, cambio de código y artefacto que Eolfi construya debe pasar el validador que corresponda antes de considerarse terminado. Si falta el toolchain o la validación falla, el estado queda como «no verificado» o «fallido»; nunca verde por omisión. REA aporta análisis independiente cuando su proveedor cubre el tipo de artefacto, con cobertura/unknowns visibles.
+- Las muestras y programas solo se ejecutan cuando existe autorización y un entorno aislado adecuado. La ejecución de una muestra no confiable no se considera segura por el mero hecho de estar limitada por un subproceso.
+- Se prioriza mejorar una capacidad existente o cubrir una carencia comprobada. No se añade una función solo para aumentar el inventario.
+
+## Punto de partida observado
+
+El repositorio ya tiene una base considerable: modelo de evidencias e incógnitas, almacenamiento e importación/exportación, parsers para varios formatos, integraciones opcionales con Ghidra/rizin/capa, análisis de webs y repositorios, flujo diferencial, trabajos y panel, CLI, integración con VS Code y generación de proyectos para varias plataformas. README.md describe estas capacidades y SESION.md registra implementaciones y pruebas anteriores.
+
+También hay planes históricos extensos: `PLAN_CORRECCIONES.md` y `PLAN_MEJORAS_2026-11-05.md`. La auditoría archivo por archivo y la verificación posterior están en `informes/auditoria-archivos-Eolfi-2026-11-06.md` e `informes/verificacion-auditoria-2026-11-06.md`. Esos documentos son antecedentes, no una certificación del árbol actual: al comenzar esta hoja de ruta hay numerosos cambios locales sin confirmar, incluidos cambios del agente de VS Code, la interfaz, servidor y pruebas. La primera fase revalidará su estado para no dar por buenos resultados anteriores que puedan haber quedado obsoletos.
+
+La diferencia principal entre la base existente y el objetivo final no es acumular más parsers. Es cerrar y demostrar un flujo único de caja negra: observar una función en el programa original, describirla con precisión, implementarla de manera independiente y medir cuánto coincide.
+
+## Fases pendientes
+
+### Fase 0 — Rebaselinar el proyecto actual
+
+- [x] Inventariar módulos, comandos, rutas de usuario y proveedores a partir del árbol actual; enlazar cada capacidad con su código, interfaz y evidencia de verificación.
+- [x] Revisar las diferencias locales actuales frente a los informes de auditoría; confirmar, corregir o retirar hallazgos ya obsoletos y registrar los nuevos reproducibles.
+- [x] Crear una matriz de cobertura por clase de objetivo: nativo, gestionado, móvil, escritorio, web, firmware y otros formatos que el proyecto afirme soportar.
+- [x] Por cada fila, distinguir análisis estático, ejecución/observación, extracción de especificación, reconstrucción y verificación; «no disponible» debe ser explícito.
+- [x] Establecer un conjunto base de fixtures sintéticos autorizados y reproducibles, con hashes, plataforma y pruebas de resultados esperados. Los binarios locales de procedencia desconocida quedan excluidos.
+- [x] Consolidar los planes antiguos como historial; esta hoja de ruta es el backlog vigente.
+
+**Fase 0 completada (2026-11-06):** [informe de estado y matriz](informes/estado-y-cobertura-eolfi-2026-11-06.md); instrucciones persistentes en `AGENTS.md`; validación local completa. CLI, API y panel ahora fuerzan la verificación al crear proyectos; la Fase 4 ampliará la calidad y cobertura específica de cada destino.
+
+**Salida verificable:** informe de estado actual fechado, matriz de cobertura y lista corta de brechas priorizadas; referencias exactas a los informes anteriores que se mantienen válidos.
+
+### Fase 1 — Caso de análisis de principio a fin
+
+- [x] Definir un caso/proyecto de análisis persistente que agrupe artefactos, versiones, entorno, ejecuciones, observaciones, evidencias, incógnitas, especificación, reconstrucciones y comparaciones.
+- [x] Hacer que toda entrada tenga identidad reproducible: hash, tamaño, formato detectado, procedencia declarada, herramientas y versiones usadas.
+- [x] Permitir importar/exportar el caso completo con validación, integridad y referencias conservadas; no convertir hipótesis en hechos al compartirlo.
+- [x] Unificar CLI, panel y agente de VS Code alrededor de los mismos flujos y del mismo estado, mostrando progreso, cancelación, errores y resultados parciales.
+- [x] Generar un informe navegable que conecte cada conclusión con evidencia, incógnitas y límites.
+
+**Fase 1 completada (2026-11-06):** [informe de cierre](informes/caso-de-analisis-fase-1-2026-11-06.md). `eolfi.core.cases` con identidad tipada (contenido/commit/descriptor/derivado), entorno y herramientas por artefacto y ejecución, registros de flujo tipados y conclusiones observada/derivada/hipótesis validadas al registrar e importar; triage, web, repo, diff, compare y create se enlazan con `case_id`/`--case`; API `/api/cases…`, pestaña «Casos» del panel y herramientas `eolfi_casos`/`eolfi_caso_analizar` del agente sobre el mismo estado; informe HTML navegable (`eolfi case report`, `/api/cases/{id}/report`). Pruebas: `tests/test_case_flows.py`, `tests/test_case_api.py`, `tests/test_cases.py`, `eolfi/vscode-bridge/test/case-tools.test.js`, e2e «casos» en `tests/e2e/panel.test.mjs`. Límites declarados: el agente no se verificó en un VS Code real (solo pruebas unitarias y de contrato HTTP), `diff` sigue siendo solo de CLI y las URL remotas tienen identidad de descriptor, no de contenido.
+
+**Aceptación:** un analista puede iniciar un caso, procesar un objetivo, revisar y resolver incógnitas, continuar después de reiniciar, exportar el caso y reconstruir de dónde salió cada conclusión.
+
+### Fase 2 — Observación de caja negra sin código fuente
+
+- [ ] Diseñar una sesión de observación reproducible: artefacto/versionado, SO, arquitectura, configuración, estado inicial, pasos, entradas, efectos, duración y limpieza.
+- [ ] Cubrir entradas/salidas de procesos, archivos, registro/configuración, procesos hijos, errores, señales, estado persistente y llamadas relevantes según plataforma, siempre con el alcance de observación declarado.
+- [ ] Añadir captura de escenarios de interfaz para escritorio y móvil, con acciones, pantallas, navegación, estados, accesibilidad y resultados observados.
+- [ ] Añadir observación de comportamiento web y APIs: solicitudes/respuestas autorizadas, eventos, almacenamiento y cambios visibles; enlazar trazas a la acción que las produjo.
+- [ ] Comparar ejecuciones entre versiones o entornos y localizar el primer cambio observable, manteniendo separados los hechos y la atribución causal.
+- [ ] Poder repetir una sesión a partir de un guion; marcar como no reproducibles los factores externos que no se pudieron fijar.
+
+**Aceptación:** con un objetivo ejecutable autorizado y sin fuentes, Eolfi produce un registro repetible de escenarios, entradas, salidas y efectos, con cobertura y límites explícitos. Las capacidades no disponibles en el SO actual no se anuncian como verificadas.
+
+### Fase 3 — Especificación de comportamiento sustentada
+
+- [ ] Convertir evidencias estáticas y dinámicas en una especificación versionada: funciones/casos de uso, entradas, salidas, errores, estados, persistencia, interfaces y requisitos no funcionales.
+- [ ] Enlazar cada requisito con evidencias concretas y grado de confianza; señalar contradicciones e incógnitas sin resolver.
+- [ ] Modelar secuencias y máquinas de estado cuando el programa tenga flujos, protocolos, formatos o interfaces con estado.
+- [ ] Generar casos de prueba a partir de las observaciones, sin elevar automáticamente una inferencia de IA a observación confirmada.
+- [ ] Permitir revisión humana, cambios trazables y comparación de especificaciones entre versiones.
+
+**Aceptación:** otra persona puede implementar una función a partir de la especificación sin consultar el código original, y puede identificar qué afirmaciones son seguras, inferidas o desconocidas.
+
+### Fase 4 — Reconstrucción independiente
+
+- [ ] Separar el modelo de comportamiento del generador de código; no asumir que detectar un framework basta para reconstruir el producto.
+- [ ] Derivar módulos, límites, interfaces y datos de la especificación y de las evidencias, explicando decisiones y alternativas.
+- [ ] Generar una base ejecutable con comportamiento implementado por etapas, respetando el lenguaje y plataforma elegidos; declarar con claridad las funciones simuladas o pendientes.
+- [ ] Aplicar mejoras solo cuando exista una razón verificable (seguridad, accesibilidad, rendimiento, compatibilidad o mantenibilidad) y mantener compatibilidad conductual donde sea requisito.
+- [ ] Registrar de qué requisito procede cada componente generado y permitir regenerar sin destruir cambios manuales no gestionados.
+
+**Aceptación:** se obtiene un proyecto nuevo que compila/arranca en el entorno declarado y mantiene trazabilidad desde los componentes hasta la especificación, sin copiar código fuente inaccesible.
+
+### Fase 5 — Equivalencia y medición de cobertura
+
+- [ ] Ampliar el flujo diferencial para invocar el original y la reconstrucción bajo el mismo entorno controlado y corpus, comparando resultados estructurados además de stdout/códigos de salida.
+- [ ] Comparar interfaces: navegación, estados, contenido y accesibilidad; permitir tolerancias declaradas para diferencias visuales no funcionales.
+- [ ] Comparar protocolos y efectos persistentes cuando se puedan capturar de manera fiable; ocultar secretos y datos personales en artefactos de prueba.
+- [ ] Añadir reducción de casos que fallan, generación de variaciones de entradas y repetición determinista, conservando la semilla y configuración.
+- [ ] Calcular cobertura de requisitos y escenarios, severidad de divergencias y zonas no observadas. Un porcentaje nunca debe ocultar funciones sin probar.
+- [ ] Reabrir automáticamente una incógnita cuando una ejecución nueva contradiga la especificación o la equivalencia declarada.
+
+**Aceptación:** cada requisito tiene pruebas vinculadas; el informe muestra coincidencias, divergencias, cobertura, reproducibilidad y riesgos residuales. No se afirma equivalencia total con cobertura incompleta.
+
+### Fase 6 — Seguridad, aislamiento y reproducibilidad
+
+- [ ] Definir niveles claros de análisis: estático, ejecución observada con autorización y ejecución aislada; las acciones con efectos requieren consentimiento explícito.
+- [ ] Diseñar integración opcional con VM/contenedor y restricciones de red, filesystem, credenciales, recursos y persistencia; si no hay aislamiento, impedir que la interfaz sugiera seguridad de sandbox.
+- [ ] Eliminar secretos de entornos, logs, capturas e informes; redactar datos sensibles por defecto.
+- [ ] Fijar y registrar versiones, hashes y parámetros de proveedores/herramientas externos para repetir resultados.
+- [ ] Hacer pruebas de resiliencia sobre parsers, importación y paquetes hostiles, y revisar de forma continua los límites de recursos.
+- [ ] Documentar permisos, datos capturados, ubicación y borrado de cada sesión.
+
+**Aceptación:** una ejecución puede repetirse o explicar por qué no, y el operador puede ver qué permisos se usarán, qué se ejecutará y dónde quedan los datos.
+
+### Fase 7 — Cierre por plataformas y experiencia operativa
+
+- [ ] Validar la matriz de formatos y plataformas de forma real en Windows, Linux y macOS, y Android/iOS donde haya dispositivos o herramientas disponibles.
+- [ ] Mantener una ruta útil cuando falte una herramienta externa, sin declarar cobertura equivalente.
+- [ ] Simplificar el recorrido principal para pasar de objetivo a especificación, implementación y comparación sin cambiar de modelo de datos.
+- [ ] Publicar guías, ejemplos autorizados y criterios de aceptación por flujo; retirar opciones que no puedan sostenerse o mantenerse.
+- [ ] Integrar en CI los escenarios reproducibles que no requieren binarios ni credenciales externos; separar pruebas de laboratorio opcionales.
+
+**Aceptación final:** una persona puede completar el flujo con una muestra propia desde CLI o interfaz, sin leer código fuente del objetivo, obtener una reconstrucción independiente y revisar con evidencias dónde coincide y dónde no.
+
+## Orden de trabajo recomendado
+
+1. Fase 0: confirmar el estado real del árbol y eliminar deuda de planes duplicados.
+2. Fases 1 y 2: fijar el modelo del caso y registrar comportamiento verificable sin fuentes.
+3. Fase 3: convertir observaciones en una especificación trazable.
+4. Fases 4 y 5: construir y medir la reconstrucción, cerrando el ciclo funcional.
+5. Fases 6 y 7: endurecer y ampliar cobertura según los vacíos demostrados por la matriz.
+
+No se debe expandir primero el número de formatos o destinos de generación si el ciclo observación → especificación → reconstrucción → comparación sigue sin estar demostrado.
+
+## Cómo mantener este plan
+
+- Trabajar una fase cada vez y actualizar las casillas solo con evidencia verificable.
+- Mantener `REGISTRO_LIMPIEZA.md` durante todas las fases: anotar candidatos a código obsoleto, scripts antiguos y artefactos con ruta, evidencia y comprobaciones pendientes. No retirar candidatos hasta completar la hoja de ruta y revisar la lista con el usuario.
+- Al cerrar una fase, añadir aquí una línea breve con fecha, resultado y referencias a las pruebas/informes; después retirar del backlog los objetivos cumplidos, dejando el historial de cierres.
+- Si cambia el alcance, registrar el motivo y actualizar criterios de aceptación antes de añadir nuevas tareas.
+- No copiar aquí listas de bugs menores: van en incidencias o auditorías específicas y se elevan a esta hoja solo si bloquean un criterio de aceptación.
+- En cada revisión, informar qué está completo, qué sigue y qué depende de una plataforma, muestra o herramienta aún no disponible.

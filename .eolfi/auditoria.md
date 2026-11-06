@@ -20,11 +20,17 @@ código y una salvaguarda deja de existir, quítala de esta lista.
   10 minutos y se anulan al 5.º fallo.
 - **Red:** `sites/fetch.py` conecta a la IP ya validada (`_pinned_socket`), sin seguir redirecciones a direcciones
   privadas; `sites/repo.py` clona con git endurecido (sin hooks, sin credenciales, sin redirecciones).
+- **Red del agente VS Code:** `eolfi_web_leer` puede acceder a localhost/LAN si `eolfi.agent.privateNetwork` está
+  habilitado; pide aprobación por URL/IP, fija la IP validada, rechaza DNS mixto público/privado y no sigue redirecciones.
 - **Subprocesos:** `run_tree`, `check_cmd_safe` para lanzadores `.bat`/`.cmd`, `_safe_input` en `diff`, entorno
   sin secretos en el subproceso aislado y en REA.
 - **Extensión de VS Code:** el workspace se comprueba con la ruta real (enlaces incluidos); los archivos de
   secretos están bloqueados (`isSecretPath`); escribir pide un diff en modo manual; `auto_approve` lo concede el
   usuario en VS Code; REA confirma por nombre lo que ejecuta algo; la lectura web fija la IP y tiene tope.
+- **MCP externos de Codex:** `codex-mcp.js` lee `config.toml` con `tomllib`, importa solo servidores stdio habilitados
+  y no muestra valores de configuración al modelo. El proceso requiere confirmación para arrancar; herramientas sin
+  marca explícita de solo lectura requieren permiso por llamada. Los valores configurados se redactan en salida/logs
+  si reaparecen exactamente; OAuth/MCP remoto no se importa.
 - **`isolated.py`** solo importa módulos `eolfi.providers.*`, y sus argumentos los pone el propio servidor.
 
 ## Decisiones de diseño aceptadas
@@ -37,3 +43,6 @@ código y una salvaguarda deja de existir, quítala de esta lista.
 - **Terminal del agente:** lista de bloqueo + permiso por sesión + modo manual, no una lista cerrada de permitidos.
 - **Pruebas** (`tests/`, `*/test/`, `e2e/`): variables de entorno y temporales de prueba son aceptables si se
   limpian al final; no son código de producción.
+- **Auditoría archivo por archivo:** `eolfi/vscode-bridge/audit.js` incluye `.go` en `CODE_EXT`; el inventario
+  envía el contenido Go al mismo flujo de revisión que los demás lenguajes. `checks.js` detecta cada `go.mod` y
+  planifica `go test ./...`; no marcar esta cobertura como ausente ni proponer otro auditor Go duplicado.
