@@ -33,6 +33,8 @@ Registro vivo para la hoja de ruta de `PLAN_INGENIERIA_INVERSA_EOLFI.md`. Sirve 
 - **2026-11-06 — revisión de archivos excluidos:** se inspeccionaron `.claude/launch.json`, ambos logs y las 23 rutas del parche. El launch config tiene uso documentado; los logs son evidencia temporal y el patch parece respaldo ya integrado, aunque quedan pendientes de comparación completa. Ninguno se staged, ignoró o eliminó.
 - **2026-11-06 — decisiones del titular:** `.claude/launch.json` se incluye en el repositorio (LIM-010); `eolfi-modo-agente.patch` se conserva localmente sin seguimiento hasta la revisión final (LIM-002).
 
+- **2026-11-07 — Fase 2:** sin candidatos nuevos; `eolfi/observe/session.py` reutiliza `_kill_tree` privado de `eolfi/flows/diff_flow.py` (posible extracción a un módulo común; no es código obsoleto). No se borró ni movió nada.
+
 ## Revisión final
 
 Al completar la hoja de ruta, revisar cada entrada y sus dependencias; etiquetar solo entonces las propuestas `PROPONER RETIRAR`, separar lo que requiere conservar y tomar la decisión de limpieza sobre una lista explícita. Hasta ese momento, actualizar este registro si las fases revelan candidatos nuevos o demuestran que una entrada tiene uso.

@@ -130,6 +130,17 @@ def _flow_sentence(p: dict[str, Any]) -> str:
         ver = r.get("verification") or {}
         return (f"Reconstrucción en {r.get('out')} ({r.get('target')}, {r.get('files')} archivos): verificación "
                 f"{'superada' if ver.get('ok') else 'no superada o no ejecutada'}.")
+    if flow == "observe":
+        unfixed = ", ".join(r.get("unfixed_factors", [])[:6]) or "ninguno declarado"
+        return (f"Observación ({r.get('steps', 0)} pasos, estado {r.get('status')}); factores no fijados: {unfixed}.")
+    if flow == "replay":
+        return (f"Repetición desde el guion: {'reproducible' if r.get('reproducible') else 'NO reproducible'} "
+                f"({r.get('non_reproducible', 0)} aspectos difieren).")
+    if flow == "observe_compare":
+        fc = r.get("first_change") or {}
+        return ("Comparación de observaciones: sin cambios observables." if r.get("identical") else
+                f"Comparación de observaciones: primer cambio en el paso {fc.get('step')} ({fc.get('aspect')}); "
+                f"{r.get('differences_total', 0)} diferencias.")
     return f"Flujo {flow}."
 
 

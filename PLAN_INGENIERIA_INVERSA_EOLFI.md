@@ -56,12 +56,14 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 ### Fase 2 — Observación de caja negra sin código fuente
 
-- [ ] Diseñar una sesión de observación reproducible: artefacto/versionado, SO, arquitectura, configuración, estado inicial, pasos, entradas, efectos, duración y limpieza.
+- [x] Diseñar una sesión de observación reproducible: artefacto/versionado, SO, arquitectura, configuración, estado inicial, pasos, entradas, efectos, duración y limpieza.
 - [ ] Cubrir entradas/salidas de procesos, archivos, registro/configuración, procesos hijos, errores, señales, estado persistente y llamadas relevantes según plataforma, siempre con el alcance de observación declarado.
 - [ ] Añadir captura de escenarios de interfaz para escritorio y móvil, con acciones, pantallas, navegación, estados, accesibilidad y resultados observados.
-- [ ] Añadir observación de comportamiento web y APIs: solicitudes/respuestas autorizadas, eventos, almacenamiento y cambios visibles; enlazar trazas a la acción que las produjo.
-- [ ] Comparar ejecuciones entre versiones o entornos y localizar el primer cambio observable, manteniendo separados los hechos y la atribución causal.
-- [ ] Poder repetir una sesión a partir de un guion; marcar como no reproducibles los factores externos que no se pudieron fijar.
+- [x] Añadir observación de comportamiento web y APIs: solicitudes/respuestas autorizadas, eventos, almacenamiento y cambios visibles; enlazar trazas a la acción que las produjo.
+- [x] Comparar ejecuciones entre versiones o entornos y localizar el primer cambio observable, manteniendo separados los hechos y la atribución causal.
+- [x] Poder repetir una sesión a partir de un guion; marcar como no reproducibles los factores externos que no se pudieron fijar.
+
+**Avance Fase 2 (2026-11-07, sin commit):** `eolfi/observe/` (guion validado, sesión con sandbox temporal y HOME/TEMP redirigidos, E/S, código/NTSTATUS/señal, hijos muestreados, efectos de archivos y registro declarados, pasos HTTP con trazas por paso y hosts autorizados, comparación con primer cambio y atribución como hipótesis, repetición con factores no fijados); CLI `eolfi observe run|replay|compare|show|check`; flujos `observe`/`replay`/`observe_compare` en casos. Pruebas: `tests/test_observe.py` (27) y e2e `tests/e2e/observe.test.mjs` (Chrome real: peticiones/consola/almacenamiento/texto/accesibilidad por acción, bloqueo de host no autorizado, repetición no reproducible por estado externo y reproducible al restaurarlo). Pendiente/NO VERIFICADO: rutas POSIX (señales, /proc, ps) no ejecutadas en Windows; llamadas al sistema no disponibles (declarado); UI de escritorio/móvil sin implementar; panel y agente de VS Code sin exponer la observación.
 
 **Aceptación:** con un objetivo ejecutable autorizado y sin fuentes, Eolfi produce un registro repetible de escenarios, entradas, salidas y efectos, con cobertura y límites explícitos. Las capacidades no disponibles en el SO actual no se anuncian como verificadas.
 

@@ -23,7 +23,8 @@ from eolfi.core.evidence import EvidenceStore
 CASE_PACKAGE_VERSION = 2
 RECORD_KINDS = {"analysis", "execution", "observation", "specification", "reconstruction", "comparison"}
 FLOW_KINDS = {"triage": "analysis", "web": "analysis", "repo": "analysis",
-              "diff": "comparison", "compare": "comparison", "create": "reconstruction"}
+              "diff": "comparison", "compare": "comparison", "create": "reconstruction",
+              "observe": "observation", "replay": "observation", "observe_compare": "comparison"}
 FLOW_STATUSES = {"done", "partial", "error", "cancelled"}
 CLAIM_STATUSES = {"observed", "derived", "hypothesis"}
 # Identidad: content = SHA-256 de los bytes; git_commit = commit fijado; descriptor = referencia cuyo contenido

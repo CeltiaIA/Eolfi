@@ -9,6 +9,8 @@ Comandos:
   resolve <incognita_id>         Marca una incógnita como resuelta.
   diff --ref CMD --cand CMD <corpus>
                                  Verificación diferencial (EJECUTA ambos).
+  observe run|replay|compare|show|check
+                                 Observación de caja negra desde un guion (run/replay EJECUTAN el objetivo).
   export <salida> [--format json|sarif] [--artifact RUTA ...]
                                  Exporta el paquete de evidencias.
   import <paquete.json>          Importa un paquete (validado).
@@ -117,6 +119,31 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--mutate", type=int, default=0, help="Añade N entradas mutadas al corpus")
     d.add_argument("--determinism", action="store_true", help="Ejecuta la referencia dos veces para detectar no determinismo")
     _case_args(d)
+
+    ob = sub.add_parser("observe", help="Observación de caja negra desde un guion (EJECUTA el objetivo)")
+    obs_ = ob.add_subparsers(dest="obs_cmd", required=True)
+    orun = obs_.add_parser("run", help="Ejecuta un guion de observación y guarda la sesión")
+    orun.add_argument("script", help="Guion JSON (eolfi_observation_script: 1)")
+    orun.add_argument("--autorizo", action="store_true",
+                      help="Confirmo que estoy autorizado a ejecutar este objetivo (obligatorio)")
+    orun.add_argument("--var", action="append", default=[], metavar="NOMBRE=VALOR", help="Variable {var:NOMBRE}")
+    orun.add_argument("--keep-sandbox", action="store_true", help="No borra la carpeta temporal de la sesión")
+    orun.add_argument("--playwright", default=None, help="Ruta del paquete playwright-core para pasos browser")
+    _case_args(orun)
+    orep = obs_.add_parser("replay", help="Repite una sesión guardada desde su guion y marca lo no reproducible")
+    orep.add_argument("evidence_id")
+    orep.add_argument("--autorizo", action="store_true", help="Confirmo la autorización para ejecutar (obligatorio)")
+    orep.add_argument("--var", action="append", default=[], metavar="NOMBRE=VALOR")
+    orep.add_argument("--playwright", default=None)
+    orep.add_argument("--case", dest="case_id", default=None)
+    ocmp = obs_.add_parser("compare", help="Compara dos sesiones (versiones o entornos): primer cambio observable")
+    ocmp.add_argument("a")
+    ocmp.add_argument("b")
+    ocmp.add_argument("--case", dest="case_id", default=None)
+    oshow = obs_.add_parser("show", help="Muestra una sesión guardada")
+    oshow.add_argument("evidence_id")
+    ochk = obs_.add_parser("check", help="Valida un guion sin ejecutar nada")
+    ochk.add_argument("script")
 
     ex = sub.add_parser("export", help="Exporta paquete de evidencias")
     ex.add_argument("out")
@@ -301,6 +328,53 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _vars(items: list[str]) -> dict[str, str]:
+    out = {}
+    for it in items:
+        name, sep, value = it.partition("=")
+        if not sep or not name:
+            raise SystemExit(f"--var espera NOMBRE=VALOR: {it!r}")
+        out[name] = value
+    return out
+
+
+def _observe(args, store: EvidenceStore) -> int:
+    from eolfi.observe import ScriptError, load_session, run_compare, run_observation, run_replay
+    from eolfi.observe.session import load_script, static_unfixed_factors
+
+    try:
+        if args.obs_cmd == "check":
+            script, _ = load_script(args.script)
+            _print({"valid": True, "name": script["name"], "steps": [s["id"] for s in script["steps"]],
+                    "unfixed_factors": static_unfixed_factors(script)})
+            return 0
+        if args.obs_cmd == "show":
+            _print(load_session(store, args.evidence_id))
+            return 0
+        if args.obs_cmd == "compare":
+            rep = run_compare(store, args.a, args.b, case_id=args.case_id)
+            _print(rep)
+            return 0 if rep["identical"] else 5
+        if args.obs_cmd == "run":
+            rep = run_observation(args.script, store, authorized=args.autorizo, variables=_vars(args.var),
+                                  case_id=args.case_id, keep_sandbox=args.keep_sandbox, playwright=args.playwright,
+                                  provenance=args.provenance)
+            _print(rep)
+            return 0 if rep["status"] == "done" else 3
+        if args.obs_cmd == "replay":
+            rep = run_replay(store, args.evidence_id, authorized=args.autorizo, variables=_vars(args.var),
+                             case_id=args.case_id, playwright=args.playwright)
+            _print(rep)
+            return 0 if rep["reproducible"] else 5
+    except PermissionError as exc:
+        _print({"error": str(exc)})
+        return 2
+    except (ScriptError, ValueError, FileNotFoundError) as exc:
+        _print({"error": str(exc)})
+        return 1
+    return 1
+
+
 def _dispatch(args, store: EvidenceStore) -> int:
     if args.cmd == "doctor":
         from eolfi.flows.triage_flow import ALL_PROVIDERS
@@ -348,6 +422,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
         )
         _print(rep)
         return 0 if rep["passed"] else 4
+    elif args.cmd == "observe":
+        return _observe(args, store)
     elif args.cmd == "export":
         low = args.out.lower()
         fmt = args.format or ("sarif" if low.endswith(".sarif") else "stix" if low.endswith(".stix.json") else "json")

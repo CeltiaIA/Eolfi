@@ -1,0 +1,394 @@
+"""Fase 2: observación de caja negra reproducible (solo muestras sintéticas propias, ver observe_samples.py)."""
+import json
+import os
+import sys
+import threading
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+
+from eolfi.core.case_report import build_case_report, render_case_html
+from eolfi.core.cases import CaseStore
+from eolfi.core.evidence import EvidenceStore
+from eolfi.observe import ScriptError, compare_sessions, run_compare, run_observation, run_replay, validate_script
+from eolfi.observe import probes
+from eolfi.observe.session import load_session
+from tests import observe_samples as samples
+
+AUTH = "muestra sintética propia generada por la prueba"
+
+
+@pytest.fixture
+def store(tmp_path):
+    s = EvidenceStore(tmp_path / "e.db")
+    yield s
+    s.close()
+
+
+def _script(target, steps, **extra):
+    s = {"eolfi_observation_script": 1, "name": "prueba", "authorization": AUTH, "steps": steps}
+    if target is not None:
+        s["target"] = {"path": str(target), "version": "1", "provenance": "sintética"}
+    s.update(extra)
+    return s
+
+
+def _app_steps(stdin="hola", flags=()):
+    return [{"id": "arranque", "action": "run", "argv": ["{python}", "{target}", *flags],
+             "stdin": {"text": stdin}, "timeout": 30}]
+
+
+# -- guion -------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("bad, msg", [
+    ({"eolfi_observation_script": 2}, "eolfi_observation_script"),
+    ({"authorization": ""}, "authorization"),
+    ({"steps": [{"action": "write_file", "path": "../fuera.txt", "text": "x"}]}, "relativa"),
+    ({"steps": [{"action": "write_file", "path": "C:/x.txt", "text": "x"}]}, "relativa"),
+    ({"steps": [{"action": "run", "argv": ["{target}"]}]}, "target"),
+    ({"steps": [{"action": "magia"}]}, "action"),
+    ({"steps": [{"id": "a", "action": "delete_file", "path": "x"}, {"id": "a", "action": "delete_file", "path": "y"}]},
+     "repetido"),
+    ({"steps": [{"action": "run", "argv": ["x"], "rm": True}]}, "no admitidas"),
+    ({"scope": {"registry": ["HKCR\\x"]}}, "registro"),
+    ({"steps": [{"action": "browser", "url": "http://127.0.0.1/", "actions": [{"do": "click"}]}]}, "selector"),
+    ({"extra": 1}, "no admitidas"),
+])
+def test_script_validation_rejects(bad, msg):
+    base = _script(None, [{"action": "delete_file", "path": "x"}])
+    base.update(bad)
+    with pytest.raises(ScriptError, match=msg):
+        validate_script(base)
+
+
+def test_script_normalized_defaults():
+    s = validate_script(_script(None, [{"action": "write_file", "path": "a\\b.txt", "text": "x"}]))
+    assert s["environment"] == {"inherit": False, "vars": {}, "passthrough": [], "redirect_home": True}
+    assert s["scope"] == {"files": ["."], "registry": [], "children": True}
+    assert s["steps"][0] == {"id": "paso1", "action": "write_file", "path": "a/b.txt", "content": {"text": "x"}}
+    assert s["cleanup"] == {"remove_sandbox": True}
+
+
+def test_requires_explicit_authorization(store, tmp_path):
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    with pytest.raises(PermissionError):
+        run_observation(_script(t, _app_steps()), store, authorized=False)
+    assert store.list_evidence() == []
+
+
+# -- procesos, archivos, hijos y entorno -----------------------------------------------------------------
+def test_process_session_captures_io_files_children_and_cleans_up(store, tmp_path, monkeypatch):
+    monkeypatch.setenv("EOLFI_OBS_SECRETO_PRUEBA", "no-debe-verse")
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    script = _script(t, _app_steps("hola", ["--hijo"]) + [
+        {"id": "entrada", "action": "write_file", "path": "estado/extra.txt", "text": "x"},
+        {"id": "borrado", "action": "delete_file", "path": "inicial.txt"},
+        {"id": "vacio", "action": "run", "argv": ["{python}", "{target}"], "stdin": {"text": ""}},
+    ], setup={"files": {"inicial.txt": {"text": "semilla"}}})
+    rep = run_observation(script, store, authorized=True)
+    assert rep["status"] == "done"
+    s1, s2, s3, s4 = rep["steps"]
+    assert s1["exit_code"] == 0 and s1["exit_status"] == {"kind": "exit", "code": 0}
+    out = s1["stdout"]["preview"]
+    assert "cwd={sandbox}" in out, out                       # ruta del sandbox normalizada
+    assert "secreto_visible=False" in out                     # entorno del operador no heredado
+    assert "eco=hola" in out and s1["stderr"]["preview"] == "aviso v1\n"
+    assert s1["stdin"]["size"] == 4
+    changed = {e["path"]: e["change"] for e in s1["effects"]["files"]}
+    assert changed["{sandbox}/estado/datos.txt"] == "created"
+    assert changed["{sandbox}/.home/AppData/Roaming/muestra.ini"] == "created"   # HOME/APPDATA redirigidos
+    kids = s1["children"]["processes"]
+    assert kids and kids[0]["depth"] == 1 and "python" in kids[0]["name"].lower()
+    assert s1["children"]["survivors"] == []
+    assert [e["change"] for e in s2["effects"]["files"]] == ["created"]
+    assert s3["effects"]["files"][0]["path"] == "{sandbox}/inicial.txt" and s3["effects"]["files"][0]["change"] == "deleted"
+    assert s4["exit_code"] == 3
+    assert rep["initial_state"]["files"]["{sandbox}/inicial.txt"]["size"] == 7
+    assert rep["setup"]["inicial.txt"]["size"] == 7
+    assert rep["cleanup"]["sandbox"] == "eliminado"
+    assert rep["coverage"]["system_calls"]["status"] == "not_available"
+    assert rep["coverage"]["ui_desktop_mobile"]["status"] == "not_available"
+    assert rep["coverage"]["children"]["status"] == "sampled"
+    assert {f["factor"] for f in rep["unfixed_factors"]} >= {"reloj", "planificación y PID", "rutas conocidas del SO"}
+    assert "no es un sandbox de seguridad" in rep["isolation"]
+    assert rep["target"]["sha256"] == rep["subject"] and rep["programs"][0]["sha256"]
+    ev = store.get_evidence(rep["evidence_id"])
+    assert ev["authority"] == "controlled_repro" and ev["operation"] == "observation_session"
+    loaded = load_session(store, rep["evidence_id"])
+    assert loaded["params"]["script"]["steps"][0]["id"] == "arranque"
+    assert "no-debe-verse" not in json.dumps(loaded)
+
+
+def test_timeout_kills_process_tree(store, tmp_path):
+    t = samples.write(tmp_path, "dormilon.py", samples.SLEEPER)
+    rep = run_observation(_script(t, [{"id": "d", "action": "run", "argv": ["{python}", "{target}"], "timeout": 2}]),
+                          store, authorized=True)
+    step = rep["steps"][0]
+    assert step["status"] == "timeout" and rep["status"] == "partial"
+    assert step["duration_ms"] < 20_000
+    alive = {(pid, name) for pid, _pp, name in probes.process_table()}
+    assert not [p for p in step["children"]["processes"] if (p["pid"], p["name"]) in alive]
+
+
+def test_crash_reports_signal_or_ntstatus(store, tmp_path):
+    t = samples.write(tmp_path, "crash.py", samples.CRASH)
+    rep = run_observation(_script(t, [{"id": "c", "action": "run", "argv": ["{python}", "{target}"]}]),
+                          store, authorized=True)
+    st = rep["steps"][0]["exit_status"]
+    if os.name == "nt":
+        assert st == {"kind": "ntstatus", "code": "0xC0000005", "name": "STATUS_ACCESS_VIOLATION"}
+    else:
+        assert st["kind"] == "signal" and st["signal_name"] == "SIGTERM"
+
+
+def test_missing_program_is_step_error_not_crash(store, tmp_path):
+    rep = run_observation(_script(None, [{"id": "x", "action": "run", "argv": ["no-existe-eolfi-xyz"]}]),
+                          store, authorized=True)
+    assert rep["steps"][0]["status"] == "error" and rep["status"] == "partial"
+    assert rep["subject"].startswith("cmd:observe:")
+
+
+def test_exit_status_mapping():
+    assert probes.exit_status(0) == {"kind": "exit", "code": 0}
+    if os.name == "nt":
+        assert probes.exit_status(0xC00000FD)["name"] == "STATUS_STACK_OVERFLOW"
+        assert probes.exit_status(-1073741819)["name"] == "STATUS_ACCESS_VIOLATION"
+    else:
+        assert probes.exit_status(-9)["signal_name"] == "SIGKILL"
+
+
+def test_diff_mapping():
+    assert probes.diff_mapping({"a": 1, "b": 2}, {"b": 3, "c": 4}) == [
+        {"path": "a", "change": "deleted", "before": 1},
+        {"path": "b", "change": "modified", "before": 2, "after": 3},
+        {"path": "c", "change": "created", "after": 4}]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="el registro solo existe en Windows")
+def test_registry_effects_windows(store, tmp_path):
+    import winreg
+
+    key = f"Software\\EolfiObservePrueba-{uuid.uuid4().hex[:12]}"
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    try:
+        rep = run_observation(_script(t, _app_steps("hola", ["--registro", key]),
+                                      scope={"registry": ["HKCU\\" + key]}), store, authorized=True)
+        assert rep["initial_state"]["registry_missing"] == ["HKCU\\" + key]
+        eff = {e["path"]: e for e in rep["steps"][0]["effects"]["registry"]}
+        assert eff[f"HKEY_CURRENT_USER\\{key}::arranques"]["after"] == "type1:v1"
+        assert rep["coverage"]["registry"] == "observed"
+        assert rep["cleanup"]["registry"] == "no se restaura"
+        assert any(f["factor"] == "estado externo" for f in rep["unfixed_factors"])
+    finally:
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+        except OSError:
+            pass
+
+
+# -- HTTP/API autorizada ---------------------------------------------------------------------------------
+class _Api(BaseHTTPRequestHandler):
+    count = 0
+
+    def log_message(self, *_a):
+        pass
+
+    def do_GET(self):
+        if self.path == "/redir-fuera":
+            self.send_response(302)
+            self.send_header("Location", "http://ejemplo.invalid/x")
+            self.end_headers()
+            return
+        if self.path == "/":
+            body = (b"<!doctype html><html lang='es'><title>Contador</title><body><h1 id='n'>0</h1>"
+                    b"<button id='mas'>Sumar</button><script>document.getElementById('mas').onclick=async()=>{"
+                    b"const r=await fetch('/api/sumar',{method:'POST'});const j=await r.json();"
+                    b"document.getElementById('n').textContent=j.n;localStorage.setItem('n',j.n);"
+                    b"fetch('http://ejemplo.invalid/rastreo').catch(()=>{});console.log('sumado '+j.n);};"
+                    b"</script></body></html>")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+        else:
+            body = json.dumps({"n": _Api.count, "auth": self.headers.get("Authorization") is not None}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", "sesion=abc123; Path=/")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        _Api.count += 1
+        body = json.dumps({"n": _Api.count}).encode()
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture
+def api():
+    _Api.count = 0
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Api)
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    yield srv.server_address[1]
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_http_steps_link_traces_and_block_unauthorized_hosts(store, api):
+    script = _script(None, [
+        {"id": "estado", "action": "http", "url": "http://127.0.0.1:{var:port}/api/estado",
+         "headers": {"Authorization": "Bearer muy-secreto"}},
+        {"id": "sumar", "action": "http", "method": "POST", "url": "http://127.0.0.1:{var:port}/api/sumar",
+         "body": {"json": {"x": 1}}},
+        {"id": "fuera", "action": "http", "url": "http://ejemplo.invalid/"},
+        {"id": "redir", "action": "http", "url": "http://127.0.0.1:{var:port}/redir-fuera"},
+    ])
+    rep = run_observation(script, store, authorized=True, variables={"port": str(api)})
+    s_estado, s_sumar, s_fuera, s_redir = rep["steps"]
+    tr = s_estado["traces"][0]
+    assert tr["step_id"] == "estado" and tr["response"]["status"] == 200
+    assert tr["request"]["url"] == "http://127.0.0.1:{var:port}/api/estado"
+    assert tr["request"]["headers"]["Authorization"].startswith("<redactado")
+    assert "muy-secreto" not in json.dumps(rep)
+    assert tr["response"]["set_cookie_names"] == ["sesion"] and "abc123" not in json.dumps(rep)
+    assert [c["name"] for c in s_estado["storage"]["cookies"]] == ["sesion"]
+    assert json.loads(tr["response"]["body"]["preview"]) == {"n": 0, "auth": True}
+    assert s_sumar["traces"][0]["response"]["status"] == 201
+    assert s_sumar["traces"][0]["request"]["body"]["size"] > 0
+    assert s_fuera["status"] == "error" and "no autorizado" in s_fuera["traces"][0]["blocked"]
+    assert s_redir["status"] == "error" and s_redir["traces"][0]["redirects"][0]["blocked"]
+    assert rep["coverage"]["network"]["status"] == "observed"
+
+
+def test_browser_step_without_node_is_unavailable_not_verified(store, monkeypatch):
+    import eolfi.observe.session as ses
+
+    real = ses.shutil.which
+    monkeypatch.setattr(ses.shutil, "which", lambda n, *a, **k: None if n == "node" else real(n, *a, **k))
+    rep = run_observation(_script(None, [{"id": "ui", "action": "browser", "url": "http://127.0.0.1:1/"}]),
+                          store, authorized=True)
+    assert rep["steps"][0]["status"] == "unavailable"
+    assert rep["coverage"]["ui_web"]["status"] == "partial" and rep["status"] == "partial"
+
+
+# -- comparación, repetición y caso ---------------------------------------------------------------------
+def test_compare_versions_first_change_and_hypothesis_attribution(store, tmp_path):
+    t1 = samples.write(tmp_path, "app_v1.py", samples.APP_V1)
+    (tmp_path / "v2").mkdir()
+    t2 = samples.write(tmp_path / "v2", "app_v1.py", samples.APP_V2)
+    a = run_observation(_script(t1, _app_steps()), store, authorized=True)
+    b = run_observation(_script(t2, _app_steps()), store, authorized=True)
+    cmp = run_compare(store, a["evidence_id"], b["evidence_id"])
+    assert not cmp["identical"]
+    assert cmp["first_change"]["step"] == "arranque" and cmp["first_change"]["aspect"] == "stderr"
+    assert any("aviso v2" in line for line in cmp["first_change"]["detail"])
+    aspects = {d["aspect"] for d in cmp["differences"]}
+    assert "archivos" in aspects and "stdout" not in aspects     # stdout igual entre versiones
+    assert "objetivo (sha256)" in cmp["attribution"]["candidates"]
+    assert cmp["attribution"]["status"] == "hypothesis"
+    assert cmp["subject"].startswith("compare:observe:")
+    # Con entrada «fallo» la v2 cambia antes: el código de salida.
+    c = run_observation(_script(t1, _app_steps("fallo")), store, authorized=True)
+    d = run_observation(_script(t2, _app_steps("fallo")), store, authorized=True)
+    assert compare_sessions(c, d)["first_change"]["aspect"] == "código de salida"
+
+
+def test_replay_reproducible_and_nondeterministic(store, tmp_path):
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    a = run_observation(_script(t, _app_steps()), store, authorized=True)
+    rep = run_replay(store, a["evidence_id"], authorized=True)
+    assert rep["reproducible"] is True, rep["non_reproducible"]
+    assert rep["non_reproducible"] == [] and rep["prechecks"] == []
+    assert {f["factor"] for f in rep["unfixed_factors"]} >= {"reloj"}
+    ev = store.get_evidence(rep["evidence_id"])
+    assert set(json.loads(ev["links"])) == {a["evidence_id"], rep["replay"]}
+    assert load_session(store, rep["replay"])["params"]["replay_of"] == a["evidence_id"]
+
+    n = samples.write(tmp_path, "azar.py", samples.NONDETERMINISTIC)
+    b = run_observation(_script(n, [{"id": "azar", "action": "run", "argv": ["{python}", "{target}"]}]),
+                        store, authorized=True)
+    rep2 = run_replay(store, b["evidence_id"], authorized=True)
+    assert rep2["reproducible"] is False
+    assert {"step": "azar", "aspect": "stdout", "reason": "difiere entre dos ejecuciones del mismo guion"} \
+        in rep2["non_reproducible"]
+
+    t.write_text(samples.APP_V2, encoding="utf-8")       # el objetivo cambió: la repetición lo marca
+    rep3 = run_replay(store, a["evidence_id"], authorized=True)
+    assert rep3["reproducible"] is False and rep3["prechecks"][0]["factor"] == "objetivo"
+    with pytest.raises(PermissionError):
+        run_replay(store, a["evidence_id"], authorized=False)
+
+
+def test_replay_requires_runtime_variables(store, api):
+    s = _script(None, [{"id": "e", "action": "http", "url": "http://127.0.0.1:{var:port}/api/estado"}])
+    a = run_observation(s, store, authorized=True, variables={"port": str(api)})
+    with pytest.raises(ValueError, match="port"):
+        run_replay(store, a["evidence_id"], authorized=True)
+    assert run_replay(store, a["evidence_id"], authorized=True, variables={"port": str(api)})["reproducible"]
+
+
+def test_case_integration_records_report_and_package(store, tmp_path):
+    cases = CaseStore(store)
+    case = cases.create("observación")
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    a = run_observation(_script(t, _app_steps()), store, authorized=True, case_id=case["case_id"])
+    r = run_replay(store, a["evidence_id"], authorized=True, case_id=case["case_id"])
+    t2 = samples.write(tmp_path, "app2.py", samples.APP_V2)
+    b = run_observation(_script(t2, _app_steps()), store, authorized=True, case_id=case["case_id"])
+    c = run_compare(store, a["evidence_id"], b["evidence_id"], case_id=case["case_id"])
+    got = cases.get(case["case_id"])
+    flows = [(x["kind"], x["payload"]["flow"], x["payload"]["status"]) for x in got["records"]]
+    assert flows == [("observation", "observe", "done"), ("observation", "replay", "done"),
+                     ("observation", "observe", "done"), ("comparison", "observe_compare", "done")]
+    obs_rec = got["records"][0]["payload"]
+    assert obs_rec["evidence_ids"] == [a["evidence_id"]]
+    assert obs_rec["claims"][0]["status"] == "observed" and "código 0" in obs_rec["claims"][0]["text"]
+    assert {"name": "eolfi.observe", "version": "1.0.0", "status": "ran"} in obs_rec["tools"]
+    cmp_claims = got["records"][3]["payload"]["claims"]
+    assert [x["status"] for x in cmp_claims] == ["derived", "hypothesis"]
+    subjects = {x["subject"] for x in got["artifacts"]}
+    assert {a["subject"], b["subject"], c["subject"]} <= subjects
+    target = next(x for x in got["artifacts"] if x["subject"] == a["subject"])
+    assert target["identity"] == "content" and target["version"] == "1"
+    html = render_case_html(build_case_report(cases.get(case["case_id"])))
+    assert "Observación (1 pasos" in html and "Repetición desde el guion: reproducible" in html
+    assert "primer cambio en el paso arranque" in html
+    out = tmp_path / "caso.json"
+    cases.export(case["case_id"], out)
+    other = EvidenceStore(tmp_path / "otra.db")
+    try:
+        assert CaseStore(other).import_case(out) is True
+        again = CaseStore(other).get(case["case_id"])
+        assert [x["payload"]["flow"] for x in again["records"]] == [x[1] for x in flows]
+        assert again["records"][3]["payload"]["claims"][1]["status"] == "hypothesis"
+    finally:
+        other.close()
+    assert r["reproducible"]
+
+
+def test_cli_observe(tmp_path, capsys):
+    from eolfi.cli import main
+
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    sp = tmp_path / "guion.json"
+    sp.write_text(json.dumps({**_script("app.py", _app_steps())}), encoding="utf-8")   # target relativo al guion
+    db = str(tmp_path / "c.db")
+    assert main(["--db", db, "observe", "check", str(sp)]) == 0
+    assert json.loads(capsys.readouterr().out)["steps"] == ["arranque"]
+    assert main(["--db", db, "observe", "run", str(sp)]) == 2          # sin --autorizo no se ejecuta nada
+    assert "autoriz" in capsys.readouterr().out
+    assert main(["--db", db, "observe", "run", str(sp), "--autorizo"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert rep["target"]["path"] == str(t.resolve())
+    assert main(["--db", db, "observe", "replay", rep["evidence_id"], "--autorizo"]) == 0
+    assert json.loads(capsys.readouterr().out)["reproducible"] is True
+    assert main(["--db", db, "observe", "compare", rep["evidence_id"], rep["evidence_id"]]) == 0
+    capsys.readouterr()
+    bad = tmp_path / "malo.json"
+    bad.write_text("{}", encoding="utf-8")
+    assert main(["--db", db, "observe", "check", str(bad)]) == 1
