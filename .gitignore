@@ -26,3 +26,7 @@ backups/
 .pytest_cache/
 node_modules/
 *.vsix
+
+# Salidas locales de pruebas y comprobaciones del panel
+.pytest-tmp*/
+.eolfi-browser-check.*.log
