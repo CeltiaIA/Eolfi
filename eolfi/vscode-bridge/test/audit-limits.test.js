@@ -104,3 +104,19 @@ test('al continuar, lo pendiente se recalcula con las reglas nuevas y lo hecho s
   assert.strictEqual(r.total, 2);
   assert.ok(said.some((m) => /Inventario actualizado/.test(m)));
 });
+
+test('continuar no empieza de cero si la carpeta llega con otra mayúscula de unidad (d:\\ y D:\\ en Windows)', { skip: process.platform !== 'win32' }, async () => {
+  const root = proyecto();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-audit-st-'));
+  const report = 'informes/b.md';
+  const { stateFile } = require('../audit');
+  const upper = root[0].toUpperCase() + root.slice(1);
+  const lower = root[0].toLowerCase() + root.slice(1);
+  const sf = stateFile(upper, report, stateDir);
+  fs.mkdirSync(path.dirname(sf), { recursive: true });
+  fs.writeFileSync(sf, JSON.stringify({ root: upper, report, files: [path.join(upper, 'server.mjs')], skipped: [], next: 1, highlights: [], done: false }));
+  const said = [];
+  await runAudit({ root: lower, report, resume: true, deps: { stateDir, isSecretPath, verify: false,
+    complete: async () => '## Resumen y prioridades\nbien', append: async () => {}, open: async () => {}, progress: () => {}, say: (m) => said.push(m) } });
+  assert.ok(said.some((m) => /Sigo la auditoría/.test(m)), said.join('|'));
+});

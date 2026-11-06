@@ -85,3 +85,16 @@ test('comprobaciones: subproyecto con dependencias y sin lockfile ni node_module
   assert.ok(p.notes.some((n) => /no tiene node_modules/.test(n)));
   assert.ok(!p.steps.some((s) => s.orden === 'npm test'));
 });
+
+test('comprobaciones: el plan pide commit, versiones y reglas de reproducibilidad', () => {
+  const root = celtiaia();
+  fs.mkdirSync(path.join(root, '.git/refs/heads'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.git/refs/heads/main'), 'abc\n');
+  const p = plan(root);
+  assert.ok(p.steps.some((s) => s.orden === 'git rev-parse HEAD'));
+  assert.ok(p.steps.some((s) => /bandit --version/.test(s.orden)));
+  const text = formatPlan(p);
+  assert.match(text, /REPRODUCIBLE/);
+  assert.match(text, /B310 = esquemas de URL/);
+  assert.ok(!plan(celtiaia()).steps.some((s) => s.orden === 'git rev-parse HEAD'));   // sin commits no hay HEAD
+});

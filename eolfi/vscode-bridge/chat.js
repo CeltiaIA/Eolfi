@@ -330,6 +330,14 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
       if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) return stream.markdown(`No es una carpeta: \`${root}\``);
       report = `informes/auditoria-archivos-${path.basename(root).replace(/[^\w.-]/g, '_')}-${new Date().toISOString().slice(0, 10)}.md`;
       resume = true;   // si es la misma carpeta e informe de hoy y quedó a medias, sigue
+      // Si ese informe ya existe y no hay una auditoría a medias que continuar, la nueva va a otro archivo (-HHMM).
+      const full = path.join(cwd() || root, report);
+      let pending = false;
+      try { const st = JSON.parse(fs.readFileSync(require('./audit').stateFile(root, report), 'utf8')); pending = !st.done; } catch { /* sin estado */ }
+      if (!pending && fs.existsSync(full)) {
+        const hhmm = new Date().toTimeString().slice(0, 5).replace(':', '');
+        report = report.replace(/\.md$/, `-${hhmm}.md`);
+      }
     }
     fs.mkdirSync(path.dirname(lastAuditFile()), { recursive: true });
     fs.writeFileSync(lastAuditFile(), JSON.stringify({ root, report }));

@@ -642,3 +642,10 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
   archivos >2 MB omitidos, líneas enormes troceadas, TOO_BIG con «token limit»/413 (sin confundir el rate limit), lo
   que no cabe se anota como omitido y sigue, y al continuar se recalcula lo pendiente (D:\celtiaia: 479 archivos).
   Pruebas de la extensión 108.
+- Extensión 0.6.3 (revisión del informe de D:\celtiaia): el informe mezclaba tres ejecuciones (la de 2151 cortada, el
+  resumen del agente y una nueva de 479). Causas: «d:\celtiaia» y «D:\celtiaia» se trataban como carpetas distintas
+  (comparación sensible a mayúsculas: se empezaba de cero) y una auditoría nueva se añadía al informe del día ya
+  existente. Ahora se comparan sin mayúsculas en Windows y una auditoría nueva usa otro archivo (-HHMM). El plan de
+  eolfi_comprobaciones pide commit (git rev-parse HEAD), versiones de herramientas y reglas: orden y resultado por
+  sección, npm audit por paquete con versión corregida, códigos de regla de Bandit/Ruff sin inventar el tipo de fallo
+  (B310 ≠ path traversal demostrado), git status fechado. Pruebas 110 (1 solo en Windows).

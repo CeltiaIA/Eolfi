@@ -310,7 +310,8 @@ async function runAudit({ root, report, resume = true, token = null, deps }) {
   if (st && !st.done) {
     const base = path.resolve(root);
     const inside = (f) => { const rel = path.relative(base, path.resolve(String(f))); return rel && !rel.startsWith('..') && !path.isAbsolute(rel); };
-    const ok = path.resolve(String(st.root || '')) === base && st.report === report && Array.isArray(st.files)
+    const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    const ok = same(path.resolve(String(st.root || '')), base) && st.report === report && Array.isArray(st.files)
       && st.files.every((f) => typeof f === 'string' && inside(f) && !(deps.isSecretPath && deps.isSecretPath(f)))
       && Number.isInteger(st.next) && st.next >= 0 && st.next <= st.files.length;
     if (!ok) st = null;   // estado dañado o ajeno: se empieza de cero

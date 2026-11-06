@@ -105,7 +105,12 @@ function plan(root) {
 
   if (!d.git.repo) notes.push('No es un repositorio git: no hay historial para deshacer cambios. Recomienda `git init` y un primer commit.');
   else if (d.git.commits === false) notes.push(`Hay repositorio git pero la rama «${d.git.branch}» NO tiene ningún commit: no hay historial. Es una prioridad alta del informe.`);
-  if (d.git.repo) add('git', '.', 'git status --short', 'cambios sin guardar y archivos sin versionar');
+  if (d.git.repo) {
+    if (d.git.commits !== false) add('git', '.', 'git rev-parse HEAD', 'commit auditado (va en la cabecera del informe)');
+    add('git', '.', 'git status --short', 'cambios sin guardar y archivos sin versionar (repítela al final: el propio informe será un archivo nuevo)');
+  }
+  add('versiones', '.', 'node --version; go version; python --version; bandit --version; ruff --version; semgrep --version',
+    'versiones de las herramientas (van en el informe; si alguna no existe, anótalo)');
 
   for (const p of d.projects.filter((x) => x.kind === 'node')) {
     if (!p.deps) notes.push(`\`${p.dir}/package.json\` no declara dependencias: no hay nada que auditar con npm ni hace falta lockfile.`);
@@ -138,6 +143,14 @@ const RULES = [
   '- Si eolfi_terminal responde «No ejecutado: bloqueado…», lo bloqueó Eolfi (di el motivo); si es un error de Windows/SmartScreen/AppLocker, dilo así. No los confundas.',
   '- Los hallazgos en dependencias de terceros (node_modules, vendor…) no son del proyecto: no los mezcles con los del código propio.',
   '- Pon al principio del informe los AVISOS de arriba (git sin commits, pruebas que fallan, dependencias sin auditar).',
+  '- REPRODUCIBLE: en la cabecera, commit (git rev-parse HEAD) o «sin commit», fecha y versiones de las herramientas; en cada',
+  '  sección, la orden exacta, la carpeta y el resultado (código de salida y recuento).',
+  '- npm audit: por cada paquete, versión instalada, aviso (GHSA) y versión corregida. «Sin arreglo» solo si npm lo dice para',
+  '  ese paquete; si el arreglo existe pero no encaja en los rangos actuales, dilo así («requiere actualizar X a ≥ N»).',
+  '- Bandit/Ruff/Semgrep: cita el código de la regla (B310, SIM115…) y su descripción oficial; no atribuyas un tipo de',
+  '  vulnerabilidad que la herramienta no afirma (B310 = esquemas de URL permitidos, p. ej. file://; no es un path traversal',
+  '  demostrado). En Ruff, di cuáles admite --fix.',
+  '- El estado de git describe el momento en que se capturó: dilo («al empezar la auditoría…»).',
 ];
 
 function formatPlan(p) {
