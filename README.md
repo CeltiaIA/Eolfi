@@ -501,7 +501,7 @@ extensión 0.6.0, Eolfi llega al chat por las vías nuevas y funciona con **el m
 
 - **Servidor MCP** (`python -m eolfi mcp`): `eolfi_triage`, `eolfi_evidencias`, `eolfi_incognitas`,
   `eolfi_resolver`, `eolfi_informe`, `eolfi_comparar`, `eolfi_web`, `eolfi_repo`, `eolfi_inyeccion`,
-  `eolfi_doctor`. La extensión lo registra sola (VS Code ≥ 1.101), limitado a las carpetas abiertas.
+  `eolfi_biblioteca_buscar` (consulta local de referencia en Alejandría), `eolfi_doctor`. La extensión lo registra sola (VS Code ≥ 1.101), limitado a las carpetas abiertas.
   Fuera de VS Code (Claude Code u otro cliente MCP): `{"command": "python", "args": ["-m", "eolfi", "mcp", "--root", "D:/proyectos"]}`
   con `PYTHONPATH` en la carpeta de Eolfi.
 - **Herramientas de la extensión**: `eolfi_carpetas`, `eolfi_auditar` (archivo por archivo, con informe y
@@ -594,7 +594,7 @@ checksum y librerías detectadas (Compose, Room, Ktor, OkHttp, Hilt…).
 
 ## Corpus compartido con Alejandría
 
-Eolfi comparte su código y sus textos con la biblioteca **Alejandría** (`D:\Alejandria`):
+Eolfi comparte su código y sus textos con la biblioteca **Alejandría** (`D:\Alejandria`) y puede consultarla desde el MCP cuando necesita contexto:
 - El código va a `corpus\codigo\Eolfi\…` y los textos (`.md`/`.txt`) a `corpus\texto\Eolfi\…`.
 - Una sola copia por contenido, con la sintaxis validada y cada acción registrada en `manifests\auditoria.jsonl`.
 - Se incluyen los proyectos generados en `generated\`. Se excluyen `samples\` (binarios y repos ajenos), entornos
@@ -610,6 +610,10 @@ python -m eolfi corpus               # importa y audita la biblioteca
 
 `--library` (o `EOLFI_LIBRARY`) elige otra biblioteca. Eolfi no copia nada por su cuenta: usa los scripts de la
 propia biblioteca, así la validación, la deduplicación y la auditoría son las mismas.
+La herramienta MCP `eolfi_biblioteca_buscar` solo lee el índice y archivos permitidos bajo `corpus/codigo` y
+`corpus/texto`; omite carpetas locales de respaldo/salidas antiguas y limita el tamaño de lectura. Sus resultados
+son referencias del corpus, no evidencias del objetivo analizado. Configura `EOLFI_LIBRARY` o pasa `--library`
+para elegir otra biblioteca.
 
 ## Estado
 
