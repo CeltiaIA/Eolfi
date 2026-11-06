@@ -151,6 +151,9 @@ const RULES = [
   '  vulnerabilidad que la herramienta no afirma (B310 = esquemas de URL permitidos, p. ej. file://; no es un path traversal',
   '  demostrado). En Ruff, di cuáles admite --fix.',
   '- El estado de git describe el momento en que se capturó: dilo («al empezar la auditoría…»).',
+  '- Si git responde «dubious ownership» o «Permission denied» en una carpeta tuya, es la protección safe.directory de git',
+  '  (la carpeta es de otro usuario de Windows), no falta de permisos: dilo así y sugiere',
+  '  «git config --global --add safe.directory <carpeta>».',
 ];
 
 function formatPlan(p) {

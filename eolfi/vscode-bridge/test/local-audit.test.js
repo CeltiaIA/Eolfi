@@ -36,3 +36,28 @@ test('el error HTTP del modelo local incluye lo que dice el servidor', async () 
   const lm = makeLocalModel({ endpoints: ['http://127.0.0.1:11435'], fetchFn });
   await assert.rejects(() => lm.complete('hola'), /HTTP 500 · \{"error":"model requires more system memory"\}/);
 });
+
+test('pie con el modelo: el agente y la auditoría dicen si trabajó el modelo local o Copilot', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-pie-'));
+  fs.writeFileSync(path.join(root, 'a.py'), 'x = 1\n');
+  process.env.EOLFI_AUDIT_DIR = path.join(root, '.audits');
+  const sent = [];
+  const localModel = { name: () => 'gemma (local)', complete: async (prompt) => (/Resumen y prioridades/.test(prompt) ? '## Resumen y prioridades\nbien'
+    : '### `a.py`\n- **Propósito:** x'),
+  chatTools: async () => ({ content: 'Hecho en local.', tool_calls: [] }) };
+  const vs = { ...fakeVs(sent), workspace: { workspaceFolders: [{ uri: { fsPath: root } }] }, window: {} };
+  const actions = { append: async ({ path: p, content }) => { const f = path.join(root, p); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, content); return { appended: f }; }, open: async () => ({}) };
+  const h = makeChatHandler({ vscode: vs, summarize: () => '', state: {}, getClient: async () => ({}), localModel, actions,
+    preferLocal: () => true, showModel: () => true });
+  let md = '';
+  const s = { markdown: (m) => { md += String(m?.value ?? m); }, progress: () => {}, button: () => {}, reference: () => {}, anchor: () => {} };
+  await h({ prompt: 'hola' }, { history: [] }, s, {});
+  assert.match(md, /_Modelo: gemma \(local\) · en tu equipo, sin Copilot\._/);
+  md = '';
+  await h({ command: 'auditar', prompt: root }, { history: [] }, s, {});
+  assert.match(md, /_Modelos usados: gemma \(local\) · en tu equipo\._/);
+  assert.deepStrictEqual(sent, []);
+});

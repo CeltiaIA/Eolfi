@@ -389,6 +389,7 @@ function activate(context) {
       setPreferLocal: async (v) => { await vscode.workspace.getConfiguration('eolfi').update('agent.model', v ? 'local' : 'copilot', vscode.ConfigurationTarget.Global); },
       localConfig: () => llamacfg.loadConfig({ findServer }),
       instructions: () => String(vscode.workspace.getConfiguration('eolfi').get('agent.instructions') || '').trim(),
+      showModel: () => vscode.workspace.getConfiguration('eolfi').get('agent.showModel') !== false,
       localModel: (() => {
         const c = vscode.workspace.getConfiguration('eolfi');
         if (c.get('fallback.local') === false) return null;
