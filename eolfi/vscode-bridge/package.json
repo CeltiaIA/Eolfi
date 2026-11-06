@@ -271,6 +271,11 @@
           "default": "",
           "description": "Base de evidencias del servidor MCP (vacío: eolfi.db en la carpeta de Eolfi, la misma que usa el panel)."
         },
+        "eolfi.mcp.library": {
+          "type": "string",
+          "default": "",
+          "description": "Ruta de Alejandría para consulta del agente (vacío: EOLFI_LIBRARY o detección local, por ejemplo D:\\Alejandria)."
+        },
         "eolfi.mcp.restrictToWorkspace": {
           "type": "boolean",
           "default": true,

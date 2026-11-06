@@ -51,6 +51,8 @@ function mcpDefinition(vscode, version) {
   const db = String(c.get('mcp.db') || '').trim() || path.join(EOLFI_ROOT, 'eolfi.db');
   const roots = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
   const env = { PYTHONPATH: EOLFI_ROOT, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' };
+  const library = String(c.get('mcp.library') || '').trim();
+  if (library) env.EOLFI_LIBRARY = library;
   // Solo las carpetas abiertas (y samples/ de Eolfi) salvo que se desactive.
   if (c.get('mcp.restrictToWorkspace') !== false && roots.length) {
     env.EOLFI_ROOTS = [...roots, path.join(EOLFI_ROOT, 'samples')].join(path.delimiter);
