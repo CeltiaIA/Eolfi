@@ -250,7 +250,24 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
 
   async function complete(request, prompt, token, progress = () => {}) {
     if (localModel && preferLocal()) {
-      try { const t = await localModel.complete(prompt, token); if (String(t).trim()) return t; } catch (e) { progress(`Modelo local no disponible: ${e.message}; sigo con Copilot…`); }
+      // Modelo principal local: se reintenta en local y, si sigue fallando, se para (sin gastar de Copilot). Si el
+      // error es de tamaño, sube tal cual para que la auditoría parta el lote.
+      let last = null;
+      for (let i = 0; i < 2; i++) {
+        try {
+          const t = await localModel.complete(prompt, token);
+          if (String(t).trim()) return t;
+          last = new Error(`${localModel.name()} devolvió una respuesta vacía`);
+        } catch (e) {
+          last = e;
+          if (require('./audit').TOO_BIG.test(String(e.message)) || token?.isCancellationRequested) throw e;
+        }
+        if (i === 0) {
+          progress(`El modelo local falló (${String(last.message).slice(0, 160)}); reintento en 5 s…`);
+          await new Promise((r) => setTimeout(r, 5000 * (process.env.EOLFI_RATE_WAIT_SCALE ? Number(process.env.EOLFI_RATE_WAIT_SCALE) : 1)));
+        }
+      }
+      throw new Error(`${last.message}. Tienes el modelo local como principal, así que no paso a Copilot. Revisa que Eolas siga en marcha (o vuelve a Copilot con \`@eolfi /modelo copilot\`)`);
     }
     const all = await Promise.resolve(vscode.lm.selectChatModels({ vendor: 'copilot' })).catch(() => []) || [];
     const auto = all.find((m) => m.id === 'auto');
@@ -850,6 +867,7 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
     }
   }
   handler.lmTool = lmTool;
+  handler.complete = complete;   // para las pruebas
   return handler;
 }
 

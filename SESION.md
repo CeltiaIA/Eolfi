@@ -649,3 +649,7 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
   eolfi_comprobaciones pide commit (git rev-parse HEAD), versiones de herramientas y reglas: orden y resultado por
   sección, npm audit por paquete con versión corregida, códigos de regla de Bandit/Ruff sin inventar el tipo de fallo
   (B310 ≠ path traversal demostrado), git status fechado. Pruebas 110 (1 solo en Windows).
+- Extensión 0.6.4 («@eolfi sigue consumiendo de GitHub»): con /modelo local, si Eolas fallaba (HTTP 500 sin motivo),
+  complete() pasaba a Copilot sin preguntar. Ahora reintenta en local una vez y, si sigue fallando, para la auditoría
+  con el motivo (no gasta de Copilot); un error de tamaño sube para que se parta el lote. El error de Eolas incluye el
+  cuerpo de la respuesta. Pruebas 113.

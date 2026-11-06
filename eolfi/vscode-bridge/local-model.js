@@ -142,7 +142,13 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         : [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, temperature: 0.2, max_tokens: 6000,
           chat_template_kwargs: { enable_thinking: false }, ...opts({ review: true }), ...(opts({ review: true }).max_tokens ? { max_tokens: Math.max(6000, opts({ review: true }).max_tokens) } : {}) }];
       const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(`modelo local ${at.model}: HTTP ${r.status}`);
+      if (!r.ok) {
+        let detail = '';
+        try { detail = typeof r.text === 'function' ? String(await r.text()).replace(/\s+/g, ' ').slice(0, 300) : ''; } catch { /* sin cuerpo */ }
+        const e = new Error(`modelo local ${at.model}: HTTP ${r.status}${detail ? ` · ${detail}` : ''}`);
+        e.status = r.status;
+        throw e;
+      }
       const d = await r.json();
       return String(d.message?.content ?? d.choices?.[0]?.message?.content ?? d.response ?? '');
     } finally { clearTimeout(t); }
