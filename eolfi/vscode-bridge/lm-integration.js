@@ -8,6 +8,7 @@
 //     workspace con el comando «Eolfi: instalar el agente en este workspace».
 'use strict';
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 // Raíz del proyecto Eolfi (la extensión vive en <raíz>/eolfi/vscode-bridge).
@@ -24,9 +25,25 @@ const LM_TOOLS = {
     confirm: (i) => `REA ejecutará «${i.herramienta}» con ${JSON.stringify(i.argumentos || {}).slice(0, 300)}.` },
 };
 
-function pythonCommand(vscode) {
+function pythonCommand(vscode, { platform = process.platform, localAppData = process.env.LOCALAPPDATA, home = os.homedir() } = {}) {
   const set = String(vscode.workspace.getConfiguration('eolfi').get('python') || '').trim();
-  return set || (process.platform === 'win32' ? 'python' : 'python3');
+  if (set) return set;
+  if (platform === 'win32') {
+    const roots = [...new Set([localAppData, path.join(home, 'AppData', 'Local')].filter(Boolean))];
+    for (const root of roots) {
+      const installs = path.join(root, 'Programs', 'Python');
+      try {
+        const versions = fs.readdirSync(installs).filter((name) => /^Python\d+$/.test(name))
+          .sort((a, b) => Number(b.slice(6)) - Number(a.slice(6)));
+        for (const version of versions) {
+          const exe = path.join(installs, version, 'python.exe');
+          if (fs.existsSync(exe)) return exe;
+        }
+      } catch { /* prueba la siguiente ubicación habitual */ }
+    }
+    return 'python';
+  }
+  return 'python3';
 }
 
 function mcpDefinition(vscode, version) {
@@ -100,4 +117,4 @@ async function installAgent(vscode, folder) {
   return files;
 }
 
-module.exports = { registerMcp, registerTools, installAgent, mcpDefinition, LM_TOOLS, EOLFI_ROOT };
+module.exports = { registerMcp, registerTools, installAgent, mcpDefinition, pythonCommand, LM_TOOLS, EOLFI_ROOT };

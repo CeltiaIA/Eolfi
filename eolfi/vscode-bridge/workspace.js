@@ -26,6 +26,12 @@ function isSecretPath(p) {
   return SECRET_NAME.test(s.split(/[\\/]/).pop()) || SECRET_DIR.test(s);
 }
 
+function isSecretTarget(p) {
+  const fs = require('node:fs');
+  if (isSecretPath(p)) return true;
+  try { return isSecretPath(fs.realpathSync.native(p)); } catch { return false; }
+}
+
 class ActionError extends Error { constructor(status, message) { super(message); this.status = status; } }
 
 function settings(vscode) {
@@ -186,12 +192,15 @@ function makeActions(vscode) {
       if (typeof glob !== 'string' || glob.length > 300) throw new ActionError(400, 'glob inválido');
       const n = Math.max(1, Math.min(Number(max) || 500, MAX_LIST));
       const files = await vscode.workspace.findFiles(glob, SKIP, n);
-      return { files: files.map((u) => u.fsPath).sort(), truncated: files.length >= n };
+      const visible = files.map((u) => u.fsPath).filter((p) => {
+        try { resolveInside(vscode, p); return !isSecretTarget(p); } catch { return false; }
+      });
+      return { files: visible.sort(), truncated: files.length >= n };
     },
 
     async read({ path: p, start_line, end_line } = {}) {
       const full = resolveInside(vscode, p);
-      if (isSecretPath(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo lee ni lo envía al modelo`);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo lee ni lo envía al modelo`);
       const stat = await fs.stat(U(full));
       if (stat.size > MAX_READ && !(start_line || end_line)) throw new ActionError(413, `archivo de ${stat.size} bytes: pide un rango de líneas`);
       const bytes = await fs.readFile(U(full));
@@ -209,7 +218,8 @@ function makeActions(vscode) {
       const hits = [];
       for (const u of files) {
         if (hits.length >= Math.min(Number(max) || 100, 500)) break;
-        if (isSecretPath(u.fsPath)) continue;   // nunca se busca dentro de archivos de secretos
+        try { resolveInside(vscode, u.fsPath); } catch { continue; }
+        if (isSecretTarget(u.fsPath)) continue;   // nunca se busca dentro de archivos de secretos
         let bytes;
         try { bytes = await fs.readFile(u); } catch { continue; }
         if (bytes.length > MAX_READ || bytes.subarray(0, 8000).includes(0)) continue;
@@ -226,7 +236,8 @@ function makeActions(vscode) {
       let stat;
       try { stat = await fs.stat(U(full)); } catch { throw new ActionError(404, `no existe: ${full}`); }
       if (stat.type & vscode.FileType.Directory) {
-        const inWorkspace = roots(vscode).some((r) => path.resolve(r) === full);
+        let inWorkspace = false;
+        try { resolveInside(vscode, full); inWorkspace = true; } catch { /* una carpeta externa puede abrirse con confirmación */ }
         if (inWorkspace) return { opened: full, kind: 'folder', note: 'ya está abierta' };
         if (!settings(vscode).automatic && !(await confirm(vscode, `Eolfi quiere abrir la carpeta ${full} en una ventana nueva de VS Code.`, 'Podrá leer y buscar en ella; escribir seguirá pidiendo confirmación.'))) {
           throw new ActionError(403, 'El usuario no permitió abrir la carpeta');
@@ -234,6 +245,8 @@ function makeActions(vscode) {
         await vscode.commands.executeCommand('vscode.openFolder', U(full), { forceNewWindow: true });
         return { opened: full, kind: 'folder' };
       }
+      resolveInside(vscode, full);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo abre ni lo envía al modelo`);
       const doc = await vscode.workspace.openTextDocument(U(full));
       const ed = await vscode.window.showTextDocument(doc, { preview: false });
       if (line) {
@@ -247,7 +260,7 @@ function makeActions(vscode) {
     async write({ path: p, content, reason = '', auto = false, journal = null } = {}) {
       // (con diario: «Deshacer estos cambios» en el chat restaura todo lo escrito en la petición)
       const full = resolveInside(vscode, p);
-      if (isSecretPath(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo modifica (edítalo tú)`);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo modifica (edítalo tú)`);
       if (typeof content !== 'string' || Buffer.byteLength(content) > MAX_WRITE) throw new ActionError(400, 'contenido inválido o demasiado grande');
       let exists = true;
       try { await fs.stat(U(full)); } catch { exists = false; }
@@ -281,7 +294,7 @@ function makeActions(vscode) {
     // vez por informe y sesión (no un diff por sección); queda en el diario para «Deshacer estos cambios».
     async append({ path: p, content, journal = null } = {}) {
       const full = resolveInside(vscode, p);
-      if (isSecretPath(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo modifica`);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo modifica`);
       if (!/\.(md|markdown|txt)$/i.test(full)) throw new ActionError(400, 'solo se añaden secciones a informes .md o .txt (para código usa eolfi_write_file)');
       if (typeof content !== 'string' || !content.trim() || Buffer.byteLength(content) > MAX_WRITE) throw new ActionError(400, 'contenido inválido o demasiado grande');
       let exists = true, old = '';

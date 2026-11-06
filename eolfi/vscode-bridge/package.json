@@ -128,6 +128,16 @@
           "default": true,
           "description": "El agente @eolfi puede usar REA (agentes de ingeniería inversa del sistema) por MCP."
         },
+        "eolfi.mcp.codex.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Permite descubrir servidores MCP locales stdio de Codex. Cada servidor pide aprobación antes de arrancar; las llamadas no marcadas como solo lectura piden aprobación propia."
+        },
+        "eolfi.mcp.codex.config": {
+          "type": "string",
+          "default": "",
+          "description": "Ruta de config.toml de Codex (vacío: ~/.codex/config.toml). Solo se importan servidores stdio; OAuth/MCP remoto no se importa. Recarga VS Code al cambiar esta configuración."
+        },
         "eolfi.rea.command": {
           "type": "string",
           "default": "",
@@ -151,6 +161,11 @@
           "default": true,
           "description": "El agente @eolfi puede leer páginas web públicas y buscar en internet (permiso una vez por sesión)."
         },
+        "eolfi.agent.privateNetwork": {
+          "type": "boolean",
+          "default": true,
+          "description": "Permite que eolfi_web_leer consulte localhost o la red privada tras una confirmación nueva para cada petición, incluso en modo automático. No guarda excepciones ni sigue redirecciones."
+        },
         "eolfi.agent.maxSteps": {
           "type": "number",
           "default": 40,
@@ -166,8 +181,8 @@
           ],
           "default": "manual",
           "enumDescriptions": [
-            "Pide permiso para ciertos cambios: diff para cada escritura, terminal e internet una vez por sesión, borrar archivos orden a orden y herramientas de REA que ejecutan algo.",
-            "Trabaja sin pedir permisos. Lo peligroso para el sistema y los secretos siguen bloqueados; todo queda registrado y los cambios de cada petición se pueden deshacer."
+            "Pide permiso para ciertos cambios: diff para cada escritura, terminal e internet una vez por sesión, y confirmación por cada borrado, URL privada o herramienta REA que ejecuta algo.",
+            "Trabaja sin pedir permiso para operaciones normales. Cada borrado y URL privada sigue pidiendo confirmación; lo peligroso para el sistema y los secretos siguen bloqueados, queda registro y los cambios de cada petición se pueden deshacer."
           ],
           "description": "Modo de trabajo del agente @eolfi."
         },
@@ -244,7 +259,7 @@
         "eolfi.python": {
           "type": "string",
           "default": "",
-          "description": "Intérprete de Python para el servidor MCP de Eolfi (vacío: python en Windows, python3 en el resto)."
+          "description": "Intérprete de Python para el servidor MCP de Eolfi (vacío: detecta la instalación más reciente en LocalAppData\\Programs\\Python en Windows; python3 en el resto)."
         },
         "eolfi.mcp.enabled": {
           "type": "boolean",

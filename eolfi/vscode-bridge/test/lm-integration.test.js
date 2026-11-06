@@ -46,6 +46,22 @@ test('registra el servidor MCP de Eolfi limitado a las carpetas abiertas', () =>
   assert.equal(def.version, '0.6.0');
 });
 
+test('detecta Python bajo el perfil aunque LOCALAPPDATA apunte a una ubicación virtualizada', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-python-path-'));
+  const root = path.join(dir, 'perfil', 'AppData', 'Local');
+  const exe = path.join(root, 'Programs', 'Python', 'Python312', 'python.exe');
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, '');
+  try {
+    const vscode = { workspace: { getConfiguration: () => ({ get: () => '' }) } };
+    assert.equal(lmi.pythonCommand(vscode, { platform: 'win32', localAppData: path.join(dir, 'virtualizado'), home: path.join(dir, 'perfil') }), exe);
+    assert.equal(lmi.pythonCommand({ workspace: { getConfiguration: () => ({ get: () => 'python-personal' }) } },
+      { platform: 'win32', localAppData: path.join(dir, 'virtualizado'), home: path.join(dir, 'perfil') }), 'python-personal');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('sin la API de MCP (VS Code antiguo) no falla', () => {
   const { vscode } = fakeVscode([]);
   delete vscode.lm.registerMcpServerDefinitionProvider;

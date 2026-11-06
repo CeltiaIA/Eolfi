@@ -1,6 +1,5 @@
-// Cliente MCP (stdio) para REA, los agentes de ingeniería inversa del sistema. Usa el mismo servidor que tienes
-// configurado para tu asistente (~/.copilot/mcp-config.json → «rea») o el de los ajustes eolfi.rea.*.
-// Se arranca la primera vez que el agente lo necesita y se cierra con VS Code.
+// Cliente MCP stdio para REA y servidores locales elegidos por el usuario. Los servidores externos arrancan solo
+// después de que Eolfi los confirme y se cierran con VS Code.
 'use strict';
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -26,7 +25,7 @@ function reaConfig({ command, args, configFile } = {}) {
   return null;
 }
 
-// Entorno para REA sin secretos (tokens, claves, contraseñas): no los necesita y así no pueden filtrarse.
+// Entorno heredado sin credenciales. Los valores sensibles solo se reañaden si el servidor los declaró en env/env_vars.
 const SECRET_ENV = /(API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE|PRIVATE[_-]?KEY|AUTH)/i;
 function safeEnv(env) {
   return Object.fromEntries(Object.entries(env).filter(([k]) => !SECRET_ENV.test(k)));
@@ -43,13 +42,27 @@ class McpClient {
     this.pending = new Map();
     this.nextId = 1;
     this.tools = null;
+    const inherited = (cfg.envVars || []).map((k) => process.env[k]);
+    const configured = Object.values(cfg.env || {});
+    this.secretValues = [...new Set([...inherited, ...configured].filter((v) => typeof v === 'string' && v.length >= 8))];
+  }
+
+  redact(text) {
+    let value = String(text);
+    for (const secret of this.secretValues) value = value.split(secret).join('[credencial redactada]');
+    return value;
   }
 
   start() {
     if (this.ready) return this.ready;
     this.ready = (async () => {
       const { command, args, env } = this.cfg;
-      this.proc = this.spawnFn(command, args, { env: { ...safeEnv(process.env), ...env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      const inherited = safeEnv(process.env);
+      for (const key of this.cfg.envVars || []) {
+        if (Object.hasOwn(process.env, key)) inherited[key] = process.env[key];
+      }
+      this.proc = this.spawnFn(command, args, { env: { ...inherited, ...env }, cwd: this.cfg.cwd || undefined,
+        stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       let buf = '';
       this.proc.stdout.setEncoding('utf8');
       this.proc.stdout.on('data', (chunk) => {
@@ -70,7 +83,7 @@ class McpClient {
           }
         }
       });
-      this.proc.stderr.on('data', (d) => this.log(`REA: ${String(d).trim().slice(0, 300)}`));
+      this.proc.stderr.on('data', (d) => this.log(`MCP: ${this.redact(String(d).trim()).slice(0, 300)}`));
       const died = (why) => {
         for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error(`REA se cerró (${why})`)); }
         this.pending.clear();
@@ -84,7 +97,12 @@ class McpClient {
       this.notify('notifications/initialized');
       this.log('REA conectado');
     })();
-    this.ready.catch(() => { this.ready = null; });
+    this.ready.catch(() => {
+      try { this.proc?.kill(); } catch { /* cleanup best-effort */ }
+      this.proc = null;
+      this.ready = null;
+      this.tools = null;
+    });
     return this.ready;
   }
 
@@ -119,7 +137,7 @@ class McpClient {
   async callTool(name, args) {
     await this.start();
     const r = await this.request('tools/call', { name, arguments: args || {} });
-    const text = (r.content || []).map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n');
+    const text = this.redact((r.content || []).map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n'));
     return { isError: r.isError === true, text: text.slice(0, MAX_RESULT) + (text.length > MAX_RESULT ? '\n[recortado]' : '') };
   }
 

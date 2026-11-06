@@ -208,3 +208,4 @@ test('un enlace (unión) dentro del workspace que apunta fuera no sirve para sal
   assert.ok(!fsp.existsSync(path.join(outside, 'nuevo.txt')));
   assert.match((await a.read({ path: 'src/app.py' })).text, /hola mundo/);   // lo de dentro, igual que antes
 });
+

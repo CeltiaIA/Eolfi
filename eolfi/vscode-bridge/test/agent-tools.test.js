@@ -89,6 +89,31 @@ test('web: anti-SSRF, permiso por sesión, sin seguir redirecciones y texto de H
   assert.match(await t.run({ name: 'eolfi_web_leer', input: { url: 'http://localhost:8777/api/clients' } }, stream, null), /No leído/);
 });
 
+test('red privada: se fija la IP y se pide permiso por petición incluso con el ajuste activado', async () => {
+  const privateLookup = async () => [{ address: '192.168.1.24' }];
+  const [u, error, address, isPrivate] = await checkUrl('http://panel.local:8080/status', privateLookup, true);
+  assert.equal(error, null);
+  assert.equal(u.hostname, 'panel.local');
+  assert.equal(address.address, '192.168.1.24');
+  assert.equal(isPrivate, true);
+  assert.match((await checkUrl('http://panel.local:8080/status', privateLookup))[1], /no es público/);
+  assert.match((await checkUrl('https://mi-servicio.example/', async () => [
+    { address: '192.168.1.24' }, { address: '93.184.216.34' },
+  ], true))[1], /mezcla direcciones públicas y privadas/);
+
+  const asked = [];
+  const t = makeAgentTools({ vscode, isSecretPath, resolveInside,
+    ask: async (kind, what) => { asked.push([kind, what.address]); return 'once'; },
+    enabled: () => ({ terminal: false, web: true, privateNetwork: true }),
+    lookup: privateLookup,
+    fetchFn: async () => ({ status: 200, headers: { get: () => 'text/plain' }, arrayBuffer: async () => Buffer.from('estado local') }),
+  });
+  for (let i = 0; i < 2; i++) {
+    assert.match(await t.run({ name: 'eolfi_web_leer', input: { url: 'http://panel.local:8080/status' } }, stream, null), /estado local/);
+  }
+  assert.deepEqual(asked, [['privateWeb', '192.168.1.24'], ['privateWeb', '192.168.1.24']]);
+});
+
 test('ajustes: se pueden apagar terminal o web', () => {
   const t = makeAgentTools({ vscode, isSecretPath, resolveInside, ask: async () => 'no', enabled: () => ({ terminal: false, web: true }) });
   assert.deepStrictEqual(t.names(), ['eolfi_web_leer', 'eolfi_web_buscar']);

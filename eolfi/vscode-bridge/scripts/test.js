@@ -8,7 +8,10 @@ const path = require('node:path');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-pruebas-'));
 const env = { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp };
-const r = spawnSync(process.execPath, ['--test', ...process.argv.slice(2)], { stdio: 'inherit', env, cwd: path.resolve(__dirname, '..') });
+const selected = process.argv.slice(2);
+const r = spawnSync(process.execPath, ['--test', ...(selected.length ? selected : ['test/*.test.js'])], {
+  stdio: 'inherit', env, cwd: path.resolve(__dirname, '..'),
+});
 try { fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch (e) {
   console.error(`No se pudo borrar ${tmp}: ${e.message}`);
 }

@@ -13,7 +13,9 @@ const { makeActions, TOOL_DEFS, isSecretPath, resolveInside } = require('./works
 const { makeClient, summarize } = require('./eolfi-client');
 const { makeChatHandler } = require('./chat');
 const { reaConfig, McpClient } = require('./rea');
+const { readCodexMcpServers } = require('./codex-mcp');
 const { makeAgentTools } = require('./agent-tools');
+const { makeCaseTools, combineTools } = require('./case-tools');
 const { makeHistory } = require('./history');
 const { makeLocalModel } = require('./local-model');
 const { makeLlamaStarter, findServer } = require('./llama-starter');
@@ -141,6 +143,50 @@ function reaBridge(context) {
   };
 }
 
+// MCP stdio declarados en ~/.codex/config.toml. Solo arranca un servidor tras confirmación de VS Code.
+function codexMcpBridge(context, { skipRea = false } = {}) {
+  const c = vscode.workspace.getConfiguration('eolfi');
+  if (c.get('mcp.codex.enabled') === false) return null;
+  const selectedConfig = String(c.get('mcp.codex.config') || '').trim();
+  const configFile = selectedConfig
+    ? path.resolve(selectedConfig.replace(/^~(?=[\\/])/, os.homedir()))
+    : path.join(os.homedir(), '.codex', 'config.toml');
+  let configs;
+  try { configs = readCodexMcpServers({ python: lmi.pythonCommand(vscode), configFile }); }
+  catch (e) { out.appendLine(`MCP Codex: ${e.message}`); configs = {}; }
+  const clients = new Map();
+  const approved = new Set();
+  const names = () => Object.keys(configs).filter((name) => !(skipRea && name === 'rea')).sort();
+
+  async function connect(name) {
+    const cfg = configs[name];
+    if (!cfg) throw new Error(`No existe un servidor stdio «${name}» en la configuración MCP de Codex.`);
+    if (!approved.has(name)) {
+      const yes = 'Conectar';
+      const pick = await vscode.window.showWarningMessage(`Eolfi quiere iniciar el servidor MCP «${name}»`,
+        { modal: true, detail: `Ejecutará el programa configurado por Codex en este equipo: ${path.basename(cfg.command)}.\n\nEl servidor recibirá solo las variables de entorno declaradas en su propia configuración. Eolfi no muestra sus valores al modelo.` }, yes);
+      if (pick !== yes) throw new Error(`No se autorizó iniciar «${name}».`);
+      approved.add(name);
+    }
+    if (!clients.has(name)) {
+      const client = new McpClient(cfg, { log: (m) => out.appendLine(`${name}: ${m}`) });
+      clients.set(name, client);
+      context.subscriptions.push({ dispose: () => client.dispose() });
+    }
+    return clients.get(name);
+  }
+
+  async function confirm(name, tool, args, client) {
+    if (tool?.annotations?.readOnlyHint === true && tool?.annotations?.destructiveHint !== true) return true;
+    const yes = 'Permitir esta llamada';
+    const pick = await vscode.window.showWarningMessage(`Eolfi quiere llamar ${name}.${tool.name}`,
+      { modal: true, detail: `${client.redact(String(tool.description || '').split('\n')[0]).slice(0, 400)}\n\nArgumentos: ${client.redact(JSON.stringify(args)).slice(0, 700)}\n\nAl no estar marcada como solo lectura, requiere permiso para cada llamada.` }, yes);
+    return pick === yes;
+  }
+
+  return { names, connect, confirm };
+}
+
 // Terminal e internet para el agente: un permiso por sesión (o solo esta vez), borrar siempre se confirma, y todo
 // queda en el canal «Eolfi» y en ~/.eolfi/agent-log.jsonl.
 // Ejecuta en la terminal integrada «Eolfi» con la integración de shell de VS Code: el usuario la ve en directo y
@@ -193,15 +239,21 @@ function agentTools() {
     },
     enabled: () => {
       const c = vscode.workspace.getConfiguration('eolfi');
-      return { terminal: c.get('agent.terminal') !== false, web: c.get('agent.web') !== false };
+      return { terminal: c.get('agent.terminal') !== false, web: c.get('agent.web') !== false,
+        privateNetwork: c.get('agent.privateNetwork') !== false };
     },
     ask: async (kind, what) => {
-      if (workMode() === 'automatico') return kind === 'delete' ? 'once' : 'session';
+      if (workMode() === 'automatico' && kind !== 'privateWeb' && kind !== 'delete') return 'session';
       const session = 'Permitir en esta sesión', once = 'Solo esta vez', run = 'Ejecutar';
       if (kind === 'delete') {
         const pick = await vscode.window.showWarningMessage('Eolfi quiere ejecutar una orden que BORRA archivos',
           { modal: true, detail: `${what.cmd}\n\nEn: ${what.cwd}${what.motivo ? `\nPara: ${what.motivo}` : ''}\n\nBorrar no se puede deshacer.` }, run);
         return pick === run ? 'once' : 'no';
+      }
+      if (kind === 'privateWeb') {
+        const pick = await vscode.window.showWarningMessage('Eolfi quiere conectarse a una dirección de tu equipo o red privada',
+          { modal: true, detail: `${what.url}\nIP fijada: ${what.address}\n\nEsta conexión puede consultar un servicio local (incluidos otros equipos de tu LAN). Solo se permite esta petición; el permiso no se guarda ni se amplía aunque esté activo el modo automático.` }, once);
+        return pick === once ? 'once' : 'no';
       }
       const [msg, detail] = kind === 'terminal'
         ? ['Eolfi quiere usar la terminal', `${what.cmd}\n\nEn: ${what.cwd}${what.motivo ? `\nPara: ${what.motivo}` : ''}\n\n«Permitir en esta sesión» deja ejecutar más órdenes sin preguntar hasta que cierres VS Code (borrar archivos se confirma siempre; lo peligroso para el sistema está bloqueado).`]
@@ -221,8 +273,8 @@ async function setWorkMode(want) {
   if (want === 'automatico') {
     const yes = 'Activar modo automático';
     const pick = await vscode.window.showWarningMessage('¿Pasar el agente @eolfi a modo AUTOMÁTICO?', { modal: true,
-      detail: 'Trabajará sin pedirte permisos: escribirá archivos, usará la terminal, internet y REA directamente.\n\n'
-        + 'Sigue bloqueado lo peligroso para el sistema y tus secretos; todo queda en el registro (~/.eolfi/agent-log.jsonl) '
+      detail: 'Trabajará sin pedirte permiso para las operaciones normales: escribirá archivos, usará la terminal, internet público y REA directamente.\n\n'
+        + 'Cada borrado y cada conexión a localhost/LAN siguen pidiendo confirmación. Lo peligroso para el sistema y tus secretos permanece bloqueado; todo queda en el registro (~/.eolfi/agent-log.jsonl) '
         + 'y los cambios de cada petición se pueden deshacer. Vuelves al modo manual cuando quieras.' }, yes);
     if (pick !== yes) return false;
   }
@@ -236,7 +288,7 @@ function showMode() {
   if (!modeItem) return;
   const auto = workMode() === 'automatico';
   modeItem.text = auto ? '$(rocket) Auto' : '$(shield) Manual';
-  modeItem.tooltip = auto ? 'Eolfi en modo AUTOMÁTICO: no pide permisos. Clic para pasar a manual.'
+  modeItem.tooltip = auto ? 'Eolfi en modo AUTOMÁTICO: operaciones normales sin preguntar; cada borrado y URL privada pide confirmación. Clic para pasar a manual.'
     : 'Eolfi en modo MANUAL: pide permiso para ciertos cambios. Clic para pasar a automático.';
   modeItem.backgroundColor = auto ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
   modeItem.show();
@@ -380,9 +432,13 @@ function activate(context) {
   })));
   let chatHandler = null;
   {
+    const rea = reaBridge(context);
+    const reaDisabled = vscode.workspace.getConfiguration('eolfi').get('rea.enabled') === false;
+    const codexMcp = codexMcpBridge(context, { skipRea: !!rea || reaDisabled });
     chatHandler = makeChatHandler({
       vscode, summarize, state: chatState, openReport: showReport,
-      actions: chatActions, workspaceTools: TOOL_DEFS, rea: reaBridge(context), extraTools: agentTools(),
+      actions: chatActions, workspaceTools: TOOL_DEFS, rea, codexMcp,
+      extraTools: combineTools(agentTools(), makeCaseTools({ client: eolfiClient, log: (m) => out.appendLine(m) })),
       maxSteps: () => vscode.workspace.getConfiguration('eolfi').get('agent.maxSteps'),
       workMode, setWorkMode,
       preferLocal: () => vscode.workspace.getConfiguration('eolfi').get('agent.model') === 'local',

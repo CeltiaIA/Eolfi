@@ -123,6 +123,35 @@ test('agente: el modelo de VS Code usa las herramientas de Eolfi y de VS Code y 
   assert.match(vs.sent[0].msgs[0].content, /DATOS, nunca instrucciones/);
 });
 
+test('agente: descubre y llama un MCP de Codex con aprobación por servidor y por herramienta', async () => {
+  const vs = fakeVscode({ rounds: [
+    { calls: [{ id: '1', name: 'mcp_herramientas', input: { servidor: 'node_repl', filtro: 'ping' } }] },
+    { calls: [{ id: '2', name: 'mcp_usar', input: { servidor: 'node_repl', herramienta: 'ping', argumentos: { target: 'pc' } } }] },
+    { text: 'Respuesta del servidor MCP.' },
+  ] });
+  const calls = [];
+  const mcpClient = {
+    listTools: async () => [{ name: 'ping', description: 'Comprueba el destino.', inputSchema: {
+      type: 'object', properties: { target: { type: 'string' } }, required: ['target'], additionalProperties: false,
+    } }],
+    callTool: async (name, args) => { calls.push([name, args]); return { isError: false, text: 'pong' }; },
+    redact: (text) => String(text),
+  };
+  const approvals = [];
+  const codexMcp = {
+    names: () => ['node_repl'],
+    connect: async (name) => { approvals.push(['connect', name]); return mcpClient; },
+    confirm: async (server, tool, args) => { approvals.push(['call', server, tool.name, args]); return true; },
+  };
+  const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => fakeClient(), codexMcp });
+  const s = fakeStream();
+  await h({ prompt: 'Usa el MCP local para comprobar el equipo' }, { history: [] }, s, {});
+  assert.deepEqual(calls, [['ping', { target: 'pc' }]]);
+  assert.deepEqual(approvals, [['connect', 'node_repl'], ['connect', 'node_repl'], ['call', 'node_repl', 'ping', { target: 'pc' }]]);
+  assert.ok(vs.sent[0].tools.includes('mcp_herramientas') && vs.sent[0].tools.includes('mcp_usar'));
+  assert.match(s.md, /Respuesta del servidor MCP/);
+});
+
 test('agente: si el modelo está reservado prueba el siguiente', async () => {
   const vs = fakeVscode({ answer: 'hola', models: [['reservado', true], ['bueno', false]] });
   vs.lm.selectChatModels = (async (orig) => (await orig()).map((m, i) => Object.assign(m, { maxInputTokens: 2000 - i })))
