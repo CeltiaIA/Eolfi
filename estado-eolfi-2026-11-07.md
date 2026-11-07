@@ -39,6 +39,7 @@
 - API del panel: publica el módulo de creación de proyectos; ejecución guiada y contraste del botón corregidos.
 - Resultados: Python 387 pasadas y 2 omitidas; puente principal 50 pasadas y 1 omitida; extensión 128 pasadas; E2E en navegador 16 pasadas.
 - Intérprete Python usado: `C:\Users\mejil\AppData\Local\Programs\Python\Python312\python.exe`.
+- Python 3.10 no está instalado en este entorno: la ejecución real en esa versión queda `NO VERIFICADA`; el lector de respaldo sí se comparó con `tomllib` bajo Python 3.12.
 
 ## Entrega
 
