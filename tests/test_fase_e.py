@@ -21,7 +21,7 @@ def test_job_history_survives_restart_and_can_be_repeated(tmp_path):
         if a.jobs[jid]["status"] == "done":
             break
         time.sleep(0.02)
-    time.sleep(0.05)
+    # Sin espera extra: «done» solo se publica cuando el trabajo ya está guardado (antes era intermitente).
     b = EolfiApp(db, samples)                       # «reinicio» del servidor
     b.create = a.create
     listed = b.job_status({})["jobs"]
@@ -507,3 +507,26 @@ def test_herramientas_en_la_carpeta_de_eolfi(tmp_path, monkeypatch):
     assert external.tools_dir_find("capa") is None
     monkeypatch.setenv("EOLFI_TOOLS_DIR", str(tmp_path / "no-existe"))
     assert external.tools_dir_find("rizin") is None
+
+
+def test_job_is_stored_before_it_is_published_as_done(tmp_path):
+    """CI Windows: el trabajo se veía «done» antes de estar en el historial y otra instancia no lo encontraba."""
+    from eolfi.server import EolfiApp
+
+    db, samples = str(tmp_path / "e.db"), tmp_path / "s"
+    a = EolfiApp(db, samples)
+    a.create = lambda body: {"subject": "proyecto:x"}
+    real = a._save_job
+
+    def slow_save(job):
+        time.sleep(0.3)               # guardado lento: «done» no puede aparecer antes
+        real(job)
+    a._save_job = slow_save
+    jid = a.start_job({"kind": "create", "body": {"name": "T"}})["job_id"]
+    for _ in range(300):
+        if a.jobs[jid]["status"] == "done":
+            break
+        time.sleep(0.01)
+    assert a.jobs[jid]["status"] == "done"
+    listed = EolfiApp(db, samples).job_status({})["jobs"]
+    assert listed and listed[0]["id"] == jid and listed[0]["status"] == "done"

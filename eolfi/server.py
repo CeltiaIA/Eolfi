@@ -153,19 +153,22 @@ class EolfiApp:
                 job["result"] = fn(payload)
                 if isinstance(job["result"], dict) and isinstance(job["result"].get("subject"), str):
                     job["subject"] = job["result"]["subject"]
-                job["status"] = "done"
+                final: dict[str, Any] = {"status": "done"}
             except JobCancelled:
-                job.update(status="cancelled", error="Cancelado por el usuario", code=499)
+                final = {"status": "cancelled", "error": "Cancelado por el usuario", "code": 499}
             except ApiError as exc:
-                job.update(status="error", error=str(exc), code=exc.status, **exc.extra)
+                final = {"status": "error", "error": str(exc), "code": exc.status, **exc.extra}
             except Exception as exc:  # noqa: BLE001 — el error se informa en el propio trabajo
-                job.update(status="error", error=f"{type(exc).__name__}: {exc}", code=500)
+                final = {"status": "error", "error": f"{type(exc).__name__}: {exc}", "code": 500}
             finally:
                 if acquired:
                     self._slots.release()
-                job["finished"] = time.time()
                 self._tl.job = None
-                self._save_job(job)
+            # Primero queda guardado en la base y solo después se publica como terminado: quien vea «done»
+            # (el panel, otra instancia tras un reinicio) ya lo encuentra en el historial.
+            finished = time.time()
+            self._save_job({**job, **final, "finished": finished})
+            job.update(final, finished=finished)
 
         with self._jobs_guard:
             self.jobs[job["id"]] = job
