@@ -342,6 +342,31 @@ def _browser_step(step: dict[str, Any], values: dict[str, str], variables: dict[
 UIA_DRIVER = Path(__file__).with_name("uia_driver.ps1")
 
 
+_WINFORMS_CLASS = re.compile(r"^(WindowsForms10\.[A-Za-z0-9_]+)\..*$")
+_HWND_CLASS = re.compile(r"^(HwndWrapper\[[^;\]]*)(;[^\]]*)?\]$")
+
+
+def normalize_window(w: Any) -> Any:
+    """Quita del árbol de UI lo que cambia en cada proceso sin cambiar la interfaz: el sufijo de dominio de
+    aplicación de las clases WinForms/WPF y los AutomationId numéricos (handles de ventana de controles sin
+    nombre). Se marca qué se normalizó."""
+    if not isinstance(w, dict):
+        return w
+    out = dict(w)
+    cls = str(out.get("class") or "")
+    m = _WINFORMS_CLASS.match(cls) or _HWND_CLASS.match(cls)
+    if m:
+        out["class"] = m.group(1) + ("]" if cls.startswith("HwndWrapper") else "")
+        out["class_normalized"] = True
+    elems = []
+    for e in out.get("elements") or []:
+        if isinstance(e, dict) and str(e.get("automation_id") or "").isdigit():
+            e = {**e, "automation_id": "#handle"}
+        elems.append(e)
+    out["elements"] = elems
+    return out
+
+
 def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[str, str],
                   norm: _Normalizer) -> dict[str, Any]:
     """Lanza la aplicación, la conduce con UI Automation y registra ventanas/árbol de accesibilidad por acción."""
@@ -389,7 +414,7 @@ def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[st
     actions = [json.loads(norm.text(json.dumps(a, ensure_ascii=False))) for a in res.get("actions") or []]
     for a in actions:
         wins = a.get("windows") or []
-        a["windows"] = wins if isinstance(wins, list) else [wins]
+        a["windows"] = [normalize_window(w) for w in (wins if isinstance(wins, list) else [wins])]
         a["windows_sha256"] = _sha(json.dumps(a["windows"], sort_keys=True, ensure_ascii=False).encode("utf-8"))
     rec: dict[str, Any] = {"status": res.get("status", "error"), "duration_ms": round((time.monotonic() - t0) * 1000),
                            "driver": {"name": "Windows UI Automation (PowerShell)", "path": shell},

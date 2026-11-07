@@ -60,6 +60,15 @@ try {
     if ((Get-Date) -gt $deadline) { throw 'la aplicación no abrió ninguna ventana a tiempo' }
     Start-Sleep -Milliseconds 100
   }
+  # La ventana existe antes de terminar de construirse: se espera a dos instantáneas iguales seguidas (máx. 5 s).
+  $stable = (Get-Date).AddSeconds(5)
+  $prev = Snapshot | ConvertTo-Json -Depth 12 -Compress
+  while ((Get-Date) -lt $stable) {
+    Start-Sleep -Milliseconds 250
+    $cur = Snapshot | ConvertTo-Json -Depth 12 -Compress
+    if ($cur -eq $prev) { break }
+    $prev = $cur
+  }
   $acts = @([pscustomobject]@{ id = '_inicio'; do = 'read' }) + @($req.actions)
   foreach ($a in $acts) {
     $r = [ordered]@{ id = $a.id; do = $a.do; target = if ($a.automation_id) { "id:$($a.automation_id)" } elseif ($a.name) { "name:$($a.name)" } else { '' } }

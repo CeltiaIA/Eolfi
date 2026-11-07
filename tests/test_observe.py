@@ -450,11 +450,11 @@ def test_desktop_step_validation():
 @pytest.mark.skipif(sys.platform != "win32", reason="UI Automation solo en Windows")
 def test_desktop_scenario_windows_uia(store, tmp_path):
     t = samples.write(tmp_path, "app.ps1", samples.WINFORMS)
-    script = _script(t, [{"id": "ui", "action": "desktop", "timeout": 60,
+    script = _script(t, [{"id": "ui", "action": "desktop", "timeout": 60, "cwd": "trabajo",
                           "argv": ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", "{target}"],
                           "actions": [{"id": "escribir", "do": "set_value", "automation_id": "entrada", "value": "hola"},
                                       {"id": "pulsar", "do": "invoke", "automation_id": "convertir"}]}],
-                     environment={"passthrough": ["PATH", "PSModulePath"]})
+                     environment={"passthrough": ["PATH", "PSModulePath"]}, scope={"files": ["trabajo"]})
     rep = run_observation(script, store, authorized=True)
     step = rep["steps"][0]
     assert step["status"] == "ok", json.dumps(step)[:3000]
@@ -471,10 +471,27 @@ def test_desktop_scenario_windows_uia(store, tmp_path):
     assert "convertido:hola" in step["stdout"]["preview"] and "cerrado" in step["stdout"]["preview"]
     assert step["exit_code"] == 0 and step["killed_after_close"] is False
     created = [e["path"] for e in step["effects"]["files"] if e["change"] == "created"]
-    assert "{sandbox}/ultimo.txt" in created          # efecto de la acción «pulsar»
-    assert all(p == "{sandbox}/ultimo.txt" or p.startswith("{sandbox}/.home/") for p in created), created
+    assert created == ["{sandbox}/trabajo/ultimo.txt"]          # efecto de la acción «pulsar»
     assert rep["coverage"]["ui_desktop"]["status"] == "observed"
     assert rep["coverage"]["ui_mobile"]["status"] == "not_available"
-    # Repetición: la misma interfaz y efectos.
+    # Repetición: el resultado funcional (texto convertido y archivo) se repite; lo que varíe (p. ej. el árbol
+    # inicial capturado antes de que la ventana termine de pintarse con el equipo cargado) queda MARCADO como no
+    # reproducible, nunca oculto.
     r = run_replay(store, rep["evidence_id"], authorized=True)
-    assert r["reproducible"] is True, r["non_reproducible"]
+    again = load_session(store, r["replay"])["session"]["steps"][0]
+    assert elem(again["actions"][-1], "resultado")["name"] == "HOLA"
+    ui = [d for d in r["non_reproducible"] if d["aspect"].split(".")[0] in ("_inicio", "escribir", "pulsar")]
+    assert ui == [], r["non_reproducible"]           # árbol normalizado: sin clases/handles volátiles
+    assert all(d["reason"] for d in r["non_reproducible"])
+
+
+def test_normalize_window_removes_volatile_parts():
+    from eolfi.observe.session import normalize_window
+
+    w = {"title": "Muestra", "class": "WindowsForms10.Window.8.app.0.141b42a_r6_ad1",
+         "elements": [{"automation_id": "entrada"}, {"automation_id": "460978"}]}
+    n = normalize_window(w)
+    assert n["class"] == "WindowsForms10.Window" and n["class_normalized"] is True
+    assert [e["automation_id"] for e in n["elements"]] == ["entrada", "#handle"]
+    assert normalize_window({"class": "HwndWrapper[app.exe;;1a2b-3c]", "elements": []})["class"] == "HwndWrapper[app.exe]"
+    assert normalize_window({"class": "Notepad", "elements": []})["class"] == "Notepad"
