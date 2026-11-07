@@ -46,6 +46,9 @@ def record_findings(
     store: EvidenceStore, subject: str, prov: Provider, findings: list[dict[str, Any]], env: str
 ) -> list[str]:
     ids = []
+    ident = prov.tool_identity() if hasattr(prov, "tool_identity") else None
+    if ident:   # herramienta externa: ruta y huella del ejecutable junto al entorno
+        env = f"{env} | {prov.name} {ident['path']} sha256:{ident['sha256'][:16]}"
     for finding in findings:
         ev = Evidence(
             subject=subject,

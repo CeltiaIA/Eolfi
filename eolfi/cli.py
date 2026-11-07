@@ -92,7 +92,11 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("doctor", help="Comprueba proveedores")
+    doc = sub.add_parser("doctor", help="Comprueba proveedores")
+    doc.add_argument("--pin", metavar="ARCHIVO", default=None,
+                     help="Fija rutas, versiones y SHA-256 de las herramientas en este archivo de bloqueo")
+    doc.add_argument("--check-pin", metavar="ARCHIVO", default=None,
+                     help="Compara las herramientas actuales con un archivo de bloqueo (código 6 si cambiaron)")
     t = sub.add_parser("triage", help="Triaje en un paso")
     t.add_argument("target")
     t.add_argument("--summary", action="store_true", help="Omite la lista de evidence_ids")
@@ -481,6 +485,15 @@ def _observe(args, store: EvidenceStore) -> int:
 
 def _dispatch(args, store: EvidenceStore) -> int:
     if args.cmd == "doctor":
+        if args.pin or args.check_pin:
+            from eolfi.security import toolpin
+
+            if args.pin:
+                _print(toolpin.write_lock(args.pin))
+                return 0
+            rep = toolpin.check_lock(args.check_pin)
+            _print(rep)
+            return 0 if rep["matches"] else 6
         from eolfi.flows.triage_flow import ALL_PROVIDERS
 
         out = {}

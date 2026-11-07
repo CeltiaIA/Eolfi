@@ -109,6 +109,16 @@ class ExternalCommandProvider(Provider):
     def available(self) -> bool:
         return self.resolve() is not None
 
+    def tool_identity(self) -> dict[str, str] | None:
+        """Ruta y SHA-256 del ejecutable usado (para repetir resultados con la misma herramienta)."""
+        exe = self.resolve()
+        if not exe:
+            return None
+        if getattr(self, "_identity", None) is None:
+            from eolfi.security.toolpin import file_fingerprint
+            self._identity = {"path": str(Path(exe).resolve()), "sha256": file_fingerprint(exe)}
+        return self._identity
+
     def _tool_version(self) -> str:
         try:
             out = subprocess.run(
