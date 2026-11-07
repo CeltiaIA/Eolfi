@@ -106,12 +106,12 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 ### Fase 6 — Seguridad, aislamiento y reproducibilidad
 
-- [ ] Definir niveles claros de análisis: estático, ejecución observada con autorización y ejecución aislada; las acciones con efectos requieren consentimiento explícito.
+- [x] Definir niveles claros de análisis: estático, ejecución observada con autorización y ejecución aislada; las acciones con efectos requieren consentimiento explícito. *(2026-11-07: `eolfi/security/levels.py`: niveles static/observed/isolated por flujo; todo flujo que ejecuta declara su consentimiento (`--autorizo` también en `diff`); «isolated» no lo usa ningún flujo y no se presenta como activo.)*
 - [ ] Diseñar integración opcional con VM/contenedor y restricciones de red, filesystem, credenciales, recursos y persistencia; si no hay aislamiento, impedir que la interfaz sugiera seguridad de sandbox.
 - [ ] Eliminar secretos de entornos, logs, capturas e informes; redactar datos sensibles por defecto.
 - [ ] Fijar y registrar versiones, hashes y parámetros de proveedores/herramientas externos para repetir resultados.
 - [ ] Hacer pruebas de resiliencia sobre parsers, importación y paquetes hostiles, y revisar de forma continua los límites de recursos.
-- [ ] Documentar permisos, datos capturados, ubicación y borrado de cada sesión.
+- [x] Documentar permisos, datos capturados, ubicación y borrado de cada sesión. *(2026-11-07: `eolfi observe plan` muestra sin ejecutar programas, hosts, alcance, entorno, datos capturados y no capturados, ubicación y borrado; cada sesión guarda `data_handling`; `eolfi observe forget ID --confirmo` borra la sesión y sus derivadas con `secure_delete`. Límite: copias exportadas fuera de la base no se borran.)*
 
 **Aceptación:** una ejecución puede repetirse o explicar por qué no, y el operador puede ver qué permisos se usarán, qué se ejecutará y dónde quedan los datos.
 

@@ -756,6 +756,12 @@ def run_observation(source: str | Path | dict[str, Any], store: EvidenceStore, *
               "variables": sorted((variables or {}).keys()), **({"replay_of": _replay_of} if _replay_of else {})}
     with case_run(store, case_id, "observe", params, provenance or script["authorization"]) as run:
         session = execute(script, bdir, variables=variables, keep_sandbox=keep_sandbox, playwright=playwright)
+        from eolfi.security.levels import flow_level
+
+        session["data_handling"] = {
+            **flow_level("observe"),
+            "stored_in": str(Path(store.path).resolve()) if store.path != ":memory:" else ":memory:",
+            "retention": "hasta que la borres", "deletion": "eolfi observe forget <evidence_id> --confirmo"}
         eid, subject = store_session(store, session, script, replay_of=_replay_of, base_dir=bdir)
         rep = {"evidence_id": eid, "subject": subject, **session}
         if run.active:

@@ -122,6 +122,8 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--threshold", type=float, default=1.0, help="Ratio mínimo de equivalencia (0-1)")
     d.add_argument("--mutate", type=int, default=0, help="Añade N entradas mutadas al corpus")
     d.add_argument("--determinism", action="store_true", help="Ejecuta la referencia dos veces para detectar no determinismo")
+    d.add_argument("--autorizo", action="store_true",
+                   help="Confirmo que estoy autorizado a ejecutar referencia y candidato (obligatorio)")
     _case_args(d)
 
     ob = sub.add_parser("observe", help="Observación de caja negra desde un guion (EJECUTA el objetivo)")
@@ -150,6 +152,12 @@ def _parser() -> argparse.ArgumentParser:
     oshow.add_argument("evidence_id")
     ochk = obs_.add_parser("check", help="Valida un guion sin ejecutar nada")
     ochk.add_argument("script")
+    oplan = obs_.add_parser("plan", help="Qué ejecutaría el guion, con qué permisos y qué datos se guardarían (no ejecuta)")
+    oplan.add_argument("script")
+    oplan.add_argument("--var", action="append", default=[], metavar="NOMBRE=VALOR")
+    ofor = obs_.add_parser("forget", help="Borra una sesión y sus evidencias derivadas (IRREVERSIBLE)")
+    ofor.add_argument("evidence_id")
+    ofor.add_argument("--confirmo", action="store_true", help="Confirmo el borrado irreversible")
 
     rc = sub.add_parser("reconstruct", help="Reconstrucción independiente y trazable desde la especificación del caso")
     rc.add_argument("--case", dest="case_id", required=True)
@@ -430,6 +438,20 @@ def _observe(args, store: EvidenceStore) -> int:
             _print({"valid": True, "name": script["name"], "steps": [s["id"] for s in script["steps"]],
                     "unfixed_factors": static_unfixed_factors(script)})
             return 0
+        if args.obs_cmd == "plan":
+            from eolfi.security.levels import session_plan
+
+            script, bdir = load_script(args.script)
+            _print(session_plan(script, bdir, db_path=store.path, variables=_vars(args.var)))
+            return 0
+        if args.obs_cmd == "forget":
+            if not args.confirmo:
+                _print({"error": "el borrado es irreversible: repite con --confirmo"})
+                return 2
+            from eolfi.security.levels import forget_session
+
+            _print(forget_session(store, args.evidence_id))
+            return 0
         if args.obs_cmd == "show":
             _print(load_session(store, args.evidence_id))
             return 0
@@ -495,6 +517,10 @@ def _dispatch(args, store: EvidenceStore) -> int:
         return 0 if ok else 1
     elif args.cmd == "diff":
         from eolfi.flows.diff_flow import run_diff
+
+        if not args.autorizo:
+            _print({"error": "diff EJECUTA referencia y candidato sin aislamiento: confirma con --autorizo"})
+            return 2
 
         rep = run_diff(
             args.ref, args.cand, args.corpus, store,

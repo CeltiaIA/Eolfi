@@ -525,7 +525,7 @@ python -m eolfi export informe.stix.json          # STIX 2.1
 ## Verificación diferencial
 
 ```bash
-python -m eolfi diff corpus/     --ref  "./original {input}"     --cand "python reimpl.py {input}"     --mutate 200 --determinism --threshold 1.0
+python -m eolfi diff corpus/     --ref  "./original {input}"     --cand "python reimpl.py {input}"     --mutate 200 --determinism --threshold 1.0 --autorizo
 ```
 
 `{input}` se sustituye por cada archivo del corpus (sin él, la entrada va por
