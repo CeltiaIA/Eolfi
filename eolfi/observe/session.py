@@ -674,6 +674,14 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
             cleanup["sandbox"] = "eliminado" if not root.exists() else "eliminado parcialmente"
             if errors:
                 cleanup["errors"] = errors[:20]
+    # Datos personales y secretos en el texto guardado (los hashes ya se calcularon sobre los bytes reales).
+    from eolfi.security.privacy import LIMITS as _PRIVACY_LIMITS
+    from eolfi.security.privacy import redact_tree
+
+    redacted: dict[str, int] = {}
+    privacy_on = script.get("privacy", {}).get("redact_personal_data", True)
+    if privacy_on:
+        steps_out = redact_tree(steps_out, {"preview", "text_preview", "text", "message"}, redacted)
     env_id = environment_identity()
     env_id.update(process_table=probes.process_table_method(),
                   registry="disponible" if probes.registry_available() else "no disponible")
@@ -684,7 +692,10 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
         "platform": env_id, "environment": env_rec, "variables": {k: _redact(k, v) for k, v in variables.items()},
         "setup": setup_rec, "initial_state": initial, "steps": steps_out, "final_state": final,
         "started_at": started, "duration_ms": round((time.monotonic() - t0) * 1000), "cleanup": cleanup,
-        "coverage": _coverage(script, steps_out), "unfixed_factors": static_unfixed_factors(script),
+        "coverage": {**_coverage(script, steps_out), "personal_data": (
+            {"status": "redacted", "redacted": redacted, "limits": _PRIVACY_LIMITS} if privacy_on else
+            {"status": "not_redacted", "reason": "desactivado en el guion (privacy.redact_personal_data=false)"})},
+        "unfixed_factors": static_unfixed_factors(script),
         "status": "done" if all(s["status"] == "ok" for s in steps_out) else "partial",
     }
 

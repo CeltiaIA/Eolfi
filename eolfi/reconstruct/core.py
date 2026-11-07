@@ -89,6 +89,9 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
                 if out.get("preview_truncated") or not out.get("utf8", True):
                     case["status"] = "pendiente"
                     case["pending"].append(f"{name} no disponible completo en la evidencia")
+                elif "<dato personal:" in out.get("preview", ""):
+                    case["status"] = "pendiente"
+                    case["pending"].append(f"{name} con datos personales ocultados en la evidencia: no se reproduce")
                 case[name] = out.get("preview", "")
                 case[name + "_sha256"] = r["expected"].get(name)
             case["exit_code"] = r["expected"].get("código de salida", step.get("exit_code"))

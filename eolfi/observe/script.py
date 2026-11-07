@@ -47,7 +47,7 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost", "[::1]"}
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _VAR = re.compile(r"\{var:([A-Za-z_][A-Za-z0-9_]{0,63})\}")
 _KEYS = {"eolfi_observation_script", "name", "description", "authorization", "target", "environment", "setup",
-         "scope", "allow_hosts", "steps", "cleanup"}
+         "scope", "allow_hosts", "steps", "cleanup", "privacy"}
 
 
 class ScriptError(ValueError):
@@ -333,6 +333,11 @@ def validate_script(raw: Any) -> dict[str, Any]:
             cleanup.get("remove_sandbox", True), bool):
         _err("cleanup: {remove_sandbox: bool}")
     out["cleanup"] = {"remove_sandbox": cleanup.get("remove_sandbox", True)}
+    privacy = raw.get("privacy", {})
+    if not isinstance(privacy, dict) or not set(privacy) <= {"redact_personal_data"} or not isinstance(
+            privacy.get("redact_personal_data", True), bool):
+        _err("privacy: {redact_personal_data: bool}")
+    out["privacy"] = {"redact_personal_data": privacy.get("redact_personal_data", True)}
     if "{target}" in json.dumps(out["steps"]) and "target" not in out:
         _err("los pasos usan {target} pero el guion no declara target")
     return out
