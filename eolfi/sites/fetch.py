@@ -280,6 +280,8 @@ class Fetcher:
             except urllib.error.HTTPError as exc:
                 resp, status = exc, exc.code
             except (urllib.error.URLError, OSError, ValueError) as exc:
+                if time.time() >= self._deadline - 0.05:   # el vigilante cerró el socket durante las cabeceras
+                    raise FetchError(f"descarga demasiado lenta: {current[:120]}") from exc
                 return Response(url, current, None, {}, b"", time.time() - start,
                                 error=f"{type(exc).__name__}: {getattr(exc, 'reason', exc)}", redirects=redirects)
             headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -311,6 +313,10 @@ class Fetcher:
                     n = min(65536, limit + 1 - got)
                     piece = resp.read1(n) if hasattr(resp, "read1") else resp.read(n)
                     if not piece:
+                        # En Linux/macOS, el socket cerrado por el vigilante del plazo se lee como fin de datos
+                        # (b"") en vez de lanzar OSError como en Windows: es un plazo agotado, no el final.
+                        if time.time() >= deadline - 0.05:
+                            raise FetchError(f"descarga demasiado lenta: {current[:120]}")
                         break
                     chunks.append(piece)
                     got += len(piece)

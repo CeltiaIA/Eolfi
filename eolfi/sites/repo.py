@@ -18,7 +18,7 @@ import os
 import re
 import shutil
 import subprocess
-import tomllib
+from eolfi import compat_toml as tomllib
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path

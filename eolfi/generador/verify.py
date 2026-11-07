@@ -242,7 +242,7 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
         if ok:
             ok = step([str(py), "-m", "pytest", "-q"], "pruebas (pytest)")
         if ok:
-            import tomllib
+            from eolfi import compat_toml as tomllib
 
             cmd = next(iter(tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]))
             exe = venv / ("Scripts" if os.name == "nt" else "bin") / (cmd + (".exe" if os.name == "nt" else ""))
@@ -266,7 +266,7 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
         if ok:
             ok = step([npm, "run", "build:debug"], "compilar la app nativa con Rust (tauri build --debug)")
         if ok:
-            import tomllib
+            from eolfi import compat_toml as tomllib
 
             crate = tomllib.loads((root / "src-tauri" / "Cargo.toml").read_text(encoding="utf-8"))["package"]["name"]
             exe = root / "src-tauri" / "target" / "debug" / (crate + (".exe" if os.name == "nt" else ""))

@@ -133,9 +133,10 @@ def _page_sections(spec: dict[str, Any], slug: str) -> list[str]:
 # ---------------------------------------------------------------------------
 def _static_page(spec: dict[str, Any], slug: str, title: str, routes, content, css_prefix: str,
                  resources: list[str]) -> str:
+    current = ' aria-current="page"'   # fuera del f-string: Python 3.10 no admite «\» en sus expresiones
     nav = "\n".join(
         f'        <a href="{css_prefix}{"index" if s == "home" else s}.html"'
-        f'{" aria-current=\"page\"" if s == slug else ""}>{tpl.html.escape(t)}</a>'
+        f'{current if s == slug else ""}>{tpl.html.escape(t)}</a>'
         for s, _p, t in routes)
     secs = []
     if slug != "home":

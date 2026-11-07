@@ -397,3 +397,32 @@ def test_corpus_config_reads_shared_sources(tmp_path):
     (lib / "config" / "fuentes.json").write_text('{"fuentes": []}', encoding="utf-8")
     with pytest.raises(ValueError):
         library_config(lib)
+
+
+def test_deadline_when_closed_socket_reads_as_eof(monkeypatch):
+    """Linux/macOS: el socket cerrado por el vigilante del plazo se lee como b"" (no OSError como en Windows)."""
+    from eolfi.sites import fetch
+
+    f = fetch.Fetcher(delay=0, respect_robots=False, timeout=0.2)    # plazo total = 0,6 s
+
+    class Resp:
+        status = 200
+        headers = type("H", (), {"items": lambda self: [("Content-Type", "text/plain")],
+                                 "get_all": lambda self, k: None})()
+
+        def __init__(self):
+            self.n = 0
+
+        def read1(self, _n):
+            self.n += 1
+            if self.n < 3:
+                return b"x"
+            time.sleep(0.7)          # el vigilante cierra el socket y la lectura devuelve fin de datos
+            return b""
+
+        def close(self):
+            pass
+    monkeypatch.setattr(f, "_check_url", lambda u: None)
+    monkeypatch.setattr(f._opener, "open", lambda req, timeout=None: Resp())
+    with pytest.raises(fetch.FetchError, match="lenta"):
+        f._raw_get("http://example.invalid/lento", 10_000)
