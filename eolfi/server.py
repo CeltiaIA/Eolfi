@@ -122,7 +122,9 @@ class EolfiApp:
             if job.get("cancel"):
                 raise JobCancelled()   # cancelación cooperativa: en el siguiente aviso de progreso
             with self._jobs_guard:
-                job["log"].append({"t": round(time.time() - job["started"], 1), "msg": str(message)[:500]})
+                from eolfi.security.privacy import redact
+
+                job["log"].append({"t": round(time.time() - job["started"], 1), "msg": redact(str(message)[:500])[0]})
                 del job["log"][:-2000]
 
     def start_job(self, body: dict[str, Any]) -> dict[str, Any]:

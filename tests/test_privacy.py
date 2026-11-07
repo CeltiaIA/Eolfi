@@ -82,3 +82,40 @@ def test_reconstruction_marks_redacted_output_pending(tmp_path):
         assert case["status"] == "pendiente" and any("datos personales" in p for p in case["pending"])
     finally:
         store.close()
+
+
+def test_uuid_and_hashes_are_not_personal_data():
+    text = "caso 12345678-1234-4123-8123-123456789012 sha 0123456789abcdef0123456789abcdef"
+    assert redact(text) == (text, {})
+
+
+def test_reports_and_job_logs_redact_but_keep_identifiers(tmp_path):
+    from eolfi.core.case_report import build_case_report, render_case_html
+    from eolfi.core.cases import CaseStore
+    from eolfi.core.report import build_report, render_html, render_markdown
+    from eolfi.server import EolfiApp
+
+    store = EvidenceStore(tmp_path / "e.db")
+    try:
+        cases = CaseStore(store)
+        cid = cases.create("pii")["case_id"]
+        cases.add_record(cid, "specification", {"claims": [
+            {"text": "El soporte contesta desde soporte@ejemplo.org", "status": "hypothesis"}]})
+        html = render_case_html(build_case_report(cases.get(cid)))
+        assert "soporte@ejemplo.org" not in html and "dato personal:correo" in html and cid in html
+        t = samples.write(tmp_path, "pii.py", "print('mail ana.perez@ejemplo.org')\n")
+        rep = run_observation(_script(t, [{"id": "p", "action": "run", "argv": ["{python}", "{target}"],
+                                           "stdin": {"text": "x"}}], privacy={"redact_personal_data": False}),
+                              store, authorized=True)
+        r = build_report(store, rep["subject"])
+        for out in (render_markdown(r), render_html(r)):
+            assert "ana.perez@ejemplo.org" not in out and rep["subject"][:16] in out
+    finally:
+        store.close()
+    app = EolfiApp(str(tmp_path / "s.db"))
+    job = {"log": [], "started": 0}
+    app._tl.job = job
+    app._progress("descargando de https://x.org con token sk-ant-" + "a" * 24 + " para ana@ejemplo.org")
+    app._tl.job = None
+    msg = job["log"][0]["msg"]
+    assert "ana@ejemplo.org" not in msg and "sk-ant-aaaa" not in msg

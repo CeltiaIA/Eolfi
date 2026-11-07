@@ -108,6 +108,9 @@ def _value(v: Any) -> str:
 
 
 def render_markdown(r: dict[str, Any]) -> str:
+    from eolfi.security.privacy import redact_report
+
+    r = redact_report(r)
     esc = lambda s: str(s).replace("|", "\\|").replace("\n", " ")  # noqa: E731
     title = r["names"][0] if r["names"] else r["subject"]
     lines = [f"# Informe de Eolfi: {esc(title)}", "", f"- Objetivo: `{r['subject']}`",
@@ -136,6 +139,9 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:.25rem 1rem}dt{font-we
 
 
 def render_html(r: dict[str, Any]) -> str:
+    from eolfi.security.privacy import redact_report
+
+    r = redact_report(r)
     e = html.escape
     title = r["names"][0] if r["names"] else r["subject"]
     summary = "".join(f"<dt>{e(str(k))}</dt><dd>{e(_value(v))}</dd>" for k, v in r["summary"].items())

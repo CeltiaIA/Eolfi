@@ -167,6 +167,9 @@ details summary{cursor:pointer}
 
 
 def render_case_html(r: dict[str, Any]) -> str:
+    from eolfi.security.privacy import redact_report
+
+    r = redact_report(r)   # datos personales y secretos fuera del informe (identificadores y huellas intactos)
     e = html.escape
 
     def ev_link(x: str) -> str:

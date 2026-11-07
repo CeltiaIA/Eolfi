@@ -19,9 +19,9 @@ LIMITS = ("Detección por patrones: correo, teléfono, IBAN, tarjeta (Luhn), DNI
 
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}\b")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,3})?\b")
-_CARD = re.compile(r"\b(?:\d[ -]?){12,18}\d\b")
+_CARD = re.compile(r"(?<![\w.-])(?:\d[ -]?){12,18}\d(?![\w.-])")   # sin guion pegado: no partir UUID
 _DNI = re.compile(r"\b([XYZ]?)(\d{7,8})-?([A-Za-z])\b")
-_PHONE = re.compile(r"(?<![\w.])(?:\+\d{1,3}[ .-]?)?(?:\(?\d{2,4}\)?[ .-]?){2,4}\d{2,4}(?![\w.])")
+_PHONE = re.compile(r"(?<![\w.-])(?:\+\d{1,3}[ .-]?)?(?:\(?\d{2,4}\)?[ .-]?){2,4}\d{2,4}(?![\w.-])")
 _IPV4 = re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
 _KEY = re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}"
@@ -113,6 +113,25 @@ def merge(total: dict[str, int], more: dict[str, int]) -> dict[str, int]:
     for k, v in more.items():
         total[k] = total.get(k, 0) + v
     return total
+
+
+_ID_KEYS = {"evidence_id", "subject", "incognita_id", "record_id", "case_id", "content_sha256", "sha256",
+            "package_sha256", "params", "path", "out", "url", "provider", "provider_version", "operation", "identity",
+            "evidence_for", "evidence_against", "links", "evidence_ids", "artifacts", "id"}
+
+
+def redact_report(obj: Any, counts: dict[str, int] | None = None) -> Any:
+    """Oculta datos personales en todo el texto de un informe salvo identificadores, huellas y rutas."""
+    counts = {} if counts is None else counts
+    if isinstance(obj, dict):
+        return {k: (v if k in _ID_KEYS else redact_report(v, counts)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [redact_report(v, counts) for v in obj]
+    if isinstance(obj, str):
+        text, found = redact(obj)
+        merge(counts, found)
+        return text
+    return obj
 
 
 def redact_tree(obj: Any, keys: set[str], counts: dict[str, int]) -> Any:
