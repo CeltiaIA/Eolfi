@@ -144,6 +144,8 @@ def _parser() -> argparse.ArgumentParser:
     ocmp.add_argument("a")
     ocmp.add_argument("b")
     ocmp.add_argument("--case", dest="case_id", default=None)
+    ocmp.add_argument("--tolerate", action="append", default=[], metavar="ASPECTO",
+                      help="Aspecto tolerado (diferencia no funcional declarada), p. ej. «*.texto visible»")
     oshow = obs_.add_parser("show", help="Muestra una sesión guardada")
     oshow.add_argument("evidence_id")
     ochk = obs_.add_parser("check", help="Valida un guion sin ejecutar nada")
@@ -432,7 +434,7 @@ def _observe(args, store: EvidenceStore) -> int:
             _print(load_session(store, args.evidence_id))
             return 0
         if args.obs_cmd == "compare":
-            rep = run_compare(store, args.a, args.b, case_id=args.case_id)
+            rep = run_compare(store, args.a, args.b, case_id=args.case_id, tolerances=args.tolerate)
             _print(rep)
             return 0 if rep["identical"] else 5
         if args.obs_cmd == "run":

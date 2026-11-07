@@ -871,7 +871,11 @@ class EolfiApp:
         with self._job("observe_compare"):
             s = self.store()
             try:
-                return run_compare(s, str(body.get("a", "")), str(body.get("b", "")), case_id=case_id)
+                tol = body.get("tolerances") or []
+                if not isinstance(tol, list) or not all(isinstance(t, str) and len(t) <= 200 for t in tol):
+                    raise ApiError(400, "tolerances debe ser una lista de patrones")
+                return run_compare(s, str(body.get("a", "")), str(body.get("b", "")), case_id=case_id,
+                                   tolerances=tol)
             except ValueError as exc:
                 raise ApiError(404 if "no es una sesión" in str(exc) else 400, str(exc)) from exc
             finally:

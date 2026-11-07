@@ -134,8 +134,15 @@ def _context(a: dict[str, Any], b: dict[str, Any]) -> list[dict[str, Any]]:
     return diffs
 
 
-def compare_sessions(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
-    """Compara dos registros de sesión (``result`` de la evidencia)."""
+def compare_sessions(a: dict[str, Any], b: dict[str, Any], tolerances: list[str] | None = None) -> dict[str, Any]:
+    """Compara dos registros de sesión (``result`` de la evidencia).
+
+    ``tolerances``: patrones de aspecto (fnmatch, p. ej. «*.texto visible», «stderr») declarados por el operador para
+    diferencias no funcionales. Las diferencias toleradas se siguen listando (``tolerated: true``), pero no cuentan
+    para ``identical`` ni para el primer cambio."""
+    import fnmatch
+
+    tolerances = list(tolerances or [])
     steps_b = {s["id"]: s for s in b.get("steps", [])}
     ids_a = [s["id"] for s in a.get("steps", [])]
     differences: list[dict[str, Any]] = []
@@ -160,10 +167,17 @@ def compare_sessions(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     for sid in steps_b:
         if sid not in ids_a:
             differences.append({"step": sid, "aspect": "paso ausente en a", "a": None, "b": steps_b[sid]["action"]})
+    for d in differences:
+        d["tolerated"] = any(fnmatch.fnmatchcase(d["aspect"], t) for t in tolerances)
+    tolerated = [d for d in differences if d["tolerated"]]
+    differences = [d for d in differences if not d["tolerated"]]   # lo que cuenta: identidad, primer cambio, atribución
     context = _context(a, b)
     first = differences[0] if differences else None
     return {
         "identical": not differences,
+        "tolerances": tolerances,
+        "tolerated": tolerated[:500],
+        "tolerated_total": len(tolerated),
         "steps_compared": len([s for s in ids_a if s in steps_b]),
         "first_change": first,
         "differences": differences[:500],
@@ -201,12 +215,14 @@ def _case_link(run: Any, store: EvidenceStore, subject: str, sessions: list[dict
                      metadata={"sessions": [s["evidence_id"] for s in sessions]})
 
 
-def run_compare(store: EvidenceStore, a_id: str, b_id: str, *, case_id: str | None = None) -> dict[str, Any]:
+def run_compare(store: EvidenceStore, a_id: str, b_id: str, *, case_id: str | None = None,
+                tolerances: list[str] | None = None) -> dict[str, Any]:
     from eolfi.core.cases import case_run
 
-    with case_run(store, case_id, "observe_compare", {"a": a_id, "b": b_id}, "sesiones de observación") as run:
+    with case_run(store, case_id, "observe_compare", {"a": a_id, "b": b_id, "tolerances": list(tolerances or [])},
+                  "sesiones de observación") as run:
         a, b = obs.load_session(store, a_id), obs.load_session(store, b_id)
-        result = compare_sessions(a["session"], b["session"])
+        result = compare_sessions(a["session"], b["session"], tolerances)
         eid, subject = _store_derived(store, a, b, COMPARE_OPERATION, result)
         rep = {"evidence_id": eid, "subject": subject, "a": a_id, "b": b_id, **result}
         if run.active:

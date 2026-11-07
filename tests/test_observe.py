@@ -495,3 +495,17 @@ def test_normalize_window_removes_volatile_parts():
     assert [e["automation_id"] for e in n["elements"]] == ["entrada", "#handle"]
     assert normalize_window({"class": "HwndWrapper[app.exe;;1a2b-3c]", "elements": []})["class"] == "HwndWrapper[app.exe]"
     assert normalize_window({"class": "Notepad", "elements": []})["class"] == "Notepad"
+
+
+def test_compare_tolerances_are_declared_and_listed():
+    base = {"steps": [{"id": "ui", "action": "browser", "status": "ok", "effects": {"files": []},
+                       "actions": [{"id": "a", "status": "ok", "url_after": "u", "visible": {"text_sha256": "1"},
+                                    "aria": {"sha256": "x"}, "requests": []}]}]}
+    other = json.loads(json.dumps(base))
+    other["steps"][0]["actions"][0]["visible"]["text_sha256"] = "2"
+    strict = compare_sessions(base, other)
+    assert not strict["identical"] and strict["first_change"]["aspect"] == "a.texto visible"
+    tol = compare_sessions(base, other, ["*.texto visible"])
+    assert tol["identical"] and tol["tolerated_total"] == 1 and tol["first_change"] is None
+    other["steps"][0]["actions"][0]["url_after"] = "v"
+    assert compare_sessions(base, other, ["*.texto visible"])["first_change"]["aspect"] == "a.url"

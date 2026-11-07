@@ -80,3 +80,58 @@ test('observación web: trazas enlazadas a la acción, bloqueo y repetición', a
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* Windows puede tardar en soltar la base */ }
   }
 });
+
+test('comparación de interfaces: navegación, contenido y accesibilidad con tolerancias declaradas', async () => {
+  const page = (label, callsApi) => `<!doctype html><html lang="es"><title>Contador</title><body><h1 id="n">0</h1>
+<button id="mas">${label}</button><script>
+document.getElementById('mas').onclick = async () => {
+  ${callsApi ? "const j = await (await fetch('/api/sumar', { method: 'POST' })).json(); document.getElementById('n').textContent = j.n;"
+    : "document.getElementById('n').textContent = 1;"}
+};</script></body></html>`;
+  const serve = (html) => {
+    let n = 0;
+    const s = createServer((req, res) => {
+      if (req.method === 'POST') { n += 1; res.writeHead(201, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ n })); }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(html);
+    });
+    return new Promise((r) => s.listen(0, '127.0.0.1', () => r(s)));
+  };
+  const original = await serve(page('Sumar', true));
+  const renamed = await serve(page('Añadir', true));          // solo cambia el texto del botón
+  const broken = await serve(page('Sumar', false));           // no llama a la API: diferencia funcional
+  const tmp = mkdtempSync(join(tmpdir(), 'eolfi-e2e-ui-'));
+  const db = join(tmp, 'e.db');
+  const guion = join(tmp, 'guion.json');
+  writeFileSync(guion, JSON.stringify({
+    eolfi_observation_script: 1, name: 'interfaz', authorization: 'muestra web sintética propia de la prueba',
+    steps: [{ id: 'ui', action: 'browser', url: 'http://127.0.0.1:{var:port}/',
+      actions: [{ id: 'pulsar', do: 'click', selector: '#mas' }] }],
+  }));
+  const pw = require.resolve('playwright-core');
+  const env = { ...process.env, PYTHONIOENCODING: 'utf-8',
+    ...(process.env.EOLFI_E2E_BROWSER ? { EOLFI_BROWSER_PATH: process.env.EOLFI_E2E_BROWSER }
+      : { EOLFI_BROWSER_CHANNEL: process.env.EOLFI_E2E_CHANNEL || 'chrome' }) };
+  const cli = async (...a) => {
+    try { return JSON.parse((await promisify(execFile)(PY, ['-m', 'eolfi', '--db', db, 'observe', ...a], { cwd: ROOT, env })).stdout); }
+    catch (e) { if (e.stdout?.length) return JSON.parse(e.stdout); throw e; }
+  };
+  try {
+    const run = (srv) => cli('run', guion, '--autorizo', '--var', `port=${srv.address().port}`, '--playwright', pw);
+    const a = await run(original), b = await run(renamed), c = await run(broken);
+    for (const s of [a, b, c]) assert.equal(s.steps[0].status, 'ok', JSON.stringify(s.steps[0]).slice(0, 1500));
+    const strict = await cli('compare', a.evidence_id, b.evidence_id);
+    assert.equal(strict.identical, false);
+    assert.match(strict.first_change.aspect, /texto visible|accesibilidad/);
+    const tolerant = await cli('compare', a.evidence_id, b.evidence_id, '--tolerate', '*.texto visible', '--tolerate', '*.accesibilidad');
+    assert.equal(tolerant.identical, true, JSON.stringify(tolerant.differences));
+    assert.ok(tolerant.tolerated_total >= 2);
+    assert.ok(tolerant.tolerated.every((d) => d.tolerated));
+    // La diferencia funcional (sin petición a la API) no se oculta con esas tolerancias.
+    const functional = await cli('compare', a.evidence_id, c.evidence_id, '--tolerate', '*.texto visible', '--tolerate', '*.accesibilidad');
+    assert.equal(functional.identical, false);
+    assert.equal(functional.first_change.aspect, 'pulsar.peticiones');
+  } finally {
+    for (const s of [original, renamed, broken]) s.close();
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* Windows puede tardar en soltar la base */ }
+  }
+});
