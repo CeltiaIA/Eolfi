@@ -227,12 +227,34 @@ def _run_triage(path: Path, store: EvidenceStore, providers: list[Provider] | No
         "target": str(path),
         "providers_run": ran,
         "providers_skipped": skipped,
+        "coverage_gaps": coverage_gaps(skipped),
         "providers_failed": failed,
         "provider_errors": errors,
         "evidence_ids": recorded,
         "summary": summarize(store, subject),
         "open_incognitas": len(store.list_incognitas(Status.OPEN, subject=subject)),
     }
+
+
+# Qué deja de cubrirse cuando falta una herramienta externa: la ruta local sigue siendo útil, pero no equivalente.
+TOOL_COVERAGE = {
+    "mandiant.capa": ("capacidades del binario (ATT&CK/MBC) por reglas", "cadenas, importaciones y entropía locales: "
+                      "pistas, no capacidades confirmadas"),
+    "rizin": ("funciones, desensamblado y referencias cruzadas", "cabeceras, secciones, importaciones y "
+              "exportaciones del parser propio; sin análisis de código"),
+    "ghidra.headless": ("decompilación a pseudo-C y análisis de funciones", "sin pseudocódigo: solo metadatos y "
+                        "datos estáticos"),
+}
+
+
+def coverage_gaps(skipped: list[str]) -> list[dict[str, str]]:
+    """Herramientas que faltaban, qué cubrirían y qué queda con la ruta local (sin declarar cobertura equivalente)."""
+    out = []
+    for name in skipped:
+        covers, fallback = TOOL_COVERAGE.get(name, ("análisis propio de la herramienta", "solo el análisis local"))
+        out.append({"provider": name, "not_covered": covers, "local_path": fallback,
+                    "status": "not_available", "note": "cobertura NO equivalente: instala la herramienta para cubrirlo"})
+    return out
 
 
 def summarize(store: EvidenceStore, subject: str) -> dict[str, Any]:

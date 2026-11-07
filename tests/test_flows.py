@@ -135,3 +135,26 @@ def test_fs_list(tmp_path):
     r = app.fs_list({"path": str(tmp_path)})
     assert [d["name"] for d in r["dirs"]] == ["a"]
     assert app.fs_list({})["dirs"]
+
+
+def test_triage_without_external_tools_reports_gaps_not_equivalent_coverage(tmp_path, monkeypatch):
+    """Fase 7: sin rizin/capa/Ghidra el triaje sigue siendo útil y dice qué no cubre."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.triage_flow import DEFAULT_PROVIDERS, run_triage
+    from tests.elfgen import build_elf64
+
+    f = tmp_path / "a.elf"
+    f.write_bytes(build_elf64())
+    store = EvidenceStore(tmp_path / "e.db")
+    try:
+        provs = list(DEFAULT_PROVIDERS)
+        for p in provs:
+            if hasattr(p, "resolve"):           # simula que la herramienta externa no está instalada (se restaura)
+                monkeypatch.setattr(p, "resolve", lambda: None)
+        rep = run_triage(str(f), store, provs)
+        assert rep["providers_run"] and rep["summary"]["format"]
+        gaps = {g["provider"]: g for g in rep["coverage_gaps"]}
+        assert set(gaps) == set(rep["providers_skipped"]) and gaps
+        assert all("NO equivalente" in g["note"] and g["not_covered"] for g in gaps.values())
+    finally:
+        store.close()

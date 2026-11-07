@@ -568,6 +568,12 @@ eolfi/
 tests/         pruebas (pytest) con muestras sintéticas
 ```
 
+## Guía de caja negra
+
+[`ejemplos/caja-negra/GUIA.md`](ejemplos/caja-negra/GUIA.md): de un programa sin fuentes a una reconstrucción
+comprobada (plan, observación, especificación, reconstrucción, equivalencia, informe y borrado) con una muestra
+sintética propia y criterios de aceptación por paso. La CI la ejecuta tal cual (`tests/test_guia_caja_negra.py`).
+
 ## Pruebas
 
 ```bash
