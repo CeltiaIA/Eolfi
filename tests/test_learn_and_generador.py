@@ -484,7 +484,7 @@ def test_next_generator_respects_observed_methods_and_auth_routes(tmp_path):
     r = tmp_path / "app-next"
     for rel, text in {
         "package.json": '{"name":"x","dependencies":{"next":"15.0.0","react":"19.0.0"}}',
-        "app/page.tsx": "x", "app/login/page.tsx": "x",
+        "app/page.tsx": "x", "app/login/page.tsx": "x", "app/panel/page.tsx": "x",
         "app/api/projects/route.ts": "export async function GET(){}\nexport async function POST(){}",
         "app/api/projects/[id]/route.ts": "export async function PATCH(){}\nexport async function DELETE(){}",
         "app/api/auth/login/route.ts": "export async function POST(){}",
@@ -511,6 +511,19 @@ def test_next_generator_respects_observed_methods_and_auth_routes(tmp_path):
         test = (out / "test/app.test.mjs").read_text(encoding="utf-8")
         assert 'json("PATCH"' in test and "inicio y cierre de sesión" in test and "{{" not in test
         assert any("PENDIENTE" in n for n in spec["notes"])
+        login_page = (out / "app/login/page.tsx").read_text(encoding="utf-8")
+        assert "LoginForm" in login_page and "Página de ejemplo" not in login_page
+        assert '"/api/auth/login"' in (out / "components/LoginForm.tsx").read_text(encoding="utf-8")
+        panel = (out / "app/panel/page.tsx").read_text(encoding="utf-8")
+        assert 'redirect("/login")' in panel and "verify(" in panel
+        assert '"/api/projects"' in (out / "components/ResourcePanel.tsx").read_text(encoding="utf-8")
+        assert "export function verify(" in (out / "lib/auth.ts").read_text(encoding="utf-8")
+        assert 'redirect: "manual"' in test
+        import shutil
+        import subprocess
+        if shutil.which("node"):    # la prueba generada debe ser JavaScript válido (una variable repetida la rompía)
+            chk = subprocess.run(["node", "--check", str(out / "test/app.test.mjs")], capture_output=True, text=True)
+            assert chk.returncode == 0, chk.stderr
         # Sin rutas de autenticación ni --auth: no se generan.
         spec2 = build_spec(store, [rep["subject"]], name="y", target="next")
         spec2["api"]["auth_endpoints"] = []

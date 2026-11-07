@@ -287,11 +287,14 @@ def _next_auth(spec: dict[str, Any], w: Writer) -> list[str]:
         return []
     logout_methods = (spec["api"].get("observed_methods") or {}).get("/api/auth/logout", ["POST"])
     logout_methods = [m for m in logout_methods if m in ("GET", "POST")] or ["POST"]
-    w("lib/auth.ts", """import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+    w("lib/auth.ts", """import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 // Implementación propia de Eolfi: los usuarios y la política de sesiones del original NO son observables;
 // aquí hay un único usuario configurado por variables de entorno (pendiente de adaptar a tu base de datos).
-const SECRET = process.env.AUTH_SECRET || randomBytes(32).toString("hex");
+// Igual en todos los módulos del servidor (rutas de la API y páginas se cargan por separado): AUTH_SECRET o, si
+// falta, una clave derivada de las credenciales configuradas. En producción define AUTH_SECRET.
+const SECRET = process.env.AUTH_SECRET
+  || createHash("sha256").update(`eolfi-sesion:${process.env.AUTH_USER}:${process.env.AUTH_PASSWORD}`).digest("hex");
 export const COOKIE = "session";
 const MAX_AGE = 60 * 60 * 8;
 
@@ -317,6 +320,19 @@ export function sign(user: string): string {
 export function cookie(value: string, maxAge = MAX_AGE): string {
   return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
 }
+
+/** Usuario de una sesión válida (firma y caducidad) o null. */
+export function verify(token: string | undefined): string | null {
+  if (!token) return null;
+  const i = token.lastIndexOf(".");
+  if (i < 0) return null;
+  const payload = token.slice(0, i), sig = token.slice(i + 1);
+  const good = createHmac("sha256", SECRET).update(payload).digest("hex");
+  if (!same(sig, good)) return null;
+  const j = payload.lastIndexOf(".");
+  const exp = Number(payload.slice(j + 1));
+  return Number.isFinite(exp) && exp > Date.now() / 1000 ? payload.slice(0, j) : null;
+}
 """)
     w("app/api/auth/login/route.ts", """import { check, configured, cookie, sign } from "@/lib/auth";
 
@@ -339,6 +355,119 @@ export const dynamic = "force-dynamic";
 
 {handler}""")
     return logout_methods
+
+
+def _next_session_pages(spec: dict[str, Any], w: Writer, resource: str, logout_method: str, slugs: set[str]) -> None:
+    """Pantalla de inicio de sesión que usa /api/auth/login y panel protegido que usa la API del recurso."""
+    if "login" in slugs:
+        w("components/LoginForm.tsx", """"use client";
+import { useState } from "react";
+
+export default function LoginForm() {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const data = new FormData(e.currentTarget);
+    const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: data.get("user"), password: data.get("password") }) });
+    setBusy(false);
+    if (res.ok) { window.location.href = "/panel"; return; }
+    const body = await res.json().catch(() => ({}));
+    setError(body.error || "No se pudo iniciar sesión");
+  }
+  return (
+    <form className="card login-form" onSubmit={onSubmit}>
+      <label>Usuario <input name="user" autoComplete="username" required /></label>
+      <label>Contraseña <input name="password" type="password" autoComplete="current-password" required /></label>
+      {error && <p role="alert" className="error">{error}</p>}
+      <button className="btn" type="submit" disabled={busy}>{busy ? "Entrando…" : "Entrar"}</button>
+    </form>
+  );
+}
+""")
+        w("app/login/page.tsx", """import LoginForm from "@/components/LoginForm";
+
+export const metadata = { title: "Iniciar sesión" };
+
+export default function Page() {
+  return (
+    <section className="page-header">
+      <div className="container">
+        <h1>Iniciar sesión</h1>
+        <LoginForm />
+      </div>
+    </section>
+  );
+}
+""")
+    if "panel" in slugs:
+        w("components/ResourcePanel.tsx", f""""use client";
+import {{ useEffect, useState }} from "react";
+
+type Item = {{ id: number; name: string; description?: string }};
+
+export default function ResourcePanel() {{
+  const [items, setItems] = useState<Item[]>([]);
+  const [name, setName] = useState("");
+  const load = () => fetch("/api/{resource}").then((r) => r.json()).then(setItems).catch(() => setItems([]));
+  useEffect(() => {{ load(); }}, []);
+  async function add(e: React.FormEvent) {{
+    e.preventDefault();
+    if (!name.trim()) return;
+    await fetch("/api/{resource}", {{ method: "POST", headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ name }}) }});
+    setName("");
+    load();
+  }}
+  async function remove(id: number) {{
+    await fetch(`/api/{resource}/${{id}}`, {{ method: "DELETE" }});
+    load();
+  }}
+  async function logout() {{
+    await fetch("/api/auth/logout", {{ method: "{logout_method}" }});
+    window.location.href = "/login";
+  }}
+  return (
+    <div className="card">
+      <form onSubmit={{add}} className="row">
+        <label>Nuevo <input value={{name}} onChange={{(e) => setName(e.target.value)}} /></label>
+        <button className="btn" type="submit">Añadir</button>
+      </form>
+      <ul aria-label="{resource}">
+        {{items.map((i) => (
+          <li key={{i.id}}>{{i.name}} <button type="button" onClick={{() => remove(i.id)}}>Borrar</button></li>
+        ))}}
+      </ul>
+      <button type="button" className="btn-secondary" onClick={{logout}}>Cerrar sesión</button>
+    </div>
+  );
+}}
+""")
+        w("app/panel/page.tsx", """import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import ResourcePanel from "@/components/ResourcePanel";
+import { COOKIE, verify } from "@/lib/auth";
+
+export const metadata = { title: "Panel" };
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const user = verify((await cookies()).get(COOKIE)?.value);
+  if (!user) redirect("/login");
+  return (
+    <section className="page-header">
+      <div className="container">
+        <h1>Panel</h1>
+        <p className="lead">Sesión iniciada como {user}.</p>
+        <ResourcePanel />
+      </div>
+    </section>
+  );
+}
+""")
 
 
 def gen_next(spec: dict[str, Any], w: Writer) -> None:
@@ -515,7 +644,11 @@ export default function RootLayout({{ children }}: {{ children: React.ReactNode 
   );
 }}
 """)
+    if logout_methods:
+        _next_session_pages(spec, w, resources[0], logout_methods[0], {slug for slug, _p, _t in routes})
     for slug, _path, title in routes:
+        if logout_methods and slug in ("login", "panel"):
+            continue        # pantallas reales de sesión (ver _next_session_pages)
         secs = _page_sections(spec, slug)
         imports = "\n".join(f'import {s} from "@/components/{s}";' for s in secs)
         body = "\n".join(f"      <{s} />" for s in secs)
@@ -659,6 +792,14 @@ test("inicio y cierre de sesión", async () => {{
   assert.match(ok.headers.get("set-cookie") || "", /session=.+; Path=\\/; HttpOnly/);
   const out = await fetch(base + "/api/auth/logout", {{ method: "{logout_methods[0]}" }});
   assert.match(out.headers.get("set-cookie") || "", /Max-Age=0/);
+  const session = (ok.headers.get("set-cookie") || "").split(";")[0];
+  const loginHtml = await (await fetch(base + "/login")).text();
+  assert.match(loginHtml, /name="password"/);
+  const anon = await fetch(base + "/panel", {{ redirect: "manual" }});
+  assert.ok([303, 307, 308].includes(anon.status) && /\\/login/.test(anon.headers.get("location") || ""));
+  const panel = await fetch(base + "/panel", {{ headers: {{ cookie: session }} }});
+  assert.equal(panel.status, 200);
+  assert.match(await panel.text(), /Sesión iniciada como/);
 }});
 """
     w("test/app.test.mjs", f"""// Prueba de extremo a extremo: arranca `next start` (requiere `npm run build` antes).
