@@ -509,3 +509,35 @@ def test_compare_tolerances_are_declared_and_listed():
     assert tol["identical"] and tol["tolerated_total"] == 1 and tol["first_change"] is None
     other["steps"][0]["actions"][0]["url_after"] = "v"
     assert compare_sessions(base, other, ["*.texto visible"])["first_change"]["aspect"] == "a.url"
+
+
+def test_child_sampler_ignores_orphans_of_a_reused_pid(monkeypatch):
+    """CI Windows 3.10: el PID de un padre terminado se reasignó a nuestro proceso y csrss.exe/winlogon.exe
+    (hijos huérfanos del anterior) parecían descendientes. Solo cuentan hijos creados después del padre."""
+    starts = {100: 50.0, 200: 60.0, 300: 10.0, 400: 70.0}
+    monkeypatch.setattr(probes, "process_table_method", lambda: "toolhelp32")
+    monkeypatch.setattr(probes, "process_table", lambda: [
+        (100, 1, "python.exe"), (200, 100, "hijo.exe"), (300, 100, "csrss.exe"), (400, 300, "winlogon.exe")])
+    monkeypatch.setattr(probes, "process_start", lambda pid: starts.get(pid))
+    s = probes.ChildSampler(100)
+    s.sample()
+    assert sorted(s.seen) == [200] and s.seen[200]["start"] == 60.0
+    starts[200] = None                       # sin hora de creación verificable: tampoco se acepta
+    s2 = probes.ChildSampler(100)
+    s2.sample()
+    assert s2.seen == {}
+
+
+def test_survivor_check_requires_same_creation_time(monkeypatch):
+    from eolfi.observe import session as ses
+
+    monkeypatch.setattr(probes, "process_table", lambda: [(200, 100, "hijo.exe")])
+    monkeypatch.setattr(probes, "process_table_method", lambda: "toolhelp32")
+    monkeypatch.setattr(probes, "process_start", lambda pid: 99.0)
+    assert ses._same_process_alive({"pid": 200, "name": "hijo.exe", "start": 99.0}) is True
+    assert ses._same_process_alive({"pid": 200, "name": "hijo.exe", "start": 60.0}) is False   # PID reutilizado
+    assert ses._same_process_alive({"pid": 200, "name": "hijo.exe", "start": None}) is False
+    killed = []
+    monkeypatch.setattr(ses.subprocess, "run", lambda cmd, **k: killed.append(cmd))
+    ses._kill_survivors([{"pid": 200, "name": "hijo.exe", "start": 60.0}])
+    assert killed == []

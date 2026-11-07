@@ -189,23 +189,31 @@ def _run_process(argv: list[str], cwd: Path, env: dict[str, str], stdin: bytes |
                                "exit_code": proc.returncode, "exit_status": probes.exit_status(proc.returncode),
                                "duration_ms": duration, "stdout": out.read(MAX_OUTPUT), "stderr": err.read(MAX_OUTPUT)}
     if child_info is not None:
-        alive = {(pid, name) for pid, _ppid, name in probes.process_table()}
-        survivors = [p for p in child_info["processes"] if (p["pid"], p["name"]) in alive]
+        survivors = [p for p in child_info["processes"] if _same_process_alive(p)]
         child_info["survivors"] = survivors
         res["children"] = child_info
     return res
 
 
+def _same_process_alive(p: dict[str, Any]) -> bool:
+    """Sigue vivo EL MISMO proceso observado: PID, nombre y hora de creación (si se pudo leer) coinciden."""
+    if (p["pid"], p["name"]) not in {(pid, name) for pid, _ppid, name in probes.process_table()}:
+        return False
+    if p.get("start") is not None:
+        return probes.process_start(p["pid"]) == p["start"]
+    return probes.process_table_method() == "ps"   # sin hora de creación solo se confía en ps (sin verificación)
+
+
 def _kill_survivors(survivors: list[dict[str, Any]]) -> list[str]:
-    """Termina procesos lanzados por el objetivo que siguen vivos (mismo PID y nombre que al observarlos)."""
+    """Termina procesos lanzados por el objetivo que siguen vivos (mismo PID, nombre y creación que al observarlos).
+    Nunca mata el árbol de un PID: solo cada superviviente verificado."""
     done = []
-    alive = {(pid, name) for pid, _ppid, name in probes.process_table()}
     for p in survivors:
-        if (p["pid"], p["name"]) not in alive:
+        if not _same_process_alive(p):
             continue
         try:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(p["pid"])], capture_output=True, timeout=10)
+                subprocess.run(["taskkill", "/F", "/PID", str(p["pid"])], capture_output=True, timeout=10)
             else:
                 os.kill(p["pid"], 9)
             done.append(f"{p['name']} ({p['pid']})")

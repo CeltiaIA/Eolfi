@@ -141,11 +141,54 @@ def process_table() -> list[tuple[int, int, str]]:
     return _table_windows() if method == "toolhelp32" else _table_proc() if method == "procfs" else _table_ps()
 
 
+def _start_windows(pid: int) -> float | None:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    h = k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return None
+    try:
+        c, e, k, u = (wintypes.FILETIME() for _ in range(4))
+        if not k32.GetProcessTimes(h, ctypes.byref(c), ctypes.byref(e), ctypes.byref(k), ctypes.byref(u)):
+            return None
+        return float((c.dwHighDateTime << 32) | c.dwLowDateTime)
+    finally:
+        k32.CloseHandle(h)
+
+
+def _start_proc(pid: int) -> float | None:
+    try:
+        raw = Path("/proc", str(pid), "stat").read_text(errors="replace")
+        return float(raw[raw.rfind(")") + 2:].split()[19])   # campo 22: starttime (ticks desde el arranque)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def process_start(pid: int) -> float | None:
+    """Instante de creación del proceso (unidad propia de la plataforma) o None si no se puede leer.
+
+    Sirve para no confundir un PID reutilizado: en Windows, el PID de un padre ya terminado puede reasignarse a
+    nuestro proceso y sus antiguos hijos (p. ej. csrss.exe) parecerían descendientes."""
+    method = process_table_method()
+    return _start_windows(pid) if method == "toolhelp32" else _start_proc(pid) if method == "procfs" else None
+
+
 class ChildSampler:
-    """Muestrea los descendientes de un PID mientras el proceso vive."""
+    """Muestrea los descendientes de un PID mientras el proceso vive.
+
+    Un proceso solo cuenta como descendiente si su creación es posterior a la de su padre (cuando la plataforma
+    permite leerla): un PID reutilizado no arrastra los hijos huérfanos del proceso anterior."""
 
     def __init__(self, root_pid: int, interval: float = 0.02):
         self.root, self.interval = root_pid, interval
+        self._starts: dict[int, float | None] = {root_pid: process_start(root_pid)}
+        self.check_start = process_table_method() != "ps"
         self.seen: dict[int, dict[str, Any]] = {}
         self.samples = 0
         self.errors: list[str] = []
@@ -180,17 +223,25 @@ class ChildSampler:
             for cpid, name in children.get(pid, []):
                 if cpid in depth:
                     continue
+                if self.check_start:
+                    if cpid not in self._starts:
+                        self._starts[cpid] = process_start(cpid)
+                    cs, ps = self._starts[cpid], self._starts.get(pid)
+                    if cs is None or ps is None or cs < ps:
+                        continue        # sin hora de creación verificable o anterior al padre: no es hijo nuestro
                 depth[cpid] = d + 1
                 stack.append((cpid, d + 1))
                 if cpid not in self.seen:
                     self.seen[cpid] = {"name": name, "parent_pid": pid, "depth": d + 1,
-                                       "first_seen_ms": round((time.monotonic() - self._started) * 1000)}
+                                       "first_seen_ms": round((time.monotonic() - self._started) * 1000),
+                                       "start": self._starts.get(cpid)}
 
     def stop(self) -> dict[str, Any]:
         self._stop.set()
         self._thread.join(timeout=5)
         procs = sorted(self.seen.items(), key=lambda kv: (kv[1]["first_seen_ms"], kv[0]))
         return {"method": process_table_method(), "interval_ms": round(self.interval * 1000),
+                "start_time_check": self.check_start,
                 "samples": self.samples, "errors": self.errors,
                 "processes": [{"pid": pid, **info} for pid, info in procs]}
 
