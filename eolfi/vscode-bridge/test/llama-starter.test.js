@@ -107,12 +107,16 @@ test('arranca con la configuración común (llamacpp.json): Gemma 4, puerto, con
 });
 
 test('configuración común: valores por defecto, la crea si falta y opciones por petición', () => {
-  const { loadConfig, requestOptions } = require('../llamacpp-config');
+  const { loadConfig, requestOptions, DEFAULTS } = require('../llamacpp-config');
+  assert.strictEqual(DEFAULTS.show_reasoning, false);
+  assert.strictEqual(DEFAULTS.temperature, 0.2);
   process.env.EOLFI_LLAMACPP_CONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'llcfg-')), 'llamacpp.json');
   const c = loadConfig({ findServer: () => 'X:/llama-server.exe' });
   assert.ok(fs.existsSync(process.env.EOLFI_LLAMACPP_CONFIG));
   assert.strictEqual(c.server, 'X:/llama-server.exe');
   assert.strictEqual(c.port, 8090);
+  assert.strictEqual(c.show_reasoning, false);
+  assert.strictEqual(c.temperature, 0.2);
   fs.writeFileSync(process.env.EOLFI_LLAMACPP_CONFIG, JSON.stringify({ temperature: 0.2, reasoning: false, review_reasoning: true, max_tokens: 900 }));
   const c2 = loadConfig();
   assert.deepStrictEqual(requestOptions(c2), { temperature: 0.2, top_p: 0.95, max_tokens: 900, chat_template_kwargs: { enable_thinking: false } });

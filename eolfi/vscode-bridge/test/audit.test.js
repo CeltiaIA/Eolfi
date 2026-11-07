@@ -35,7 +35,6 @@ function deps(log, { failAt = -1, token = null } = {}) {
       complete: async (prompt) => {
         calls++;
         if (calls === failAt && token) token.isCancellationRequested = true;
-        if (/Resumen y prioridades/.test(prompt)) return '## Resumen y prioridades\nTodo bastante bien.';
         const files = [...prompt.matchAll(/===== ARCHIVO: (\S+)/g)].map((m) => m[1]);
         log.push(files);
         return files.map((f) => `### \`${f}\`\n- **Propósito:** x\n- **Mejoras:**\n  - [alta] revisar ${f} L1`).join('\n\n');
@@ -85,6 +84,8 @@ test('revisa TODOS los archivos uno a uno, con sección por archivo, resumen y p
   assert.match(all, /Archivos a revisar: 14/);
   assert.strictEqual((all.match(/^### `/gm) || []).length, 14);
   assert.match(all, /## Resumen y prioridades/);
+  assert.match(all, /pruebas ni un escáner de dependencias; esos resultados quedan NO VERIFICADOS/);
+  assert.doesNotMatch(all, /Todo bastante bien/);
   assert.match(all, /## Omitidos/);
   assert.strictEqual(r.highlights, 14);
   assert.strictEqual(highlights(['### `a.py`\n- [alta] x L1\n- [baja] y']).length, 1);
@@ -134,7 +135,6 @@ test('verificación: cada [alta] contra el código citado; el resumen solo usa l
         const n = (prompt.match(/### Hallazgo \d+/g) || []).length;
         return JSON.stringify(Array.from({ length: n }, (_, k) => ({ id: k + 1, veredicto: k % 3 === 0 ? 'REAL' : k % 3 === 1 ? 'FALSO' : 'DISEÑO', motivo: `motivo ${k + 1}` })));
       }
-      if (/Resumen y prioridades/.test(prompt)) return '## Resumen y prioridades\nok';
       const files = [...prompt.matchAll(/===== ARCHIVO: (\S+)/g)].map((m) => m[1]);
       return files.map((f) => `### \`${f}\`\n- **Mejoras:**\n  - [alta] revisar ${f} L1`).join('\n\n');
     },
@@ -142,26 +142,42 @@ test('verificación: cada [alta] contra el código citado; el resumen solo usa l
   };
   const r = await runAudit({ root, report: 'informes/v.md', deps });
   assert.strictEqual(r.highlights, 14);
-  assert.strictEqual(r.real + r.falsos + r.diseno, 14);
+  assert.strictEqual(r.real + r.falsos + r.diseno + r.no_verificado, 14);
   assert.ok(r.real >= 4 && r.falsos >= 4 && r.diseno >= 4);
   const all = report.join('\n');
   assert.match(all, /## Verificación de las mejoras de prioridad alta/);
-  assert.match(all, /\*\*\d+ reales\*\*, \d+ falsos positivos y \d+ decisiones de diseño/);
+  assert.match(all, /\*\*\d+ reales\*\*, \d+ falsos positivos, \d+ decisiones de diseño y \d+ no verificados/);
   assert.match(all, /### Descartadas al verificar[\s\S]*Falso positivo[\s\S]*Motivo: motivo/);
   assert.ok(prompts.find((p) => /===== ARCHIVO/.test(p)).includes('safe_title'));     // contexto en cada lote
   const ver = prompts.find((p) => /VERIFICADOR/.test(p));
   assert.match(ver, /safe_title/);                                                     // y en la verificación
   assert.match(ver, /\s+1\| /);                                                         // con el código real citado
-  const summary = prompts.find((p) => /Resumen y prioridades/.test(p));
-  assert.strictEqual((summary.match(/\[alta\]/g) || []).length, r.real);                // solo las reales
+  assert.ok(!prompts.some((p) => /Resumen y prioridades/.test(p))); // el resumen es determinista, no otra salida libre del modelo
 });
 
-test('verificación: veredictos ilegibles o ausentes se quedan como REAL (no se descarta nada a ciegas)', async () => {
+test('verificación: veredictos ilegibles o ausentes quedan NO VERIFICADO', async () => {
   const { verifyHighlights, parseVerdicts } = require('../audit');
   assert.deepStrictEqual(parseVerdicts('bla [{"id":1,"veredicto":"FALSO","motivo":"x"}] bla'), [{ id: 1, veredicto: 'FALSO', motivo: 'x' }]);
   assert.deepStrictEqual(parseVerdicts('sin json'), []);
   const out = await verifyHighlights({ root: os.tmpdir(), items: ['`a.py`: [alta] x L1', '`b.py`: [alta] y'], complete: async () => 'no sé' });
-  assert.deepStrictEqual(out.map((v) => v.veredicto), ['REAL', 'REAL']);
+  assert.deepStrictEqual(out.map((v) => v.veredicto), ['NO_VERIFICADO', 'NO_VERIFICADO']);
+});
+
+test('auditorías pausadas invalidan veredictos guardados con reglas antiguas', async () => {
+  const root = proyecto();
+  const report = 'informes/antigua.md';
+  const log = [];
+  const d = deps(log);
+  const { stateFile } = require('../audit');
+  const files = inventory(root, { isSecretPath }).files.map((f) => f.path);
+  const sf = stateFile(root, report, d.deps.stateDir);
+  fs.mkdirSync(path.dirname(sf), { recursive: true });
+  fs.writeFileSync(sf, JSON.stringify({ root, report, files, skipped: [], next: files.length, highlights: ['`src/app.js`: [alta] exposición de secreto L1'], verified: [{ h: '`src/app.js`: [alta] exposición de secreto L1', veredicto: 'REAL', motivo: 'regla antigua' }], verificationVersion: 1, done: false }));
+  d.deps.complete = async (prompt) => /VERIFICADOR/.test(prompt) ? 'respuesta inválida' : '';
+  const result = await runAudit({ root, report, deps: d.deps });
+  assert.strictEqual(result.real, 0);
+  assert.strictEqual(result.no_verificado, 1);
+  assert.match(d.report.join('\n'), /NO VERIFICADO/);
 });
 
 test('encabezados sin comillas invertidas del modelo se normalizan a «### `ruta`»', async () => {
@@ -169,7 +185,7 @@ test('encabezados sin comillas invertidas del modelo se normalizan a «### `ruta
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src', 'run.js'), 'exec(x)\n');
   const d = deps([]);
-  d.deps.complete = async (prompt) => (/Resumen y prioridades/.test(prompt) ? '## Resumen y prioridades\nok' : '### src/run.js\n- **Propósito:** x');
+  d.deps.complete = async () => '### src/run.js\n- **Propósito:** x';
   await runAudit({ root, report: 'informes/h.md', deps: d.deps });
   assert.match(d.report.join('\n'), /### `src\/run\.js`/);
 });

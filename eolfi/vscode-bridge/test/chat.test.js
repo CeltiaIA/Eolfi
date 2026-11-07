@@ -606,7 +606,7 @@ test('Copilot limitado: la auditoría sigue con el modelo local llama.cpp antes 
   const s = fakeStream();
   await h({ command: 'auditar', prompt: root }, {}, s, {});
   assert.match(s.md, /Auditoría terminada/);
-  assert.ok(local.length >= 2);                             // lote + resumen
+  assert.ok(local.length >= 1);                             // revisión de lotes; el resumen ahora es determinista
   assert.ok(s.progress_.some((m) => /Copilot está en su límite de peticiones: sigo con gemma-4-12b-it \(llama\.cpp local\)/.test(m)));
   assert.ok(!s.progress_.some((m) => /espero 60 s/.test(m)));   // no hace falta esperar
   delete process.env.EOLFI_AUDIT_DIR;
@@ -758,7 +758,7 @@ test('una respuesta que cita una pregunta (incógnita) no se toma como pregunta 
   assert.ok(asksInsteadOfDoing('He terminado la primera parte. ¿Quieres que siga con el resto?'));
 });
 
-test('modelo principal local (Gemma 4): /modelo, trabaja en local, razonamiento visible e instrucciones propias', async () => {
+test('modelo principal local (Gemma 4): /modelo, herramientas locales e instrucciones; oculta razonamiento privado', async () => {
   let local = false;
   const vs = fakeVscode({ answer: 'no debería usar Copilot' });
   const seen = [];
@@ -766,20 +766,22 @@ test('modelo principal local (Gemma 4): /modelo, trabaja en local, razonamiento 
     chatTools: async (conv) => { seen.push(conv[0].content); return { content: 'Respuesta de Gemma.', reasoning: 'Primero miro el archivo.\nLuego respondo.', tool_calls: [] }; } };
   const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => fakeClient(), localModel,
     preferLocal: () => local, setPreferLocal: async (v) => { local = v; },
-    localConfig: () => ({ model: 'D:/m/gemma-4-E4B-it-Q4_K_M.gguf', reasoning: true, show_reasoning: true, temperature: 0.7, system: 'Habla como un pirata.' }),
+    localConfig: () => ({ model: 'D:/m/gemma-4-E4B-it-Q4_K_M.gguf', reasoning: true, show_reasoning: false, temperature: 0.2, system: 'Habla como un pirata.' }),
     instructions: () => 'Responde con viñetas.' });
   let s = fakeStream();
   await h({ command: 'modelo', prompt: 'local' }, {}, s, {});
   assert.ok(local);
-  assert.match(s.md, /Modelo principal: local.*gemma-4-E4B-it-Q4_K_M\.gguf.*razonamiento activado y visible/s);
+  assert.match(s.md, /Modelo principal: local.*gemma-4-E4B-it-Q4_K_M\.gguf.*razonamiento activado \(oculto\)/s);
   s = fakeStream();
   const r = await h({ prompt: 'explica cli.py' }, {}, s, {});
   assert.strictEqual(vs.sent.length, 0);                                   // Copilot ni se toca
-  assert.match(s.md, /> 💭 \*\*Razonamiento\*\*\n> Primero miro el archivo\.\n> Luego respondo\./);
+  assert.doesNotMatch(s.md, /Razonamiento|Primero miro el archivo/);
   assert.match(s.md, /Respuesta de Gemma\.$/);
   assert.match(seen[0], /Habla como un pirata\./);                          // instrucciones del modelo local
   assert.match(seen[0], /INSTRUCCIONES DEL USUARIO.*Responde con viñetas\./s);  // instrucciones para cualquier modelo
   assert.strictEqual(r.metadata.model, 'gemma-4 (llama.cpp local)');
+  assert.match(seen[0], /REGLA DE VERACIDAD/);
+  assert.match(seen[0], /NO VERIFICADO/);
   s = fakeStream();
   await h({ command: 'modelo', prompt: 'copilot' }, {}, s, {});
   assert.ok(!local);

@@ -7,6 +7,9 @@ No declares terminado, correcto, compilable, seguro ni equivalente un cambio o a
 ## Cambios en este repositorio
 
 - Lee las instrucciones y el flujo afectado antes de editar. Conserva los cambios existentes del usuario.
+- En desarrollo, valida los archivos y pruebas en la copia real del workspace; no uses un sandbox interno de pruebas como sustituto ni declares equivalencia a partir de una simulación.
+- Para cambios y pruebas locales autorizados, usa los permisos nativos del cliente y la ejecución local que estos permitan. Si el entorno los bloquea, solicita el permiso mediante la propia herramienta y repite el mismo comando. No pidas al usuario por texto un permiso que la herramienta pueda tramitar.
+- Estas reglas no pueden desactivar ni eludir las restricciones del sistema operativo o del entorno anfitrión; si la herramienta deniega el permiso, registra `NO VERIFICADO` y el motivo.
 - Ejecuta pruebas específicas y la suite pertinente después del cambio. Para el cierre completo usa:
   - `python -m pytest -q`
   - `node --test` desde `eolfi/bridge`
@@ -14,7 +17,7 @@ No declares terminado, correcto, compilable, seguro ni equivalente un cambio o a
   - `npm test` desde `tests/e2e` (requiere dependencias ya instaladas y navegador compatible).
 - La CI de `.github/workflows/ci.yml` es el mínimo automatizado. No reduzcas su cobertura para conseguir un verde.
 - En Windows, si el alias `python` no funciona, localiza una instalación de Python real y registra la ruta usada; no ocultes fallos del entorno.
-- No instales dependencias, abras redes externas ni ejecutes binarios objetivo solo para obtener un resultado verde sin que el flujo esté autorizado. Para pruebas de loopback/temporales bloqueadas por el sandbox, solicita el permiso de ejecución local y vuelve a ejecutar la misma comprobación.
+- No instales dependencias, abras redes externas ni ejecutes binarios objetivo solo para obtener un resultado verde sin que el flujo esté autorizado. Para pruebas de loopback/temporales bloqueadas por el sandbox, solicita el permiso de ejecución local con la herramienta y vuelve a ejecutar la misma comprobación.
 
 ## Proyectos generados por Eolfi
 

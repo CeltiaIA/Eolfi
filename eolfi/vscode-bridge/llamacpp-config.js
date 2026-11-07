@@ -8,8 +8,8 @@ const path = require('node:path');
 
 const DEFAULTS = {
   server: '', model: '', alias: 'gemma-4', port: 8090, ctx: 32768, gpu_layers: 99,
-  reasoning: true, review_reasoning: false, show_reasoning: true,
-  temperature: 0.7, top_p: 0.95, max_tokens: 4096, system: '', extra_args: [],
+  reasoning: true, review_reasoning: false, show_reasoning: false,
+  temperature: 0.2, top_p: 0.95, max_tokens: 4096, system: '', extra_args: [],
 };
 const GEMMA_CANDIDATES = [
   path.join(os.homedir(), '.eolfi', 'models', 'gemma-4-E4B-it-Q4_K_M.gguf'),
