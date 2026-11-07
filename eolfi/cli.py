@@ -155,6 +155,11 @@ def _parser() -> argparse.ArgumentParser:
     rc.add_argument("--name", default="reconstruccion")
     rc.add_argument("--target", default="python-cli", choices=["python-cli"])
     rc.add_argument("--model", action="store_true", help="Solo muestra el modelo de comportamiento (no genera)")
+    rc.add_argument("--equivalence", metavar="CANDIDATO", default=None,
+                    help="Repite los guiones del caso con este candidato y compara con el original (EJECUTA)")
+    rc.add_argument("--autorizo", action="store_true", help="Confirmo la autorización para ejecutar el candidato")
+    rc.add_argument("--tolerate", action="append", default=[], metavar="ASPECTO",
+                    help="Aspecto tolerado declarado (patrón, p. ej. «procesos hijos» o «*.accesibilidad»)")
 
     sp = sub.add_parser("spec", help="Especificación de comportamiento sustentada por las evidencias de un caso")
     sps = sp.add_subparsers(dest="spec_cmd", required=True)
@@ -499,6 +504,18 @@ def _dispatch(args, store: EvidenceStore) -> int:
             if args.model:
                 _print(build_model(store, args.case_id))
                 return 0
+            if args.equivalence:
+                from eolfi.reconstruct import check_equivalence
+
+                try:
+                    eq = check_equivalence(store, args.case_id, args.equivalence, authorized=args.autorizo,
+                                           tolerances=args.tolerate)
+                except PermissionError as exc:
+                    _print({"error": str(exc)})
+                    return 2
+                eq.pop("runs")
+                _print(eq)
+                return 0 if eq["equivalent"] else 5
             if not args.out:
                 _print({"error": "indica --out"})
                 return 1

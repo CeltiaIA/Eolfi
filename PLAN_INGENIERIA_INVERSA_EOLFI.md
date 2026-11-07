@@ -93,12 +93,14 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 ### Fase 5 — Equivalencia y medición de cobertura
 
-- [ ] Ampliar el flujo diferencial para invocar el original y la reconstrucción bajo el mismo entorno controlado y corpus, comparando resultados estructurados además de stdout/códigos de salida.
+- [x] Ampliar el flujo diferencial para invocar el original y la reconstrucción bajo el mismo entorno controlado y corpus, comparando resultados estructurados además de stdout/códigos de salida.
 - [ ] Comparar interfaces: navegación, estados, contenido y accesibilidad; permitir tolerancias declaradas para diferencias visuales no funcionales.
 - [ ] Comparar protocolos y efectos persistentes cuando se puedan capturar de manera fiable; ocultar secretos y datos personales en artefactos de prueba.
 - [ ] Añadir reducción de casos que fallan, generación de variaciones de entradas y repetición determinista, conservando la semilla y configuración.
-- [ ] Calcular cobertura de requisitos y escenarios, severidad de divergencias y zonas no observadas. Un porcentaje nunca debe ocultar funciones sin probar.
-- [ ] Reabrir automáticamente una incógnita cuando una ejecución nueva contradiga la especificación o la equivalencia declarada.
+- [x] Calcular cobertura de requisitos y escenarios, severidad de divergencias y zonas no observadas. Un porcentaje nunca debe ocultar funciones sin probar.
+- [x] Reabrir automáticamente una incógnita cuando una ejecución nueva contradiga la especificación o la equivalencia declarada.
+
+**Avance Fase 5 (2026-11-07):** `eolfi/reconstruct/equivalence.py` y `eolfi reconstruct --case ID --equivalence CANDIDATO --autorizo [--tolerate ASPECTO]`: repite cada guion del caso cambiando solo el objetivo por el candidato (mismo sandbox, entorno y entradas) y compara resultados estructurados (estado, código/señal, stdout/stderr, procesos hijos, archivos, registro, HTTP, interfaz). Por requisito: equivalent/divergent/not_exercised con severidad por aspecto y tolerancias declaradas; cobertura con la lista explícita de requisitos sin ejercitar y zonas no observadas; la equivalencia total exige 0 divergencias y 0 sin ejercitar; incógnitas de equivalencia abiertas al divergir y cerradas al volver a coincidir. Pruebas: `tests/test_reconstruct.py`. Pendiente: comparación de interfaces sin prueba con navegador/escritorio, detección de datos personales (los secretos de cabeceras, cookies y variables sí se ocultan) y reducción/variación de entradas.
 
 **Aceptación:** cada requisito tiene pruebas vinculadas; el informe muestra coincidencias, divergencias, cobertura, reproducibilidad y riesgos residuales. No se afirma equivalencia total con cobertura incompleta.
 

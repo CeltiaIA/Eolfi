@@ -124,3 +124,49 @@ def test_cli_reconstruct(store, tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["components"]
     assert main(["--db", str(db), "reconstruct", "--case", cid, "--out", str(tmp_path / "r")]) == 0
     assert json.loads(capsys.readouterr().out)["verification"]["match"] == 3
+
+
+def test_equivalence_same_script_structured_effects_coverage_and_incognitas(store, tmp_path):
+    from eolfi.core.models import Status
+    from eolfi.reconstruct import check_equivalence
+
+    cid = _observed_case(store, tmp_path)
+    # Un guion sin objetivo (solo escribe un archivo) no se puede ejercitar contra el candidato: queda listado.
+    run_observation(_script(None, [{"id": "solo", "action": "write_file", "path": "a.txt", "text": "x"}]),
+                    store, authorized=True, case_id=cid)
+    store_spec(store, cid)
+    rep = reconstruct(store, cid, tmp_path / "rec")
+    cand = tmp_path / "rec" / "app.py"
+    with pytest.raises(PermissionError):
+        check_equivalence(store, cid, cand, authorized=False)
+    eq = check_equivalence(store, cid, cand, authorized=True)
+    reqs = {r["title"]: r for r in eq["requirements"]}
+    assert reqs["write_file «solo»"]["result"] == "not_exercised"
+    assert eq["coverage"]["not_exercised"] == [reqs["write_file «solo»"]["id"]]
+    hola = next(r for r in eq["requirements"] if r["result"] != "not_exercised" and "hola" in r["title"])
+    # stdout/código coinciden; los efectos en archivos (y el proceso hijo) no se reconstruyeron: divergencia visible.
+    assert hola["result"] == "divergent" and "archivos" in hola["aspects"] and "stdout" not in hola["aspects"]
+    assert hola["severity"] == "medium"
+    hijo = next(r for r in eq["requirements"] if r["title"] == "run «hijo»")
+    assert "procesos hijos" in hijo["aspects"]
+    assert eq["equivalent"] is False and eq["incognitas_opened"] >= 3
+    subj = rep["model"]["components"] and store.get_evidence(eq["runs"][0]["original"])["subject"]
+    open_q = [i for i in store.list_incognitas(Status.OPEN, subject=subj) if i["question"].startswith("Equivalencia:")]
+    assert open_q
+    # Con tolerancias declaradas, lo que queda coincide y las incógnitas de esos requisitos se cierran.
+    eq2 = check_equivalence(store, cid, cand, authorized=True, tolerances=["archivos", "procesos hijos"])
+    assert eq2["counts"]["divergent"] == 0 and eq2["counts"]["equivalent"] == 3
+    assert eq2["equivalent"] is False                        # hay un requisito sin ejercitar: no se declara total
+    assert eq2["incognitas_closed"] >= 1
+    assert not [i for i in store.list_incognitas(Status.OPEN, subject=subj)
+                if i["question"].startswith("Equivalencia:") and hola["id"] in i["question"]]
+    rec = [r for r in CaseStore(store).get(cid)["records"] if r["payload"].get("flow") == "equivalence"]
+    assert len(rec) == 2 and rec[-1]["kind"] == "comparison"
+
+
+def test_severity_levels():
+    from eolfi.reconstruct.equivalence import severity
+
+    assert severity("código de salida") == "high" and severity("pulsar.url") == "high"
+    assert severity("archivos") == "medium" and severity("ui.accesibilidad") == "medium"
+    assert severity("stderr") == "low" and severity("procesos hijos") == "low"
