@@ -287,6 +287,16 @@ def generate(model: dict[str, Any], out: str | Path, *, name: str = "reconstrucc
 
 
 # -- 3. verificación frente a la especificación ---------------------------------------------------------------
+def normalize_paths(text: str, forms: set[str]) -> str:
+    """Sustituye la carpeta de trabajo por {sandbox}. La forma más larga primero: en macOS /var/… es un enlace a
+    /private/var/…, y sustituir antes la corta dejaría «/private{sandbox}» (el orden de un set varía)."""
+    t = text.replace("\r\n", "\n")
+    for form in sorted(forms, key=len, reverse=True):
+        t = t.replace(form, "{sandbox}")
+    return t
+
+
+
 def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
     out = Path(out).resolve()
     manifest = json.loads((out / MANIFEST).read_text(encoding="utf-8"))
@@ -300,11 +310,10 @@ def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
             p = subprocess.run([sys.executable, str(out / "app.py"), *case["args"]],
                                input=(case["stdin"] or "").encode("utf-8"), capture_output=True, cwd=tmp,
                                timeout=timeout)
+            forms = {tmp, str(Path(tmp).resolve())}
+
             def norm(b: bytes) -> str:
-                t = b.decode("utf-8", "replace").replace("\r\n", "\n")
-                for form in {tmp, str(Path(tmp).resolve())}:
-                    t = t.replace(form, "{sandbox}")
-                return t
+                return normalize_paths(b.decode("utf-8", "replace"), forms)
         got = {"exit_code": p.returncode, "stdout": _sha(norm(p.stdout).encode("utf-8")),
                "stderr": _sha(norm(p.stderr).encode("utf-8"))}
         aspects = []

@@ -25,7 +25,8 @@ RECORD_KINDS = {"analysis", "execution", "observation", "specification", "recons
 FLOW_KINDS = {"triage": "analysis", "web": "analysis", "repo": "analysis",
               "diff": "comparison", "compare": "comparison", "create": "reconstruction",
               "observe": "observation", "replay": "observation", "observe_compare": "comparison",
-              "reconstruct": "reconstruction", "equivalence": "comparison"}
+              "reconstruct": "reconstruction", "equivalence": "comparison",
+              "explore": "comparison"}
 FLOW_STATUSES = {"done", "partial", "error", "cancelled"}
 CLAIM_STATUSES = {"observed", "derived", "hypothesis"}
 # Identidad: content = SHA-256 de los bytes; git_commit = commit fijado; descriptor = referencia cuyo contenido

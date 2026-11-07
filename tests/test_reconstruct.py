@@ -170,3 +170,66 @@ def test_severity_levels():
     assert severity("código de salida") == "high" and severity("pulsar.url") == "high"
     assert severity("archivos") == "medium" and severity("ui.accesibilidad") == "medium"
     assert severity("stderr") == "low" and severity("procesos hijos") == "low"
+
+
+def test_ddmin_reduces_to_minimal_failing_input():
+    from eolfi.reconstruct.explore import ddmin
+
+    data = b"linea uno\nlinea dos BOOM\nlinea tres\n"
+    budget = [500]
+    small = ddmin(data, lambda d: b"BOOM" in d, budget)
+    assert small == b"BOOM" and budget[0] > 0
+
+
+def test_variants_are_deterministic_and_exclude_original():
+    import random
+
+    from eolfi.reconstruct.explore import variants_for
+
+    a = variants_for(b"hola mundo", 8, random.Random("1337:REQ-x"))
+    b = variants_for(b"hola mundo", 8, random.Random("1337:REQ-x"))
+    c = variants_for(b"hola mundo", 8, random.Random("7:REQ-x"))
+    assert a == b and a != c and b"hola mundo" not in a and len(set(a)) == 8
+
+
+def test_explore_variations_reduce_and_replay(store, tmp_path):
+    from eolfi.reconstruct import explore
+
+    cid = _observed_case(store, tmp_path)
+    reconstruct(store, cid, tmp_path / "rec")
+    cand = tmp_path / "rec" / "app.py"
+    with pytest.raises(PermissionError):
+        explore(store, cid, cand, authorized=False)
+    rep = explore(store, cid, cand, authorized=True, variants=3, seed=11, max_runs=120,
+                  tolerances=["archivos", "procesos hijos"])
+    explored = [r for r in rep["requirements"] if r["status"] == "explored"]
+    assert explored and rep["divergent_variants"] > 0          # la etapa 1 no generaliza: se ve con variantes
+    hola = next(r for r in explored if "hola" in r["title"])
+    assert len(hola["variants"]) == 3 and hola["minimal_failing"]
+    m = hola["minimal_failing"][0]
+    assert "código de salida" in m["aspects"] and m["size"] <= 4
+    assert rep["config"] == {"seed": 11, "variants": 3, "max_runs": 120,
+                             "tolerances": ["archivos", "procesos hijos"], "spec_version": rep["config"]["spec_version"]}
+    again = explore(store, cid, cand, authorized=True, variants=3, seed=11, max_runs=120,
+                    tolerances=["archivos", "procesos hijos"])
+    h2 = next(r for r in again["requirements"] if r["title"] == hola["title"])
+    assert [v["sha256"] for v in h2["variants"]] == [v["sha256"] for v in hola["variants"]]   # repetición determinista
+    inc = [i for i in store.list_incognitas() if i["question"].startswith("Exploración:")]
+    assert inc
+    rec = [r for r in CaseStore(store).get(cid)["records"] if r["payload"].get("flow") == "explore"]
+    assert rec and rec[0]["payload"]["result"]["config"]["seed"] == 11
+    # Original cambiado: no se ejecuta otro binario en su lugar.
+    t = tmp_path / "app.py"
+    t.write_text(samples.APP_V2, encoding="utf-8")
+    skipped = explore(store, cid, cand, authorized=True, variants=1, seed=11, max_runs=20)
+    assert skipped["explored"] == 0 and all("original no disponible" in r["reason"] for r in skipped["requirements"])
+
+
+def test_normalize_paths_longest_first_macos_private_var():
+    """CI macOS: /var/folders/… es enlace de /private/var/folders/…; la forma larga debe sustituirse antes."""
+    from eolfi.reconstruct.core import normalize_paths
+
+    text = "cwd=/private/var/folders/ab/T/eolfi-rec-x\r\n"
+    for forms in ({"/var/folders/ab/T/eolfi-rec-x", "/private/var/folders/ab/T/eolfi-rec-x"},
+                  {"/private/var/folders/ab/T/eolfi-rec-x", "/var/folders/ab/T/eolfi-rec-x"}):
+        assert normalize_paths(text, forms) == "cwd={sandbox}\n"

@@ -157,6 +157,11 @@ def _parser() -> argparse.ArgumentParser:
     rc.add_argument("--model", action="store_true", help="Solo muestra el modelo de comportamiento (no genera)")
     rc.add_argument("--equivalence", metavar="CANDIDATO", default=None,
                     help="Repite los guiones del caso con este candidato y compara con el original (EJECUTA)")
+    rc.add_argument("--explore", metavar="CANDIDATO", default=None,
+                    help="Variantes deterministas de las entradas: ejecuta original y candidato y reduce lo que falla")
+    rc.add_argument("--variants", type=int, default=8)
+    rc.add_argument("--seed", type=int, default=1337)
+    rc.add_argument("--max-runs", type=int, default=200)
     rc.add_argument("--autorizo", action="store_true", help="Confirmo la autorización para ejecutar el candidato")
     rc.add_argument("--tolerate", action="append", default=[], metavar="ASPECTO",
                     help="Aspecto tolerado declarado (patrón, p. ej. «procesos hijos» o «*.accesibilidad»)")
@@ -504,6 +509,17 @@ def _dispatch(args, store: EvidenceStore) -> int:
             if args.model:
                 _print(build_model(store, args.case_id))
                 return 0
+            if args.explore:
+                from eolfi.reconstruct import explore
+
+                try:
+                    ex = explore(store, args.case_id, args.explore, authorized=args.autorizo, variants=args.variants,
+                                 seed=args.seed, max_runs=args.max_runs, tolerances=args.tolerate)
+                except PermissionError as exc:
+                    _print({"error": str(exc)})
+                    return 2
+                _print(ex)
+                return 0 if ex["divergent_variants"] == 0 else 5
             if args.equivalence:
                 from eolfi.reconstruct import check_equivalence
 
