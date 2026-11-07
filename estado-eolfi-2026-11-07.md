@@ -7,7 +7,7 @@
 | 0. Rebaselinar | Cerrada | `main` |
 | 1. Caso de análisis | Cerrada (5/5) | Integrada en `main`; informe `informes/caso-de-analisis-fase-1-2026-11-06.md` |
 | 2. Observación de caja negra | 4/6 | Dos entregas ya publicadas; siguen pendientes las rutas Linux/macOS, la interfaz móvil y la prueba del agente en un VS Code real |
-| 3. Especificación | 4/5 | `eolfi/spec/` y CLI; falta modelar protocolos y formatos con estado |
+| 3. Especificación | 5/5 (con límites) | `eolfi/spec/` y CLI; secuencias de estado persistente por guion; protocolos solo los ejercidos por pasos http/browser y formatos sin modelar |
 | 4 a 7 | Pendientes | — |
 
 ### Fase 2: entregado
@@ -21,8 +21,8 @@
 ### Fase 3: entregado
 
 - `eolfi spec build|show|diff|review|tests --case`: requisitos con evidencia y confianza, contradicciones como incógnitas, hipótesis separadas, versiones revisables y pruebas generadas de lo observado.
-- Falta: máquinas de estado para protocolos y formatos.
-- Límites: fuentes estáticas resumidas por identidad del artefacto; máquinas de estado solo para flujos de interfaz; la aceptación de una implementación basada en la especificación aún no está demostrada.
+- Secuencias (`spec.sequences`): estado persistente (archivos, registro, cookies HTTP) tras cada paso, por guion y objetivo; divergencias entre ejecuciones como contradicción con el primer paso que diverge; el diff de versiones las compara.
+- Límites: fuentes estáticas resumidas por identidad del artefacto; protocolos solo los ejercidos por pasos http/browser del guion y formatos de archivo sin máquina de estados; la aceptación de una implementación basada en la especificación aún no está demostrada.
 
 ### Flujo de creación de proyectos
 

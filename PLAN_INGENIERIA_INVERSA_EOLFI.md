@@ -71,7 +71,7 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 - [x] Convertir evidencias estáticas y dinámicas en una especificación versionada: funciones/casos de uso, entradas, salidas, errores, estados, persistencia, interfaces y requisitos no funcionales.
 - [x] Enlazar cada requisito con evidencias concretas y grado de confianza; señalar contradicciones e incógnitas sin resolver.
-- [ ] Modelar secuencias y máquinas de estado cuando el programa tenga flujos, protocolos, formatos o interfaces con estado.
+- [x] Modelar secuencias y máquinas de estado cuando el programa tenga flujos, protocolos, formatos o interfaces con estado. *(2026-11-07: `spec.sequences` por guion y objetivo —estado persistente de archivos, registro y cookies HTTP tras cada paso— y máquinas de estado de interfaz browser/desktop; divergencias localizadas como contradicción. Límite: protocolos solo los ejercidos por pasos http/browser del guion; los formatos de archivo no se modelan como máquinas de estado.)*
 - [x] Generar casos de prueba a partir de las observaciones, sin elevar automáticamente una inferencia de IA a observación confirmada.
 - [x] Permitir revisión humana, cambios trazables y comparación de especificaciones entre versiones.
 

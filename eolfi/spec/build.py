@@ -122,6 +122,87 @@ def _sessions(store: EvidenceStore, case: dict[str, Any]) -> tuple[list[dict[str
     return sessions, unstable
 
 
+def _value(entry: Any) -> Any:
+    if isinstance(entry, dict):
+        return entry.get("sha256_normalized") or entry.get("sha256")
+    return entry
+
+
+def session_sequence(session: dict[str, Any], skip: dict[str, set[str]] | None = None,
+                     evidence_id: str = "") -> dict[str, Any]:
+    """Secuencia de una sesión como máquina de estados del estado PERSISTENTE observado.
+
+    Estado = huella de los archivos y claves de registro del alcance declarado y de las cookies de la sesión HTTP
+    tras cada paso (sin tiempos ni PID); transición = paso del guion con su resultado. Así se modelan flujos y
+    protocolos con estado (una API con sesión, un programa que guarda configuración entre arranques)."""
+    files = {k: _value(v) for k, v in (session.get("initial_state") or {}).get("files", {}).items()}
+    reg = dict((session.get("initial_state") or {}).get("registry", {}))
+    cookies: list[list[str]] = []
+
+    def state() -> dict[str, Any]:
+        fp = _h([sorted(files.items()), sorted(reg.items()), cookies], 12)
+        return {"id": "E" + fp, "files": len(files), "registry_values": len(reg), "cookies": [c[2] for c in cookies]}
+
+    states = {}
+    s0 = state()
+    states[s0["id"]] = s0
+    transitions = []
+    prev = s0["id"]
+    for step in session.get("steps", []):
+        for e in step.get("effects", {}).get("files", []):
+            if e["change"] == "deleted":
+                files.pop(e["path"], None)
+            else:
+                files[e["path"]] = _value(e.get("after"))
+        for e in step.get("effects", {}).get("registry", []):
+            if e["change"] == "deleted":
+                reg.pop(e["path"], None)
+            else:
+                reg[e["path"]] = e.get("after")
+        if "storage" in step:
+            cookies = sorted([c["domain"], c["path"], c["name"]] for c in step["storage"].get("cookies", []))
+        st = state()
+        states.setdefault(st["id"], st)
+        outcome = {k: v for k, v in observables(step) if k in ("estado", "código de salida")
+                   or k.startswith("respuesta[")}
+        unstable = sorted((skip or {}).get(f"{evidence_id}:{step['id']}", set()))
+        transitions.append({"from": prev, "step": step["id"], "action": step["action"], "to": st["id"],
+                            "outcome_sha256": _h({k: v for k, v in outcome.items() if k not in unstable}, 16),
+                            **({"unstable": unstable} if unstable else {})})
+        prev = st["id"]
+    return {"initial": s0["id"], "states": list(states.values()), "transitions": transitions}
+
+
+def _sequences(sessions: list[dict[str, Any]], unstable: dict[str, set[str]]) -> list[dict[str, Any]]:
+    """Agrupa las secuencias por guion y objetivo: iguales → observada; distintas → contradicción localizada."""
+    groups: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
+    for s in sessions:
+        sess = s["session"]
+        key = (sess.get("script_sha256", ""), (sess.get("target") or {}).get("sha256") or "")
+        groups.setdefault(key, []).append((s["evidence_id"], session_sequence(sess, unstable, s["evidence_id"])))
+    out = []
+    for (script, target), items in groups.items():
+        sig = lambda q: [[t["from"], t["step"], t["to"], t["outcome_sha256"]] for t in q["transitions"]]  # noqa: E731
+        ref = sig(items[0][1])
+        diverge = None
+        for _eid, q in items[1:]:
+            other = sig(q)
+            for i in range(max(len(ref), len(other))):
+                x = ref[i] if i < len(ref) else None
+                y = other[i] if i < len(other) else None
+                if x != y:
+                    if diverge is None or i < diverge["index"]:
+                        diverge = {"index": i, "step": (x or y)[1]}
+                    break
+        out.append({"id": "SEQ-" + _h([script, target], 10), "script_sha256": script, "target": target or None,
+                    "status": "contradicted" if diverge else "observed",
+                    "confidence": "low" if diverge else "high" if len(items) >= 2 else "medium",
+                    "observations": len(items), "evidence_ids": [e for e, _q in items],
+                    "machine": items[0][1], **({"first_divergence": diverge} if diverge else {})})
+    out.sort(key=lambda x: x["id"])
+    return out
+
+
 def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
     """Construye (sin guardar) la especificación del caso a partir de sus evidencias."""
     cases = CaseStore(store)
@@ -189,8 +270,9 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
                                      "severity": i["severity"]} for i in case["incognitas"] if i["status"] != "resolved"],
                 "coverage_gaps": sorted(set(gaps)),
                 "unfixed_factors": sorted({f["factor"] for s in sessions for f in s["session"].get("unfixed_factors", [])})}
+    sequences = _sequences(sessions, unstable)
     body = {"requirements": requirements, "artifacts": artifacts, "contradictions": contradictions,
-            "hypotheses": hypotheses, "unknowns": unknowns}
+            "hypotheses": hypotheses, "unknowns": unknowns, "sequences": sequences}
     return {"spec_format": SPEC_FORMAT, "case_id": case_id, "generated_at": time.time(),
             "sources": {"sessions": [s["evidence_id"] for s in sessions]}, "content_sha256": _h(body), **body}
 
@@ -300,7 +382,15 @@ def diff_specs(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
                               "review") if ra[rid].get(k) != rb[rid].get(k)]
         if fields:
             changed.append({"id": rid, "fields": fields})
+    sa = {q["id"]: q for q in a.get("sequences", [])}   # versiones anteriores pueden no tener secuencias
+    sb = {q["id"]: q for q in b.get("sequences", [])}
+    seq_changed = [{"id": k, "fields": [f for f in ("status", "confidence", "machine", "first_divergence")
+                                        if sa[k].get(f) != sb[k].get(f)]}
+                   for k in sorted(set(sa) & set(sb))
+                   if any(sa[k].get(f) != sb[k].get(f) for f in ("status", "confidence", "machine", "first_divergence"))]
     return {"from": a.get("spec_version"), "to": b.get("spec_version"),
+            "sequences": {"added": sorted(set(sb) - set(sa)), "removed": sorted(set(sa) - set(sb)),
+                          "changed": seq_changed},
             "added": sorted(set(rb) - set(ra)), "removed": sorted(set(ra) - set(rb)), "changed": changed,
             "contradictions_from": len(a["contradictions"]), "contradictions_to": len(b["contradictions"])}
 

@@ -152,3 +152,52 @@ def test_cli_spec(tmp_path, capsys):
     out = tmp_path / "t.json"
     assert main(["--db", db, "spec", "tests", "--case", cid, "--out", str(out)]) == 0
     assert json.loads(out.read_text(encoding="utf-8"))["tests"][0]["origin"] == "observed"
+
+
+def test_sequences_model_persistent_state_and_divergence(store, tmp_path):
+    """Máquina de estados del estado persistente: archivos y sesión HTTP (cookies) paso a paso; dos sesiones del
+    mismo guion con secuencias distintas quedan como contradicción con el primer punto de divergencia."""
+    from eolfi.spec.build import session_sequence
+
+    cid = _case(store)
+    t = samples.write(tmp_path, "app.py", samples.APP_V1)
+    steps = _app_steps("hola") + [
+        {"id": "borrar", "action": "delete_file", "path": "estado/datos.txt"},
+        {"id": "otra", "action": "run", "argv": ["{python}", "{target}"], "stdin": {"text": "hola"}}]
+    a = run_observation(_script(t, steps), store, authorized=True, case_id=cid)
+    seq = session_sequence(a)
+    tr = seq["transitions"]
+    assert [x["step"] for x in tr] == ["arranque", "borrar", "otra"]
+    assert tr[0]["from"] == seq["initial"] and tr[0]["to"] != seq["initial"]       # crea estado/datos.txt
+    assert tr[1]["to"] != tr[0]["to"]                                               # lo borra
+    assert len({s["id"] for s in seq["states"]}) == len(seq["states"])
+    run_replay(store, a["evidence_id"], authorized=True, case_id=cid)
+    spec = store_spec(store, cid)
+    assert len(spec["sequences"]) == 1
+    q = spec["sequences"][0]
+    assert q["status"] == "observed" and q["confidence"] == "high" and q["observations"] == 2
+    assert a["evidence_id"] in q["evidence_ids"]
+    # Mismo guion y objetivo, pero el estado de partida externo cambia la secuencia: contradicción localizada.
+    n = samples.write(tmp_path, "azar.py", samples.NONDETERMINISTIC + "import os\nopen(str(len(os.listdir('.'))) + '.txt', 'w').write('x')\n")
+    cid2 = _case(store, "div")
+    s = _script(n, [{"id": "uno", "action": "run", "argv": ["{python}", "{target}"]}])
+    run_observation(s, store, authorized=True, case_id=cid2)
+    s2 = dict(s, setup={"files": {"extra.txt": {"text": "x"}}})                    # otro guion: otro grupo
+    run_observation(s2, store, authorized=True, case_id=cid2)
+    spec2 = store_spec(store, cid2)
+    assert len(spec2["sequences"]) == 2 and {x["status"] for x in spec2["sequences"]} == {"observed"}
+    d = diff_specs(spec, spec2)
+    assert set(d["sequences"]) == {"added", "removed", "changed"}
+
+
+def test_sequence_divergence_detected():
+    from eolfi.spec.build import _sequences
+
+    def sess(sha):
+        return {"script_sha256": "g", "target": {"sha256": "t"}, "initial_state": {"files": {}},
+                "steps": [{"id": "p", "action": "write_file", "status": "ok",
+                           "effects": {"files": [{"path": "{sandbox}/a", "change": "created", "after": {"sha256": sha}}]}}]}
+    out = _sequences([{"evidence_id": "e1", "session": sess("1")}, {"evidence_id": "e2", "session": sess("2")}], {})
+    assert out[0]["status"] == "contradicted" and out[0]["first_divergence"] == {"index": 0, "step": "p"}
+    same = _sequences([{"evidence_id": "e1", "session": sess("1")}, {"evidence_id": "e2", "session": sess("1")}], {})
+    assert same[0]["status"] == "observed" and same[0]["confidence"] == "high"
