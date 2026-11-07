@@ -287,6 +287,10 @@ test('crear proyecto: formulario único, plan razonado, aprobación y modo autom
   assert.match(plan, /estática → tecnología destino: static/);
   assert.match(plan, /No se aplican automáticamente: .*modo oscuro/);
   assert.equal(await page.locator('.proj-step').count(), 4);
+  // Rutas largas sin cortes no deben ensanchar el plan (desbordaba el panel en ventanas estrechas).
+  await page.setViewportSize({ width: 900, height: 800 });
+  assert.ok(await page.evaluate(() => { document.querySelector('.proj-step strong').textContent += 'C:/' + 'x'.repeat(300); const e = document.querySelector('.proj-plan'); return e.scrollWidth <= e.clientWidth + 1; }), 'el plan desborda horizontalmente');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await axe('plan del proyecto');
   await page.click('#proj-approve');
   await page.waitForFunction(() => document.querySelector('.proj-verdict'), null, { timeout: 240000 });

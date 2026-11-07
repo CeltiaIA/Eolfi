@@ -80,18 +80,23 @@ def _steps(sources: list[dict[str, str]], interp: dict[str, Any], out: str) -> l
     steps = []
     for i, s in enumerate(sources, 1):
         kind = s["kind"]
-        how = {"web": "descarga la página y sus recursos públicos y deduce la pila (sin ejecutar su código)",
+        remote = s["ref"].startswith(("http://", "https://", "git@", "ssh://"))
+        how = {"web": ("descarga la página y sus recursos públicos" if remote else "lee el sitio local (HTML y "
+                       "recursos)") + " y deduce la pila (sin ejecutar su código)",
                "repo": "clona superficialmente el repositorio y analiza su estructura y dependencias (no ejecuta "
                        "sus scripts)",
                "subject": "reutiliza el análisis ya guardado"}.get(
             kind, "triaje estático local: huella, formato, cabeceras y cadenas (no ejecuta el archivo)")
         steps.append({"id": f"analizar-{i}", "action": "analyze", "source": s["ref"],
-                      "title": f"Analizar {_KIND_LABEL.get(kind, kind)}: {s['ref'][:120]}",
+                      "title": f"Analizar {_KIND_LABEL.get(kind, kind)}: "
+                               + (s["ref"] if len(s["ref"]) <= 160 else "…" + s["ref"][-159:]),
                       "what": how, "uses": [s["ref"]], "produces": "evidencias e incógnitas en el caso",
                       "verification": "cada evidencia guarda proveedor, versión y entorno; los fallos quedan como "
                                       "resultado parcial",
                       "rationale": "sin evidencias de la fuente no hay especificación ni reconstrucción trazable",
-                      "risks": (["el contenido remoto puede variar entre peticiones"] if kind == "web" else
+                      "risks": (["el contenido remoto puede variar entre peticiones"] if kind == "web" and remote else
+                                ["la carpeta puede cambiar: su contenido se registra con hash al analizarla"]
+                                if kind in ("web", "repo") and not remote else
                                 ["requiere red para clonar"] if kind == "repo" and s["ref"].startswith(("http", "git@"))
                                 else [])})
     steps.append({"id": "especificar", "action": "specify", "title": "Construir la especificación sustentada",

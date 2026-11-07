@@ -149,3 +149,13 @@ def test_project_api_plan_approve_run_job(tmp_path):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_plan_texts_distinguish_local_and_remote_sources(store, tmp_path):
+    site = build_site(tmp_path / ("carpeta-con-un-nombre-largo-" + "x" * 150))
+    st = pf.propose_plan(store, name="Local", description="", sources=[str(site), "https://ejemplo.org/"],
+                         out=str(tmp_path / "out"))
+    local, remote = st["plan"]["steps"][0], st["plan"]["steps"][1]
+    assert "sitio local" in local["what"] and "remoto" not in " ".join(local["risks"])
+    assert local["title"].startswith("Analizar web: …") and local["title"].endswith(site.name[-20:])
+    assert "descarga" in remote["what"] and "remoto" in " ".join(remote["risks"])
