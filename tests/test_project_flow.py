@@ -170,3 +170,10 @@ def test_default_out_never_collides_and_explicit_existing_out_is_warned(store, t
     assert st["plan"]["out"].replace("\\", "/") == "generated/demo-2"
     st2 = pf.propose_plan(store, name="Demo", description="", sources=[str(site)], out=str(tmp_path / "generated" / "demo"))
     assert any("ya existe y no está vacía" in r for r in st2["plan"]["reasoning"])
+
+
+def test_interpretation_keeps_extra_orders_and_dotted_names():
+    r = pf.interpret("Reconstruir la app con Next.js y base de datos, manteniendo sus páginas y su API.")
+    assert r["target"] == "next" and r["options"]["sqlite"] is True
+    assert r["uninterpreted"] == ["Reconstruir la app con Next.js y base de datos, manteniendo sus páginas y su API."]
+    assert pf.interpret("web estática")["uninterpreted"] == []

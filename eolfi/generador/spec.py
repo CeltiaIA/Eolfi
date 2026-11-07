@@ -288,6 +288,14 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
                 r = _route_name(item["path"])
                 if r in PAGE_WORDS:
                     routes[r] += 1
+            # Rutas reales del repositorio (Next.js): cada página cuenta como confirmada; la API, como endpoints.
+            rr = ev.get("repo_routes", {})
+            for page in rr.get("pages", []):
+                r = _route_name(page)
+                if r:
+                    routes[r] += 2
+            for a in rr.get("api", []):
+                endpoints[a["path"]] += 1
         elif kind == "binary":
             imports = " ".join(ev.get("pe_imports", {}).get("dlls", {})).lower() + " ".join(
                 ev.get("elf_dynamic", {}).get("needed", [])).lower()

@@ -436,3 +436,39 @@ def test_console_exe_source_creates_cli_project(tmp_path):
     r = create_project([str(exe)], EvidenceStore(str(tmp_path / "e.db")), tmp_path / "nuevo", name="Mi herramienta",
                        do_verify=False)
     assert r["target"] == "cli"
+
+
+def test_next_routes_are_extracted_and_used_for_pages_and_api(tmp_path):
+    """Next.js: páginas y API por convención de archivos (sin ejecutar nada) y el generador las usa."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.learn_flow import run_repo
+    from eolfi.generador.spec import build_spec
+
+    r = tmp_path / "app-next"
+    for rel, text in {
+        "package.json": '{"name":"x","dependencies":{"next":"15.0.0","react":"19.0.0"}}',
+        "next.config.ts": "export default {}",
+        "app/page.tsx": "export default function P(){return null}",
+        "app/login/page.tsx": "export default function L(){return null}",
+        "app/(privado)/panel/page.tsx": "export default function Pn(){return null}",
+        "app/api/projects/route.ts": "export async function GET(){}\nexport async function POST(){}",
+        "app/api/projects/[id]/route.ts": "export const DELETE = async () => {}",
+        "pages/about.tsx": "export default function A(){return null}",
+        "pages/_app.tsx": "x",
+    }.items():
+        f = r / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+    store = EvidenceStore(tmp_path / "e.db")
+    try:
+        rep = run_repo(str(r), store, workdir=str(tmp_path / "w"))
+        routes = next(json.loads(e["result"]) for e in store.list_evidence(rep["subject"])
+                      if e["operation"] == "repo_routes")
+        assert routes["pages"] == ["/", "/about", "/login", "/panel"]
+        assert routes["api"] == [{"path": "/api/projects", "methods": ["GET", "POST"]},
+                                 {"path": "/api/projects/[id]", "methods": ["DELETE"]}]
+        spec = build_spec(store, [rep["subject"]], name="x", target="next")
+        assert {"login", "panel", "about"} <= set(spec["pages"])
+        assert "projects" in spec["api"]["resources"]
+    finally:
+        store.close()
