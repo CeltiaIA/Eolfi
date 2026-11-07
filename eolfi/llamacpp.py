@@ -132,8 +132,19 @@ def start(cfg: dict[str, Any] | None = None, wait: float = 300.0) -> dict[str, A
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
              | getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
     with open(log, "ab") as out:
-        p = subprocess.Popen(server_args(cfg), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             creationflags=flags, start_new_session=os.name != "nt")
+        def launch(extra: int = 0):
+            return subprocess.Popen(server_args(cfg), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                    creationflags=flags | extra, start_new_session=os.name != "nt")
+        # DETACHED_PROCESS no saca el proceso del Job Object de quien lo lanza: si ese terminal (VS Code, un
+        # agente, un sandbox) cierra su Job, mataría a llama-server sin dejar rastro en el registro. Se intenta
+        # salir del Job; si este no lo permite (acceso denegado), se lanza como antes.
+        breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0) if os.name == "nt" else 0
+        try:
+            p = launch(breakaway)
+        except OSError:
+            if not breakaway:
+                raise
+            p = launch()
     _pid_file().write_text(str(p.pid), encoding="utf-8")
     t0 = time.time()
     while time.time() - t0 < wait:
