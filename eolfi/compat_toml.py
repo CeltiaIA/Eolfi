@@ -18,7 +18,10 @@ TOMLDecodeError = getattr(_tomllib, "TOMLDecodeError", ValueError)
 def loads(text: str) -> dict[str, Any]:
     if _tomllib is not None:
         return _tomllib.loads(text)
-    return _Parser(text).parse()
+    try:
+        return _Parser(text).parse()
+    except RecursionError:   # arrays/tablas anidados en exceso: error controlado, no un fallo del proceso
+        raise ValueError("TOML inválido: anidamiento excesivo") from None
 
 
 _BARE = re.compile(r"[A-Za-z0-9_-]+")
