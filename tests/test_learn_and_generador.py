@@ -472,3 +472,50 @@ def test_next_routes_are_extracted_and_used_for_pages_and_api(tmp_path):
         assert "projects" in spec["api"]["resources"]
     finally:
         store.close()
+
+
+def test_next_generator_respects_observed_methods_and_auth_routes(tmp_path):
+    """Crunia: PATCH (no PUT) donde la fuente lo expone y login/logout propios donde la fuente los tiene."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.learn_flow import run_repo
+    from eolfi.generador.generators import generate
+    from eolfi.generador.spec import build_spec
+
+    r = tmp_path / "app-next"
+    for rel, text in {
+        "package.json": '{"name":"x","dependencies":{"next":"15.0.0","react":"19.0.0"}}',
+        "app/page.tsx": "x", "app/login/page.tsx": "x",
+        "app/api/projects/route.ts": "export async function GET(){}\nexport async function POST(){}",
+        "app/api/projects/[id]/route.ts": "export async function PATCH(){}\nexport async function DELETE(){}",
+        "app/api/auth/login/route.ts": "export async function POST(){}",
+        "app/api/auth/logout/route.ts": "export async function GET(){}\nexport async function POST(){}",
+    }.items():
+        f = r / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+    store = EvidenceStore(tmp_path / "e.db")
+    try:
+        rep = run_repo(str(r), store, workdir=str(tmp_path / "w"))
+        spec = build_spec(store, [rep["subject"]], name="x", target="next")
+        spec["options"] = {"db": "memory", "auth": False}
+        assert spec["api"]["observed_methods"]["/api/projects/[id]"] == ["DELETE", "PATCH"]
+        assert spec["api"]["auth_endpoints"] == ["/api/auth/login", "/api/auth/logout"]
+        out = tmp_path / "gen"
+        generate(spec, out)
+        item = (out / "app/api/projects/[id]/route.ts").read_text(encoding="utf-8")
+        assert "export async function PATCH(" in item and "function PUT(" not in item
+        logout = (out / "app/api/auth/logout/route.ts").read_text(encoding="utf-8")
+        assert "export function GET()" in logout and "export function POST()" in logout
+        login = (out / "app/api/auth/login/route.ts").read_text(encoding="utf-8")
+        assert "status: 401" in login and "status: 503" in login
+        test = (out / "test/app.test.mjs").read_text(encoding="utf-8")
+        assert 'json("PATCH"' in test and "inicio y cierre de sesión" in test and "{{" not in test
+        assert any("PENDIENTE" in n for n in spec["notes"])
+        # Sin rutas de autenticación ni --auth: no se generan.
+        spec2 = build_spec(store, [rep["subject"]], name="y", target="next")
+        spec2["api"]["auth_endpoints"] = []
+        spec2["options"] = {"db": "memory", "auth": False}
+        generate(spec2, tmp_path / "gen2")
+        assert not (tmp_path / "gen2" / "app/api/auth").exists()
+    finally:
+        store.close()

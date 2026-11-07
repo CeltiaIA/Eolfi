@@ -238,8 +238,9 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
     if db not in ("memory", "sqlite"):
         raise ValueError("db debe ser memory o sqlite")
     spec["options"] = {"db": db, "auth": bool(auth)}
-    if (db == "sqlite" or auth) and spec["target"] not in ("fastapi", "express"):
-        spec["notes"].append(f"--db/--auth solo afectan a los backends FastAPI y Express; "
+    if (db == "sqlite" and spec["target"] not in ("fastapi", "express")) or (
+            auth and spec["target"] not in ("fastapi", "express", "next")):
+        spec["notes"].append(f"--db solo afecta a FastAPI y Express y --auth a FastAPI, Express y Next.js; "
                              f"'{spec['target']}' no los usa (Django ya trae SQLite y su propia autenticación).")
     log(f"especificación: destino {spec['target']}, secciones {spec['sections']}, páginas {spec['pages']}")
     ver = None

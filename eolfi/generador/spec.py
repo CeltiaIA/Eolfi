@@ -202,6 +202,7 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
     fonts: Counter = Counter()
     breakpoints: Counter = Counter()
     endpoints: Counter = Counter()
+    methods: dict[str, list[str]] = {}       # métodos HTTP observados por ruta (repo_routes)
     features: set[str] = set()
     conventions = {"typescript": False, "tests": False, "ci": False, "docker": False, "lint": False}
     sources = []
@@ -296,6 +297,9 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
                     routes[r] += 2
             for a in rr.get("api", []):
                 endpoints[a["path"]] += 1
+                ms = [m for m in a.get("methods", []) if m != "?"]
+                if ms:
+                    methods[a["path"]] = sorted(set(methods.get(a["path"], [])) | set(ms))
         elif kind == "binary":
             imports = " ".join(ev.get("pe_imports", {}).get("dlls", {})).lower() + " ".join(
                 ev.get("elf_dynamic", {}).get("needed", [])).lower()
@@ -345,7 +349,10 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
             "breakpoints": _bps(breakpoints),
             "dark_mode": "localStorage" in features,
         },
-        "api": {"resources": resources[:6], "observed_endpoints": [e for e, _ in endpoints.most_common(15)]},
+        "api": {"resources": resources[:6], "observed_endpoints": [e for e, _ in endpoints.most_common(15)],
+                "observed_methods": methods,
+                "auth_endpoints": sorted(e for e in endpoints if re.match(r"^/api/auth/(login|logout|signin|signout|"
+                                                                             r"session)$", e))},
         "features": sorted(features),
         "conventions": {**conventions, "tests": True},
         "notes": [

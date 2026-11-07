@@ -273,9 +273,83 @@ describe("App", () => {{
 # ---------------------------------------------------------------------------
 # Next.js (App Router)
 # ---------------------------------------------------------------------------
+def _next_update_verb(spec: dict[str, Any], r: str) -> str:
+    """PATCH si la fuente lo expone (y no PUT) en /api/<r>/[id]; si no se observó, PUT."""
+    ms = (spec["api"].get("observed_methods") or {}).get(f"/api/{r}/[id]", [])
+    return "PATCH" if "PATCH" in ms and "PUT" not in ms else "PUT"
+
+
+def _next_auth(spec: dict[str, Any], w: Writer) -> list[str]:
+    """Inicio y cierre de sesión con implementación propia: usuario y contraseña por variables de entorno
+    (AUTH_USER, AUTH_PASSWORD), sesión firmada con HMAC-SHA256 (AUTH_SECRET) en cookie HttpOnly."""
+    observed = spec["api"].get("auth_endpoints") or []
+    if not observed and not (spec.get("options") or {}).get("auth"):
+        return []
+    logout_methods = (spec["api"].get("observed_methods") or {}).get("/api/auth/logout", ["POST"])
+    logout_methods = [m for m in logout_methods if m in ("GET", "POST")] or ["POST"]
+    w("lib/auth.ts", """import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+
+// Implementación propia de Eolfi: los usuarios y la política de sesiones del original NO son observables;
+// aquí hay un único usuario configurado por variables de entorno (pendiente de adaptar a tu base de datos).
+const SECRET = process.env.AUTH_SECRET || randomBytes(32).toString("hex");
+export const COOKIE = "session";
+const MAX_AGE = 60 * 60 * 8;
+
+const same = (a: string, b: string) => {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+export function configured(): boolean {
+  return Boolean(process.env.AUTH_USER && process.env.AUTH_PASSWORD);
+}
+
+export function check(user: unknown, password: unknown): boolean {
+  return typeof user === "string" && typeof password === "string" && configured()
+    && same(user, process.env.AUTH_USER as string) && same(password, process.env.AUTH_PASSWORD as string);
+}
+
+export function sign(user: string): string {
+  const payload = `${user}.${Math.floor(Date.now() / 1000) + MAX_AGE}`;
+  return `${payload}.${createHmac("sha256", SECRET).update(payload).digest("hex")}`;
+}
+
+export function cookie(value: string, maxAge = MAX_AGE): string {
+  return `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+}
+""")
+    w("app/api/auth/login/route.ts", """import { check, configured, cookie, sign } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  if (!configured()) return Response.json({ error: "Inicio de sesión no configurado (AUTH_USER, AUTH_PASSWORD)" }, { status: 503 });
+  const body = (await request.json().catch(() => null)) as { user?: unknown; password?: unknown } | null;
+  if (!check(body?.user, body?.password)) return Response.json({ error: "Credenciales incorrectas" }, { status: 401 });
+  return Response.json({ ok: true }, { headers: { "Set-Cookie": cookie(sign(body!.user as string)) } });
+}
+""")
+    handler = "\n".join(f"""export function {m}() {{
+  return Response.json({{ ok: true }}, {{ headers: {{ "Set-Cookie": cookie("", 0) }} }});
+}}
+""" for m in logout_methods)
+    w("app/api/auth/logout/route.ts", f"""import {{ cookie }} from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
+
+{handler}""")
+    return logout_methods
+
+
 def gen_next(spec: dict[str, Any], w: Writer) -> None:
     routes = _routes(spec)
     resources = spec["api"]["resources"] or ["items"]
+    logout_methods = _next_auth(spec, w)
+    if logout_methods:
+        spec.setdefault("notes", []).append(
+            "Inicio de sesión: implementación propia (usuario por AUTH_USER/AUTH_PASSWORD, sesión firmada con "
+            "AUTH_SECRET). PENDIENTE: usuarios, roles y almacenamiento de credenciales del original no son "
+            "observables y no se reproducen.")
     w("package.json", json.dumps({
         "name": spec["name"], "version": "0.1.0", "private": True,
         "scripts": {"dev": "next dev", "build": "next build", "start": "next start", "test": "node --test"},
@@ -561,7 +635,7 @@ export async function GET(_request: Request, {{ params }}: Ctx) {{
   return item ? Response.json(item) : notFound();
 }}
 
-export async function PUT(request: Request, {{ params }}: Ctx) {{
+export async function {_next_update_verb(spec, r)}(request: Request, {{ params }}: Ctx) {{
   const {{ value, error }} = parseItem(await request.json().catch(() => null));
   if (error || !value) return Response.json({{ error }}, {{ status: 422 }});
   const item = db.update(Number((await params).id), value);
@@ -573,7 +647,20 @@ export async function DELETE(_request: Request, {{ params }}: Ctx) {{
 }}
 """)
     first = resources[0]
+    first_verb = _next_update_verb(spec, first)
     paths = [p for _s, p, _t in routes]
+    auth_test = "" if not logout_methods else f"""
+test("inicio y cierre de sesión", async () => {{
+  const login = (user, password) => fetch(base + "/api/auth/login", {{
+    method: "POST", headers: {{ "Content-Type": "application/json" }}, body: JSON.stringify({{ user, password }}) }});
+  assert.equal((await login("demo", "mal")).status, 401);
+  const ok = await login("demo", "clave-de-prueba");
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers.get("set-cookie") || "", /session=.+; Path=\\/; HttpOnly/);
+  const out = await fetch(base + "/api/auth/logout", {{ method: "{logout_methods[0]}" }});
+  assert.match(out.headers.get("set-cookie") || "", /Max-Age=0/);
+}});
+"""
     w("test/app.test.mjs", f"""// Prueba de extremo a extremo: arranca `next start` (requiere `npm run build` antes).
 import {{ test, before, after }} from "node:test";
 import assert from "node:assert/strict";
@@ -594,7 +681,8 @@ before(async () => {{
   const port = await freePort();
   base = `http://127.0.0.1:${{port}}`;
   proc = spawn(process.execPath, [nextBin, "start", "-p", String(port), "-H", "127.0.0.1"],
-    {{ stdio: "ignore", env: {{ ...process.env, NEXT_TELEMETRY_DISABLED: "1" }} }});
+    {{ stdio: "ignore", env: {{ ...process.env, NEXT_TELEMETRY_DISABLED: "1", AUTH_USER: "demo",
+                               AUTH_PASSWORD: "clave-de-prueba" }} }});
   for (let i = 0; i < 120; i++) {{
     try {{ if ((await fetch(base + "/api/health")).ok) return; }} catch {{ /* aún arrancando */ }}
     await new Promise((r) => setTimeout(r, 500));
@@ -624,12 +712,12 @@ test("CRUD de {first}", async () => {{
   assert.equal(created.status, 201);
   const item = await created.json();
   assert.equal((await (await fetch(`${{base}}/api/{first}/${{item.id}}`)).json()).name, "prueba");
-  assert.equal((await (await json("PUT", `/api/{first}/${{item.id}}`, {{ name: "cambio" }})).json()).name, "cambio");
+  assert.equal((await (await json("{first_verb}", `/api/{first}/${{item.id}}`, {{ name: "cambio" }})).json()).name, "cambio");
   assert.equal((await json("DELETE", `/api/{first}/${{item.id}}`)).status, 204);
   assert.equal((await fetch(`${{base}}/api/{first}/${{item.id}}`)).status, 404);
   assert.equal((await json("POST", "/api/{first}", {{ name: "" }})).status, 422);
 }});
-""")
+""" + auth_test)
 
 
 # ---------------------------------------------------------------------------
