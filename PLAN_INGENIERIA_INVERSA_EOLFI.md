@@ -81,11 +81,13 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 ### Fase 4 — Reconstrucción independiente
 
-- [ ] Separar el modelo de comportamiento del generador de código; no asumir que detectar un framework basta para reconstruir el producto.
-- [ ] Derivar módulos, límites, interfaces y datos de la especificación y de las evidencias, explicando decisiones y alternativas.
-- [ ] Generar una base ejecutable con comportamiento implementado por etapas, respetando el lenguaje y plataforma elegidos; declarar con claridad las funciones simuladas o pendientes.
+- [x] Separar el modelo de comportamiento del generador de código; no asumir que detectar un framework basta para reconstruir el producto.
+- [x] Derivar módulos, límites, interfaces y datos de la especificación y de las evidencias, explicando decisiones y alternativas.
+- [x] Generar una base ejecutable con comportamiento implementado por etapas, respetando el lenguaje y plataforma elegidos; declarar con claridad las funciones simuladas o pendientes.
 - [ ] Aplicar mejoras solo cuando exista una razón verificable (seguridad, accesibilidad, rendimiento, compatibilidad o mantenibilidad) y mantener compatibilidad conductual donde sea requisito.
-- [ ] Registrar de qué requisito procede cada componente generado y permitir regenerar sin destruir cambios manuales no gestionados.
+- [x] Registrar de qué requisito procede cada componente generado y permitir regenerar sin destruir cambios manuales no gestionados.
+
+**Avance Fase 4 (2026-11-07):** `eolfi/reconstruct/` y CLI `eolfi reconstruct --case ID --out DIR [--model]`. `build_model` deriva componentes (CLI, persistencia, API HTTP, interfaz), interfaces, datos y decisiones con alternativas desde la especificación y las evidencias, sin generador; `generate` produce una base Python por etapas (etapa 1: tabla de comportamiento observado, casos «simulado»/«pendiente», entradas no observadas → código 2) con manifiesto `.eolfi/trazabilidad.json` (archivo → requisitos → evidencias) y regeneración que no pisa archivos editados (`.nuevo`); `verify` ejecuta la base con las entradas observadas y la compara con la especificación, con evidencia y registro «reconstruction». Pruebas: `tests/test_reconstruct.py` (5). Límites: un solo destino (Python CLI); la etapa 1 no generaliza a entradas no observadas; efectos en archivos, API HTTP e interfaz quedan documentados pero no generados; la casilla de mejoras con razón verificable sigue pendiente.
 
 **Aceptación:** se obtiene un proyecto nuevo que compila/arranca en el entorno declarado y mantiene trazabilidad desde los componentes hasta la especificación, sin copiar código fuente inaccesible.
 

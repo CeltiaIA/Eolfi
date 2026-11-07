@@ -9,6 +9,8 @@ Comandos:
   resolve <incognita_id>         Marca una incógnita como resuelta.
   diff --ref CMD --cand CMD <corpus>
                                  Verificación diferencial (EJECUTA ambos).
+  reconstruct --case ID --out DIR [--model]
+                                 Reconstrucción independiente por etapas desde la especificación, con trazabilidad.
   spec build|show|diff|review|tests --case ID
                                  Especificación versionada y sustentada por las evidencias del caso.
   observe run|replay|compare|show|check
@@ -146,6 +148,13 @@ def _parser() -> argparse.ArgumentParser:
     oshow.add_argument("evidence_id")
     ochk = obs_.add_parser("check", help="Valida un guion sin ejecutar nada")
     ochk.add_argument("script")
+
+    rc = sub.add_parser("reconstruct", help="Reconstrucción independiente y trazable desde la especificación del caso")
+    rc.add_argument("--case", dest="case_id", required=True)
+    rc.add_argument("--out", default=None, help="Carpeta destino (obligatoria salvo con --model)")
+    rc.add_argument("--name", default="reconstruccion")
+    rc.add_argument("--target", default="python-cli", choices=["python-cli"])
+    rc.add_argument("--model", action="store_true", help="Solo muestra el modelo de comportamiento (no genera)")
 
     sp = sub.add_parser("spec", help="Especificación de comportamiento sustentada por las evidencias de un caso")
     sps = sp.add_subparsers(dest="spec_cmd", required=True)
@@ -483,6 +492,24 @@ def _dispatch(args, store: EvidenceStore) -> int:
         )
         _print(rep)
         return 0 if rep["passed"] else 4
+    elif args.cmd == "reconstruct":
+        from eolfi.reconstruct import build_model, reconstruct
+
+        try:
+            if args.model:
+                _print(build_model(store, args.case_id))
+                return 0
+            if not args.out:
+                _print({"error": "indica --out"})
+                return 1
+            rep = reconstruct(store, args.case_id, args.out, name=args.name, target=args.target)
+        except ValueError as exc:
+            _print({"error": str(exc)})
+            return 1
+        rep.pop("model")
+        _print(rep)
+        v = rep["verification"]
+        return 0 if v["differ"] == 0 and v["match"] > 0 else 4
     elif args.cmd == "spec":
         return _spec(args, store)
     elif args.cmd == "observe":

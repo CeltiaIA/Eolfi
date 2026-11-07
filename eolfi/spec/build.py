@@ -244,7 +244,7 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
             "status": status, "confidence": "low" if differing else "high" if len(obs) >= 2 else "medium",
             "inputs": g["inputs"], "expected": expected, "unstable_aspects": unstable_aspects,
             "persistence": obs[0]["persistence"], "evidence_ids": sorted({o["evidence_id"] for o in obs}),
-            "observations": len(obs),
+            "observations": len(obs), "source_steps": sorted({(o["evidence_id"], o["step_id"]) for o in obs}),
             "non_functional": {"duration_ms_max": max(durations)} if durations else {},
         }
         if obs[0]["states"]:
