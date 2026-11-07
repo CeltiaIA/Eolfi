@@ -47,7 +47,7 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost", "[::1]"}
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _VAR = re.compile(r"\{var:([A-Za-z_][A-Za-z0-9_]{0,63})\}")
 _KEYS = {"eolfi_observation_script", "name", "description", "authorization", "target", "environment", "setup",
-         "scope", "allow_hosts", "steps", "cleanup", "privacy"}
+         "scope", "allow_hosts", "steps", "cleanup", "privacy", "isolation"}
 
 
 class ScriptError(ValueError):
@@ -333,6 +333,28 @@ def validate_script(raw: Any) -> dict[str, Any]:
             cleanup.get("remove_sandbox", True), bool):
         _err("cleanup: {remove_sandbox: bool}")
     out["cleanup"] = {"remove_sandbox": cleanup.get("remove_sandbox", True)}
+    iso = raw.get("isolation", {"mode": "none"})
+    if not isinstance(iso, dict) or iso.get("mode", "none") not in ("none", "container") or not set(iso) <= {
+            "mode", "image", "memory", "cpus", "pids"}:
+        _err("isolation: {mode: none|container, image, memory, cpus, pids}")
+    if iso.get("mode", "none") == "container":
+        image = iso.get("image")
+        if not isinstance(image, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._/:@-]{0,254}", image):
+            _err("isolation.image: nombre de imagen local obligatorio (no se descarga nada)")
+        memory = iso.get("memory", "512m")
+        if not isinstance(memory, str) or not re.fullmatch(r"\d{1,6}[kmg]", memory):
+            _err("isolation.memory: p. ej. 512m")
+        cpus = iso.get("cpus", 1)
+        if isinstance(cpus, bool) or not isinstance(cpus, (int, float)) or not 0.1 <= cpus <= 64:
+            _err("isolation.cpus: entre 0.1 y 64")
+        pids = iso.get("pids", 256)
+        if isinstance(pids, bool) or not isinstance(pids, int) or not 8 <= pids <= 32768:
+            _err("isolation.pids: entre 8 y 32768")
+        if any(s["action"] == "desktop" for s in out["steps"]):
+            _err("isolation container no admite pasos desktop (necesitan el escritorio del anfitrión)")
+        out["isolation"] = {"mode": "container", "image": image, "memory": memory, "cpus": cpus, "pids": pids}
+    else:
+        out["isolation"] = {"mode": "none"}
     privacy = raw.get("privacy", {})
     if not isinstance(privacy, dict) or not set(privacy) <= {"redact_personal_data"} or not isinstance(
             privacy.get("redact_personal_data", True), bool):

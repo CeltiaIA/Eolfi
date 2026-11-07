@@ -4,8 +4,8 @@ Niveles:
 - ``static``: no ejecuta el objetivo (triaje, análisis de repositorio/web, especificación, modelo).
 - ``observed``: ejecuta el objetivo o lo conduce (observación, repetición, equivalencia, exploración). Exige
   autorización explícita del operador. **Sin aislamiento**: subproceso con los permisos del usuario.
-- ``isolated``: ejecución dentro de un contenedor o VM con restricciones. Se declara disponible solo si el
-  entorno lo ofrece y el flujo lo usa; hoy ningún flujo de Eolfi lo usa, así que nunca se presenta como activo.
+- ``isolated``: los pasos run de una observación con ``isolation.mode=container`` se ejecutan en un contenedor
+  Docker local (imagen ya presente, nunca se descarga) con restricciones. Solo se declara si el contenedor se usó.
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ LEVELS = {
     "observed": {"executes_target": True, "requires_authorization": True, "isolation": "ninguna",
                  "description": "ejecución observada con los permisos del usuario en una carpeta temporal; NO es un "
                                 "sandbox de seguridad"},
-    "isolated": {"executes_target": True, "requires_authorization": True, "isolation": "contenedor o VM",
-                 "description": "ejecución en contenedor/VM con red, archivos y recursos restringidos (no "
-                                "implementado: ningún flujo lo usa todavía)"},
+    "isolated": {"executes_target": True, "requires_authorization": True, "isolation": "contenedor",
+                 "description": "pasos run en un contenedor Docker local sin red, solo lectura salvo el sandbox, "
+                                "usuario sin privilegios y recursos limitados (guion con isolation.mode=container)"},
 }
 FLOW_LEVELS = {"triage": "static", "web": "static", "repo": "static", "compare": "static", "diff": "observed",
                "observe": "observed", "replay": "observed", "observe_compare": "static", "spec": "static",
@@ -54,9 +54,9 @@ def flow_level(flow: str) -> dict[str, Any]:
 def isolation_available() -> dict[str, Any]:
     """Qué aislamiento ofrece el equipo (informativo: ningún flujo lo usa aún)."""
     found = {name: bool(shutil.which(name)) for name in ("docker", "podman", "wsl")}
-    return {"tools": found, "used_by_eolfi": False,
-            "note": "Eolfi aún no ejecuta objetivos dentro de un contenedor/VM: la presencia de estas herramientas "
-                    "no cambia el nivel de aislamiento de una sesión."}
+    return {"tools": found, "used_by_eolfi": "docker (isolation.mode=container)",
+            "note": "Solo las observaciones con isolation.mode=container usan Docker; la presencia de estas "
+                    "herramientas no cambia por sí sola el nivel de aislamiento de una sesión."}
 
 
 def session_plan(script: dict[str, Any], base_dir: str | Path, *, db_path: str = "",
@@ -89,7 +89,17 @@ def session_plan(script: dict[str, Any], base_dir: str | Path, *, db_path: str =
                              "found": os.path.isfile(prog), "timeout_s": s["timeout"]})
     hosts = sorted(LOOPBACK | set(script["allow_hosts"]))
     external_files = [p for p in script["scope"]["files"] if os.path.isabs(p)]
-    warnings = ["Sin aislamiento: el objetivo se ejecuta con tus permisos y puede leer o modificar lo que tú puedas."]
+    iso = script.get("isolation", {"mode": "none"})
+    if iso["mode"] == "container":
+        from eolfi.observe.session import container_runtime
+
+        rt = container_runtime(iso["image"])
+        warnings = ["Aislamiento en contenedor solo para los pasos run: los pasos http/browser van en el anfitrión."]
+        if not rt["ok"]:
+            warnings.append(f"El contenedor NO está disponible ({rt['reason']}): esos pasos quedarán como no disponibles.")
+    else:
+        rt = None
+        warnings = ["Sin aislamiento: el objetivo se ejecuta con tus permisos y puede leer o modificar lo que tú puedas."]
     if script["environment"]["inherit"]:
         warnings.append("Hereda tu entorno completo (variables y posibles credenciales).")
     if [h for h in script["allow_hosts"] if h not in LOOPBACK]:
@@ -100,7 +110,11 @@ def session_plan(script: dict[str, Any], base_dir: str | Path, *, db_path: str =
         warnings.append("La ocultación de datos personales está desactivada en el guion.")
     missing = sorted(referenced_variables(script) - set(variables or {}))
     return {
-        "name": script["name"], "authorization_declared": script["authorization"], **flow_level("observe"),
+        "name": script["name"], "authorization_declared": script["authorization"],
+        **(flow_level("observe") if iso["mode"] != "container" else {"level": "isolated", **LEVELS["isolated"]}),
+        "container": ({**iso, **({k: rt[k] for k in ("image_id", "docker_version")} if rt and rt["ok"] else
+                                 {"available": False, "reason": rt["reason"] if rt else ""})}
+                      if iso["mode"] == "container" else None),
         "isolation_available": isolation_available(),
         "target": target, "programs": programs,
         "permissions": {"network_hosts": hosts, "files_scope": script["scope"]["files"],

@@ -65,8 +65,8 @@ def _redact(name: str, value: str) -> str:
 class _Normalizer:
     """Sustituye rutas del sandbox y valores de variables de ejecución para comparar ejecuciones."""
 
-    def __init__(self, root: Path, variables: dict[str, str]):
-        forms = {str(root), root.as_posix(), str(root.resolve()), root.resolve().as_posix()}
+    def __init__(self, root: Path, variables: dict[str, str], extra: tuple[str, ...] = ()):
+        forms = {str(root), root.as_posix(), str(root.resolve()), root.resolve().as_posix(), *extra}
         if os.name == "nt":
             forms |= {f.lower() for f in forms}
         self.paths = sorted({f for f in forms if f}, key=len, reverse=True)
@@ -441,6 +441,54 @@ def _ui_desktop_coverage(steps: list[dict[str, Any]]) -> Any:
                                                              for s in desk if s["status"] != "ok"}))}
 
 
+CONTAINER_SANDBOX = "/sandbox"
+ISOLATION_CONTAINER = ("contenedor: los pasos run se ejecutan en {image} sin red, con sistema de archivos de solo "
+                       "lectura salvo el sandbox montado, usuario sin privilegios (65534), sin capacidades, sin "
+                       "credenciales del anfitrión y con límites de memoria {memory}, CPU {cpus} y {pids} procesos. "
+                       "Comparte el núcleo de la VM de Docker: no equivale a una VM dedicada. Los pasos http y "
+                       "browser se ejecutan en el anfitrión.")
+
+
+def container_runtime(image: str) -> dict[str, Any]:
+    """Docker disponible y la imagen presente localmente (nunca se descarga desde aquí)."""
+    exe = shutil.which("docker")
+    if not exe:
+        return {"ok": False, "reason": "Docker no está instalado"}
+    try:
+        p = subprocess.run([exe, "image", "inspect", image, "--format", "{{.Id}}"], capture_output=True, text=True,
+                           timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "reason": f"Docker no responde: {type(exc).__name__}"}
+    if p.returncode != 0:
+        return {"ok": False, "reason": f"la imagen {image} no está en local (descárgala tú con docker pull) o el "
+                                       f"servicio de Docker está parado"}
+    ver = subprocess.run([exe, "version", "--format", "{{.Server.Version}}"], capture_output=True, text=True,
+                         timeout=60).stdout.strip()
+    return {"ok": True, "docker": exe, "image": image, "image_id": p.stdout.strip(), "docker_version": ver}
+
+
+def _run_container(rt: dict[str, Any], iso: dict[str, Any], root: Path, argv: list[str], workdir: str,
+                   env: dict[str, str], stdin: bytes | None, timeout: float) -> dict[str, Any]:
+    name = "eolfi-obs-" + uuid.uuid4().hex[:16]
+    cmd = [rt["docker"], "run", "--rm", "-i", "--name", name, "--pull", "never", "--network", "none", "--read-only",
+           "--tmpfs", "/tmp:rw,size=64m", "--memory", iso["memory"], "--cpus", str(iso["cpus"]),
+           "--pids-limit", str(iso["pids"]), "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+           "--user", "65534:65534", "-v", f"{root.resolve()}:{CONTAINER_SANDBOX}", "-w", workdir]
+    for k, v in sorted(env.items()):
+        cmd += ["-e", f"{k}={v}"]
+    cmd += [iso["image"], *argv]
+    host_env = {k: v for k, v in os.environ.items() if k.upper() in (
+        "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "APPDATA",
+        "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "HOME", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT")}
+    r = _run_process(cmd, root, host_env, stdin, timeout, False)
+    if r.get("status") != "ok":   # plazo/salida agotados: el cliente murió, el contenedor puede seguir vivo
+        subprocess.run([rt["docker"], "rm", "-f", name], capture_output=True, timeout=60)
+    if r.get("exit_code") == 125:
+        r = {**r, "status": "error", "error": "Docker no pudo crear el contenedor: "
+             + r.get("stderr", b"").decode("utf-8", "replace")[-500:]}
+    return r
+
+
 # -- sesión ------------------------------------------------------------------------------------------
 def static_unfixed_factors(script: dict[str, Any]) -> list[dict[str, str]]:
     """Factores externos que el guion no puede fijar, conocidos antes de ejecutar."""
@@ -464,6 +512,9 @@ def static_unfixed_factors(script: dict[str, Any]) -> list[dict[str, str]]:
     if any(s["action"] == "browser" for s in script["steps"]):
         f.append({"factor": "navegador", "detail": "motor y versión del navegador (se registran); atribución de "
                   "peticiones por ventana temporal de cada acción"})
+    if script.get("isolation", {}).get("mode") == "container":
+        f.append({"factor": "imagen del contenedor", "detail": f"{script['isolation']['image']}: su identificador se "
+                  "registra en cada sesión; otra versión de la imagen puede cambiar el resultado"})
     names = sorted(referenced_variables(script))
     if names:
         f.append({"factor": "variables de ejecución", "detail": "se indican al ejecutar: " + ", ".join(names)})
@@ -482,7 +533,9 @@ def _coverage(script: dict[str, Any], steps: list[dict[str, Any]]) -> dict[str, 
                             "se ve; sin enlaces simbólicos; tope de archivos y de bytes por hash"},
         "registry": ("not_requested" if not reg else "observed" if probes.registry_available()
                      else {"status": "not_available", "reason": "el registro solo existe en Windows"}),
-        "children": ("not_requested" if not script["scope"]["children"] or "run" not in actions else
+        "children": ({"status": "not_available", "reason": "los procesos dentro del contenedor no se muestrean desde "
+                                                          "el anfitrión"} if script.get("isolation", {}).get("mode") == "container"
+                     else "not_requested" if not script["scope"]["children"] or "run" not in actions else
                      {"status": "sampled", "method": probes.process_table_method(),
                       "limits": "muestreo periódico: procesos de vida más corta que el intervalo pueden no verse; "
                                 "los PID no son reproducibles"}),
@@ -560,9 +613,19 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
                   "provenance": script["target"]["provenance"]}
         if script["target"].get("sha256") and script["target"]["sha256"] != target["sha256"]:
             raise ScriptError("el SHA-256 del objetivo no coincide con el declarado en el guion")
+    iso = script.get("isolation", {"mode": "none"})
+    rt = container_runtime(iso["image"]) if iso["mode"] == "container" else None
     root = Path(tempfile.mkdtemp(prefix="eolfi-obs-"))
-    norm = _Normalizer(root, variables)
+    norm = _Normalizer(root, variables, (CONTAINER_SANDBOX,) if rt else ())
     values = {"sandbox": str(root), "python": sys.executable, **({"target": target["path"]} if target else {})}
+    cvalues = None
+    if rt and rt["ok"]:
+        cvalues = {"sandbox": CONTAINER_SANDBOX, "python": "python"}
+        if target:   # el objetivo entra en el contenedor como copia dentro del sandbox (solo lectura no aplica)
+            tdir = root / ".eolfi-objetivo"
+            tdir.mkdir()
+            shutil.copy2(target["path"], tdir / Path(target["path"]).name)
+            cvalues["target"] = f"{CONTAINER_SANDBOX}/.eolfi-objetivo/{Path(target['path']).name}"
     started = time.time()
     t0 = time.monotonic()
     steps_out: list[dict[str, Any]] = []
@@ -591,7 +654,31 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
             rec: dict[str, Any] = {"id": step["id"], "action": step["action"],
                                    "started_ms": round((time.monotonic() - t0) * 1000)}
             try:
-                if step["action"] == "run":
+                if step["action"] == "run" and rt is not None:
+                    stdin = content_bytes(step["stdin"]) if "stdin" in step else None
+                    if not rt["ok"]:
+                        rec.update(status="unavailable", error=rt["reason"])
+                    else:
+                        argv = [expand(a, cvalues, variables) for a in step["argv"]]
+                        cenv = {"HOME": f"{CONTAINER_SANDBOX}/.home", "TMPDIR": f"{CONTAINER_SANDBOX}/.tmp",
+                                **{k: expand(v, cvalues, variables) for k, v in script["environment"]["vars"].items()},
+                                **{k: expand(v, cvalues, variables) for k, v in step["env"].items()}}
+                        workdir = CONTAINER_SANDBOX + ("/" + step["cwd"] if "cwd" in step else "")
+                        (root / ".home").mkdir(exist_ok=True)
+                        (root / ".tmp").mkdir(exist_ok=True)
+                        if "cwd" in step:
+                            (root / step["cwd"]).mkdir(parents=True, exist_ok=True)
+                        r = _run_container(rt, iso, root, argv, workdir, cenv, stdin, step["timeout"])
+                        rec.update(argv=[norm.text(a) for a in argv], isolation="container",
+                                   env_overrides={k: _redact(k, v) for k, v in step["env"].items()},
+                                   stdin={"size": len(stdin), "sha256": _sha(stdin)} if stdin is not None else None,
+                                   status=r["status"], duration_ms=r["duration_ms"])
+                        if "error" in r:
+                            rec["error"] = r["error"]
+                        else:
+                            rec.update(exit_code=r["exit_code"], exit_status=probes.exit_status(r["exit_code"]),
+                                       stdout=_output(r["stdout"], norm), stderr=_output(r["stderr"], norm))
+                elif step["action"] == "run":
                     cwd = root / step["cwd"] if "cwd" in step else root
                     cwd.mkdir(parents=True, exist_ok=True)
                     argv = [expand(a, values, variables) for a in step["argv"]]
@@ -687,7 +774,10 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
                   registry="disponible" if probes.registry_available() else "no disponible")
     return {
         "session_id": session_id, "name": script["name"], "script_sha256": script_sha256(script),
-        "authorization": script["authorization"], "isolation": ISOLATION,
+        "authorization": script["authorization"],
+        "isolation": (ISOLATION_CONTAINER.format(**iso) if rt and rt["ok"] else ISOLATION),
+        "isolation_mode": "container" if rt and rt["ok"] else "none",
+        **({"container": {k: rt[k] for k in ("image", "image_id", "docker_version")}} if rt and rt["ok"] else {}),
         "target": target, "programs": sorted(programs.values(), key=lambda p: p["path"]),
         "platform": env_id, "environment": env_rec, "variables": {k: _redact(k, v) for k, v in variables.items()},
         "setup": setup_rec, "initial_state": initial, "steps": steps_out, "final_state": final,
@@ -758,8 +848,11 @@ def run_observation(source: str | Path | dict[str, Any], store: EvidenceStore, *
         session = execute(script, bdir, variables=variables, keep_sandbox=keep_sandbox, playwright=playwright)
         from eolfi.security.levels import flow_level
 
+        from eolfi.security.levels import LEVELS
+
         session["data_handling"] = {
-            **flow_level("observe"),
+            **(flow_level("observe") if session.get("isolation_mode") != "container"
+               else {"level": "isolated", **LEVELS["isolated"], "isolation": "contenedor (pasos run)"}),
             "stored_in": str(Path(store.path).resolve()) if store.path != ":memory:" else ":memory:",
             "retention": "hasta que la borres", "deletion": "eolfi observe forget <evidence_id> --confirmo"}
         eid, subject = store_session(store, session, script, replay_of=_replay_of, base_dir=bdir)
