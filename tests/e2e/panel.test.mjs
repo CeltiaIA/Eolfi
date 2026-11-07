@@ -260,3 +260,78 @@ test('casos: las sesiones de observación se ven en el caso (alcance, factores n
   await page.goto(BASE + '/');
   await page.evaluate(() => localStorage.removeItem('eolfi.case'));
 });
+
+test('crear proyecto: formulario único, plan razonado, aprobación y modo automático con resultado verificable', async () => {
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const runId = Date.now().toString(36);
+  const site = join(tmp, 'sitio-e2e');
+  mkdirSync(site, { recursive: true });
+  writeFileSync(join(site, 'index.html'), '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Demo</title></head><body><h1>Hola</h1><p>Sitio sintético.</p></body></html>');
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#version:not(:empty)');
+  await page.click('#panel-create-tab');
+  await page.fill('#proj-name', `Web e2e ${runId}`);
+  await page.fill('#proj-desc', 'Una web estática. Que tenga modo oscuro.');
+  await page.selectOption('#proj-kind', 'web');
+  await page.fill('#proj-ref', site);
+  await page.click('#proj-add');
+  await page.selectOption('#proj-kind', 'file');
+  await page.setInputFiles('#proj-file', join(tmp, 'muestra.elf'));
+  await page.click('#proj-add');
+  await page.waitForFunction(() => document.querySelectorAll('#proj-list li').length === 2);
+  await page.click('#proj-go');
+  await page.waitForSelector('#proj-view:not([hidden]) .proj-plan');
+  const plan = await page.textContent('#proj-view');
+  assert.match(plan, /Pendiente de tu aprobación/);
+  assert.match(plan, /nunca se copia código/);
+  assert.match(plan, /estática → tecnología destino: static/);
+  assert.match(plan, /No se aplican automáticamente: .*modo oscuro/);
+  assert.equal(await page.locator('.proj-step').count(), 4);
+  await axe('plan del proyecto');
+  await page.click('#proj-approve');
+  await page.waitForFunction(() => document.querySelector('.proj-verdict'), null, { timeout: 240000 });
+  const verdict = await page.textContent('.proj-verdict');
+  const status = await page.textContent('#proj-view .badge');
+  if (/^Verificado/.test(verdict)) assert.match(status, /Terminado y verificado/);
+  else { assert.match(verdict, /NO VERIFICADO/); assert.match(status, /SIN verificación/); }
+  assert.equal(await page.locator('.proj-step .badge.bad').count() <= 1, true);
+  const report = await page.getAttribute('#proj-report', 'href');
+  assert.match(report, /^\/api\/cases\/[0-9a-f-]{36}\/report$/);
+  assert.match(await page.textContent('#proj-view details'), /Aprobación · v1/);
+  await axe('proyecto terminado');
+});
+
+test('crear proyecto: modo guiado se detiene, la instrucción que cambia el plan exige aprobación', async () => {
+  const runId = Date.now().toString(36);
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#version:not(:empty)');
+  await page.click('#panel-create-tab');
+  await page.fill('#proj-name', `Guiado e2e ${runId}`);
+  await page.selectOption('#proj-kind', 'web');
+  await page.fill('#proj-ref', join(tmp, 'sitio-e2e'));
+  await page.press('#proj-ref', 'Enter');
+  await page.check('input[name=proj-mode][value=guided]');
+  await page.click('#proj-go');
+  await page.waitForSelector('#proj-approve');
+  await page.selectOption('#proj-target', 'static');                 // edición del plan antes de aprobar
+  await page.click('#proj-approve');
+  await page.waitForSelector('#proj-continue', { timeout: 60000 });
+  let text = await page.textContent('#proj-view');
+  assert.match(text, /Plan · versión 2/);
+  assert.match(text, /tecnología auto → static/);
+  assert.match(text, /En pausa/);
+  assert.equal(await page.locator('.proj-step .badge.ok').count(), 1);   // solo el primer paso
+  await page.fill('#proj-instruction', 'añade base de datos');
+  await page.click('#proj-add-instruction');
+  await page.waitForSelector('#proj-change-yes');
+  assert.match(await page.textContent('.proj-change'), /requiere aprobar el plan revisado/);
+  await axe('cambio de plan propuesto');
+  await page.click('#proj-change-yes');
+  await page.waitForFunction(() => /versión 3/.test(document.querySelector('#proj-view h3')?.textContent || ''));
+  text = await page.textContent('#proj-view');
+  assert.match(text, /En pausa/);
+  assert.match(text, /Instrucciones añadidas: añade base de datos/);
+  await page.click('#proj-continue');
+  await page.waitForFunction(() => document.querySelectorAll('.proj-step .badge.ok').length === 2, null, { timeout: 60000 });
+  assert.match(await page.textContent('#proj-view'), /Especificación v1/);
+});

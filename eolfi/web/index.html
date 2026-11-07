@@ -99,6 +99,36 @@
 
       <div id="panel-create" role="tabpanel" aria-labelledby="panel-create-tab" tabindex="0" hidden>
         <h2>Crear proyecto</h2>
+        <p class="small muted">Describe lo que quieres, añade las fuentes y pulsa <strong>Analizar</strong>. Eolfi lee las fuentes y la descripción, razona y te propone un plan; no ejecuta nada hasta que lo apruebes. El código se genera nuevo: nunca se copia el de las fuentes.</p>
+        <form id="proj-form" class="stack" novalidate>
+          <label class="field"><span class="small">Nombre del proyecto</span>
+            <input id="proj-name" autocomplete="off" required placeholder="Mi proyecto"></label>
+          <label class="field"><span class="small">Descripción y órdenes</span>
+            <textarea id="proj-desc" rows="4" placeholder="Qué debe hacer. Ej.: «Una web estática con inicio de sesión y base de datos. Mantén la estructura de secciones.»"></textarea></label>
+          <fieldset class="proj-fieldset">
+            <legend class="small">Fuentes (archivos o binarios, webs y repositorios; varias a la vez)</legend>
+            <div class="row">
+              <select id="proj-kind" aria-label="Tipo de fuente">
+                <option value="file">Archivo o binario</option>
+                <option value="web">Web (URL)</option>
+                <option value="repo">Repositorio (URL git o carpeta)</option>
+              </select>
+              <input id="proj-ref" aria-label="URL o ruta de la fuente">
+              <label id="proj-file-label" class="proj-file small-btn">Elegir archivos<input id="proj-file" type="file" multiple aria-label="Archivos a adjuntar"></label>
+              <button type="button" id="proj-add" class="small-btn">Añadir</button>
+            </div>
+            <ul id="proj-list" class="plain proj-list" aria-live="polite" aria-label="Fuentes añadidas"></ul>
+          </fieldset>
+          <fieldset class="proj-fieldset row">
+            <legend class="small">Modo</legend>
+            <label class="small"><input type="radio" name="proj-mode" value="auto" checked> Automático: sigue el plan aprobado de principio a fin</label>
+            <label class="small"><input type="radio" name="proj-mode" value="guided"> Guiado: se detiene tras cada paso para que revises y añadas instrucciones</label>
+          </fieldset>
+          <div class="row between"><span id="proj-hint" class="small muted"></span><button type="submit" id="proj-go">Analizar</button></div>
+        </form>
+        <div id="proj-view" hidden></div>
+        <details class="small proj-classic">
+          <summary>Formulario clásico (todas las opciones, sin plan previo)</summary>
         <form id="create-form" class="stack">
           <div class="row between"><span class="small muted">Fuentes</span>
             <button type="button" class="pick small-btn" data-pick="create-sources" data-append="1"><span aria-hidden="true">📁</span> Añadir carpeta</button></div>
@@ -167,6 +197,7 @@
           </div>
         </form>
         <div id="create-result" class="small"></div>
+        </details>
       </div>
 
       <div id="panel-subjects" role="tabpanel" aria-labelledby="panel-subjects-tab" tabindex="0" hidden>

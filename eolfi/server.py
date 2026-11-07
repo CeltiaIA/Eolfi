@@ -38,6 +38,7 @@ WEB_DIR = Path(__file__).with_name("web")
 MAX_UPLOAD = 256 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
 _STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
+           "/projects.js": "projects.js",
            "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/style.css": "style.css",
            "/favicon.svg": "favicon.svg",
            "/favicon.ico": "favicon.svg"}
@@ -111,7 +112,7 @@ class EolfiApp:
     # -- trabajos en segundo plano (análisis largos, crear y verificar) ---------------
     # POST /api/jobs {"kind": "create"|"web"|"repo"|"triage", "body": {...}} -> {"job_id"}
     # GET  /api/jobs?id=…&since=N -> {"status": running|done|error, "log": [...], "next": N, "result"|"error"}
-    JOB_KINDS = ("create", "web", "repo", "triage")
+    JOB_KINDS = ("create", "web", "repo", "triage", "project")
     MAX_JOBS = 50
     MAX_RUNNING = 3
 
@@ -130,7 +131,7 @@ class EolfiApp:
         kind, payload = body.get("kind"), body.get("body") or {}
         if kind not in self.JOB_KINDS or not isinstance(payload, dict):
             raise ApiError(400, f"kind debe ser uno de {', '.join(self.JOB_KINDS)} y body un objeto")
-        fn = {"create": self.create, "web": lambda b: self.learn("web", b),
+        fn = {"create": self.create, "web": lambda b: self.learn("web", b), "project": self.project_run,
               "repo": lambda b: self.learn("repo", b), "triage": self.triage_path}[kind]
         job = {"id": secrets.token_hex(8), "kind": kind, "status": "queued", "log": [], "started": time.time(),
                "label": str(payload.get("name") or payload.get("source") or payload.get("path")
@@ -773,6 +774,84 @@ class EolfiApp:
             finally:
                 s.close()
 
+    # -- crear proyecto con plan razonado y aprobado (eolfi.flows.project_flow) ------------
+    def _project(self, fn):
+        from eolfi.flows.project_flow import PlanError
+
+        with self.lock:
+            s = self.store()
+            try:
+                return fn(s)
+            except PlanError as exc:
+                raise ApiError(409 if "no está aprobado" in str(exc) or "pendiente" in str(exc) else 400,
+                               str(exc)) from exc
+            except ValueError as exc:
+                raise ApiError(404 if "no encontrado" in str(exc) else 400, str(exc)) from exc
+            finally:
+                s.close()
+
+    def project_plan(self, body: dict[str, Any]) -> dict[str, Any]:
+        from eolfi.flows.project_flow import propose_plan
+
+        sources = body.get("sources")
+        if not isinstance(sources, list):
+            raise ApiError(400, "'sources' debe ser una lista")
+        for src in sources:
+            if isinstance(src, str):
+                self._check_local_source(src.strip())
+        name = str(body.get("name") or "").strip()
+        out = body.get("out") or str(Path("generated") / _folder_slug(name or "proyecto"))
+        self._check_root(out, "carpeta destino")
+        return self._project(lambda s: propose_plan(s, name=name, description=str(body.get("description") or ""),
+                                                    sources=sources, mode=str(body.get("mode") or "auto"), out=out))
+
+    def project_get(self, case_id: str) -> dict[str, Any]:
+        from eolfi.flows.project_flow import state
+
+        return self._project(lambda s: state(s, case_id))
+
+    def project_action(self, case_id: str, action: str, body: dict[str, Any]) -> dict[str, Any]:
+        from eolfi.flows import project_flow as pf
+
+        if action == "approve":
+            v = body.get("version")
+            if isinstance(v, bool) or not isinstance(v, int):
+                raise ApiError(400, "falta 'version' (entero)")
+            return self._project(lambda s: pf.approve_plan(s, case_id, version=v, edits=body.get("edits") or None,
+                                                           note=str(body.get("note") or "")))
+        if action == "instruction":
+            return self._project(lambda s: pf.add_instruction(s, case_id, str(body.get("text") or "")))
+        if action == "change":
+            return self._project(lambda s: pf.accept_change(s, case_id, accept=body.get("accept") is True))
+        raise ApiError(404, "acción desconocida")
+
+    def project_run(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Trabajo «project»: sigue el plan aprobado (todo en auto, un paso en guiado), con progreso y cancelación."""
+        from eolfi.flows.project_flow import PlanError, run_plan
+
+        case_id = self._case_id(body)
+        if not case_id:
+            raise ApiError(400, "falta case_id")
+        with self._job("project:" + case_id):
+            s = self.store()
+            try:
+                return run_plan(s, case_id, workdir=str(self.samples / "repos"), progress=self._progress)
+            except PlanError as exc:
+                raise ApiError(409, str(exc)) from exc
+            finally:
+                s.close()
+
+    def project_upload(self, data: bytes, name: str) -> dict[str, Any]:
+        """Guarda un archivo adjunto por su huella (sin analizarlo todavía: el análisis es un paso del plan)."""
+        if not data:
+            raise ApiError(400, "archivo vacío")
+        self.samples.mkdir(parents=True, exist_ok=True)
+        sha = hashlib.sha256(data).hexdigest()
+        dst = self.samples / f"{sha}.bin"
+        if not dst.exists():
+            dst.write_bytes(data)
+        return {"path": str(dst.resolve()), "sha256": sha, "size": len(data), "name": str(name)[:200]}
+
     # -- observación de caja negra (mismo estado que `eolfi observe`) --------------------
     def observe_get(self, evidence_id: str) -> dict[str, Any]:
         from eolfi.observe import load_session
@@ -1238,6 +1317,9 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             return self._json(200, app.case_export(m.group(1)), {
                                 "Content-Disposition": f'attachment; filename="eolfi-caso-{m.group(1)[:8]}.json"'})
                         return self._json(200, app.case_get(m.group(1)))
+                    m = re.fullmatch(r"/api/projects/([0-9a-f-]{36})", path)
+                    if m and _CASE_ID.fullmatch(m.group(1)):
+                        return self._json(200, app.project_get(m.group(1)))
                     m = re.fullmatch(r"/api/observe/([0-9a-f]{64})", path)
                     if m:
                         return self._json(200, app.observe_get(m.group(1)))
@@ -1293,6 +1375,13 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     if m and _CASE_ID.fullmatch(m.group(1)):
                         fn = app.case_associate if m.group(2) == "artifacts" else app.case_record
                         return self._json(200, fn(m.group(1), self._obj()))
+                    if path == "/api/projects/plan":
+                        return self._json(201, app.project_plan(self._obj()))
+                    if path == "/api/projects/upload":
+                        return self._json(200, app.project_upload(self._body(), q.get("name", "adjunto")))
+                    m = re.fullmatch(r"/api/projects/([0-9a-f-]{36})/(approve|instruction|change)", path)
+                    if m and _CASE_ID.fullmatch(m.group(1)):
+                        return self._json(200, app.project_action(m.group(1), m.group(2), self._obj()))
                     if path == "/api/observe/compare":
                         return self._json(200, app.observe_compare(self._obj()))
                     if path in ("/api/observe/run", "/api/observe/replay"):

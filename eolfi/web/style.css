@@ -313,3 +313,28 @@ a.small-btn { display: inline-block; border-radius: 6px; text-decoration: none; 
 #case-body h3 { margin: 14px 0 6px; font-size: 14px; }
 #case-body pre { max-height: 12rem; overflow: auto; }
 .warn { color: var(--warn); }
+
+/* Crear proyecto con plan razonado */
+.field { display: grid; gap: 4px; }
+.proj-fieldset { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s2) var(--s3); margin: 0; flex-wrap: wrap; }
+.proj-fieldset legend { padding: 0 4px; }
+.proj-file { position: relative; overflow: hidden; display: inline-flex; align-items: center; cursor: pointer; }
+.proj-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.proj-file:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.proj-list { display: grid; gap: 6px; margin-top: var(--s2); }
+.proj-source { display: flex; gap: var(--s2); align-items: center; }
+.proj-ref { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.proj-plan { margin-top: var(--s3); display: grid; gap: var(--s2); }
+.proj-plan h3 { margin: 0; } .proj-plan h4 { margin: var(--s2) 0 0; font-size: 13px; }
+.proj-steps { display: grid; gap: var(--s2); padding-left: 1.2em; margin: 0; }
+.proj-step { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s2) var(--s3); }
+.proj-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px var(--s2); margin: var(--s2) 0 0; }
+.proj-dl dt { color: var(--muted); } .proj-dl dd { margin: 0; overflow-wrap: anywhere; }
+.proj-result { margin-top: var(--s2); display: grid; gap: 4px; }
+.proj-verdict { font-weight: 600; padding: 6px 10px; border-radius: var(--r-lg); }
+.proj-verdict.ok { color: var(--ok); background: var(--ok-soft); } .proj-verdict.bad { color: var(--bad); background: var(--bad-soft); }
+.proj-change { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-soft); border-radius: var(--r-lg); padding: var(--s2) var(--s3); }
+.proj-change .small-btn { background: var(--panel); color: var(--accent-2); border-color: var(--accent-2); }
+.proj-change .small-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--text); }
+.proj-log { max-height: 14rem; overflow: auto; white-space: pre-wrap; }
+.proj-classic { margin-top: var(--s4); }

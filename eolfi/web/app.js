@@ -2,6 +2,7 @@
 import { $, el, api, runJob, setStatus, fmtTime, short } from "./runtime.js";
 import { createSubjectView } from "./subjects.js";
 import { createCaseView } from "./cases.js";
+import { createProjectView } from "./projects.js";
 
 const STORE = { ai: "eolfi.ai", analysis: "eolfi.analysis", theme: "eolfi.theme", boot: "eolfi.boot", panel: "eolfi.panel" };
 const state = { subject: null, subjects: [], kind: "binary", selected: new Set(), req: 0, view: "empty", panel: "analyze" };
@@ -34,6 +35,7 @@ const { loadSubjects, renderSubjects } = createSubjectView({ $, el, api, fmtTime
 
 // -- casos: el caso activo se añade a cada trabajo (mismo estado que la CLI y el agente) -----
 const cases = createCaseView({ $, el, api, fmtTime, setStatus, showView: (v) => showView(v) });
+createProjectView({ $, el, api, setStatus });
 const withCase = (body) => cases.withCase(body);
 
 function updateCompare() {
@@ -529,6 +531,8 @@ function selectChat(name) {
 function refreshLive(now = false) {
   if (!chat.visible || document.hidden) return;   // pestaña en segundo plano: en pausa (B8)
   if (chat.liveBusy) { if (now) chat.liveAgain = true; return; }   // nunca dos cargas solapadas
+  // Sin puente no hay captura que pedir: se evita un 503 (y su error de consola) en cada intento.
+  if (!chat.running) { $("#live-caption").textContent = "Vista en directo no disponible: el puente está parado"; return; }
   const img = $("#live-img");
   chat.liveBusy = true;
   img.onload = () => { $("#live-caption").textContent = `Vista en directo de «${CHAT_NAMES[chat.provider]}»`; done(); };
@@ -554,6 +558,9 @@ async function pollBridge() {
   chat.inFlight = true;
   try {
     const st = await api("/api/bridge/status");
+    const wasRunning = chat.running;
+    chat.running = !!st.running;
+    if (chat.running && !wasRunning) refreshLive(true);
     $("#bridge-state").textContent = st.running ? `Puente activo · ${st.engine || "Electron"}` : (st.detail || "Puente parado");
     ensureChatTabs(Object.keys(st.providers || {}));
     document.querySelectorAll(".chat-tabs [data-chat]").forEach((t) => {
