@@ -880,6 +880,11 @@ def _blueprint(p: PageParser, css: dict[str, Any], js: dict[str, Any], techs: li
     return {
         "suggested_scaffold": scaffold,
         "stack": names,
+        # Etiqueta legible: «HTML estático» solo si la evidencia lo sostiene (ninguna tecnología detectada, sin JS
+        # minificado ni source maps); si no se detecta nada pero hay indicios de compilación, queda sin determinar.
+        "stack_label": (", ".join(names) if names else
+                        "HTML estático sin framework detectado" if not js["minified_files"] and not smaps
+                        else None),
         "page_skeleton": landmarks[:40],
         "headings_outline": ["  " * (l - 1) + f"h{l}: {t}" for l, t in p.headings[:30]],
         "design_tokens": {"colors": css["colors"][:10], "fonts": css["fonts"][:5],

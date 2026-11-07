@@ -120,7 +120,10 @@ def _flow_sentence(p: dict[str, Any]) -> str:
                f"{', '.join(r.get('providers_run', [])) or 'ninguno'}."
     if flow in ("web", "repo"):
         s = r.get("summary") or {}
-        return f"Análisis {flow}: pila {s.get('stack') or 'no determinada'}."
+        stack = s.get("stack")
+        label = (", ".join(stack) if isinstance(stack, list) and stack else stack if isinstance(stack, str) and stack
+                 else s.get("stack_label") or "no determinada")
+        return f"Análisis {flow}: pila {label}."
     if flow == "diff":
         return (f"Diferencial: {r.get('equivalent', 0)}/{r.get('comparable', 0)} entradas equivalentes "
                 f"(umbral {r.get('threshold')}); {'supera' if r.get('passed') else 'no supera'} el umbral en el corpus probado.")
