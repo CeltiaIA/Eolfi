@@ -119,9 +119,9 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 - [ ] Validar la matriz de formatos y plataformas de forma real en Windows, Linux y macOS, y Android/iOS donde haya dispositivos o herramientas disponibles.
 - [ ] Mantener una ruta útil cuando falte una herramienta externa, sin declarar cobertura equivalente.
-- [ ] Simplificar el recorrido principal para pasar de objetivo a especificación, implementación y comparación sin cambiar de modelo de datos.
+- [x] Simplificar el recorrido principal para pasar de objetivo a especificación, implementación y comparación sin cambiar de modelo de datos. *(2026-11-07: «Crear proyecto» en el panel recorre fuentes → plan razonado → aprobación → análisis → especificación → generación verificada sobre el mismo caso; validado en el panel real con Chrome visible: `tests/e2e/live/crear-proyecto.live.mjs` 9/9, incluida la comparación original ↔ reconstrucción. La validación encontró y corrigió el desbordamiento del plan y la colisión de carpeta destino.)*
 - [ ] Publicar guías, ejemplos autorizados y criterios de aceptación por flujo; retirar opciones que no puedan sostenerse o mantenerse.
-- [ ] Integrar en CI los escenarios reproducibles que no requieren binarios ni credenciales externos; separar pruebas de laboratorio opcionales.
+- [x] Integrar en CI los escenarios reproducibles que no requieren binarios ni credenciales externos; separar pruebas de laboratorio opcionales. *(2026-11-07: la CI ejecuta pytest (observación, especificación, reconstrucción, equivalencia, privacidad, resiliencia), bridge, vscode-bridge y e2e con navegador; las pruebas de laboratorio (panel en vivo, modelo local, contenedor con imagen local, UI Automation/registro solo Windows) quedan separadas y documentadas en el README.)*
 
 **Aceptación final:** una persona puede completar el flujo con una muestra propia desde CLI o interfaz, sin leer código fuente del objetivo, obtener una reconstrucción independiente y revisar con evidencias dónde coincide y dónde no.
 

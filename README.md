@@ -580,6 +580,24 @@ cd tests/e2e && npm install && npm test   # panel en un navegador real + accesib
   `EOLFI_E2E_BROWSER=/ruta/al/navegador` para usar otro. Falla si axe encuentra problemas graves o críticos.
 - `.github/workflows/ci.yml` ejecuta las tres cosas (Python en Windows, macOS y Linux).
 
+### Pruebas de laboratorio (opcionales, fuera de la CI)
+
+Necesitan servicios reales o recursos locales que la CI no tiene; no se ejecutan con `npm test` ni con pytest
+salvo que el recurso esté presente:
+
+```bash
+# Recorrido completo en el panel REAL con Chrome visible: fuentes → plan razonado → aprobar → generar →
+# verificar → comparar. Antes: «python -m eolfi up» (o «serve»). Deja un caso «e2e en vivo <fecha>» en la base.
+cd tests/e2e && node live/crear-proyecto.live.mjs        # EOLFI_LIVE_URL, EOLFI_LIVE_HEADLESS=1
+
+# Agente @eolfi con el modelo local (Eolas en 127.0.0.1:11435 o llama-server), sin Copilot.
+cd eolfi/vscode-bridge && node e2e/local-eolas-live.js
+```
+
+- Observación aislada en contenedor (`tests/test_container.py`): se ejecuta si Docker tiene la imagen
+  `python:3.12-slim` (o la de `EOLFI_TEST_IMAGE`) en local; si no, se omite. Eolfi nunca la descarga.
+- Escritorio con UI Automation (`tests/test_observe.py`) solo en Windows; el registro, solo en Windows.
+
 ## Android
 
 `triage` sobre una APK decodifica el **AndroidManifest binario (AXML)** y

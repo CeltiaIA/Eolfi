@@ -802,7 +802,9 @@ class EolfiApp:
             if isinstance(src, str):
                 self._check_local_source(src.strip())
         name = str(body.get("name") or "").strip()
-        out = body.get("out") or str(Path("generated") / _folder_slug(name or "proyecto"))
+        from eolfi.flows.project_flow import default_out
+
+        out = body.get("out") or default_out(name or "proyecto")
         self._check_root(out, "carpeta destino")
         return self._project(lambda s: propose_plan(s, name=name, description=str(body.get("description") or ""),
                                                     sources=sources, mode=str(body.get("mode") or "auto"), out=out))

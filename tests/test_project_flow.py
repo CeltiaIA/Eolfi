@@ -159,3 +159,14 @@ def test_plan_texts_distinguish_local_and_remote_sources(store, tmp_path):
     assert "sitio local" in local["what"] and "remoto" not in " ".join(local["risks"])
     assert local["title"].startswith("Analizar web: …") and local["title"].endswith(site.name[-20:])
     assert "descarga" in remote["what"] and "remoto" in " ".join(remote["risks"])
+
+
+def test_default_out_never_collides_and_explicit_existing_out_is_warned(store, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    site = build_site(tmp_path / "sitio")
+    (tmp_path / "generated" / "demo").mkdir(parents=True)
+    (tmp_path / "generated" / "demo" / "x.txt").write_text("x", encoding="utf-8")
+    st = pf.propose_plan(store, name="Demo", description="", sources=[str(site)])
+    assert st["plan"]["out"].replace("\\", "/") == "generated/demo-2"
+    st2 = pf.propose_plan(store, name="Demo", description="", sources=[str(site)], out=str(tmp_path / "generated" / "demo"))
+    assert any("ya existe y no está vacía" in r for r in st2["plan"]["reasoning"])

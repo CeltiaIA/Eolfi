@@ -43,6 +43,21 @@ class PlanError(ValueError):
     pass
 
 
+def _non_empty(p: Path) -> bool:
+    return p.exists() and (not p.is_dir() or any(p.iterdir()))
+
+
+def default_out(name: str, base: str | Path = "generated") -> str:
+    """generated/<nombre>; si ya existe con contenido, <nombre>-2, -3…: un plan nuevo nunca pisa ni choca con otro."""
+    from eolfi.server import _folder_slug
+
+    slug = _folder_slug(name or "proyecto")
+    cand, n = Path(base) / slug, 2
+    while _non_empty(cand):
+        cand, n = Path(base) / f"{slug}-{n}", n + 1
+    return str(cand)
+
+
 def interpret(description: str) -> dict[str, Any]:
     """Directivas reconocidas en la descripción (reglas explícitas, sin IA) y frases sin interpretar."""
     text = description.strip()
@@ -186,9 +201,8 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
             if not resolve_subject(store, ref):
                 raise PlanError(f"'{ref}' no es una URL, una ruta existente ni un objetivo ya analizado")
         srcs.append({"ref": ref, "kind": kind})
-    from eolfi.server import _folder_slug
-
-    out = out or str(Path("generated") / _folder_slug(name))
+    explicit_out = bool(out)
+    out = out or default_out(name)
     interp = interpret(description)
     cases = CaseStore(store)
     case = cases.create(name.strip(), description)
@@ -196,7 +210,9 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
             "name": name.strip(), "description": description, "sources": srcs, "out": out,
             "target": interp["target"], "options": interp["options"], "instructions": [],
             "interpretation": {"directives": interp["directives"], "uninterpreted": interp["uninterpreted"]},
-            "reasoning": _reasoning(srcs, interp),
+            "reasoning": _reasoning(srcs, interp) + (
+                [f"La carpeta destino {out} ya existe y no está vacía: generar fallará salvo que la vacíes o "
+                 f"elijas otra."] if explicit_out and _non_empty(Path(out)) else []),
             "steps": _steps(srcs, interp, out), "proposed_at": time.time()}
     _add(cases, case["case_id"], plan)
     return state(store, case["case_id"])
