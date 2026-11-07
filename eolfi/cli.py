@@ -9,6 +9,8 @@ Comandos:
   resolve <incognita_id>         Marca una incógnita como resuelta.
   diff --ref CMD --cand CMD <corpus>
                                  Verificación diferencial (EJECUTA ambos).
+  spec build|show|diff|review|tests --case ID
+                                 Especificación versionada y sustentada por las evidencias del caso.
   observe run|replay|compare|show|check
                                  Observación de caja negra desde un guion (run/replay EJECUTAN el objetivo).
   export <salida> [--format json|sarif] [--artifact RUTA ...]
@@ -144,6 +146,28 @@ def _parser() -> argparse.ArgumentParser:
     oshow.add_argument("evidence_id")
     ochk = obs_.add_parser("check", help="Valida un guion sin ejecutar nada")
     ochk.add_argument("script")
+
+    sp = sub.add_parser("spec", help="Especificación de comportamiento sustentada por las evidencias de un caso")
+    sps = sp.add_subparsers(dest="spec_cmd", required=True)
+    for name, hlp in (("build", "Construye y guarda una versión nueva si el contenido cambió"),
+                      ("show", "Muestra la última versión (o --version N)"),
+                      ("tests", "Casos de prueba derivados solo de requisitos observados")):
+        x = sps.add_parser(name, help=hlp)
+        x.add_argument("--case", dest="case_id", required=True)
+        if name != "build":
+            x.add_argument("--version", type=int, default=None)
+        if name == "tests":
+            x.add_argument("--out", default=None, help="Escribe los casos en este JSON")
+    sdiff = sps.add_parser("diff", help="Compara dos versiones de la especificación")
+    sdiff.add_argument("--case", dest="case_id", required=True)
+    sdiff.add_argument("a", type=int)
+    sdiff.add_argument("b", type=int)
+    srev = sps.add_parser("review", help="Revisión humana de un requisito (queda registrada en el caso)")
+    srev.add_argument("--case", dest="case_id", required=True)
+    srev.add_argument("requirement")
+    srev.add_argument("decision", choices=["accepted", "rejected", "needs_info"])
+    srev.add_argument("--reviewer", required=True)
+    srev.add_argument("--note", default="")
 
     ex = sub.add_parser("export", help="Exporta paquete de evidencias")
     ex.add_argument("out")
@@ -338,6 +362,43 @@ def _vars(items: list[str]) -> dict[str, str]:
     return out
 
 
+def _spec(args, store: EvidenceStore) -> int:
+    from pathlib import Path
+
+    from eolfi.spec import diff_specs, latest_spec, review_requirement, spec_tests, store_spec
+
+    try:
+        if args.spec_cmd == "build":
+            _print(store_spec(store, args.case_id))
+        elif args.spec_cmd == "show":
+            spec = latest_spec(store, args.case_id, args.version)
+            if spec is None:
+                _print({"error": "el caso no tiene especificación: ejecuta eolfi spec build"})
+                return 1
+            _print(spec)
+        elif args.spec_cmd == "tests":
+            spec = latest_spec(store, args.case_id, args.version)
+            if spec is None:
+                _print({"error": "el caso no tiene especificación: ejecuta eolfi spec build"})
+                return 1
+            t = spec_tests(spec)
+            if args.out:
+                Path(args.out).write_text(json.dumps(t, ensure_ascii=False, indent=2), encoding="utf-8")
+                _print({"out": args.out, "tests": len(t["tests"]), "skipped": len(t["skipped"])})
+            else:
+                _print(t)
+        elif args.spec_cmd == "diff":
+            a, b = latest_spec(store, args.case_id, args.a), latest_spec(store, args.case_id, args.b)
+            _print(diff_specs(a, b))
+        elif args.spec_cmd == "review":
+            _print(review_requirement(store, args.case_id, args.requirement, args.decision,
+                                      reviewer=args.reviewer, note=args.note))
+    except ValueError as exc:
+        _print({"error": str(exc)})
+        return 1
+    return 0
+
+
 def _observe(args, store: EvidenceStore) -> int:
     from eolfi.observe import ScriptError, load_session, run_compare, run_observation, run_replay
     from eolfi.observe.session import load_script, static_unfixed_factors
@@ -422,6 +483,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
         )
         _print(rep)
         return 0 if rep["passed"] else 4
+    elif args.cmd == "spec":
+        return _spec(args, store)
     elif args.cmd == "observe":
         return _observe(args, store)
     elif args.cmd == "export":

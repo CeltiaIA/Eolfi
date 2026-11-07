@@ -69,11 +69,13 @@ La diferencia principal entre la base existente y el objetivo final no es acumul
 
 ### Fase 3 — Especificación de comportamiento sustentada
 
-- [ ] Convertir evidencias estáticas y dinámicas en una especificación versionada: funciones/casos de uso, entradas, salidas, errores, estados, persistencia, interfaces y requisitos no funcionales.
-- [ ] Enlazar cada requisito con evidencias concretas y grado de confianza; señalar contradicciones e incógnitas sin resolver.
+- [x] Convertir evidencias estáticas y dinámicas en una especificación versionada: funciones/casos de uso, entradas, salidas, errores, estados, persistencia, interfaces y requisitos no funcionales.
+- [x] Enlazar cada requisito con evidencias concretas y grado de confianza; señalar contradicciones e incógnitas sin resolver.
 - [ ] Modelar secuencias y máquinas de estado cuando el programa tenga flujos, protocolos, formatos o interfaces con estado.
-- [ ] Generar casos de prueba a partir de las observaciones, sin elevar automáticamente una inferencia de IA a observación confirmada.
-- [ ] Permitir revisión humana, cambios trazables y comparación de especificaciones entre versiones.
+- [x] Generar casos de prueba a partir de las observaciones, sin elevar automáticamente una inferencia de IA a observación confirmada.
+- [x] Permitir revisión humana, cambios trazables y comparación de especificaciones entre versiones.
+
+**Avance Fase 3 (2026-11-07):** `eolfi/spec/` y CLI `eolfi spec build|show|diff|review|tests --case`. Requisitos agrupados por entradas idénticas a partir de las sesiones de observación (casos de uso, interfaces, errores, persistencia, máquina de estados de pasos browser/desktop, duración máxima), con evidencias y confianza (high con ≥2 observaciones iguales); contradicciones abren incógnita y no generan pruebas; aspectos no reproducibles quedan «unstable»; hipótesis del caso aparte; versiones como registros «specification» con padre, revisión humana ligada a la huella de lo revisado y diff entre versiones; pruebas solo desde lo observado. Pruebas: `tests/test_spec.py` (5). Límites: lo estático se limita a la identidad del artefacto (formato, plataforma, tamaño); las máquinas de estado solo cubren flujos de interfaz (no protocolos ni formatos); las evidencias se reúnen por subject, así que un caso ve también sesiones del mismo objetivo hechas fuera de él; la aceptación (implementar desde la especificación) no está demostrada.
 
 **Aceptación:** otra persona puede implementar una función a partir de la especificación sin consultar el código original, y puede identificar qué afirmaciones son seguras, inferidas o desconocidas.
 
