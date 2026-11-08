@@ -603,6 +603,10 @@ cd eolfi/vscode-bridge && node e2e/local-eolas-live.js
 - Observación aislada en contenedor (`tests/test_container.py`): se ejecuta si Docker tiene la imagen
   `python:3.12-slim` (o la de `EOLFI_TEST_IMAGE`) en local; si no, se omite. Eolfi nunca la descarga.
 - Escritorio con UI Automation (`tests/test_observe.py`) solo en Windows; el registro, solo en Windows.
+- Los pasos de escritorio pueden incluir `"screenshots": true`: guardan hasta 20 imágenes JPEG por paso, limitadas
+  a 1280×800 y 256 KiB cada una, y las muestran en el informe HTML del caso. Es opcional; las imágenes no reciben
+  redacción automática de datos visuales, así que habilítalo solo si el contenido de esa ventana se puede conservar.
+- La observación de interfaz móvil sigue sin implementarse; exige herramientas Android y un dispositivo/emulador autorizado.
 
 ## Android
 

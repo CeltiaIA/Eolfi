@@ -10,6 +10,16 @@ param([string]$RequestPath)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+if (-not ([System.Management.Automation.PSTypeName]'EolfiWindowCapture').Type) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class EolfiWindowCapture {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+}
+'@
+}
 $req = Get-Content -Raw -Encoding UTF8 $RequestPath | ConvertFrom-Json
 $deadline = (Get-Date).AddMilliseconds([int]$req.timeout_ms)
 $procCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$req.pid)
@@ -39,6 +49,51 @@ function Snapshot {
     $wins += ,([ordered]@{ title = $w.Current.Name; class = $w.Current.ClassName; elements = $items; truncated = ($all.Count -gt 300) })
   }
   ,$wins
+}
+
+$script:screenshotCount = 0
+function CaptureWindow($window) {
+  if (-not $req.screenshots) { return @{ status = 'not_requested' } }
+  if ($script:screenshotCount -ge 20) { return @{ status = 'limit_reached'; limit = 20 } }
+  $script:screenshotCount++
+  try {
+    $rect = New-Object EolfiWindowCapture+RECT
+    $handle = [IntPtr]$window.Current.NativeWindowHandle
+    if ($handle -eq [IntPtr]::Zero -or -not [EolfiWindowCapture]::GetWindowRect($handle, [ref]$rect)) {
+      return @{ status = 'window_bounds_unavailable' }
+    }
+    $width = $rect.Right - $rect.Left; $height = $rect.Bottom - $rect.Top
+    if ($width -lt 1 -or $height -lt 1 -or $width -gt 16000 -or $height -gt 16000) {
+      return @{ status = 'invalid_window_bounds' }
+    }
+    Add-Type -AssemblyName System.Drawing
+    $scale = [Math]::Min(1.0, [Math]::Min(1280.0 / $width, 800.0 / $height))
+    $outWidth = [Math]::Max(1, [int][Math]::Round($width * $scale))
+    $outHeight = [Math]::Max(1, [int][Math]::Round($height * $scale))
+    $source = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($source)
+    try {
+      $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $source.Size)
+      $scaled = New-Object System.Drawing.Bitmap($outWidth, $outHeight)
+      $scaledGraphics = [System.Drawing.Graphics]::FromImage($scaled)
+      try {
+        $scaledGraphics.DrawImage($source, 0, 0, $outWidth, $outHeight)
+        $stream = New-Object System.IO.MemoryStream
+        try {
+          $scaled.Save($stream, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+          $bytes = $stream.ToArray()
+          if ($bytes.Length -gt 262144) { return @{ status = 'over_budget'; bytes = $bytes.Length; max_bytes = 262144 } }
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          try { $digest = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
+          finally { $sha.Dispose() }
+          return @{ status = 'captured'; mime_type = 'image/jpeg'; width = $outWidth; height = $outHeight;
+                    bytes = $bytes.Length; sha256 = $digest; data_base64 = [Convert]::ToBase64String($bytes) }
+        } finally { $stream.Dispose() }
+      } finally { $scaledGraphics.Dispose(); $scaled.Dispose() }
+    } finally { $graphics.Dispose(); $source.Dispose() }
+  } catch {
+    return @{ status = 'capture_error'; error = "$($_.Exception.Message)".Substring(0, [Math]::Min(300, "$($_.Exception.Message)".Length)) }
+  }
 }
 
 function Find($a) {
@@ -95,6 +150,10 @@ try {
     }
     Start-Sleep -Milliseconds 300
     $r.windows = Snapshot
+    if ($req.screenshots) {
+      $window = Windows | Select-Object -First 1
+      $r.screenshot = if ($window) { CaptureWindow $window } else { @{ status = 'no_window' } }
+    }
     $out.actions += ,$r
   }
   if ($req.close) {

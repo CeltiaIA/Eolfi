@@ -7,6 +7,8 @@ Sin scripts ni recursos externos; todo el texto procedente de objetivos se escap
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import html
 import json
 import time
@@ -45,6 +47,35 @@ def build_case_report(case: dict[str, Any]) -> dict[str, Any]:
     evidence = {e["evidence_id"]: e for e in case["evidence"]}
     incognitas = {i["incognita_id"]: i for i in case["incognitas"]}
     imported = {eid for eid, e in evidence.items() if IMPORT_MARK in str(e.get("limitations") or "")}
+    screenshots: list[dict[str, Any]] = []
+    for ev in case["evidence"]:
+        result = _loads(ev.get("result"))
+        if not isinstance(result, dict):
+            continue
+        steps = result.get("steps", [])
+        for step in steps if isinstance(steps, list) else []:
+            actions = step.get("actions", []) if isinstance(step, dict) else []
+            for action in actions if isinstance(actions, list) else []:
+                shot = action.get("screenshot") if isinstance(action, dict) else None
+                if not isinstance(shot, dict) or shot.get("status") != "captured" \
+                        or shot.get("mime_type") != "image/jpeg" or not isinstance(shot.get("data_base64"), str):
+                    continue
+                encoded = shot["data_base64"]
+                if len(encoded) > 350_000:
+                    continue
+                try:
+                    image = base64.b64decode(encoded, validate=True)
+                except (ValueError, TypeError):
+                    continue
+                width, height = shot.get("width"), shot.get("height")
+                if len(image) > 262_144 or not image.startswith(b"\xff\xd8\xff") \
+                        or isinstance(width, bool) or not isinstance(width, int) or not 1 <= width <= 1280 \
+                        or isinstance(height, bool) or not isinstance(height, int) or not 1 <= height <= 800 \
+                        or hashlib.sha256(image).hexdigest() != shot.get("sha256"):
+                    continue
+                screenshots.append({"evidence_id": ev["evidence_id"], "step_id": step.get("id", "?"),
+                                    "action_id": action.get("id", "?"), "width": width, "height": height,
+                                    "sha256": shot["sha256"], "data_base64": encoded})
     conclusions: list[dict[str, Any]] = []
     limits: list[str] = []
     for rec in case["records"]:
@@ -90,6 +121,8 @@ def build_case_report(case: dict[str, Any]) -> dict[str, Any]:
         limits.append(f"{hyp} conclusiones son hipótesis: no deben citarse como hechos.")
     limits.append("La cobertura se limita a los artefactos, herramientas y entradas registrados; "
                   "lo no observado no se afirma.")
+    if screenshots:
+        limits.append(f"{len(screenshots)} capturas de interfaz se conservaron sin redacción visual automática.")
     statuses: dict[str, int] = {}
     for rec in case["records"]:
         st = rec["payload"].get("status", "registro")
@@ -98,7 +131,7 @@ def build_case_report(case: dict[str, Any]) -> dict[str, Any]:
             "artifacts": case["artifacts"], "records": case["records"], "evidence": case["evidence"],
             "incognitas": case["incognitas"], "imports": case.get("imports", []), "conclusions": conclusions,
             "limits": limits, "statuses": statuses, "open_incognitas": len(open_inc), "imported": sorted(imported),
-            "generated_at": time.time(), "environment": environment_identity()}
+            "screenshots": screenshots, "generated_at": time.time(), "environment": environment_identity()}
 
 
 def _evidence_limits(ids: list[str], evidence: dict[str, Any]) -> list[str]:
@@ -229,6 +262,12 @@ def render_case_html(r: dict[str, Any]) -> str:
             + f'<p>Evidencias: {", ".join(ev_link(x) for x in p.get("evidence_ids", [])[:200]) or "—"}</p>'
             f'<details><summary>Datos del registro</summary><pre>{e(json.dumps(body, ensure_ascii=False, indent=2)[:20000])}</pre>'
             f'</details></article>')
+    shots = "".join(
+        f'<figure><img loading="lazy" src="data:image/jpeg;base64,{e(s["data_base64"])}" '
+        f'alt="Captura de {e(s["step_id"])} / {e(s["action_id"])}" width="{e(str(s["width"]))}" '
+        f'height="{e(str(s["height"]))}"><figcaption>{e(s["step_id"])} / {e(s["action_id"])} · '
+        f'{e(str(s["width"]))}×{e(str(s["height"]))} · SHA-256 <code>{e(s["sha256"][:16])}</code></figcaption></figure>'
+        for s in r.get("screenshots", []))
     evs = "".join(
         f'<article id="ev-{e(x["evidence_id"])}"><p><code>{e(x["evidence_id"])}</code> '
         f'<span class="badge">{e(AUTHORITY_LABEL.get(x["authority"], x["authority"]))}</span>'
@@ -256,12 +295,12 @@ def render_case_html(r: dict[str, Any]) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
 <title>Caso de Eolfi: {e(c["name"])}</title>
-<style>{_CSS}</style>
+<style>{_CSS}#capturas img{{max-width:100%;height:auto;border:1px solid #888}}#capturas figure{{display:inline-block;vertical-align:top;max-width:48%;margin:8px}}#capturas figcaption{{font-size:.85em}}</style>
 </head>
 <body>
-<nav aria-label="Secciones"><a href="#resumen">Resumen</a><a href="#conclusiones">Conclusiones</a><a href="#limites">Límites</a><a href="#artefactos">Artefactos</a><a href="#registros">Registros</a><a href="#evidencias">Evidencias</a><a href="#incognitas">Incógnitas</a></nav>
+<nav aria-label="Secciones"><a href="#resumen">Resumen</a><a href="#conclusiones">Conclusiones</a><a href="#limites">Límites</a><a href="#artefactos">Artefactos</a><a href="#registros">Registros</a><a href="#capturas">Capturas</a><a href="#evidencias">Evidencias</a><a href="#incognitas">Incógnitas</a></nav>
 <main>
 <h1>Caso: {e(c["name"])}</h1>
 <p class="muted">Caso <code>{e(c["case_id"])}</code> · creado {e(_iso(c["created_at"]))} · actualizado {e(_iso(c["updated_at"]))}
@@ -281,6 +320,7 @@ o de una reproducción controlada; «Derivada», alguna evidencia; «Hipótesis�
 <th scope="col">Versión</th><th scope="col">Plataforma</th><th scope="col">Procedencia</th><th scope="col">Herramientas</th><th scope="col">Entorno</th></tr></thead>
 <tbody>{arts}</tbody></table></section>
 <section id="registros"><h2>Registros ({len(r["records"])})</h2>{"".join(recs) or '<p class="muted">Sin registros.</p>'}</section>
+<section id="capturas"><h2>Capturas de interfaz ({len(r.get("screenshots", []))})</h2>{shots or '<p class="muted">No se solicitaron capturas visuales.</p>'}</section>
 <section id="evidencias"><h2>Evidencias ({len(r["evidence"])})</h2>{evs or '<p class="muted">Sin evidencias.</p>'}</section>
 <section id="incognitas"><h2>Incógnitas ({len(r["incognitas"])})</h2>{incs or '<p class="muted">Sin incógnitas.</p>'}</section>
 </main>

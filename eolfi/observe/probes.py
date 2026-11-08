@@ -12,8 +12,10 @@ devuelve como «not_available» con el motivo; nunca se simula.
 from __future__ import annotations
 
 import hashlib
+import base64
 import os
 import signal as _signal
+import stat
 import subprocess
 import sys
 import threading
@@ -23,6 +25,8 @@ from typing import Any
 
 MAX_SCOPE_FILES = 20_000
 MAX_HASH_BYTES = 64 * 1024 * 1024
+MAX_CAPTURE_FILE_BYTES = 256 * 1024
+MAX_CAPTURE_SESSION_BYTES = 1024 * 1024
 MAX_REGISTRY_VALUES = 5_000
 
 # NTSTATUS frecuentes en códigos de salida de procesos de Windows.
@@ -316,6 +320,81 @@ def snapshot_files(roots: list[tuple[str, Path]], normalize: Any = None) -> dict
             if truncated:
                 break
     return {"files": files, "truncated": truncated, "errors": errors}
+
+
+def capture_file_contents(roots: list[tuple[str, Path]], paths: list[str], remaining: int) -> tuple[dict[str, Any], int]:
+    """Captura bytes solo de rutas exactas elegidas en el guion, con límites y sin seguir enlaces."""
+    captured: dict[str, Any] = {}
+    for key in paths:
+        for label, root in roots:
+            prefix = label.rstrip("/") + "/"
+            if not key.startswith(prefix):
+                continue
+            rel = key[len(prefix):]
+            if not rel or any(part in ("", ".", "..") for part in rel.split("/")):
+                captured[key] = {"status": "invalid_path"}
+                break
+            path = root.joinpath(*rel.split("/"))
+            try:
+                # Reject links/reparse points in every component. Checking only the leaf would
+                # allow sandbox/link/file to read through a directory link outside the scope.
+                current = root
+                components = rel.split("/")
+                blocked = False
+                for index, component in enumerate(components):
+                    current = current / component
+                    link_info = os.lstat(current)
+                    reparse = bool(getattr(link_info, "st_file_attributes", 0) &
+                                   getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+                    if stat.S_ISLNK(link_info.st_mode) or reparse:
+                        captured[key] = {"status": "symlink_not_captured"}
+                        blocked = True
+                        break
+                    if index < len(components) - 1 and not stat.S_ISDIR(link_info.st_mode):
+                        captured[key] = {"status": "not_directory"}
+                        blocked = True
+                        break
+                if blocked:
+                    break
+                flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(path, flags)
+                try:
+                    info = os.fstat(fd)
+                    if not stat.S_ISREG(info.st_mode):
+                        captured[key] = {"status": "not_regular_file"}
+                        break
+                    if info.st_size > MAX_CAPTURE_FILE_BYTES:
+                        captured[key] = {"status": "too_large", "size": info.st_size,
+                                         "limit": MAX_CAPTURE_FILE_BYTES}
+                        break
+                    if info.st_size > remaining:
+                        captured[key] = {"status": "session_budget_exceeded", "size": info.st_size,
+                                         "remaining": remaining}
+                        break
+                    chunks = []
+                    left = MAX_CAPTURE_FILE_BYTES + 1
+                    while left:
+                        chunk = os.read(fd, min(left, 64 * 1024))
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        left -= len(chunk)
+                    data = b"".join(chunks)
+                    if len(data) != info.st_size or len(data) > MAX_CAPTURE_FILE_BYTES:
+                        captured[key] = {"status": "changed_during_capture"}
+                        break
+                    captured[key] = {"status": "captured", "size": len(data),
+                                     "sha256": hashlib.sha256(data).hexdigest(),
+                                     "data_base64": base64.b64encode(data).decode("ascii")}
+                    remaining -= len(data)
+                finally:
+                    os.close(fd)
+            except OSError as exc:
+                captured[key] = {"status": "unavailable", "reason": type(exc).__name__}
+            break
+        else:
+            captured[key] = {"status": "not_found_in_scope"}
+    return captured, remaining
 
 
 def diff_mapping(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:

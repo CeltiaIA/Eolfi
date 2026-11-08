@@ -1,4 +1,6 @@
 """Fase 2: observación de caja negra reproducible (solo muestras sintéticas propias, ver observe_samples.py)."""
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -52,6 +54,7 @@ def _app_steps(stdin="hola", flags=()):
      "repetido"),
     ({"steps": [{"action": "run", "argv": ["x"], "rm": True}]}, "no admitidas"),
     ({"scope": {"registry": ["HKCR\\x"]}}, "registro"),
+    ({"scope": {"capture_contents": ["../secreto.txt"]}}, "capture_contents"),
     ({"steps": [{"action": "browser", "url": "http://127.0.0.1/", "actions": [{"do": "click"}]}]}, "selector"),
     ({"extra": 1}, "no admitidas"),
 ])
@@ -65,9 +68,54 @@ def test_script_validation_rejects(bad, msg):
 def test_script_normalized_defaults():
     s = validate_script(_script(None, [{"action": "write_file", "path": "a\\b.txt", "text": "x"}]))
     assert s["environment"] == {"inherit": False, "vars": {}, "passthrough": [], "redirect_home": True}
-    assert s["scope"] == {"files": ["."], "registry": [], "children": True}
+    assert s["scope"] == {"files": ["."], "registry": [], "children": True, "capture_contents": []}
     assert s["steps"][0] == {"id": "paso1", "action": "write_file", "path": "a/b.txt", "content": {"text": "x"}}
     assert s["cleanup"] == {"remove_sandbox": True}
+
+
+def test_file_content_capture_is_explicit_and_bounded(tmp_path):
+    from eolfi.observe.probes import capture_file_contents
+
+    path = tmp_path / "output.bin"
+    path.write_bytes(b"\x00authorized-output\xff")
+    key = "{sandbox}/output.bin"
+    result, remaining = capture_file_contents([("{sandbox}", tmp_path)], [key], 100)
+    capture = result[key]
+    assert capture["status"] == "captured"
+    assert base64.b64decode(capture["data_base64"]) == path.read_bytes()
+    assert capture["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert remaining == 100 - path.stat().st_size
+    result, _ = capture_file_contents([("{sandbox}", tmp_path)], [key], 1)
+    assert result[key]["status"] == "session_budget_exceeded"
+    result, _ = capture_file_contents([("{sandbox}", tmp_path)], [key], 100,)
+    assert result[key]["status"] == "captured"
+
+
+def test_file_content_capture_rejects_symlinked_parent(tmp_path):
+    import subprocess
+
+    from eolfi.observe.probes import capture_file_contents
+
+    root = tmp_path / "scope"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.bin").write_bytes(b"must not be read")
+    linked = root / "linked"
+    if os.name == "nt":
+        created = subprocess.run(["cmd", "/c", "mklink", "/J", str(linked), str(outside)],
+                                 capture_output=True, text=True)
+        if created.returncode:
+            pytest.skip("el entorno no permite crear una junction de directorio")
+    else:
+        try:
+            linked.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("el entorno no permite crear enlaces de directorio")
+    result, _ = capture_file_contents([("{sandbox}", root)], ["{sandbox}/linked/secret.bin"], 100)
+    assert result["{sandbox}/linked/secret.bin"]["status"] == "symlink_not_captured"
+    outside.joinpath("secret.bin").unlink()
+    outside.rmdir()
 
 
 def test_requires_explicit_authorization(store, tmp_path):
@@ -445,17 +493,25 @@ def test_desktop_step_validation():
                                         "actions": [{"do": "set_value", "automation_id": "a"}]}]))
     s = validate_script(_script(None, [{"action": "desktop", "argv": ["x"], "actions": [{"do": "read"}]}]))
     assert s["steps"][0]["close"] is True and s["steps"][0]["timeout"] == 60.0
+    assert s["steps"][0]["screenshots"] is False
+    visual = validate_script(_script(None, [{"action": "desktop", "argv": ["x"], "screenshots": True,
+                                             "actions": [{"do": "read"}]}]))
+    assert visual["steps"][0]["screenshots"] is True
+    with pytest.raises(ScriptError, match="screenshots: booleano"):
+        validate_script(_script(None, [{"action": "desktop", "argv": ["x"], "screenshots": "yes",
+                                       "actions": [{"do": "read"}]}]))
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="UI Automation solo en Windows")
 def test_desktop_scenario_windows_uia(store, tmp_path):
     t = samples.write(tmp_path, "app.ps1", samples.WINFORMS)
-    script = _script(t, [{"id": "ui", "action": "desktop", "timeout": 60, "cwd": "trabajo",
+    script = _script(t, [{"id": "ui", "action": "desktop", "timeout": 60, "cwd": "trabajo", "screenshots": True,
                           "argv": ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", "{target}"],
                           "actions": [{"id": "escribir", "do": "set_value", "automation_id": "entrada", "value": "hola"},
                                       {"id": "pulsar", "do": "invoke", "automation_id": "convertir"}]}],
                      environment={"passthrough": ["PATH", "PSModulePath"]}, scope={"files": ["trabajo"]})
-    rep = run_observation(script, store, authorized=True)
+    cid = CaseStore(store).create("captura UI sintética")["case_id"]
+    rep = run_observation(script, store, authorized=True, case_id=cid)
     step = rep["steps"][0]
     assert step["status"] == "ok", json.dumps(step)[:3000]
     assert [a["id"] for a in step["actions"]] == ["_inicio", "escribir", "pulsar"]
@@ -473,6 +529,18 @@ def test_desktop_scenario_windows_uia(store, tmp_path):
     created = [e["path"] for e in step["effects"]["files"] if e["change"] == "created"]
     assert created == ["{sandbox}/trabajo/ultimo.txt"]          # efecto de la acción «pulsar»
     assert rep["coverage"]["ui_desktop"]["status"] == "observed"
+    assert rep["coverage"]["ui_desktop"]["screenshots"] == "captured"
+    assert rep["coverage"]["visual_content"]["status"] == "not_redacted"
+    for action in step["actions"]:
+        shot = action["screenshot"]
+        image = base64.b64decode(shot["data_base64"], validate=True)
+        assert shot["status"] == "captured" and shot["mime_type"] == "image/jpeg"
+        assert len(image) == shot["bytes"] <= 262144 and hashlib.sha256(image).hexdigest() == shot["sha256"]
+        assert 1 <= shot["width"] <= 1280 and 1 <= shot["height"] <= 800
+    report = build_case_report(CaseStore(store).get(cid))
+    assert len(report["screenshots"]) == len(step["actions"])
+    rendered = render_case_html(report)
+    assert "data:image/jpeg;base64," in rendered and "Captura de ui / pulsar" in rendered
     assert rep["coverage"]["ui_mobile"]["status"] == "not_available"
     # Repetición: el resultado funcional (texto convertido y archivo) se repite; lo que varíe (p. ej. el árbol
     # inicial capturado antes de que la ventana termine de pintarse con el equipo cargado) queda MARCADO como no
@@ -481,7 +549,8 @@ def test_desktop_scenario_windows_uia(store, tmp_path):
     again = load_session(store, r["replay"])["session"]["steps"][0]
     assert elem(again["actions"][-1], "resultado")["name"] == "HOLA"
     ui = [d for d in r["non_reproducible"] if d["aspect"].split(".")[0] in ("_inicio", "escribir", "pulsar")]
-    assert ui == [], r["non_reproducible"]           # árbol normalizado: sin clases/handles volátiles
+    assert all(d["aspect"].endswith("captura visual") for d in ui), r["non_reproducible"]
+    assert {d["aspect"].split(".")[0] for d in ui} == {"_inicio", "escribir", "pulsar"}
     assert all(d["reason"] for d in r["non_reproducible"])
 
 
