@@ -15,8 +15,11 @@ def test_config_por_defecto_y_argumentos(tmp_path, monkeypatch):
     assert a[0] == "X:/llama-server.exe" and a[a.index("-m") + 1].endswith("gemma-4-E4B-it-Q4_K_M.gguf")
     assert a[a.index("--host") + 1] == "127.0.0.1"
     assert a[a.index("--reasoning-format") + 1] == "deepseek" and "--jinja" in a
-    (tmp_path / "llamacpp.json").write_text(json.dumps({"temperature": 0.1, "reasoning": False, "max_tokens": 777}), encoding="utf-8")
+    assert "--threads" not in a and "--threads-batch" not in a
+    (tmp_path / "llamacpp.json").write_text(json.dumps({"temperature": 0.1, "reasoning": False, "max_tokens": 777, "threads": 4}), encoding="utf-8")
     cfg = llamacpp.load_config()
+    a = llamacpp.server_args(cfg)
+    assert a[a.index("--threads") + 1] == "4" and a[a.index("--threads-batch") + 1] == "4"
     assert llamacpp.request_options(cfg) == {"temperature": 0.1, "top_p": 0.95, "max_tokens": 777,
                                              "chat_template_kwargs": {"enable_thinking": False}}
 

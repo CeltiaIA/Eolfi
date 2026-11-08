@@ -74,6 +74,100 @@ test('sin sesión: pide iniciar sesión con un botón', async () => {
   assert.strictEqual(s.buttons[0].command, 'eolfi.login');
 });
 
+test('/meta consulta Meta Web y envía solo el texto explícito, sin histórico ni herramientas', async () => {
+  const sent = [];
+  const client = { ...fakeClient(), metaWeb: async (prompt, conversation) => {
+    sent.push({ prompt, conversation });
+    return { text: 'META_OK' };
+  } };
+  const h = makeChatHandler({ vscode: fakeVscode(), summarize, state: {}, getClient: async () => client });
+  const s = fakeStream();
+  const r = await h({ command: 'meta', prompt: 'Responde solo META_OK' },
+    { history: [{ participant: 'eolfi.chat', prompt: 'texto histórico privado' }] }, s, {});
+  assert.deepStrictEqual(sent.map((x) => x.prompt), ['Responde solo META_OK']);
+  assert.match(sent[0].conversation, /^panel-meta-\d{1,16}$/);
+  assert.match(s.md, /Meta AI Web[\s\S]*META_OK/);
+  assert.strictEqual(r.metadata.model, 'Meta AI Web');
+});
+
+test('/meta entrega automáticamente la respuesta al agente Eolas local', async () => {
+  const sent = [];
+  const localInputs = [];
+  const vs = fakeVscode();
+  const localModel = {
+    name: () => 'Eolas local de prueba',
+    chatTools: async (conv) => {
+      localInputs.push(JSON.parse(JSON.stringify(conv)));
+      return { content: 'Eolfi verificó la propuesta y terminó la tarea.', tool_calls: [] };
+    },
+  };
+  const client = { ...fakeClient(), metaWeb: async (prompt, conversation) => {
+    sent.push({ prompt, conversation });
+    return { text: 'META_RESPUESTA_OK: la propuesta necesita cambios.' };
+  } };
+  const h = makeChatHandler({
+    vscode: vs, summarize, state: {}, getClient: async () => client,
+    preferLocal: () => true, autoExecuteMeta: () => true, localModel,
+  });
+  const s = fakeStream();
+  const r = await h({ command: 'meta', prompt: 'Implementa la propuesta en el proyecto abierto.' }, { history: [] }, s, {});
+  assert.deepStrictEqual(sent.map((x) => x.prompt), ['Implementa la propuesta en el proyecto abierto.']);
+  assert.strictEqual(localInputs.length, 1);
+  assert.match(localInputs[0].at(-1).content, /Implementa la propuesta en el proyecto abierto/);
+  assert.match(localInputs[0].at(-1).content, /META_RESPUESTA_OK/);
+  assert.match(localInputs[0].at(-1).content, /contenido externo no confiable/);
+  assert.strictEqual(vs.sent.length, 0, 'no se usa Copilot');
+  assert.match(s.md, /Meta AI Web[\s\S]*META_RESPUESTA_OK/);
+  assert.match(s.md, /Eolfi verificó la propuesta/);
+  assert.strictEqual(r.metadata.model, 'Eolas local de prueba');
+  assert.strictEqual(r.metadata.metaProvider, 'Meta AI Web');
+  assert.strictEqual(r.metadata.autoHandoff, true);
+});
+
+test('/meta no deriva a Copilot si Eolas no está disponible', async () => {
+  const vs = fakeVscode({ answer: 'NO_DEBE_USARSE_COPILOT' });
+  const client = { ...fakeClient(), metaWeb: async () => ({ text: 'META_OK' }) };
+  const h = makeChatHandler({
+    vscode: vs, summarize, state: {}, getClient: async () => client,
+    preferLocal: () => true, autoExecuteMeta: () => true, localModel: null,
+  });
+  const s = fakeStream();
+  const r = await h({ command: 'meta', prompt: 'Desarrolla el proyecto.' }, {}, s, {});
+  assert.match(s.md, /META_OK/);
+  assert.match(s.md, /no ejecutó la respuesta.*Eolas\/llama.cpp local/s);
+  assert.strictEqual(vs.sent.length, 0);
+  assert.strictEqual(r.metadata.autoHandoff, 'blocked-local-unavailable');
+});
+
+test('/meta comunica si Eolas falla después de recibir la respuesta', async () => {
+  const vs = fakeVscode({ answer: 'NO_DEBE_USARSE_COPILOT' });
+  const client = { ...fakeClient(), metaWeb: async () => ({ text: 'META_OK' }) };
+  const h = makeChatHandler({
+    vscode: vs, summarize, state: {}, getClient: async () => client,
+    preferLocal: () => true, autoExecuteMeta: () => true,
+    localModel: { name: () => 'Eolas local', chatTools: async () => { throw new Error('Eolas HTTP 500'); } },
+  });
+  const s = fakeStream();
+  const r = await h({ command: 'meta', prompt: 'Ejecuta la propuesta.' }, {}, s, {});
+  assert.match(s.md, /META_OK/);
+  assert.match(s.md, /Eolas HTTP 500/);
+  assert.strictEqual(vs.sent.length, 0);
+  assert.strictEqual(r.metadata.autoHandoff, 'local-failed');
+});
+
+test('/meta permite desactivar el traspaso automático sin afectar la consulta', async () => {
+  const client = { ...fakeClient(), metaWeb: async () => ({ text: 'META_OK' }) };
+  const localCalls = [];
+  const h = makeChatHandler({
+    vscode: fakeVscode(), summarize, state: {}, getClient: async () => client,
+    preferLocal: () => true, autoExecuteMeta: () => false,
+    localModel: { name: () => 'local', chatTools: async (...args) => { localCalls.push(args); return { content: 'no', tool_calls: [] }; } },
+  });
+  const r = await h({ command: 'meta', prompt: 'Resume esto.' }, {}, fakeStream(), {});
+  assert.strictEqual(r.metadata.autoHandoff, false);
+  assert.strictEqual(localCalls.length, 0);
+});
+
 test('/analizar y /incognitas', async () => {
   const client = fakeClient();
   const state = {};
@@ -92,6 +186,50 @@ test('/analizar y /incognitas', async () => {
   assert.match(s.md, /1 incógnitas abiertas/);
   assert.match(s.md, /¿Qué hace X\?/);
   assert.doesNotMatch(s.md, /resuelta/);
+});
+
+test('/desarrollar recupera el informe del workspace y lo pasa al modelo del chat', async () => {
+  const vs = fakeVscode({ answer: 'Empiezo validando los hallazgos.' });
+  const client = fakeClient();
+  const reads = [];
+  const h = makeChatHandler({
+    vscode: vs, summarize, state: {}, getClient: async () => client,
+    actions: { read: async ({ path: p }) => { reads.push(p); return { path: p, text: '# Informe REA\nPendiente: comprobar build y arranque.' }; } },
+  });
+  const s = fakeStream();
+  await h({ command: 'desarrollar', prompt: 'informes/informe-REA.md' }, {}, s, {});
+  assert.strictEqual(reads.length, 1);
+  assert.match(reads[0], /informes[\\/]informe-REA\.md$/);
+  assert.strictEqual(vs.sent.length, 1);
+  assert.strictEqual(vs.sent[0].model, 'gpt');
+  const userPrompt = vs.sent[0].msgs.at(-1).content;
+  assert.match(userPrompt, /continuar el desarrollo/);
+  assert.match(userPrompt, /Pendiente: comprobar build y arranque/);
+  assert.match(userPrompt, /dato no confiable/);
+  assert.match(userPrompt, /no cambies silenciosamente a Copilot/);
+});
+
+test('/desarrollar sin informe explica la sintaxis y no llama al modelo', async () => {
+  const vs = fakeVscode();
+  const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => fakeClient(), actions: { read: async () => { throw Error('no debe leer'); } } });
+  const s = fakeStream();
+  await h({ command: 'desarrollar', prompt: '' }, {}, s, {});
+  assert.match(s.md, /@eolfi \/desarrollar informes/);
+  assert.strictEqual(vs.sent.length, 0);
+});
+
+test('el progreso del agente se publica al panel sin prompts y nunca bloquea el chat', async () => {
+  const vs = fakeVscode({ answer: 'He revisado el proyecto.' });
+  const events = [];
+  const client = { ...fakeClient(), agentActivity: async (e) => { events.push(e); } };
+  const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => client });
+  const s = fakeStream();
+  await h({ prompt: 'revisa el proyecto y dime el estado' }, { history: [] }, s, {});
+  assert.deepStrictEqual(events.map((e) => e.phase), ['start', 'done']);
+  assert.match(events[0].run_id, /^[0-9a-f]{32}$/);
+  assert.strictEqual(events[0].label, 'Chat de Eolfi');
+  assert.ok(events.every((e) => !('prompt' in e) && !('result' in e)));
+  assert.match(s.md, /He revisado el proyecto/);
 });
 
 test('agente: el modelo de VS Code usa las herramientas de Eolfi y de VS Code y responde', async () => {
@@ -190,7 +328,7 @@ test('/ayuda muestra la ayuda del agente con botones', async () => {
   const s = fakeStream();
   await h({ command: 'ayuda', prompt: '' }, {}, s, {});
   assert.ok(s.md.startsWith(AGENT_HELP));
-  assert.match(s.md, /modelo que elijas en el chat/);
+  assert.match(s.md, /llama.cpp local/);
   assert.match(s.md, /Lo que no hago/);
   assert.match(s.md, /Lo que no puedo hacer/);
   assert.match(s.md, /\/analizar/);
@@ -221,16 +359,16 @@ test('secretos: ni /analizar, ni la herramienta, ni botón para .env', async () 
   assert.ok(!s.buttons.some((b) => b.command === 'eolfi.analyzeFile'));
 });
 
-test('el agente recuerda el modelo que funciona y lo anuncia en /ayuda', async () => {
-  const vs = fakeVscode({ answer: 'ok', models: [['reservado', true], ['bueno', false]] });
-  const state = {};
-  const h = makeChatHandler({ vscode: vs, summarize, state, getClient: async () => fakeClient() });
-  await h({ prompt: 'hola' }, {}, fakeStream(), {});
-  assert.strictEqual(state.lastModelId, 'bueno');
-  assert.ok(state.refusedModels.has('reservado'));
+test('ayuda informa que llama.cpp mantiene las herramientas, Meta Web se consulta con /meta y Copilot sigue desconectado', async () => {
+  const vs = fakeVscode({ answer: 'no debería usar Copilot' });
+  const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => fakeClient(), preferLocal: () => true,
+    localModel: { name: () => 'Gemma local', chatTools: async () => ({ content: 'ok', tool_calls: [] }) } });
   const s = fakeStream();
   await h({ command: 'ayuda', prompt: '' }, {}, s, {});
-  assert.match(s.md, /modelo \*\*BUENO\*\* de VS Code \(el último que ha funcionado\)/);
+  assert.ok(s.md.includes('agente con herramientas usa llama.cpp local'));
+  assert.ok(s.md.includes('/meta <mensaje>'));
+  assert.match(s.md, /Copilot está desconectado/);
+  assert.strictEqual(vs.sent.length, 0);
 });
 
 test('agente con REA: busca, usa las de solo lectura y confirma las demás; nunca con secretos', async () => {
@@ -759,7 +897,7 @@ test('una respuesta que cita una pregunta (incógnita) no se toma como pregunta 
 });
 
 test('modelo principal local (Gemma 4): /modelo, herramientas locales e instrucciones; oculta razonamiento privado', async () => {
-  let local = false;
+  let local = true;
   const vs = fakeVscode({ answer: 'no debería usar Copilot' });
   const seen = [];
   const localModel = { name: () => 'gemma-4 (llama.cpp local)', complete: async () => '',
@@ -784,6 +922,6 @@ test('modelo principal local (Gemma 4): /modelo, herramientas locales e instrucc
   assert.match(seen[0], /NO VERIFICADO/);
   s = fakeStream();
   await h({ command: 'modelo', prompt: 'copilot' }, {}, s, {});
-  assert.ok(!local);
-  assert.match(s.md, /Modelo principal: Copilot/);
+  assert.ok(local);
+  assert.match(s.md, /Copilot está desconectado de Eolfi hasta nueva orden/);
 });

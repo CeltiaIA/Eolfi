@@ -93,13 +93,15 @@ test('sin llama-server ni modelo: no lo intenta; tras inactividad se para solo',
 
 test('arranca con la configuración común (llamacpp.json): Gemma 4, puerto, contexto, GPU y razonamiento separado', async () => {
   const f = fakeServer();
-  const cfg = { server: 'D:/llama/llama-server.exe', model: 'D:/m/gemma-4-E4B-it-Q4_K_M.gguf', port: 8090, ctx: 16384, gpu_layers: 99, alias: 'gemma-4', extra_args: ['--flash-attn', 'on'] };
+  const cfg = { server: 'D:/llama/llama-server.exe', model: 'D:/m/gemma-4-E4B-it-Q4_K_M.gguf', port: 8090, ctx: 16384,
+    gpu_layers: 20, threads: 4, alias: 'gemma-4', extra_args: ['--flash-attn', 'on'] };
   const s = makeLlamaStarter({ config: () => cfg, spawnFn: f.spawnFn, fetchFn: f.fetchFn, portFreeFn: async () => true, readyMs: 5000 });
   assert.deepStrictEqual(s.plan(), { exe: cfg.server, model: cfg.model });
   await s.start();
   const a = f.spawned[0].args;
   assert.strictEqual(f.spawned[0].exe, cfg.server);
-  for (const [k, v] of [['--port', '8090'], ['-c', '16384'], ['-ngl', '99'], ['--alias', 'gemma-4'], ['--reasoning-format', 'deepseek']]) {
+  for (const [k, v] of [['--port', '8090'], ['-c', '16384'], ['-ngl', '20'], ['--threads', '4'],
+    ['--threads-batch', '4'], ['--alias', 'gemma-4'], ['--reasoning-format', 'deepseek']]) {
     assert.strictEqual(a[a.indexOf(k) + 1], v, k);
   }
   assert.ok(a.includes('--jinja') && a.includes('--flash-attn'));
@@ -119,7 +121,8 @@ test('configuración común: valores por defecto, la crea si falta y opciones po
   assert.strictEqual(c.temperature, 0.2);
   fs.writeFileSync(process.env.EOLFI_LLAMACPP_CONFIG, JSON.stringify({ temperature: 0.2, reasoning: false, review_reasoning: true, max_tokens: 900 }));
   const c2 = loadConfig();
-  assert.deepStrictEqual(requestOptions(c2), { temperature: 0.2, top_p: 0.95, max_tokens: 900, chat_template_kwargs: { enable_thinking: false } });
+  assert.deepStrictEqual(requestOptions(c2), { temperature: 0.2, top_p: 0.95, max_tokens: 900, num_ctx: 32768, num_gpu: 99,
+    chat_template_kwargs: { enable_thinking: false } });
   assert.strictEqual(requestOptions(c2, { review: true }).chat_template_kwargs.enable_thinking, true);
   delete process.env.EOLFI_LLAMACPP_CONFIG;
 });

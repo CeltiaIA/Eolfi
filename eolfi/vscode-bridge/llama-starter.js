@@ -95,9 +95,11 @@ function makeLlamaStarter({ server = '', gguf = '', firstPort = 8080, ctx = 3276
     if (port >= first + 20) throw new Error(`no hay puerto libre entre ${first} y ${first + 19}`);
     const alias = c.alias || aliasOpt || path.basename(model).replace(/\.gguf$/i, '');
     const ngl = c.gpu_layers ?? gpuLayers;
+    const threads = Number(c.threads) || 0;
     log(`llama-server: arrancando ${alias} en 127.0.0.1:${port}`);
     proc = spawnFn(exe, ['-m', model, '--host', '127.0.0.1', '--port', String(port), '-c', String(c.ctx || ctx), '--alias', alias, '--jinja',
-      '--reasoning-format', 'deepseek', ...(ngl !== null && ngl !== undefined ? ['-ngl', String(ngl)] : []), ...(c.extra_args || extraArgs).map(String)],
+      '--reasoning-format', 'deepseek', ...(ngl !== null && ngl !== undefined ? ['-ngl', String(ngl)] : []),
+      ...(threads > 0 ? ['--threads', String(threads), '--threads-batch', String(threads)] : []), ...(c.extra_args || extraArgs).map(String)],
       { windowsHide: true, stdio: 'ignore' });
     proc.on?.('exit', () => { proc = null; url = null; });
     const u = `http://127.0.0.1:${port}`;

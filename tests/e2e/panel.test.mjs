@@ -75,6 +75,20 @@ test('carga sin errores y sin problemas graves de accesibilidad (claro y oscuro)
   await page.evaluate(() => { delete document.documentElement.dataset.theme; });
 });
 
+test('la actividad del agente de VS Code aparece en la franja del panel', async () => {
+  await page.route('**/api/vscode/activity*', (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ activity: [{ run_id: 'c'.repeat(32), status: 'running', label: '@eolfi /auditar',
+      log: [{ t: 1, msg: 'Paso 2 de 10: eolfi_read_file' }] }] }),
+  }));
+  await page.reload();
+  await page.waitForFunction(() => !document.querySelector('#vscode-activity').hidden);
+  assert.match(await page.textContent('#vscode-activity'), /@eolfi \/auditar/);
+  assert.match(await page.textContent('#vscode-activity'), /eolfi_read_file/);
+  await page.unroute('**/api/vscode/activity*');
+  await page.reload();
+});
+
 test('subir un binario: se analiza como trabajo y aparece como objetivo', async () => {
   await page.setInputFiles('#file', join(tmp, 'muestra.elf'));
   await page.click('#go');

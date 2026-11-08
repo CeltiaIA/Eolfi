@@ -130,6 +130,6 @@ def test_web_auto_provider_via_bridge(tmp_path, bridge):
     page = (out / "index.html").read_text(encoding="utf-8").replace("</main>", '<section id="auto"><h2>Auto</h2></section></main>')
     rfile = bridge([{"summary": "auto", "notes": [], "files": [{"path": "index.html", "content": page}]}])
     r = assist(out, "x", provider="web")
-    assert r["ok"] and r["model"].startswith("gemini (web")         # el falso dice ok a los tres; el orden por defecto empieza en gemini
+    assert r["ok"] and r["model"].startswith("meta (web")           # el falso dice ok a los tres; Meta es el primer proveedor web
     seen = json.loads(Path(str(rfile) + ".seen.json").read_text(encoding="utf-8"))
     assert seen[0]["site"] == r["model"].split(" ")[0]

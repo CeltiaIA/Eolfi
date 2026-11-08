@@ -487,7 +487,7 @@ python -m eolfi assist D:/p/tienda --provider meta-web --brief "Añade ofertas"
   panel (lo que tecleas tú); solo el panel puede ver y manejar la ventana. El estado indica si cada chat está "con
   sesión" o en "modo invitado".
 - `--provider web` elige solo el primer chat listo, prefiriendo los que tienen
-  sesión (orden configurable con `EOLFI_WEB_ORDER=gemini,meta,deepseek`).
+  sesión (orden configurable con `EOLFI_WEB_ORDER=meta,deepseek,gemini`).
 - La respuesta se da por terminada en cuanto la web retira su botón de
   "Detener respuesta" (~0,2-0,6 s de margen); el resto del tiempo es la web
   generando en sus servidores.

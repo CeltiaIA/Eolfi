@@ -67,7 +67,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "copilot-web": {"kind": "bridge", "site": "copilot", "context_bytes": 14_000},
     "lechat-web": {"kind": "bridge", "site": "lechat", "context_bytes": 14_000},
     # El primer chat web listo, prefiriendo los que tienen sesión iniciada.
-    # Orden configurable con EOLFI_WEB_ORDER (por defecto gemini,meta,deepseek).
+    # Orden configurable con EOLFI_WEB_ORDER (por defecto meta,deepseek,gemini).
     "web": {"kind": "bridge", "site": "auto", "context_bytes": 14_000},
 }
 
@@ -85,7 +85,7 @@ def bridge_status() -> dict[str, Any]:
 def choose_web_site(status: dict[str, Any] | None = None) -> str:
     """Elige el chat web: primero los listos con sesión, luego los listos en modo invitado."""
     status = status if status is not None else bridge_status()
-    order = [s.strip() for s in os.environ.get("EOLFI_WEB_ORDER", "gemini,meta,deepseek,lechat").split(",") if s.strip()]
+    order = [s.strip() for s in os.environ.get("EOLFI_WEB_ORDER", "meta,deepseek,gemini,lechat").split(",") if s.strip()]
     order += [s for s in ("gemini", "meta", "deepseek", "chatgpt", "lechat", "copilot") if s not in order]
     ready = [s for s in order if status.get(s, {}).get("ok") and not status.get(s, {}).get("busy")]
     signed = [s for s in ready if status[s].get("signedIn")]
