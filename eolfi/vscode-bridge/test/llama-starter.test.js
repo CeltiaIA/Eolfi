@@ -93,7 +93,7 @@ test('sin llama-server ni modelo: no lo intenta; tras inactividad se para solo',
 
 test('arranca con la configuración común (llamacpp.json): Gemma 4, puerto, contexto, GPU y razonamiento separado', async () => {
   const f = fakeServer();
-  const cfg = { server: 'D:/llama/llama-server.exe', model: 'D:/m/gemma-4-E4B-it-Q4_K_M.gguf', port: 8090, ctx: 16384,
+  const cfg = { server: 'D:/llama/llama-server.exe', model: 'D:/m/gemma-4-12b-it-Q5_K_M.gguf', port: 8090, ctx: 16384,
     gpu_layers: 20, threads: 4, alias: 'gemma-4', extra_args: ['--flash-attn', 'on'] };
   const s = makeLlamaStarter({ config: () => cfg, spawnFn: f.spawnFn, fetchFn: f.fetchFn, portFreeFn: async () => true, readyMs: 5000 });
   assert.deepStrictEqual(s.plan(), { exe: cfg.server, model: cfg.model });

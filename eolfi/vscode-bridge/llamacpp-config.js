@@ -7,13 +7,11 @@ const os = require('node:os');
 const path = require('node:path');
 
 const DEFAULTS = {
-  server: '', model: '', alias: 'gemma-4', port: 8090, ctx: 32768, gpu_layers: 99, threads: 0,
+  server: '', model: '', alias: 'gemma-4-12b-it:latest', port: 8090, ctx: 32768, gpu_layers: 99, threads: 0,
   reasoning: true, review_reasoning: false, show_reasoning: false,
   temperature: 0.2, top_p: 0.95, max_tokens: 4096, system: '', extra_args: [],
 };
 const GEMMA_CANDIDATES = [
-  path.join(os.homedir(), '.eolfi', 'models', 'gemma-4-E4B-it-Q4_K_M.gguf'),
-  'D:\\LMStudio\\models\\lmstudio-community\\gemma-4-E4B-it-GGUF\\gemma-4-E4B-it-Q4_K_M.gguf',
   'D:\\AI\\Hydra\\gguf\\gemma-4-12b-it-Q5_K_M.gguf',
 ];
 

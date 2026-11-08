@@ -4,7 +4,6 @@ La configuración vive en ~/.eolfi/llamacpp.json (EOLFI_LLAMACPP_CONFIG) y la co
 (proveedor «gemma») y la extensión de VS Code (@eolfi con el modelo local). Campos:
 
   server          llama-server.exe (vacío = el primero que se encuentre)
-  model           .gguf (vacío = Gemma 4: E4B si existe, si no 12B)
   port            puerto en 127.0.0.1 (8090)
   ctx             contexto en tokens (32768: los lotes de la auditoría llegan a ~20 000)
   gpu_layers      capas en la GPU (99 = todas las que quepan)
@@ -34,15 +33,13 @@ SERVER_CANDIDATES = [
     Path(r"D:\EOLAS-BASE\llama\llama-server.exe"),
 ]
 GEMMA_CANDIDATES = [
-    Path.home() / ".eolfi" / "models" / "gemma-4-E4B-it-Q4_K_M.gguf",
-    Path(r"D:\LMStudio\models\lmstudio-community\gemma-4-E4B-it-GGUF\gemma-4-E4B-it-Q4_K_M.gguf"),
     Path(r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q5_K_M.gguf"),
 ]
 
 DEFAULTS: dict[str, Any] = {
     "server": "",
     "model": "",
-    "alias": "gemma-4",
+    "alias": "gemma-4-12b-it:latest",
     "port": 8090,
     "ctx": 32768,
     "gpu_layers": 99,

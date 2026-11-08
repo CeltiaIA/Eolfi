@@ -904,12 +904,12 @@ test('modelo principal local (Gemma 4): /modelo, herramientas locales e instrucc
     chatTools: async (conv) => { seen.push(conv[0].content); return { content: 'Respuesta de Gemma.', reasoning: 'Primero miro el archivo.\nLuego respondo.', tool_calls: [] }; } };
   const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => fakeClient(), localModel,
     preferLocal: () => local, setPreferLocal: async (v) => { local = v; },
-    localConfig: () => ({ model: 'D:/m/gemma-4-E4B-it-Q4_K_M.gguf', reasoning: true, show_reasoning: false, temperature: 0.2, system: 'Habla como un pirata.' }),
+    localConfig: () => ({ model: 'D:/m/gemma-4-12b-it-Q5_K_M.gguf', reasoning: true, show_reasoning: false, temperature: 0.2, system: 'Habla como un pirata.' }),
     instructions: () => 'Responde con viñetas.' });
   let s = fakeStream();
   await h({ command: 'modelo', prompt: 'local' }, {}, s, {});
   assert.ok(local);
-  assert.match(s.md, /Modelo principal: local.*gemma-4-E4B-it-Q4_K_M\.gguf.*razonamiento activado \(oculto\)/s);
+  assert.match(s.md, /Modelo principal: local.*gemma-4-12b-it-Q5_K_M\.gguf.*razonamiento activado \(oculto\)/s);
   s = fakeStream();
   const r = await h({ prompt: 'explica cli.py' }, {}, s, {});
   assert.strictEqual(vs.sent.length, 0);                                   // Copilot ni se toca

@@ -104,7 +104,12 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
   let started = false;
 
   async function locate() {
-    if (found) return found;
+    if (found) {
+      const previous = found;
+      found = null;
+      const current = await probe([previous.url]);
+      if (current) return current;
+    }
     const at = await probe(endpoints);
     if (at || !starter) return at;
     // Ninguno en marcha: se arranca un llama-server (si el usuario lo permite) y se usa ese.

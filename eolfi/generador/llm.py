@@ -52,8 +52,9 @@ PRESETS: dict[str, dict[str, Any]] = {
                "model": os.environ.get("OPENAI_MODEL", ""), "key_env": "OPENAI_API_KEY",
                "json_mode": "json_schema", "context_bytes": 200_000},
     "claude": {"kind": "claude", "context_bytes": 350_000},
-    # Modelo local con llama.cpp (por defecto Gemma 4), configurable en ~/.eolfi/llamacpp.json; se arranca solo.
-    "gemma": {"kind": "llamacpp", "context_bytes": 40_000},
+    # Alias de compatibilidad: «gemma» usa el Gemma 12B servido por Eolas; no inicia un servidor paralelo.
+    "gemma": {"kind": "ollama", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
+              "model": os.environ.get("EOLAS_MODEL", "gemma-4-12b-it:latest"), "context_bytes": 60_000},
     # Modelos de IA de VS Code (Language Model API, extensión eolfi/vscode-bridge). Modelo con
     # EOLFI_COPILOT_MODEL (familia, nombre o id; por defecto el primero que ofrezca VS Code) y herramientas de
     # VS Code con EOLFI_COPILOT_TOOLS (solo las que también permitas en el ajuste «eolfi.allowedTools»).

@@ -18,7 +18,8 @@ const { makeAgentTools } = require('./agent-tools');
 const { makeCaseTools, combineTools } = require('./case-tools');
 const { makeHistory } = require('./history');
 const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('./local-model');
-const { makeLlamaStarter, findServer } = require('./llama-starter');
+const { findServer } = require('./llama-starter');
+const { makeEolasStarter } = require('./eolas-starter');
 const llamacfg = require('./llamacpp-config');
 const lmi = require('./lm-integration');
 
@@ -447,19 +448,16 @@ function activate(context) {
       showModel: () => vscode.workspace.getConfiguration('eolfi').get('agent.showModel') !== false,
       localModel: (() => {
         const c = vscode.workspace.getConfiguration('eolfi');
-        const url = String(c.get('fallback.url') || '').trim();
-        // Por defecto, solo Eolas (11435) con el modelo exacto: sin caer en silencio a otro servidor ni a otro modelo.
-        // Arrancar un llama-server propio (~/.eolfi/llamacpp.json) solo si se activa «eolfi.fallback.autoStart».
+        const endpoint = EOLAS_URL;
+        const model = EOLAS_MODEL;
+        // El único proveedor local es Eolas/Gemma 12B; el autoarranque nunca usa un GGUF externo ni 8090.
         const autoStart = c.get('fallback.autoStart') === true;
-        const starter = autoStart ? makeLlamaStarter({
-          server: String(c.get('fallback.llamaServer') || '').trim(), gguf: String(c.get('fallback.gguf') || '').trim(),
-          config: () => llamacfg.loadConfig({ findServer }), log: (m) => out.appendLine(m) }) : null;
-        // Con Eolas el modelo es obligatorio; con un endpoint propio, vacío = el que anuncie.
-        const model = String(c.get('fallback.model') ?? '').trim() || (url ? '' : EOLAS_MODEL);
-        const lm = makeLocalModel({ endpoints: url ? [url] : [EOLAS_URL], model, starter,
+        const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
+        const starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model }) : null;
+        const lm = makeLocalModel({ endpoints: [endpoint], model, starter,
           options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
           allowStart: async () => autoStart });
-        out.appendLine(`Modelo local: ${model || '(el que anuncie el endpoint)'} en ${url || EOLAS_URL}; autoarranque ${autoStart ? 'activado' : 'desactivado'}.`);
+        out.appendLine(`Modelo local: ${model} en ${endpoint}; autoarranque Eolas ${autoStart ? 'activado' : 'desactivado'}.`);
         primaryLocalModel = lm;
         context.subscriptions.push({ dispose: () => lm.stop() });
         return lm;
