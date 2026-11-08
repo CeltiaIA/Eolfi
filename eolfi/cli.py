@@ -583,7 +583,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
         rep.pop("model")
         _print(rep)
         v = rep["verification"]
-        return 0 if v["differ"] == 0 and v["match"] > 0 else 4
+        return 0 if v["differ"] == 0 and v["partial"] == 0 and v["pending"] == 0 and v["match"] > 0 else 4
     elif args.cmd == "spec":
         return _spec(args, store)
     elif args.cmd == "observe":

@@ -33,6 +33,11 @@ python -m eolfi --db guia.db observe replay EVIDENCE_ID --autorizo --case CASE_I
 reproducible y lista los factores no fijados (reloj, planificación…). `coverage` declara lo que no se observó
 (p. ej. llamadas al sistema).
 
+Para pasos `desktop` en Windows se puede añadir `"screenshots": true` al paso para capturar la ventana del proceso
+después de cada acción y mostrar las imágenes en el informe HTML del caso. La captura es opcional, con presupuesto
+de 20 imágenes por paso y 256 KiB por imagen; los píxeles no pasan por la redacción de datos personales. No la uses
+si la ventana contiene datos que no deban persistir.
+
 ## 3. Especificar
 
 ```bash
@@ -50,9 +55,10 @@ inválida aparece como requisito de error (código 2); las hipótesis y contradi
 python -m eolfi --db guia.db reconstruct --case CASE_ID --out reconstruccion
 ```
 
-**Aceptación:** `verification.match` igual al número de casos simulados y `differ = 0`; `.eolfi/trazabilidad.json`
-liga cada archivo con sus requisitos; lo que la evidencia no permite reproducir (aquí, el contenido de
-`estado/total.txt`, conocido solo por hash) queda **pendiente**, no inventado.
+**Aceptación:** `.eolfi/trazabilidad.json` liga cada archivo con sus requisitos; las salidas observadas coinciden y
+`verification` deja como **parciales** (código CLI 4) los casos cuyo contenido de `estado/total.txt` solo se conoce
+por hash. La ejecución no inventa esos bytes ni declara equivalencia completa. Si se opta explícitamente por
+capturar el contenido, cada instantánea puede reconstruirse, pero el estado entre ejecuciones sigue siendo parcial.
 
 ## 5. Medir la equivalencia con el original
 

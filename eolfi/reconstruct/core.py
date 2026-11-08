@@ -59,6 +59,11 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
     components: dict[str, dict[str, Any]] = {}
     decisions: list[dict[str, Any]] = []
 
+    def evidence_for(requirements: list[str]) -> list[str]:
+        selected = set(requirements)
+        return sorted({eid for req in spec["requirements"] if req["id"] in selected
+                       for eid in req.get("evidence_ids", [])})
+
     def comp(cid: str, kind: str, title: str) -> dict[str, Any]:
         return components.setdefault(cid, {"id": cid, "kind": kind, "title": title, "requirements": [],
                                            "interfaces": [], "data": [], "cases": []})
@@ -80,7 +85,7 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
 
                 stdin = content_bytes(sstep["stdin"]).decode("utf-8", "replace")
             case = {"requirement": r["id"], "args": args, "stdin": stdin, "status": "simulado",
-                    "evidence_ids": r["evidence_ids"], "confidence": r["confidence"], "pending": []}
+                    "evidence_ids": r["evidence_ids"], "confidence": r["confidence"], "pending": [], "file_ops": [], "captured_paths": []}
             if r["status"] != "observed":
                 case["status"] = "pendiente"
                 case["pending"].append("requisito contradicho: no hay comportamiento único que reproducir")
@@ -92,20 +97,55 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
                 elif "<dato personal:" in out.get("preview", ""):
                     case["status"] = "pendiente"
                     case["pending"].append(f"{name} con datos personales ocultados en la evidencia: no se reproduce")
-                case[name] = out.get("preview", "")
+                case[name] = out.get("preview", "").replace(chr(13) + chr(10), chr(10))
                 case[name + "_sha256"] = r["expected"].get(name)
             case["exit_code"] = r["expected"].get("código de salida", step.get("exit_code"))
             if r["unstable_aspects"]:
                 case["pending"].append("aspectos no reproducibles: " + ", ".join(r["unstable_aspects"]))
-            files = [p for p in r["persistence"] if p["kind"] == "file" and p["change"] != "deleted"]
-            if files:
+            file_effects = [e for e in step.get("effects", {}).get("files", [])]
+            if file_effects:
                 d = comp("persistence", "persistence", "Persistencia en archivos")
                 d["requirements"].append(r["id"])
-                d["data"] += [p["path"] for p in files if p["path"] not in d["data"]]
-                case["pending"].append("efectos en archivos conocidos solo por ruta y hash: "
-                                       + ", ".join(p["path"] for p in files)[:500])
+                d["data"] += [e["path"] for e in file_effects if e["path"] not in d["data"]]
+                capture_requested = bool(step.get("file_capture_requested"))
+                selected_paths = step.get("file_capture_paths", [])
+                for effect in file_effects:
+                    path = effect["path"]
+                    if not path.startswith("{sandbox}/"):
+                        case["pending"].append(f"efecto externo no reconstruible: {path[:200]}")
+                        continue
+                    rel = path[len("{sandbox}/"):]
+                    if not rel or any(part in ("", ".", "..") for part in rel.split("/")):
+                        case["pending"].append(f"ruta de efecto no segura: {path[:200]}")
+                        continue
+                    if effect["change"] == "deleted":
+                        case["pending"].append(f"borrado de archivo requiere estado inicial no capturado: {path[:200]}")
+                        continue
+                    if not capture_requested or path not in selected_paths:
+                        case["pending"].append(f"contenido del archivo no capturado íntegramente: {path[:200]}")
+                        continue
+                    capture = effect.get("after", {}).get("content_capture", {})
+                    encoded = capture.get("data_base64")
+                    try:
+                        content = __import__("base64").b64decode(encoded, validate=True) if capture.get(
+                            "status") == "captured" and isinstance(encoded, str) else None
+                    except (ValueError, TypeError):
+                        content = None
+                    expected_hash = capture.get("sha256")
+                    if content is None or capture.get("sha256") != _sha(content) or capture.get("raw_sha256") != (
+                            effect.get("after") or {}).get("sha256"):
+                        case["pending"].append(f"contenido del archivo no capturado íntegramente: {path[:200]}")
+                        continue
+                    case["file_ops"].append({"action": "write", "path": rel, "data_base64": encoded,
+                                             "sha256": expected_hash, "utf8": bool(capture.get("utf8"))})
+                    case["captured_paths"].append(path)
+                if capture_requested and case["file_ops"]:
+                    case["pending"].append("transiciones de estado entre ejecuciones no modeladas; se aplica la "
+                                           "instantánea de archivos observada para esta entrada")
             if r["persistence"] and any(p["kind"] == "registry" for p in r["persistence"]):
                 case["pending"].append("efectos en el registro de Windows sin implementar")
+            if case["pending"] and case["status"] == "simulado":
+                case["status"] = "parcial"
             c["cases"].append(case)
         elif act == "http":
             c = comp("http_api", "http_api", "API HTTP observada")
@@ -116,6 +156,8 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
             c["requirements"].append(r["id"])
             if r.get("state_machine"):
                 c["interfaces"].append({"state_machine": r["state_machine"]})
+    for component in components.values():
+        component["requirements"] = sorted(set(component["requirements"]))
     if "cli" in components:
         c = components["cli"]
         c["interfaces"].append({"argv": sorted({json.dumps(x["args"]) for x in c["cases"]}),
@@ -124,6 +166,7 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
         decisions.append({
             "decision": "Etapa 1: tabla de comportamiento observado (entrada → salida) para la CLI",
             "reason": "es lo único demostrado por las evidencias; no hay fuentes del original",
+            "requirements": sorted(c["requirements"]), "evidence_ids": evidence_for(c["requirements"]),
             "alternatives": ["inferir la lógica general (requiere más observaciones o una especificación revisada; "
                              "sin ellas sería una hipótesis)", "plantilla de framework detectado (no reproduce "
                              "el comportamiento)"],
@@ -131,11 +174,14 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
         decisions.append({
             "decision": "Las rutas del sandbox de observación se sustituyen por el directorio de trabajo real",
             "reason": "la observación normalizó la ruta de trabajo como {sandbox}",
+            "requirements": sorted(c["requirements"]), "evidence_ids": evidence_for(c["requirements"]),
             "alternatives": ["imprimir el marcador literal (rompería la equivalencia observable)"]})
     for kind in ("http_api", "ui"):
         if kind in components:
             decisions.append({"decision": f"Componente «{components[kind]['title']}» documentado, sin generar",
-                              "reason": "el generador de esta etapa solo cubre la CLI", "alternatives": [
+                              "reason": "el generador de esta etapa solo cubre la CLI",
+                              "requirements": sorted(components[kind]["requirements"]),
+                              "evidence_ids": evidence_for(components[kind]["requirements"]), "alternatives": [
                                   "generar un esqueleto sin comportamiento (se declararía como pendiente)"]})
     body = {"components": sorted(components.values(), key=lambda c: c["id"]), "decisions": decisions,
             "unknowns": spec["unknowns"], "hypotheses": spec["hypotheses"]}
@@ -153,16 +199,49 @@ evidencia disponible. Cualquier otra entrada responde «comportamiento no especi
 No contiene código del programa original.
 """
 import hashlib
+import base64
 import json
 import os
 import sys
+import base64
 from pathlib import Path
 
 CASES = json.loads((Path(__file__).with_name("comportamiento.json")).read_text(encoding="utf-8"))
 
 
 def _render(text):
-    return text.replace("{sandbox}", os.getcwd())
+    return text.replace("{sandbox}", os.getcwd()).replace(chr(13) + chr(10), chr(10))
+
+
+def _apply_files(case):
+    base = Path.cwd().resolve()
+    for op in case.get("file_ops", []):
+        rel = Path(op["path"])
+        if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts):
+            raise ValueError("ruta de persistencia no segura")
+        candidate = base / rel
+        if any(parent.is_symlink() for parent in [candidate, *candidate.parents] if parent != base):
+            raise ValueError("ruta de persistencia atraviesa un enlace")
+        dst = candidate.resolve()
+        if not dst.is_relative_to(base):
+            raise ValueError("ruta de persistencia fuera del directorio de trabajo")
+        data = base64.b64decode(op["data_base64"], validate=True)
+        if hashlib.sha256(data).hexdigest() != op["sha256"]:
+            raise ValueError("huella de archivo no válida")
+        if op.get("utf8"):
+            data = data.replace(b"{sandbox}", str(base).encode("utf-8"))
+        if dst.exists():
+            existing = dst.read_bytes()
+            if op.get("utf8"):
+                existing = existing.replace(str(base).encode("utf-8"), b"{sandbox}")
+            if hashlib.sha256(existing).hexdigest() == op["sha256"]:
+                continue
+            raise ValueError("se conserva el archivo existente; no se sobrescribe")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        checked = dst.resolve()
+        if not checked.is_relative_to(base) or dst.is_symlink():
+            raise ValueError("ruta de persistencia atraviesa un enlace")
+        checked.write_bytes(data)
 
 
 def main(argv=None):
@@ -172,13 +251,18 @@ def main(argv=None):
     for case in CASES:
         if case["args"] != argv or (case["stdin"] is not None and case["stdin"] != text):
             continue
-        if case["status"] != "simulado":
-            sys.stderr.write("comportamiento pendiente de reconstruir: " + "; ".join(case["pending"]) + "\\n")
+        if case["status"] == "pendiente":
+            sys.stderr.write("comportamiento pendiente de reconstruir: " + "; ".join(case["pending"]) + chr(10))
+            return 3
+        try:
+            _apply_files(case)
+        except Exception as exc:
+            sys.stderr.write("persistencia pendiente: " + str(exc) + chr(10))
             return 3
         sys.stdout.write(_render(case["stdout"]))
         sys.stderr.write(_render(case["stderr"]))
         return case["exit_code"] if case["exit_code"] is not None else 0
-    sys.stderr.write("comportamiento no especificado para estas entradas\\n")
+    sys.stderr.write("comportamiento no especificado para estas entradas" + chr(10))
     return 2
 
 
@@ -193,7 +277,8 @@ del caso `{case_id}`. No contiene código del programa original.
 
 ## Estado por etapas
 
-- Casos simulados (reproducen lo observado, sin generalizar): {simulated}
+- Casos simulados completos (sin generalizar): {simulated}
+- Casos parciales (reproducen solo los aspectos indicados): {partial}
 - Casos pendientes: {pending}
 - Componentes documentados sin generar: {not_generated}
 
@@ -213,15 +298,17 @@ def _files(model: dict[str, Any], name: str, target: str) -> dict[str, tuple[byt
     if cli is None:
         raise ValueError("la especificación no tiene comportamiento de línea de comandos que reconstruir")
     cases = [{k: c[k] for k in ("requirement", "args", "stdin", "stdout", "stderr", "exit_code", "status",
-                                "pending")} for c in cli["cases"]]
+                                "pending", "file_ops")} for c in cli["cases"]]
     others = [c["title"] for c in model["components"] if c["id"] not in ("cli", "persistence")]
     readme = _README.format(name=name, target=target, spec_version=model["spec_version"], case_id=model["case_id"],
                             simulated=sum(c["status"] == "simulado" for c in cases),
-                            pending=sum(c["status"] != "simulado" for c in cases),
+                            partial=sum(c["status"] == "parcial" for c in cases),
+                            pending=sum(c["status"] == "pendiente" for c in cases),
                             not_generated=", ".join(others) or "ninguno")
-    tests = '''"""Pruebas generadas desde la especificación: cada caso simulado reproduce lo observado."""
-import io
+    tests = '''"""Pruebas generadas desde la especificación: salidas observadas y escrituras capturadas."""
+import base64
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -230,11 +317,25 @@ HERE = Path(__file__).resolve().parent.parent
 CASES = json.loads((HERE / "comportamiento.json").read_text(encoding="utf-8"))
 
 
-def test_casos_simulados():
-    for case in [c for c in CASES if c["status"] == "simulado"]:
+def test_casos_observados(tmp_path):
+    for case in [c for c in CASES if c["status"] in ("simulado", "parcial")]:
+        cwd = tmp_path / case["requirement"]
+        cwd.mkdir()
         p = subprocess.run([sys.executable, str(HERE / "app.py"), *case["args"]], input=(case["stdin"] or "").encode(),
-                           capture_output=True, cwd=HERE)
+                           capture_output=True, cwd=cwd)
         assert p.returncode == case["exit_code"], case["requirement"]
+        expected_stdout = case["stdout"].replace("{sandbox}", str(cwd))
+        expected_stderr = case["stderr"].replace("{sandbox}", str(cwd))
+        assert p.stdout.decode("utf-8", "replace").replace(chr(13) + chr(10), chr(10)) == expected_stdout, case["requirement"]
+        assert p.stderr.decode("utf-8", "replace").replace(chr(13) + chr(10), chr(10)) == expected_stderr, case["requirement"]
+        for op in case.get("file_ops", []):
+            path = cwd / op["path"]
+            assert op["action"] == "write" and path.is_file(), case["requirement"]
+            expected = base64.b64decode(op["data_base64"], validate=True)
+            actual = path.read_bytes()
+            if op.get("utf8"):
+                actual = actual.replace(os.fsencode(cwd), b"{sandbox}")
+            assert actual == expected, case["requirement"]
 
 
 def test_entrada_no_especificada():
@@ -278,22 +379,27 @@ def generate(model: dict[str, Any], out: str | Path, *, name: str = "reconstrucc
                 "spec_version": model["spec_version"], "spec_sha256": model["spec_sha256"],
                 "model_sha256": model["content_sha256"], "generated_at": time.time(), "files": files_rec,
                 "components": [{"id": c["id"], "kind": c["kind"], "requirements": c["requirements"],
-                                "generated": c["id"] == "cli"} for c in model["components"]],
+                                "generated": c["id"] == "cli" or (c["id"] == "persistence" and any(
+                                    case.get("file_ops") for case in cli["cases"])),
+                                "partial": c["id"] == "persistence" and any(
+                                    case.get("pending") for case in cli["cases"])} for c in model["components"]],
                 "cases": [{"requirement": c["requirement"], "status": c["status"], "pending": c["pending"],
-                           "evidence_ids": c["evidence_ids"]} for c in cli["cases"]],
+                           "captured_paths": c["captured_paths"], "evidence_ids": c["evidence_ids"]}
+                          for c in cli["cases"]],
                 "decisions": model["decisions"]}
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"out": str(out.resolve()), "written": written, "kept_manual": kept, "manifest": MANIFEST,
             "simulated": sum(c["status"] == "simulado" for c in cli["cases"]),
-            "pending": sum(c["status"] != "simulado" for c in cli["cases"])}
+            "partial": sum(c["status"] == "parcial" for c in cli["cases"]),
+            "pending": sum(c["status"] == "pendiente" for c in cli["cases"])}
 
 
 # -- 3. verificación frente a la especificación ---------------------------------------------------------------
 def normalize_paths(text: str, forms: set[str]) -> str:
     """Sustituye la carpeta de trabajo por {sandbox}. La forma más larga primero: en macOS /var/… es un enlace a
     /private/var/…, y sustituir antes la corta dejaría «/private{sandbox}» (el orden de un set varía)."""
-    t = text.replace("\r\n", "\n")
+    t = text.replace(chr(13) + chr(10), chr(10))
     for form in sorted(forms, key=len, reverse=True):
         t = t.replace(form, "{sandbox}")
     return t
@@ -306,7 +412,7 @@ def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
     cases = json.loads((out / "comportamiento.json").read_text(encoding="utf-8"))
     results = []
     for case in cases:
-        if case["status"] != "simulado":
+        if case["status"] == "pendiente":
             results.append({"requirement": case["requirement"], "status": "pendiente", "pending": case["pending"]})
             continue
         with tempfile.TemporaryDirectory(prefix="eolfi-rec-") as tmp:
@@ -317,22 +423,39 @@ def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
 
             def norm(b: bytes) -> str:
                 return normalize_paths(b.decode("utf-8", "replace"), forms)
+            file_aspects = []
+            for op in case.get("file_ops", []):
+                path = Path(tmp) / op["path"]
+                try:
+                    data = path.read_bytes()
+                except OSError:
+                    file_aspects.append("archivos")
+                    continue
+                normalized = data
+                if op.get("utf8"):
+                    normalized = normalize_paths(data.decode("utf-8", "replace"), forms).encode("utf-8")
+                if _sha(normalized) != op["sha256"]:
+                    file_aspects.append("archivos")
         got = {"exit_code": p.returncode, "stdout": _sha(norm(p.stdout).encode("utf-8")),
                "stderr": _sha(norm(p.stderr).encode("utf-8"))}
-        aspects = []
+        aspects = file_aspects
         if got["exit_code"] != case["exit_code"]:
             aspects.append("código de salida")
         for name in ("stdout", "stderr"):
             expected = _sha(case[name].encode("utf-8"))
             if got[name] != expected:
                 aspects.append(name)
-        results.append({"requirement": case["requirement"], "status": "coincide" if not aspects else "difiere",
-                        "aspects": aspects})
+        aspects = sorted(set(aspects))
+        status = "difiere" if aspects else "parcial" if case["status"] == "parcial" else "coincide"
+        results.append({"requirement": case["requirement"], "status": status, "aspects": aspects,
+                        **({"pending": case["pending"]} if status == "parcial" else {})})
     ok = sum(r["status"] == "coincide" for r in results)
+    partial = sum(r["status"] == "parcial" for r in results)
     pend = sum(r["status"] == "pendiente" for r in results)
     return {"out": str(out), "spec_version": manifest["spec_version"], "cases": len(results), "match": ok,
-            "differ": len(results) - ok - pend, "pending": pend, "results": results,
-            "equivalent_on_observed": ok == len(results) - pend and ok > 0,
+            "partial": partial,
+            "differ": len(results) - ok - partial - pend, "pending": pend, "results": results,
+            "equivalent_on_observed": ok == len(results) - partial - pend and partial == 0 and ok > 0,
             "limits": "Solo cubre las entradas observadas; los casos pendientes y las entradas no observadas no "
                       "están reconstruidos. Coincidir aquí no demuestra equivalencia general."}
 
@@ -353,13 +476,14 @@ def reconstruct(store: EvidenceStore, case_id: str, out: str | Path, *, name: st
             authority=Authority.CONTROLLED_REPRO, confidence=Confidence.MEDIUM, limitations=ver["limits"]))
         run.artifact(subject, size=None, format="project", identity="derived", content_sha256="",
                      path=gen["out"], metadata={"manifest": MANIFEST})
-        status = "done" if ver["differ"] == 0 and ver["match"] > 0 else "partial"
+        status = "done" if ver["differ"] == 0 and ver["partial"] == 0 and ver["pending"] == 0 and ver["match"] > 0 else "partial"
         run.finish(status=status, evidence_ids=[eid],
                    tools=[{"name": PROVIDER, "version": VERSION, "status": "ran"},
                           {"name": "python", "version": sys.version.split()[0], "status": "ran"}],
                    errors=[f"{r['requirement']}: difiere en {', '.join(r['aspects'])}" for r in ver["results"]
                            if r["status"] == "difiere"][:200],
                    result={"out": gen["out"], "spec_version": model["spec_version"], "simulated": gen["simulated"],
+                           "partial": gen["partial"],
                            "pending": gen["pending"], "match": ver["match"], "differ": ver["differ"],
                            "kept_manual": gen["kept_manual"]})
         return {"model": model, "generation": gen, "verification": ver, "evidence_id": eid,

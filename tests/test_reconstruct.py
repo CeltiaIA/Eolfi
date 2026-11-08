@@ -1,4 +1,5 @@
 """Fase 4: reconstrucción independiente desde la especificación (muestras sintéticas propias)."""
+import base64
 import json
 import subprocess
 import sys
@@ -10,7 +11,7 @@ from eolfi.core.evidence import EvidenceStore
 from eolfi.observe import run_observation, run_replay
 from eolfi.reconstruct import build_model, generate, reconstruct, verify
 from eolfi.reconstruct.core import MANIFEST
-from eolfi.spec import store_spec
+from eolfi.spec import latest_spec, store_spec
 from tests import observe_samples as samples
 from tests.test_observe import _script
 
@@ -45,14 +46,57 @@ def test_model_is_independent_and_explains_decisions(store, tmp_path):
     assert hola["args"] == [] and hola["exit_code"] == 0 and "eco=hola" in hola["stdout"]
     assert any("{sandbox}" in c["stdout"] for c in cli["cases"])
     # Los efectos en archivos solo se conocen por hash: el caso se marca con lo pendiente.
-    assert any("efectos en archivos" in p for p in hola["pending"])
+    assert any("contenido del archivo" in p for p in hola["pending"])
     assert next(c for c in cli["cases"] if c["args"] == ["--hijo"])["exit_code"] == 0
     assert all(d["reason"] and d["alternatives"] for d in model["decisions"])
+    assert all(d["requirements"] and d["evidence_ids"] for d in model["decisions"])
+    known_evidence = {eid for req in latest_spec(store, cid)["requirements"] for eid in req["evidence_ids"]}
+    assert all(set(d["evidence_ids"]) <= known_evidence for d in model["decisions"])
     persistence = next(c for c in model["components"] if c["id"] == "persistence")
     assert "{sandbox}/estado/datos.txt" in persistence["data"]
     assert model["spec_version"] >= 1 and len(model["content_sha256"]) == 64
     with pytest.raises(ValueError, match="especificación"):
         build_model(store, CaseStore(store).create("vacío")["case_id"])
+
+
+def test_opt_in_file_capture_reconstructs_bytes_but_keeps_state_limit_partial(store, tmp_path):
+    target = tmp_path / "writer.py"
+    target.write_text(
+        "from pathlib import Path\n"
+        "p=Path('salida/result.bin'); p.parent.mkdir(parents=True, exist_ok=True)\n"
+        "p.write_bytes(bytes([0, 1, 254, 255]))\n"
+        "print('guardado')\n",
+        encoding="utf-8")
+    cid = CaseStore(store).create("archivo capturado")['case_id']
+    script = _script(target, [{"id": "guardar", "action": "run", "argv": ["{python}", "{target}"]}],
+                     scope={"files": ["."], "capture_contents": ["{sandbox}/salida/result.bin"]})
+    observed = run_observation(script, store, authorized=True, case_id=cid)
+    assert observed["status"] == "done"
+    assert observed["coverage"]["file_contents"]["status"] == "captured"
+    assert observed["coverage"]["file_contents"]["not_redacted"] is True
+    effect = observed["steps"][0]["effects"]["files"][0]
+    capture = effect["after"]["content_capture"]
+    assert capture["status"] == "captured" and capture["utf8"] is False
+    assert base64.b64decode(capture["data_base64"]) == bytes([0, 1, 254, 255])
+    store_spec(store, cid)
+    model = build_model(store, cid)
+    case = next(c for component in model["components"] if component["id"] == "cli" for c in component["cases"])
+    assert case["status"] == "parcial" and len(case["file_ops"]) == 1
+    assert any("transiciones de estado" in reason for reason in case["pending"])
+    out = tmp_path / "generated"
+    generated = generate(model, out)
+    assert generated["simulated"] == 0 and generated["partial"] == 1 and generated["pending"] == 0
+    verified = verify(out)
+    assert verified["match"] == 0 and verified["partial"] == 1 and verified["differ"] == 0
+    assert verified["equivalent_on_observed"] is False
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    proc = subprocess.run([sys.executable, str(out / "app.py")], input=b"", capture_output=True, cwd=run_dir)
+    assert proc.returncode == 0 and proc.stdout.replace(b"\r\n", b"\n") == b"guardado\n"
+    assert (run_dir / "salida/result.bin").read_bytes() == bytes([0, 1, 254, 255])
+    tests = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(out / "tests")],
+                           capture_output=True, cwd=out)
+    assert tests.returncode == 0, tests.stdout.decode("utf-8", "replace")[-2000:]
 
 
 def test_generate_verify_and_trace(store, tmp_path):
@@ -61,8 +105,9 @@ def test_generate_verify_and_trace(store, tmp_path):
     rep = reconstruct(store, cid, out, name="muestra")
     gen, ver = rep["generation"], rep["verification"]
     assert set(gen["written"]) == {"app.py", "comportamiento.json", "tests/test_app.py", "README.md"}
-    assert gen["simulated"] == 3 and gen["pending"] == 0
-    assert ver["match"] == 3 and ver["differ"] == 0 and ver["equivalent_on_observed"] is True
+    assert gen["simulated"] == 0 and gen["partial"] == 3 and gen["pending"] == 0
+    assert ver["match"] == 0 and ver["partial"] == 3 and ver["differ"] == 0
+    assert ver["equivalent_on_observed"] is False
     assert "no demuestra equivalencia general" in ver["limits"]
     # La base generada arranca, reproduce lo observado y declara lo no especificado.
     p = subprocess.run([sys.executable, str(out / "app.py")], input=b"hola", capture_output=True, cwd=tmp_path)
@@ -80,8 +125,8 @@ def test_generate_verify_and_trace(store, tmp_path):
     assert {c["id"]: c["generated"] for c in m["components"]} == {"cli": True, "persistence": False}
     # Registro del caso con la verificación como evidencia.
     rec = [r for r in CaseStore(store).get(cid)["records"] if r["payload"].get("flow") == "reconstruct"][0]
-    assert rec["kind"] == "reconstruction" and rec["payload"]["status"] == "done"
-    assert rec["payload"]["result"]["match"] == 3
+    assert rec["kind"] == "reconstruction" and rec["payload"]["status"] == "partial"
+    assert rec["payload"]["result"]["match"] == 0
 
 
 def test_regeneration_keeps_manual_changes(store, tmp_path):
@@ -122,8 +167,8 @@ def test_cli_reconstruct(store, tmp_path, capsys):
     s.close()
     assert main(["--db", str(db), "reconstruct", "--case", cid, "--model"]) == 0
     assert json.loads(capsys.readouterr().out)["components"]
-    assert main(["--db", str(db), "reconstruct", "--case", cid, "--out", str(tmp_path / "r")]) == 0
-    assert json.loads(capsys.readouterr().out)["verification"]["match"] == 3
+    assert main(["--db", str(db), "reconstruct", "--case", cid, "--out", str(tmp_path / "r")]) == 4
+    assert json.loads(capsys.readouterr().out)["verification"]["partial"] == 3
 
 
 def test_equivalence_same_script_structured_effects_coverage_and_incognitas(store, tmp_path):

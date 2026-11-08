@@ -49,7 +49,7 @@ def test_guia_completa(guia, capsys):
     # 4. reconstruir
     code, rec = run(capsys, "reconstruct", "--case", cid, "--out", "reconstruccion")
     v = rec["verification"]
-    assert code == 0 and v["match"] == 3 and v["differ"] == 0
+    assert code == 4 and v["match"] == 1 and v["partial"] == 2 and v["differ"] == 0
     assert (guia / "reconstruccion" / ".eolfi" / "trazabilidad.json").is_file()
     assert "contador" not in (guia / "reconstruccion" / "app.py").read_text(encoding="utf-8").lower()
     # 5. equivalencia y exploración: las divergencias esperadas se ven
