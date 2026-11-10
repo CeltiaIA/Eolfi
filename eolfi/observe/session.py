@@ -473,6 +473,8 @@ def _ui_desktop_coverage(steps: list[dict[str, Any]]) -> Any:
     desk = [s for s in steps if s["action"] == "desktop"]
     if not desk:
         return "not_requested"
+    if all(s["status"] == "unavailable" for s in desk):
+        return {"status": "not_available", "reason": "; ".join(sorted({s["error"] for s in desk}))}
     if all(s["status"] == "ok" for s in desk):
         requested = any(s.get("screenshots_requested") for s in desk)
         return {"status": "observed", "method": "Windows UI Automation",

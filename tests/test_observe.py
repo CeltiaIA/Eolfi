@@ -485,8 +485,22 @@ def test_observe_api_run_replay_compare_and_guards(tmp_path):
 
 
 # -- interfaz de escritorio (Windows UI Automation) ------------------------------------------------------
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_desktop_coverage_without_provider(monkeypatch, tmp_path, platform):
+    from eolfi.observe.session import _desktop_step, _ui_desktop_coverage
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "platform", platform)
+        result = _desktop_step({}, ["unused"], tmp_path, {}, None)
+    coverage = _ui_desktop_coverage([{"action": "desktop", **result}])
+    assert coverage["status"] == "not_available"
+    assert "Windows (UI Automation)" in coverage["reason"]
+
+
+
 def test_desktop_step_validation():
     with pytest.raises(ScriptError, match="automation_id o name"):
+
         validate_script(_script(None, [{"action": "desktop", "argv": ["x"], "actions": [{"do": "invoke"}]}]))
     with pytest.raises(ScriptError, match="set_value necesita value"):
         validate_script(_script(None, [{"action": "desktop", "argv": ["x"],
