@@ -577,7 +577,7 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
     if (extraTools && extraTools.names().includes(call.name)) return extraTools.run(call, stream, token);
     const def = (workspaceTools || []).find((d) => d.name === call.name);
     if (def && actions) {
-      const label = { read: 'Leyendo', find: 'Buscando', list: 'Listando', write: 'Proponiendo cambio en', append: 'Escribiendo el informe', open: 'Abriendo', workspace: 'Mirando el workspace' }[def.action] || def.action;
+      const label = { read: 'Leyendo', find: 'Buscando', list: 'Listando', write: 'Proponiendo cambio en', append: 'Escribiendo el informe', split: 'Dividiendo', merge_parts: 'Recomponiendo', inspect: 'Inspeccionando', archive: 'Abriendo archivo', parts: 'Preparando partes', code_map: 'Mapeando código', compare: 'Comparando', duplicates: 'Buscando duplicados', document: 'Extrayendo documento', open: 'Abriendo', workspace: 'Mirando el workspace' }[def.action] || def.action;
       stream.progress(`${label} ${input.path || input.text || input.glob || ''}`.trim());
       const r = await actions[def.action]((def.action === 'write' || def.action === 'append') && run?.journal ? { ...input, journal: run.journal } : input);
       if (def.action === 'read' && r?.path && run && !run.read.has(r.path)) {
@@ -900,6 +900,28 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
     if (name === 'eolfi_historial' && memory) {
       const found = memory.search({ ...input, carpeta: input.solo_esta_carpeta ? cwd() : null });
       return memory.format(found, { full: found.length <= 3 });
+    }
+    if (name === 'eolfi_partir_archivo' && actions) {
+      return JSON.stringify(await actions.split({ path: input.archivo, parts: input.partes || 4 }));
+    }
+    if (name === 'eolfi_medir_modelo' && actions) {
+      return JSON.stringify(await actions.benchmark_model());
+    }
+    if (name === 'eolfi_herramientas_archivo' && actions) {
+      const operation = String(input.operacion || 'inspeccionar');
+      const call = {
+        inspeccionar: () => actions.inspect({ path: input.archivo }),
+        listar_archivo: () => actions.archive({ path: input.archivo, extract: false }),
+        extraer_archivo: () => actions.archive({ path: input.archivo, extract: true }),
+        reunir_partes: () => actions.merge_parts({ path: input.archivo }),
+        preparar_partes: () => actions.parts({ path: input.archivo }),
+        mapa_codigo: () => actions.code_map({ path: input.archivo || '.' }),
+        comparar: () => actions.compare({ left: input.izquierdo, right: input.derecho }),
+        duplicados: () => actions.duplicates({ path: input.archivo || '.' }),
+        extraer_documento: () => actions.document({ path: input.archivo }),
+      }[operation];
+      if (!call) throw new Error(`operación de archivos desconocida: ${operation}`);
+      return JSON.stringify(await call());
     }
     if (rea && (name === 'rea_herramientas' || name === 'rea_usar')) return reaTool({ name, input }, s);
     throw new Error(`herramienta no disponible: ${name}`);

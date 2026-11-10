@@ -10,6 +10,10 @@
 //   nunca llega al modelo de IA (que no se ejecuta en este equipo).
 'use strict';
 const path = require('node:path');
+const { splitTextFile, mergeTextParts, inspectTextParts } = require('./file-splitter');
+const fileTools = require('./file-tools');
+const { loadConfig } = require('./llamacpp-config');
+const { benchmarkPlan, runBenchmark } = require('./model-benchmark');
 
 const MAX_READ = 512 * 1024;
 const MAX_WRITE = 2 * 1024 * 1024;
@@ -323,6 +327,88 @@ function makeActions(vscode) {
       return { appended: full, created: !exists, total_chars: text.length };
     },
 
+    async split({ path: p, parts = 4 } = {}) {
+      const full = resolveInside(vscode, p);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo divide`);
+      let stat;
+      try { stat = await fs.stat(U(full)); } catch { throw new ActionError(404, `no existe: ${full}`); }
+      if (stat.type & vscode.FileType.Directory) throw new ActionError(400, 'elige un archivo, no una carpeta');
+      const count = Number(parts);
+      const target = `${full}.eolfi-parts`;
+      const st = settings(vscode);
+      if (!st.automatic && !st.autoApproveEdits && !(await confirm(vscode,
+        `Eolfi creará ${count} partes de ${path.basename(full)}`,
+        `Conservará el original y escribirá las partes junto a él en ${path.basename(target)}.`))) {
+        throw new ActionError(403, 'El usuario no permitió dividir el archivo');
+      }
+      return splitTextFile(full, count, { outputDir: target });
+    },
+
+    async merge_parts({ path: p } = {}) {
+      const full = resolveInside(vscode, p);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no recompone este archivo`);
+      const st = settings(vscode);
+      if (!st.automatic && !st.autoApproveEdits && !(await confirm(vscode,
+        `Eolfi recompone las partes de ${path.basename(full)}`,
+        'Verificará los hashes y creará una copia nueva. No sobrescribirá el original.'))) {
+        throw new ActionError(403, 'El usuario no permitió recomponer el archivo');
+      }
+      return mergeTextParts(full);
+    },
+
+    async inspect({ path: p } = {}) {
+      const full = resolveInside(vscode, p);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo inspecciona`);
+      return fileTools.inspectFile(full);
+    },
+
+    async archive({ path: p, extract = false } = {}) {
+      const full = resolveInside(vscode, p);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo abre`);
+      if (!extract) return fileTools.archiveInfo(full);
+      const st = settings(vscode);
+      if (!st.automatic && !st.autoApproveEdits && !(await confirm(vscode,
+        `Eolfi extraerá ${path.basename(full)}`,
+        `Creará una carpeta junto al archivo y bloqueará rutas de extracción inseguras. Destino: ${path.basename(`${full}.eolfi-extract`)}.`))) {
+        throw new ActionError(403, 'El usuario no permitió extraer el archivo');
+      }
+      return fileTools.extractArchive(full);
+    },
+
+    async parts({ path: p } = {}) {
+      const full = resolveInside(vscode, p);
+      return inspectTextParts(full);
+    },
+
+    async code_map({ path: p = '.' } = {}) {
+      return fileTools.codeMap(resolveInside(vscode, p));
+    },
+
+    async compare({ left, right } = {}) {
+      return fileTools.compareFiles(resolveInside(vscode, left), resolveInside(vscode, right));
+    },
+
+    async duplicates({ path: p = '.' } = {}) {
+      return fileTools.findDuplicates(resolveInside(vscode, p));
+    },
+
+    async document({ path: p } = {}) {
+      const full = resolveInside(vscode, p);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo extrae`);
+      return fileTools.extractDocument(full);
+    },
+
+    async benchmark_model() {
+      const plan = benchmarkPlan(loadConfig({ create: false }));
+      const st = settings(vscode);
+      if (!st.automatic && !st.autoApproveEdits && !(await confirm(vscode,
+        'Eolfi medirá el modelo local con llama-bench',
+        `Usará ${path.basename(plan.model)} con 3 repeticiones cortas. No iniciará otro llama-server ni cambiará la configuración.`))) {
+        throw new ActionError(403, 'El usuario no permitió medir el modelo local');
+      }
+      return runBenchmark(plan);
+    },
+
     // Diario de cambios de una petición (modo automático): crear, consultar y deshacer.
     async journal_start() { return { journal: newJournal() }; },
 
@@ -377,6 +463,26 @@ const TOOL_DEFS = [
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string', description: 'Sección en Markdown' } }, required: ['path', 'content'] } },
   { name: 'eolfi_write_file', action: 'write', description: 'Crea o reemplaza un archivo del workspace (el usuario lo confirma en VS Code).',
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, reason: { type: 'string' } }, required: ['path', 'content'] } },
+  { name: 'eolfi_partir_archivo', action: 'split', description: 'Divide un archivo de texto UTF-8 grande en 2 o más partes conservando el original. Escribe las partes y un manifiesto SHA-256 junto al archivo.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, parts: { type: 'number', description: 'Número de partes, entre 2 y 1000' } }, required: ['path'] } },
+  { name: 'eolfi_reunir_partes', action: 'merge_parts', description: 'Recompone partes creadas por Eolfi desde su manifiesto, valida los SHA-256 y crea una copia nueva.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'Ruta del manifiesto .eolfi-manifest.json' } }, required: ['path'] } },
+  { name: 'eolfi_inspeccionar_archivo', action: 'inspect', description: 'Identifica formato, tamaño, SHA-256, codificación y líneas de un archivo sin modificarlo.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+  { name: 'eolfi_archivo_comprimido', action: 'archive', description: 'Lista un ZIP, TAR o GZIP, o lo extrae de forma segura si extract=true.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, extract: { type: 'boolean' } }, required: ['path'] } },
+  { name: 'eolfi_partes_preparar', action: 'parts', description: 'Comprueba el manifiesto de un archivo dividido y muestra qué partes están listas, ausentes o alteradas para reanudar una revisión.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+  { name: 'eolfi_mapa_codigo', action: 'code_map', description: 'Construye un índice local de funciones, clases e importaciones de un archivo o carpeta.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
+  { name: 'eolfi_comparar_archivos', action: 'compare', description: 'Compara dos archivos por hash y muestra la primera diferencia de texto o bytes.',
+    inputSchema: { type: 'object', properties: { left: { type: 'string' }, right: { type: 'string' } }, required: ['left', 'right'] } },
+  { name: 'eolfi_duplicados', action: 'duplicates', description: 'Busca duplicados exactos por SHA-256 en una carpeta del workspace.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
+  { name: 'eolfi_extraer_documento', action: 'document', description: 'Extrae texto de DOCX, XLSX, PPTX, HTML o PDF para analizarlo sin editar el original.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+  { name: 'eolfi_medir_modelo', action: 'benchmark_model', description: 'Mide el GGUF local configurado con llama-bench: tres repeticiones de prefill y generación breve. No inicia un servidor.',
+    inputSchema: { type: 'object', properties: {} } },
 ];
 
 module.exports = { makeActions, TOOL_DEFS, ActionError, resolveInside, isSecretPath, findFolderByName, folders, norm };

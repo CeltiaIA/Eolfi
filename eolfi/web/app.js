@@ -5,7 +5,7 @@ import { createCaseView } from "./cases.js";
 import { createProjectView } from "./projects.js";
 
 const STORE = { ai: "eolfi.ai", analysis: "eolfi.analysis", theme: "eolfi.theme", boot: "eolfi.boot", panel: "eolfi.panel" };
-const state = { subject: null, subjects: [], kind: "binary", selected: new Set(), req: 0, view: "empty", panel: "analyze" };
+const state = { subject: null, subjects: [], kind: "binary", selected: new Set(), req: 0, view: "empty", panel: "create" };
 const PLACEHOLDER = {
   binary: "…o ruta local: C:\\ruta\\binario.exe o una carpeta",
   web: "URL (https://…), archivo .html o carpeta del sitio",
@@ -53,17 +53,19 @@ function showView(view) {
   $("#content").hidden = view !== "content";
   $("#empty").hidden = view !== "empty";
   $("#chats").hidden = view !== "chats";
+  $("#local-chat").hidden = view !== "local-chat";
   $("#providers-view").hidden = view !== "providers";
   $("#jobs-view").hidden = view !== "jobs";
   $("#vscode-view").hidden = view !== "vscode";
   $("#case-view").hidden = view !== "case";
   // Cabecera: todas las vistas a la vista, la actual marcada (aria-current).
-  const current = { chats: "#open-chats", providers: "#open-providers", jobs: "#open-jobs", content: "#open-analysis", empty: "#open-analysis" }[view];
-  for (const id of ["#open-analysis", "#open-chats", "#open-providers", "#open-jobs"]) {
+  const current = { chats: "#open-chats", "local-chat": "#open-local-chat", providers: "#open-providers", jobs: "#open-jobs", content: "#open-analysis", empty: "#open-analysis" }[view];
+  for (const id of ["#open-analysis", "#open-chats", "#open-local-chat", "#open-providers", "#open-jobs"]) {
     if (id === current) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current");
   }
   $(".menu")?.removeAttribute("open");
   if (view === "chats" && !wasChats) { renderChatLog(); refreshLive(); pollBridge(); }
+  if (view === "local-chat") { renderLocalChat(); refreshLocalChatProject(); }
   if (view === "providers") $("#providers-view h2")?.focus();
   if (view === "jobs") { $("#jobs-view h2")?.focus(); loadJobs(); }
   if (view === "vscode") showVSCode();
@@ -315,7 +317,7 @@ async function uploadFile(file) {
 
 function wire() {
   const panelTabs = [...document.querySelectorAll("[data-panel-tab]")];
-  const panelNames = new Set(panelTabs.map((tab) => tab.dataset.panelTab));
+  const panelNames = new Set(["create", "analyze", "subjects", "cases"]);
   try {
     const saved = localStorage.getItem(STORE.panel);
     if (panelNames.has(saved)) state.panel = saved;
@@ -328,8 +330,11 @@ function wire() {
       const selected = tab.dataset.panelTab === name;
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
-      document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
       if (selected && focus) tab.focus();
+    }
+    for (const panel of panelNames) {
+      const node = document.getElementById(`panel-${panel}`);
+      if (node) node.hidden = panel !== name;
     }
   };
   panelTabs.forEach((tab, index) => {
@@ -345,6 +350,10 @@ function wire() {
       showPanel(panelTabs[next].dataset.panelTab, true);
     });
   });
+  document.querySelectorAll("[data-panel-action]").forEach((button) => button.addEventListener("click", () => {
+    showPanel(button.dataset.panelAction);
+    document.getElementById(`panel-${button.dataset.panelAction}`)?.focus();
+  }));
   showPanel(state.panel);
   $("#subject-search").addEventListener("input", renderSubjects);
   $("#subject-format").addEventListener("change", renderSubjects);
@@ -720,7 +729,7 @@ function wireChats() {
   $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) sendChat(e); });   // Mayús+Intro: salto de línea
 }
 
-const ROUTES = { "#chats": "chats", "#proveedores": "providers", "#trabajos": "jobs", "#vscode": "vscode", "#analisis": "analysis", "": "analysis" };
+const ROUTES = { "#chats": "chats", "#chat-local": "local-chat", "#proveedores": "providers", "#trabajos": "jobs", "#vscode": "vscode", "#analisis": "analysis", "": "analysis" };
 function route() {
   const h = location.hash;
   if (h.startsWith("#caso/")) {
@@ -1014,12 +1023,67 @@ function wireJobs() {
 
 // Actividad del agente @eolfi en VS Code: visible sobre cualquier vista del panel.
 let vscodeActivityTimer = null;
+var localChatActivity;
+var localChatProject;
+
+async function refreshLocalChatProject() {
+  localChatProject = null;
+  try {
+    const { folders } = await api("/api/local-chat/workspace");
+    if (folders?.length === 1) localChatProject = folders[0];
+  } catch { /* VS Code pode estar pechado */ }
+  $("#local-chat-project").textContent = localChatProject || "Abre un único proxecto en VS Code e volve a esta pestana.";
+}
+
+$("#local-chat-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button");
+  if (button.disabled) return;
+  const answer = $("#local-chat-answer");
+  const prompt = $("#local-chat-prompt").value.trim();
+  if (!prompt || !localChatProject) {
+    answer.textContent = "Comproba que hai unha mensaxe e un proxecto aberto en VS Code.";
+    return;
+  }
+  button.disabled = true;
+  answer.textContent = "Confirma a tarefa en VS Code. Agardando por Eolfi…";
+  try {
+    const result = await api("/api/local-chat/send", {
+      method: "POST", body: JSON.stringify({ prompt, project: localChatProject }),
+    });
+    answer.textContent = result.cancelled ? "Tarefa cancelada." : (result.text || "Eolfi rematou sen resposta de texto.");
+  } catch (error) {
+    answer.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+var localChatUnavailable;
+
+function renderLocalChat() {
+  const activity = localChatActivity || [];
+  const status = localChatUnavailable ? "No se pudo actualizar la actividad."
+    : !localChatActivity ? "Cargando actividad…"
+    : activity.length ? "" : "Aún no hay actividad registrada desde VS Code.";
+  $("#local-chat-status").textContent = status;
+  $("#local-chat-runs").replaceChildren(...activity.map((run) => {
+    const running = run.status === "running";
+    const label = running ? "En marcha" : run.status === "error" ? "Error" : "Terminada";
+    const items = (run.log || []).map(({ t, msg }) => el("li", {}, `+${t} s · ${msg}`));
+    return el("article", {},
+      el("h3", {}, run.label || "Chat de Eolfi", " ", el("span", { class: "badge" }, label)),
+      items.length ? el("ol", {}, ...items) : el("p", { class: "muted" }, "Sin pasos registrados."));
+  }));
+}
+
 async function refreshVSCodeActivity() {
   clearTimeout(vscodeActivityTimer);
   if (document.hidden) { vscodeActivityTimer = setTimeout(refreshVSCodeActivity, 5000); return; }
   let active = false;
   try {
     const { activity = [] } = await api("/api/vscode/activity");
+    localChatActivity = activity;
+    localChatUnavailable = false;
     const run = activity.find((x) => x.status === "running") || activity[0];
     const banner = $("#vscode-activity");
     if (run) {
@@ -1032,7 +1096,8 @@ async function refreshVSCodeActivity() {
       const last = (run.log || []).slice(-2).map((x) => x.msg).filter(Boolean);
       $("#vscode-activity-message").textContent = last.join(" · ") || (running ? "Esperando el siguiente paso…" : "La última petición terminó.");
     } else banner.hidden = true;
-  } catch { /* el panel puede estar abierto sin una extensión vinculada */ }
+  } catch { localChatUnavailable = true; }
+  if (state.view === "local-chat") renderLocalChat();
   vscodeActivityTimer = setTimeout(refreshVSCodeActivity, active ? 1200 : 8000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshVSCodeActivity(); });

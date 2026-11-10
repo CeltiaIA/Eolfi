@@ -21,6 +21,7 @@ from typing import Any, Iterator
 from eolfi.core.evidence import EvidenceStore
 
 CASE_PACKAGE_VERSION = 2
+MAX_RECENT_PROJECTS = 3
 RECORD_KINDS = {"analysis", "execution", "observation", "specification", "reconstruction", "comparison"}
 FLOW_KINDS = {"triage": "analysis", "web": "analysis", "repo": "analysis",
               "diff": "comparison", "compare": "comparison", "create": "reconstruction",
@@ -204,6 +205,13 @@ class CaseStore:
             raise ValueError("nombre vacío/largo o descripción demasiado larga")
         now, case_id = time.time(), str(uuid.uuid4())
         self.conn.execute("INSERT INTO cases VALUES(?,?,?,?,?)", (case_id, name, description, now, now))
+        # El historial del panel es deliberadamente corto: conserva los tres
+        # proyectos/casos más recientes y al cuarto libera el más antiguo.
+        # Las evidencias globales no se borran; solo su agrupación de historial.
+        stale = self.conn.execute("SELECT case_id FROM cases ORDER BY created_at DESC, case_id DESC "
+                                  "LIMIT -1 OFFSET ?", (MAX_RECENT_PROJECTS,)).fetchall()
+        for row in stale:
+            self.conn.execute("DELETE FROM cases WHERE case_id=?", (row[0],))
         self.conn.commit()
         return self.get(case_id)
 

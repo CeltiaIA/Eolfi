@@ -30,3 +30,6 @@ node_modules/
 # Salidas locales de pruebas y comprobaciones del panel
 .pytest-tmp*/
 .eolfi-browser-check.*.log
+
+# Logs locales del servidor
+.eolfi-server.*.log

@@ -95,9 +95,8 @@ class EolfiApp:
         self._jobs: dict[str, threading.Lock] = {}
         self._jobs_guard = threading.Lock()
         self.jobs: dict[str, dict[str, Any]] = {}   # trabajos en segundo plano (id -> estado)
-        # Actividad efímera del agente de VS Code: solo progreso, nunca prompts/resultados.
+        # Actividad del agente: conserva progreso redactado sin prompts ni respuestas.
         self._vscode_activity_lock = threading.Lock()
-        self._vscode_activity_runs: dict[str, dict[str, Any]] = {}
         self._tl = threading.local()
         # Como mucho MAX_RUNNING trabajos a la vez; el resto espera «en cola» (PLAN_MEJORAS M2).
         self._slots = threading.BoundedSemaphore(self.MAX_RUNNING)
@@ -258,10 +257,37 @@ class EolfiApp:
                     out[k] = job[k]
         return out
 
+    @contextlib.contextmanager
+    def _activity_store(self):
+        with contextlib.closing(self.store()) as store, store.conn as conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS vscode_activity "
+                         "(run_id TEXT PRIMARY KEY, updated REAL NOT NULL, payload TEXT NOT NULL)")
+            yield conn
+
+    def local_chat_workspace(self, _q=None):
+        from eolfi.vscode_tools import vscode_action
+        from eolfi.generador.llm import LLMError
+        try:
+            return vscode_action("workspace", timeout=4)
+        except LLMError as exc:
+            raise ApiError(503, "Abre VS Code e vincula a extensión de Eolfi.") from exc
+
+    def local_chat_send(self, body):
+        from eolfi.generador.llm import LLMError, _post, read_vscode_bridge
+        prompt, project = body.get("prompt"), body.get("project")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or not isinstance(project, str):
+            raise ApiError(400, "Mensaxe ou proxecto inválido.")
+        try:
+            bridge = read_vscode_bridge()
+            return _post(bridge["url"] + "/v1/local-chat", {"prompt": prompt, "project": project},
+                         {"Authorization": "Bearer " + bridge["token"]}, 900, retries=0)
+        except LLMError as exc:
+            raise ApiError(502, str(exc)) from exc
+
     def vscode_activity(self, _q=None) -> dict[str, Any]:
-        with self._vscode_activity_lock:
-            runs = sorted(self._vscode_activity_runs.values(), key=lambda x: x["updated"], reverse=True)
-            return {"activity": runs[:10]}
+        with self._vscode_activity_lock, self._activity_store() as conn:
+            rows = conn.execute("SELECT payload FROM vscode_activity ORDER BY updated DESC LIMIT 10")
+            return {"activity": [json.loads(row[0]) for row in rows]}
 
     def update_vscode_activity(self, body: dict[str, Any]) -> dict[str, Any]:
         run_id = str(body.get("run_id") or "")
@@ -272,24 +298,28 @@ class EolfiApp:
         message = redact(str(body.get("message") or "")[:500])[0]
         label = redact(str(body.get("label") or "Chat de Eolfi")[:120])[0]
         now = time.time()
-        with self._vscode_activity_lock:
-            run = self._vscode_activity_runs.get(run_id)
+        with self._vscode_activity_lock, self._activity_store() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT payload FROM vscode_activity WHERE run_id = ?", (run_id,)).fetchone()
+            run = json.loads(row[0]) if row else None
             if phase == "start":
                 run = {"run_id": run_id, "label": label, "status": "running", "started": now, "log": []}
-                self._vscode_activity_runs[run_id] = run
             elif run is None:
                 raise ApiError(404, "actividad de VS Code no encontrada")
             if phase == "progress" and message:
                 run["log"].append({"t": round(now - run["started"], 1), "msg": message})
-                del run["log"][:-100]
             elif phase in ("done", "error"):
                 run["status"] = "done" if phase == "done" else "error"
                 run["finished"] = now
                 if message:
                     run["log"].append({"t": round(now - run["started"], 1), "msg": message})
             run["updated"] = now
-            for old_id, _ in sorted(self._vscode_activity_runs.items(), key=lambda item: item[1]["updated"], reverse=True)[20:]:
-                del self._vscode_activity_runs[old_id]
+            del run["log"][:-100]
+            conn.execute("INSERT INTO vscode_activity VALUES (?, ?, ?) "
+                         "ON CONFLICT(run_id) DO UPDATE SET updated=excluded.updated, payload=excluded.payload",
+                         (run_id, now, json.dumps(run, ensure_ascii=False)))
+            conn.execute("DELETE FROM vscode_activity WHERE run_id IN "
+                         "(SELECT run_id FROM vscode_activity ORDER BY updated DESC LIMIT -1 OFFSET 20)")
             return {"activity": run}
 
     def cancel_job(self, q: dict[str, str]) -> dict[str, Any]:
@@ -1349,6 +1379,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/subjects": app.subjects, "/api/evidence": app.evidence,
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
                         "/api/vscode/activity": app.vscode_activity,
+                        "/api/local-chat/workspace": app.local_chat_workspace,
                     }
                     if path in routes:
                         return self._json(200, routes[path](q))
@@ -1391,6 +1422,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             "Content-Disposition": f'attachment; filename="eolfi.{fmt}"'})
                     raise ApiError(404, "ruta no encontrada")
                 if method == "POST":
+                    if path == "/api/local-chat/send":
+                        if self.client_address[0] not in _LOOPBACK:
+                            raise ApiError(403, "Chat local limitado a este equipo.")
+                        return self._json(200, app.local_chat_send(self._obj()))
                     if path == "/api/vscode/activity":
                         if self.headers.get("X-Eolfi-Client") != "vscode":
                             raise ApiError(403, "solo la extensión vinculada de VS Code puede publicar actividad")

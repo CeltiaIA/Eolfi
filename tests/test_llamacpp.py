@@ -47,3 +47,35 @@ def test_proveedor_gemma_usa_eolas_sin_arrancar_llama_cpp(monkeypatch):
     assert sent["body"]["messages"] == [{"role": "system", "content": "sistema"},
                                          {"role": "user", "content": "hola"}]
     assert sent["body"]["format"] == {"type": "object"} and sent["body"]["think"] is False
+
+
+def test_proveedor_eolas_v2_usa_perfil_activo_sin_cargar_modelo_doble(monkeypatch):
+    from eolfi import eolas_v2
+    from eolfi.generador import llm
+
+    cfg = {"active_profile": "mistral", "system": "", "ctx": 32000, "temperature": 0.2, "top_p": 0.95,
+           "max_tokens": 4096, "reasoning": False, "review_reasoning": False, "profiles": {}}
+    c = {**cfg, "alias": "mistral-test", "model": "mistral.gguf", "url": "http://127.0.0.1:8090"}
+    calls = []
+    monkeypatch.setattr(eolas_v2, "load_config", lambda: cfg)
+    monkeypatch.setattr(eolas_v2, "status", lambda: {"running_profile": "mistral"})
+    monkeypatch.setattr(eolas_v2, "profile_config", lambda name, config: c)
+    monkeypatch.setattr(eolas_v2, "start", lambda profile=None: calls.append(("start", profile)))
+    monkeypatch.setattr(eolas_v2, "switch", lambda profile: calls.append(("switch", profile)))
+    sent = {}
+
+    def fake_post(url, body, headers, timeout):
+        sent.update(url=url, body=body)
+        return {"choices": [{"finish_reason": "stop", "message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 3}}
+
+    monkeypatch.setattr(llm, "_post", fake_post)
+    p = llm.make_provider("eolas-v2")
+    reply = p.complete("sistema", [{"role": "user", "content": "hola"}], {"type": "object"}, "high")
+    assert reply.data == {"ok": True, "summary": "", "notes": [], "files": []}
+    assert reply.model == "mistral-test (Eolas V2 local)"
+    assert reply.usage == {"input_tokens": 5, "output_tokens": 3}
+    assert sent["url"] == "http://127.0.0.1:8090/v1/chat/completions"
+    assert sent["body"]["model"] == "mistral-test"
+    assert sent["body"]["max_tokens"] == 4096
+    assert calls == [("start", "mistral")]

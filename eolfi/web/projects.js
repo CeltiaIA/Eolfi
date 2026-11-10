@@ -73,14 +73,13 @@ export function createProjectView({ $, el, api, setStatus }) {
     e.preventDefault();
     const name = $("#proj-name").value.trim();
     if (!name) { setStatus("El proyecto necesita un nombre", true); $("#proj-name").focus(); return; }
-    if (!sources.length) { setStatus("Añade al menos una fuente", true); return; }
     $("#proj-go").disabled = true;
     setStatus("Eolfi está leyendo las fuentes y la descripción para proponer un plan…");
     try {
       current = await api("/api/projects/plan", { method: "POST", body: JSON.stringify({
         name, description: $("#proj-desc").value, sources: sources.map((s) => s.ref),
         mode: document.querySelector("input[name=proj-mode]:checked").value }) });
-      setStatus("Plan propuesto: revísalo y apruébalo para empezar");
+        setStatus("Caso creado y plan propuesto: revisa la evaluación y apruébalo para empezar");
       render();
       view.querySelector("h3")?.focus();
     } catch (err) { setStatus(err.message, true); } finally { $("#proj-go").disabled = false; }

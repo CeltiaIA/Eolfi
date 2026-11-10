@@ -291,15 +291,15 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
     for sp in (cr,):
-        sp.add_argument("--provider", default="claude", choices=["claude", "eolas", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
+        sp.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
         sp.add_argument("--model", default=None, help="Modelo del proveedor (por defecto, el de su preajuste)")
         sp.add_argument("--base-url", default=None, help="URL del servidor (p. ej. Eolas en otro puerto)")
 
-    asg = sub.add_parser("assist", help="Claude implementa cambios en un proyecto generado (requiere eolfi[ai])")
+    asg = sub.add_parser("assist", help="La IA implementa cambios en un proyecto generado (requiere proveedor configurado)")
     asg.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
     asg.add_argument("--brief", required=True, help="Qué quieres que implemente")
     asg.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
-    asg.add_argument("--provider", default="claude", choices=["claude", "eolas", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
+    asg.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
     asg.add_argument("--model", default=None)
     asg.add_argument("--base-url", default=None)
 
@@ -342,7 +342,49 @@ def _parser() -> argparse.ArgumentParser:
     vd.add_argument("--name", help="Comando de VS Code (command) o herramienta (tool)")
     vd.add_argument("--input", default="{}", help="JSON con argumentos de la herramienta (tool) o lista de argumentos (command)")
 
-    lm = sub.add_parser("llama", help="Modelo local llama.cpp (Gemma 4): estado, arrancar, parar o abrir la configuración")
+    eo = sub.add_parser("eolas-v2", help="Motor Eolas V2: perfiles Gemma/Mistral alternos, feedback y preparación de aprendizaje")
+    eos = eo.add_subparsers(dest="eolas_action", required=True)
+    eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
+    eos_start = eos.add_parser("start", help="Arranca el perfil activo (o el indicado)")
+    eos_start.add_argument("--profile", choices=["gemma", "mistral", "moe"], default=None)
+    eos_switch = eos.add_parser("switch", help="Detiene el perfil activo y arranca el otro")
+    eos_switch.add_argument("profile", choices=["gemma", "mistral", "moe"])
+    eos.add_parser("stop", help="Detiene solo el llama-server que inició Eolas")
+    eos_consent = eos.add_parser("feedback-consent", help="Activa o desactiva el almacenamiento local de feedback")
+    eos_consent.add_argument("state", choices=["on", "off"])
+    eos_feedback = eos.add_parser("feedback-add", help="Guarda una valoración explícita localmente")
+    eos_feedback.add_argument("--profile", choices=["gemma", "mistral", "moe"], required=True)
+    eos_feedback.add_argument("--task", required=True, help="Dominio/tarea, p. ej. 'python' o 'resumen'")
+    eos_feedback.add_argument("--rating", type=int, choices=range(1, 6), required=True)
+    eos_feedback.add_argument("--prompt", default=None)
+    eos_feedback.add_argument("--prompt-file", default=None)
+    eos_feedback.add_argument("--response", default=None)
+    eos_feedback.add_argument("--response-file", default=None)
+    eos_feedback.add_argument("--consent", action="store_true", help="Consiento guardar prompt y respuesta saneados")
+    eos_delete = eos.add_parser("feedback-delete", help="Borra un registro local de feedback por id")
+    eos_delete.add_argument("record_id")
+    eos_export = eos.add_parser("feedback-export", help="Exporta solo registros con consentimiento a JSONL")
+    eos_export.add_argument("out")
+    eos_import = eos.add_parser("feedback-import", help="Importa JSONL validado sin duplicar ids")
+    eos_import.add_argument("source")
+    eos_data = eos.add_parser("dataset", help="Prepara JSONL SFT/preferencias desde valoraciones humanas")
+    eos_data.add_argument("kind", choices=["sft", "preference"])
+    eos_data.add_argument("--out", required=True)
+    eos_data.add_argument("--min-examples", type=int, default=20)
+    eos_cal = eos.add_parser("calibrate", help="Recomienda perfil por tarea usando valoraciones humanas")
+    eos_cal.add_argument("task")
+    eos_check = eos.add_parser("training-check", help="Comprueba si hay checkpoint HF, dataset y dependencias para entrenar")
+    eos_check.add_argument("--checkpoint", required=True)
+    eos_check.add_argument("--dataset", required=True)
+    eos_train = eos.add_parser("train-sft", help="Entrena un adaptador QLoRA SFT aislado desde checkpoint/dataset locales")
+    eos_train.add_argument("--checkpoint", required=True)
+    eos_train.add_argument("--dataset", required=True)
+    eos_train.add_argument("--out", required=True)
+    eos_train.add_argument("--epochs", type=float, default=1.0)
+    eos_train.add_argument("--max-seq-length", type=int, default=1024)
+    eos_train.add_argument("--consent", action="store_true", help="Autoriza uso de GPU y escritura de un adaptador nuevo")
+
+    lm = sub.add_parser("llama", help="Modelo local llama.cpp: estado, arrancar, parar o abrir la configuración")
     lm.add_argument("accion", nargs="?", default="status", choices=["status", "start", "stop", "config"])
 
     vs = sub.add_parser("vscode", help="Abre VS Code con la extensión de Eolfi (IA de VS Code: --provider copilot-vscode)")
@@ -1294,6 +1336,49 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
     args = _parser().parse_args(argv)
+    if args.cmd == "eolas-v2":
+        from pathlib import Path as _P
+        from eolfi import eolas_v2
+
+        try:
+            if args.eolas_action == "status":
+                _print(eolas_v2.status())
+            elif args.eolas_action == "start":
+                _print(eolas_v2.start(args.profile))
+            elif args.eolas_action == "switch":
+                _print(eolas_v2.switch(args.profile))
+            elif args.eolas_action == "stop":
+                _print(eolas_v2.stop())
+            elif args.eolas_action == "feedback-consent":
+                _print(eolas_v2.set_feedback_consent(args.state == "on"))
+            elif args.eolas_action == "feedback-add":
+                if bool(args.prompt) == bool(args.prompt_file) or bool(args.response) == bool(args.response_file):
+                    raise ValueError("indica exactamente uno de --prompt/--prompt-file y --response/--response-file")
+                prompt = _P(args.prompt_file).read_text(encoding="utf-8") if args.prompt_file else args.prompt
+                response = _P(args.response_file).read_text(encoding="utf-8") if args.response_file else args.response
+                _print(eolas_v2.record_feedback(profile=args.profile, task=args.task, prompt=prompt,
+                                                response=response, rating=args.rating, consent=args.consent))
+            elif args.eolas_action == "feedback-delete":
+                _print({"deleted": eolas_v2.delete_feedback(args.record_id)})
+            elif args.eolas_action == "feedback-export":
+                _print(eolas_v2.export_feedback(_P(args.out)))
+            elif args.eolas_action == "feedback-import":
+                _print(eolas_v2.import_feedback(_P(args.source)))
+            elif args.eolas_action == "dataset":
+                _print(eolas_v2.build_dataset(kind=args.kind, out=_P(args.out), min_examples=args.min_examples))
+            elif args.eolas_action == "calibrate":
+                _print(eolas_v2.recommend_profile(args.task))
+            elif args.eolas_action == "training-check":
+                _print(eolas_v2.training_readiness(_P(args.checkpoint), _P(args.dataset)))
+            elif args.eolas_action == "train-sft":
+                _print(eolas_v2.train_sft(_P(args.checkpoint), _P(args.dataset), _P(args.out), consent=args.consent,
+                                          epochs=args.epochs, max_seq_length=args.max_seq_length))
+            return 0
+        except (FileNotFoundError, FileExistsError, ValueError, PermissionError, OSError, RuntimeError, TimeoutError) as exc:
+            if os.environ.get("EOLFI_DEBUG"):
+                raise
+            print(f"eolfi eolas-v2: error: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
     if args.cmd == "llama":
         from eolfi import llamacpp
 

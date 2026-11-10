@@ -176,7 +176,7 @@ async function chat(vscode, body, allowedTools, cancelToken, log, actions = null
     ...(journal ? { journal, written: calls.filter((c) => c.name === 'eolfi_write_file' && c.ok).length } : {}) };
 }
 
-function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}, actions = null }) {
+function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}, actions = null, localChat = null }) {
   if (!token || token.length < 32) throw new Error('token demasiado corto');
   return (req, res) => {
     const raw = String(req.headers.host || '').toLowerCase();
@@ -203,7 +203,8 @@ function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}
       return json(res, 200, { tools: (vscode.lm.tools || []).map((t) => ({ name: t.name, description: String(t.description || '').slice(0, 300),
         tags: t.tags || [], allowed: allowed.includes(t.name) })) });
     }
-    if (req.method === 'POST' && url.pathname === '/v1/chat') {
+    if (req.method === 'POST' && ['/v1/chat', '/v1/local-chat'].includes(url.pathname)) {
+      if (url.pathname === '/v1/local-chat' && !localChat) return json(res, 501, { error: 'Chat local no disponible' });
       const chunks = [];
       let size = 0;
       req.on('data', (c) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
@@ -214,7 +215,9 @@ function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}
         const cts = new vscode.CancellationTokenSource();
         res.on('close', () => { if (!res.writableEnded) cts.cancel(); });
         try {
-          const out = await chat(vscode, body || {}, getAllowedTools(), cts.token, log, actions);
+          const out = url.pathname === '/v1/local-chat'
+            ? await localChat(body || {}, cts.token)
+            : await chat(vscode, body || {}, getAllowedTools(), cts.token, log, actions);
           json(res, 200, out);
         } catch (e) { fail(e); } finally { cts.dispose?.(); }
       });

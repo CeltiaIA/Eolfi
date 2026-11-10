@@ -198,9 +198,11 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
         raise PlanError("descripción demasiado larga")
     if mode not in MODES:
         raise PlanError("modo debe ser auto o guided")
-    if not isinstance(sources, list) or not sources or len(sources) > 50 or not all(
+    if not isinstance(sources, list) or len(sources) > 50 or not all(
             isinstance(s, str) and s.strip() for s in sources):
-        raise PlanError("añade al menos una fuente (archivo, web o repositorio)")
+        raise PlanError("las fuentes deben ser archivos, webs o repositorios válidos")
+    if not sources and not description.strip():
+        raise PlanError("escribe una descripción o adjunta al menos una fuente")
     srcs = []
     for ref in dict.fromkeys(s.strip() for s in sources):
         kind = _classify(ref)
@@ -229,7 +231,8 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
 
 def _reasoning(srcs: list[dict[str, str]], interp: dict[str, Any]) -> list[str]:
     kinds = sorted({_KIND_LABEL.get(s["kind"], s["kind"]) for s in srcs})
-    r = [f"Fuentes: {len(srcs)} ({', '.join(kinds)}). Se analizan primero para tener evidencias de cada una."]
+    r = ([f"Fuentes: {len(srcs)} ({', '.join(kinds)}). Se analizan primero para tener evidencias de cada una."]
+         if srcs else ["No hay fuentes adjuntas: el primer proyecto se derivará del prompt y quedará marcado como base por validar."])
     if interp["target"] == "auto":
         r.append("La descripción no fija la tecnología: se elegirá a partir de la pila detectada en las fuentes.")
     else:
