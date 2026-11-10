@@ -144,8 +144,21 @@ export class MetaAdapter {
         }
         return false;
       };
+      // Meta pliega los bloques de código largos («48 líneas ocultas»): innerText solo trae lo visible.
+      // Se pulsa una vez el desplegable (como «Raw») y, además, cada bloque se lee con textContent.
+      // Si aun así quedan líneas ocultas, la marca se conserva: el texto nunca se presenta como completo.
+      const HIDDEN = /^\\s*(?:\\d+\\s+(?:l[ií]neas?\\s+ocultas?|lines?\\s+hidden|more\\s+lines?)|mostrar\\s+(?:m[aá]s|todo)|show\\s+(?:more|all))\\s*$/i;
+      const expand = el => {
+        if (!allowClick || el.dataset.eolfiExpanded === '1') return false;
+        const found = [...el.querySelectorAll('button,[role="button"],span,div')]
+          .filter(n => visible(n) && n.children.length <= 2 && HIDDEN.test(n.innerText || ''));
+        if (!found.length) return false;
+        el.dataset.eolfiExpanded = '1';
+        for (const n of found) (n.closest('button,[role="button"]') || n).click();
+        return true;
+      };
       const replyText = el => {
-        if (showRaw(el)) return '';
+        if (showRaw(el) || expand(el)) return '';
         const parts = [...el.querySelectorAll('.markdown-content')].filter(n => !n.closest(reasoning) && !n.parentElement?.closest('.markdown-content'));
         if (!parts.length) return '';
         const whole = parts.map(clean).filter(Boolean).join('\\n\\n');
@@ -155,7 +168,18 @@ export class MetaAdapter {
           const outside = whole.replace(code.innerText || literal, '').trim();
           if (/^(?:(?:json|Copiar(?: código)?|Copy(?: code)?|Código|Code)\\s*)*$/i.test(outside)) return literal;
         }
-        return whole;
+        let text = whole, recovered = 0;
+        for (const part of parts) {
+          for (const pre of part.querySelectorAll('pre')) {
+            const shown = clean(pre);
+            const full = ((pre.querySelector('code') || pre).textContent || '').replace(/\\n$/, '');
+            if (shown && full.length > shown.length && text.includes(shown)) { text = text.replace(shown, full); recovered++; }
+          }
+        }
+        // La marca de líneas ocultas solo se retira si cada bloque plegado se recuperó completo.
+        const marks = text.split('\\n').filter(l => HIDDEN.test(l)).length;
+        if (recovered && marks <= recovered) text = text.split('\\n').filter(l => !HIDDEN.test(l)).join('\\n');
+        return text;
       };
       return {
         draft: input ? ('value' in input ? input.value : input.innerText) : null,
