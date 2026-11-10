@@ -31,12 +31,12 @@
 - Resultado:
 
 ## Otros Objetivos
-- O6: PENDIENTE (fuera de esta ejecución)
+- O6: HECHO en su parte sin dependencias (2026-11-11); empaquetado con fusibles PENDIENTE de autorización
 - O7: PENDIENTE (fuera de esta ejecución)
-- O8: PENDIENTE (fuera de esta ejecución)
+- O8: HECHO (commit `34c50aa`, 2026-11-10)
 - O9: PENDIENTE (fuera de esta ejecución)
 - O11: PENDIENTE (fuera de esta ejecución)
-- O12: PENDIENTE (fuera de esta ejecución)
+- O12: HECHO (2026-11-11); decisión sobre mover `eolfi.db` PENDIENTE del titular
 - O13: PENDIENTE (fuera de esta ejecución)
 
 ## O1 + O2 — resultado (2026-11-09)
@@ -211,3 +211,15 @@ All checks passed!
 - **Motivo**: sin un modelo registrado, el chat de VS Code da «Language model unavailable» y no llega a @eolfi si no hay sesión de Copilot
 - **Archivos**: `eolfi/vscode-bridge/lm-provider.js`, `test/lm-provider.test.js`, `extension.js`, `package.json`
 - **Estado**: pruebas unitarias en verde (168/168); e2e en VS Code real 11/11 —sin Copilot, la pregunta libre la responde el modelo local por Eolas—; **instalada** en el VS Code del usuario (0.6.11, 2026-11-10). La comprobación de la e2e se actualizó: acepta la respuesta del modelo local en vez de exigir el aviso de «sin modelo».
+
+## O6 — Motor de reserva Electron: aviso de cookies sin cifrar (2026-11-11)
+
+- Estado: **HECHO** en la parte que no necesita instalar nada. No se instaló `@electron/fuses` (requiere autorización expresa, `AGENTS.md`).
+- Archivos: `eolfi/bridge/policy.mjs` (función pura `electronEngineWarning(engine, packaged)`), `eolfi/bridge/main.mjs` (muestra el aviso al arrancar con el motor Electron sin empaquetar), `eolfi/bridge/test/policy.test.mjs` (1 prueba nueva), `README.md` (sección del puente).
+- Verificación: `node --check main.mjs` OK; `node --test` en `eolfi/bridge`: 67 pruebas, 63 aprobadas, 0 fallos, 4 omitidas (Linux, sin Electron).
+- NO VERIFICADO: el aviso en un arranque real de Electron; R5 sobre un ejecutable empaquetado (no existe).
+
+## O12 — Datos locales y registro de limpieza (2026-11-11)
+
+- Estado: **HECHO**. `REGISTRO_LIMPIEZA.md`: nueva LIM-013 (`eolfi.db*`, `CONSERVAR`) y LIM-008 actualizada con el esquema de R6. No se borró ni movió nada.
+- Pendiente del titular: decidir si `eolfi.db` pasa a `~/.eolfi/`.

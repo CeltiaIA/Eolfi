@@ -6,7 +6,7 @@
 // una pasarela local con token; cada envío pide tu permiso en un diálogo.
 // Automatizar estas webs puede ir contra sus condiciones de uso: úsalo bajo tu cuenta y responsabilidad.
 import { app, BrowserWindow, dialog, session } from 'electron';
-import { allowedNavigation as policyAllowed, siteSuffixes, permissionDecision, DENIED_PERMISSIONS } from './policy.mjs';
+import { allowedNavigation as policyAllowed, siteSuffixes, permissionDecision, DENIED_PERMISSIONS, electronEngineWarning } from './policy.mjs';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -56,6 +56,8 @@ if (ENGINE !== 'electron') {
   }
 }
 const engineLabel = () => (ENGINE === 'browser' ? browserEngine.name : 'Electron');
+const ENGINE_WARNING = electronEngineWarning(ENGINE, app.isPackaged);
+if (ENGINE_WARNING) console.warn(ENGINE_WARNING);
 
 // Adaptador "en reposo" para el estado cuando la ventana del sitio está cerrada (no la reabre).
 const closed = (name) => ({ status: async () => ({ ok: false, detail: `Ventana de ${SITES[name].title} cerrada: se abrirá al enviar o al pulsar su pestaña` }) });

@@ -484,6 +484,14 @@ python -m eolfi assist D:/p/tienda --provider meta-web --brief "Añade ofertas"
   reutiliza esas sesiones.
 - **Sesiones persistentes**: inicias sesión una vez en cada chat y el perfil de
   Eolfi la conserva entre reinicios (también si cierras el navegador).
+- **Motor Electron (`--engine electron` o sin navegador instalado)**: se ejecuta con
+  `electron .` sin empaquetar, y Electron 45 de serie trae el fusible
+  `EnableCookieEncryption` deshabilitado y `RunAsNode`, `NODE_OPTIONS` e `--inspect`
+  habilitados. Por eso las sesiones de las ventanas (`persist:eolfi-*`) se guardan
+  **sin ese cifrado de cookies**; el puente lo avisa al arrancar. El motor
+  recomendado es tu navegador real (el predeterminado si hay uno instalado).
+  Empaquetar con `@electron/fuses` lo resolvería, pero requiere instalar esa
+  dependencia y no está hecho.
 - **Control por tubería privada**: el puente controla su Chrome con
   `--remote-debugging-pipe`, sin ningún puerto de depuración TCP; ningún otro
   programa ni usuario del equipo puede conectarse a él ni leer sus cookies. Al

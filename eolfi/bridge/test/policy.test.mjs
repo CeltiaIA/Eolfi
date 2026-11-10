@@ -57,3 +57,12 @@ test('permissionDecision - admite clipboard-sanitized-write solo del mismo orige
   assert.strictEqual(permissionDecision(site, 'clipboard-sanitized-write', 'https://meta.ai/chat'), true);
   assert.strictEqual(permissionDecision(site, 'clipboard-sanitized-write', 'https://evil.com'), false);
 });
+
+test('electronEngineWarning - avisa solo con Electron sin empaquetar (O6)', async () => {
+  const { electronEngineWarning } = await import('../policy.mjs');
+  const msg = electronEngineWarning('electron', false);
+  assert.match(msg, /EnableCookieEncryption/);
+  assert.match(msg, /persist:eolfi-/);
+  assert.strictEqual(electronEngineWarning('electron', true), null);
+  assert.strictEqual(electronEngineWarning('browser', false), null);
+});

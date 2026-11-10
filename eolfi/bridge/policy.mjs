@@ -54,3 +54,13 @@ export function permissionDecision(site, permission, requestingUrl) {
   }
   return false;
 }
+
+// O6 (H3): Electron 45 de serie trae EnableCookieEncryption deshabilitado y RunAsNode,
+// NODE_OPTIONS e --inspect habilitados. Sin empaquetar con @electron/fuses, las cookies
+// de las particiones persist:eolfi-* quedan sin ese cifrado. Devuelve el aviso o null.
+export function electronEngineWarning(engine, packaged) {
+  if (engine !== 'electron' || packaged) return null;
+  return 'Aviso: motor Electron sin empaquetar. Las sesiones de los chats (cookies de persist:eolfi-*) ' +
+    'se guardan sin el cifrado de cookies del fusible EnableCookieEncryption, y RunAsNode, NODE_OPTIONS e ' +
+    '--inspect siguen habilitados. Motor recomendado: tu navegador (Chrome/Edge), el predeterminado si hay uno instalado.';
+}
