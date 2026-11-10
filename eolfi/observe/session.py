@@ -478,7 +478,8 @@ def _ui_desktop_coverage(steps: list[dict[str, Any]]) -> Any:
         return {"status": "observed", "method": "Windows UI Automation",
                 "screenshots": "captured" if requested else "not_requested",
                 "limits": "árbol de accesibilidad acotado (300 elementos por ventana) de las ventanas del proceso "
-                          "lanzado; capturas opcionales limitadas a 20 imágenes JPEG de 256 KiB por paso; "
+                          "lanzado; capturas opcionales con PrintWindow (solo la ventana del objetivo, no lo que la tape), "
+                          "limitadas a 20 imágenes JPEG de 256 KiB por paso; "
                           "contenido visual sin redacción automática; controles sin UI Automation no se ven"}
     requested = any(s.get("screenshots_requested") for s in desk)
     return {"status": "partial", "screenshots": "partial" if requested else "not_requested",

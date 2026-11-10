@@ -96,13 +96,14 @@ async function chat(vscode, body, allowedTools, cancelToken, log, actions = null
   // Herramientas propias del puente (leer, buscar, abrir y escribir en el workspace): las ejecuta el puente.
   // true = todas (escribir pide confirmación en VS Code); "read" = solo leer, listar, buscar y abrir.
   const own = !actions ? [] : body.workspace_tools === true ? TOOL_DEFS
-    : body.workspace_tools === 'read' ? TOOL_DEFS.filter((d) => d.action !== 'write') : [];
+    : body.workspace_tools === 'read' ? TOOL_DEFS.filter((d) => d.action !== 'write' && d.action !== 'edit') : [];
   for (const d of own) tools.push({ name: d.name, description: d.description, inputSchema: d.inputSchema });
   const msgs = toMessages(vscode, body.messages);
   const calls = [];
   let text = '';
-  const auto = body.auto_approve === true && own.some((d) => d.action === 'write');
-  const journal = own.some((d) => d.action === 'write') && actions?.journal_start ? (await actions.journal_start()).journal : null;
+  const writes = (a) => a === 'write' || a === 'edit';
+  const auto = body.auto_approve === true && own.some((d) => writes(d.action));
+  const journal = own.some((d) => writes(d.action)) && actions?.journal_start ? (await actions.journal_start()).journal : null;
   try {
   const options = { justification: 'Eolfi quiere usar el modelo de IA para analizar o generar código en tu equipo.', ...(tools.length ? { tools } : {}) };
   // Una petición completa (enviar y leer el flujo: el rechazo de un modelo puede llegar al leerlo).
@@ -140,7 +141,7 @@ async function chat(vscode, body, allowedTools, cancelToken, log, actions = null
       if (ownDef) {
         try {
           log(`acción ${ownDef.action}`);
-          const input = ownDef.action === 'write' ? { ...(call.input || {}), auto, journal } : (call.input || {});
+          const input = writes(ownDef.action) ? { ...(call.input || {}), auto, journal } : (call.input || {});
           const r = await actions[ownDef.action](input);
           results.push(new vscode.LanguageModelToolResultPart(call.callId, [new vscode.LanguageModelTextPart(JSON.stringify(r).slice(0, 200000))]));
           calls.push({ name: call.name, ok: true });
@@ -173,7 +174,7 @@ async function chat(vscode, body, allowedTools, cancelToken, log, actions = null
     throw e;
   }
   return { text, model: { id: model.id, family: model.family, name: model.name, vendor: model.vendor }, tool_calls: calls,
-    ...(journal ? { journal, written: calls.filter((c) => c.name === 'eolfi_write_file' && c.ok).length } : {}) };
+    ...(journal ? { journal, written: calls.filter((c) => (c.name === 'eolfi_write_file' || c.name === 'eolfi_edit_file') && c.ok).length } : {}) };
 }
 
 function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}, actions = null }) {

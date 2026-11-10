@@ -3,11 +3,12 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const { httpFetch } = require('./local-model');
 
-const DEFAULT_LAUNCHER = 'D:\\celtiaia\\launch-eolas.ps1';
+// Sin ruta fija de una máquina: ajuste «eolfi.fallback.eolasLauncher» o, si falta, CELTIAIA_HOME\launch-eolas.ps1.
+const DEFAULT_LAUNCHER = process.env.CELTIAIA_HOME ? require('node:path').join(process.env.CELTIAIA_HOME, 'launch-eolas.ps1') : '';
 const DEFAULT_URL = 'http://127.0.0.1:11435';
 const DEFAULT_MODEL = 'gemma-4-12b-it:latest';
 
-function makeEolasStarter({ launcher = DEFAULT_LAUNCHER, powershell = 'powershell.exe', endpoint = DEFAULT_URL,
+function makeEolasStarter({ launcher = DEFAULT_LAUNCHER, expectedSha256 = '', log = () => {},powershell = 'powershell.exe', endpoint = DEFAULT_URL,
   model = DEFAULT_MODEL, spawnFn = spawn, fetchFn = httpFetch, launchMs = 135000, readyMs = 30000, pollMs = 500 } = {}) {
   let active = false;
   let starting = null;
@@ -35,7 +36,12 @@ function makeEolasStarter({ launcher = DEFAULT_LAUNCHER, powershell = 'powershel
   async function start() {
     if (starting) return starting;
     starting = (async () => {
-      if (!launcher || !fs.existsSync(launcher)) throw new Error(`no encuentro el lanzador Eolas: ${launcher}`);
+      if (!launcher) throw new Error('autoarranque de Eolas sin lanzador: configura «eolfi.fallback.eolasLauncher» o CELTIAIA_HOME');
+      if (!fs.existsSync(launcher)) throw new Error(`no encuentro el lanzador Eolas: ${launcher}`);
+      const sha = require('node:crypto').createHash('sha256').update(fs.readFileSync(launcher)).digest('hex');
+      log(`Lanzador Eolas ${launcher} · SHA-256 ${sha}`);
+      const want = String(expectedSha256 || '').trim().toLowerCase();
+      if (want && want !== sha) throw new Error(`el lanzador Eolas no coincide con el SHA-256 configurado (esperado ${want}, actual ${sha}): no se ejecuta`);
       await new Promise((resolve, reject) => {
         let child;
         let settled = false;

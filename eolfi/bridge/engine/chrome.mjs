@@ -370,11 +370,16 @@ function loginLockActive(file) {
 }
 
 export class ChromeEngine {
-  constructor({ browser = findBrowser(), profile = join(homedir(), '.eolfi', 'browser-profile'), log = () => {} } = {}) {
+  // policy (opcional): { allowed(name, url) → bool, deniedPermissions: [nombres CDP] }. La misma política que
+  // el motor Electron: navegación del marco principal y ventanas emergentes solo a destinos admitidos del sitio,
+  // y permisos sensibles denegados en todo el navegador de Eolfi.
+  constructor({ browser = findBrowser(), profile = join(homedir(), '.eolfi', 'browser-profile'), log = () => {}, policy = null } = {}) {
     if (!browser) throw new Error('No se encontró ningún navegador Chromium (Chrome, Edge, Brave, Opera, Vivaldi); usa --browser <ruta>');
     this.browser = browser;
     this.profile = profile;
     this.log = log;
+    this.policy = policy;
+    this.owners = new Map();    // targetId de una pestaña de sitio -> nombre del sitio
     this.conn = null;           // tubería CDP (PipeConnection)
     this.root = null;           // sesión del navegador
     this.proc = null;
@@ -439,7 +444,42 @@ export class ChromeEngine {
       for (const [name, c] of this.pages) if (c.cdp.sessionId === sessionId) { c.cdp._markClosed(); this.pages.delete(name); }
     });
     this.conn = conn;
+    if (this.policy) await this._applyBrowserPolicy(conn);
     this.log(`${this.name} conectado al puente por tubería privada (perfil ${this.profile})`);
+  }
+
+  // Permisos denegados para todos los orígenes (solo en este navegador de Eolfi, mientras viva) y
+  // ventanas emergentes abiertas por una pestaña de sitio hacia un destino no admitido: se cierran.
+  async _applyBrowserPolicy(conn) {
+    const denied = [];
+    for (const name of this.policy.deniedPermissions || []) {
+      try { await conn.send('Browser.setPermission', { permission: { name }, setting: 'denied' }); denied.push(name); } catch { /* permiso no admitido por esta versión */ }
+    }
+    this.deniedPermissions = denied;
+    if (typeof this.policy.allowed !== 'function') return;
+    conn.on('|Target.targetInfoChanged', ({ targetInfo: t }) => this._checkPopup(t));
+    conn.on('|Target.targetCreated', ({ targetInfo: t }) => this._checkPopup(t));
+    await conn.send('Target.setDiscoverTargets', { discover: true }).catch(() => {});
+  }
+
+  _checkPopup(t) {
+    if (!t || t.type !== 'page' || !t.openerId || !this.owners.has(t.openerId)) return;
+    if (!/^https?:/i.test(t.url || '')) return;   // about:blank inicial: se decide cuando navegue
+    if (this.policy.allowed(this.owners.get(t.openerId), t.url)) return;
+    this.log(`Ventana emergente bloqueada: ${t.url}`);
+    this.conn?.send('Target.closeTarget', { targetId: t.targetId }).catch(() => {});
+  }
+
+  // Navegación del marco principal de una pestaña de sitio: solo destinos admitidos (como will-navigate).
+  async _guardNavigation(session, targetId, name) {
+    if (typeof this.policy?.allowed !== 'function') return;
+    session.on('Fetch.requestPaused', ({ requestId, frameId, request }) => {
+      const main = frameId === targetId;
+      const ok = !main || !/^https?:/i.test(request.url) || this.policy.allowed(name, request.url);
+      if (!ok) this.log(`Navegación bloqueada en ${name}: ${request.url}`);
+      session.send(ok ? 'Fetch.continueRequest' : 'Fetch.failRequest', ok ? { requestId } : { requestId, errorReason: 'Aborted' }).catch(() => {});
+    });
+    await session.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
   }
 
   // Vivo = la tubería sigue abierta (no hay puerto que otro proceso pueda ocupar).
@@ -478,6 +518,8 @@ export class ChromeEngine {
     }
     const { sessionId } = await root.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const session = new CdpSession(this.conn, sessionId, root);
+    this.owners.set(target.targetId, name);
+    await this._guardNavigation(session, target.targetId, name);
     const contents = await CdpContents.attach(session, target.targetId, target.url);
     this.conn.on(`${sessionId}|#closed`, () => { if (this.pages.get(name) === contents) this.pages.delete(name); });
     // Una ventana recién creada empieza en about:blank: esperar a que el sitio cargue

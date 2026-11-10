@@ -14,7 +14,7 @@ const { makeClient, summarize } = require('./eolfi-client');
 const { makeChatHandler } = require('./chat');
 const { reaConfig, McpClient } = require('./rea');
 const { readCodexMcpServers } = require('./codex-mcp');
-const { makeAgentTools } = require('./agent-tools');
+const { makeAgentTools } = require('./agent-tools'); const { registerEolasModel } = require('./lm-provider');
 const { makeCaseTools, combineTools } = require('./case-tools');
 const { makeHistory } = require('./history');
 const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('./local-model');
@@ -453,12 +453,13 @@ function activate(context) {
         // El único proveedor local es Eolas/Gemma 12B; el autoarranque nunca usa un GGUF externo ni 8090.
         const autoStart = c.get('fallback.autoStart') === true;
         const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
-        const starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model }) : null;
+        const starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
         const lm = makeLocalModel({ endpoints: [endpoint], model, starter,
           options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
           allowStart: async () => autoStart });
         out.appendLine(`Modelo local: ${model} en ${endpoint}; autoarranque Eolas ${autoStart ? 'activado' : 'desactivado'}.`);
         primaryLocalModel = lm;
+        registerEolasModel(vscode, context, lm, { modelId: model, limits: () => { const k = llamacfg.loadConfig({ findServer }); return { ctx: Number(k.ctx) || 32768, maxTokens: Number(k.max_tokens) || 4096 }; } });
         context.subscriptions.push({ dispose: () => lm.stop() });
         return lm;
       })(),

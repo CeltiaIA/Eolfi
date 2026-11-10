@@ -923,7 +923,6 @@ def _close_browser(ws_url: str) -> None:
     import base64
     import os
     import socket
-    import struct
     import time
     from urllib.parse import urlsplit
 

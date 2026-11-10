@@ -24,7 +24,6 @@ import sys
 import threading
 import time
 import traceback
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any

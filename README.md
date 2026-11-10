@@ -400,6 +400,11 @@ python -m eolfi vscode-do open --path src/app.py --line 40
   sin uso (`eolfi.fallback.autoStart`, `eolfi.fallback.llamaServer`, `eolfi.fallback.gguf`).
   El **agente** (`@eolfi` con herramientas) también sigue en local cuando todos los modelos de Copilot con
   herramientas están limitados: llama.cpp con llamadas a herramientas (`--jinja`) y las mismas herramientas.
+- **Autoarranque de Eolas** (`eolfi.fallback.autoStart`): si Eolas no responde, Eolfi ejecuta el lanzador de CeltIA
+  (`launch-eolas.ps1 -Detach -NoBrowser`). No hay ruta fija: se toma de `eolfi.fallback.eolasLauncher` (p. ej.
+  `D:\celtiaia\launch-eolas.ps1`) o, si está vacío, de `%CELTIAIA_HOME%\launch-eolas.ps1`; sin ninguno, el autoarranque
+  no se ejecuta y lo dice. Antes de ejecutarlo se anota su SHA-256 en la salida «Eolfi»; con
+  `eolfi.fallback.eolasLauncherSha256` se exige ese hash y, si no coincide, no se ejecuta.
 - **Auditoría archivo por archivo** (`@eolfi /auditar [carpeta]`, o «audita … archivo por archivo»): la dirige Eolfi,
   no el modelo. Inventario de todo el código (sin dependencias, compilados, `samples`, minificados ni secretos), lotes
   de hasta 5 archivos (los grandes por partes, con números de línea) con una plantilla fija (propósito, seguridad,

@@ -209,9 +209,10 @@
         },
         "eolfi.fallback.eolasLauncher": {
           "type": "string",
-          "default": "D:\\celtiaia\\launch-eolas.ps1",
+          "default": "",
           "description": "Script local que arranca CELTIAIA/Eolas con Gemma 12B mediante llama.cpp y CUDA."
         },
+        "eolfi.fallback.eolasLauncherSha256": { "type": "string", "default": "", "description": "SHA-256 esperado del lanzador de Eolas. Si se indica y el script no coincide, no se ejecuta. El SHA-256 real se anota siempre en la salida Eolfi." },
         "eolfi.fallback.autoStart": {
           "type": "boolean",
           "default": true,
@@ -304,6 +305,7 @@
         }
       ]
     },
+    "languageModelChatProviders": [{ "vendor": "eolas", "displayName": "Eolas (local)" }],
     "chatParticipants": [
       {
         "id": "eolfi.chat",

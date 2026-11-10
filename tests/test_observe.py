@@ -550,7 +550,9 @@ def test_desktop_scenario_windows_uia(store, tmp_path):
     assert elem(again["actions"][-1], "resultado")["name"] == "HOLA"
     ui = [d for d in r["non_reproducible"] if d["aspect"].split(".")[0] in ("_inicio", "escribir", "pulsar")]
     assert all(d["aspect"].endswith("captura visual") for d in ui), r["non_reproducible"]
-    assert {d["aspect"].split(".")[0] for d in ui} == {"_inicio", "escribir", "pulsar"}
+    # Con PrintWindow la imagen es solo la ventana del objetivo: puede repetirse idéntica (antes, con
+    # CopyFromScreen, siempre variaba). Lo exigible es que toda diferencia visual quede marcada, no que exista.
+    assert {d["aspect"].split(".")[0] for d in ui} <= {"_inicio", "escribir", "pulsar"}
     assert all(d["reason"] for d in r["non_reproducible"])
 
 
@@ -610,3 +612,35 @@ def test_survivor_check_requires_same_creation_time(monkeypatch):
     monkeypatch.setattr(ses.subprocess, "run", lambda cmd, **k: killed.append(cmd))
     ses._kill_survivors([{"pid": 200, "name": "hijo.exe", "start": 60.0}])
     assert killed == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="UI Automation solo en Windows")
+def test_desktop_screenshot_excludes_overlapping_windows(store, tmp_path):
+    """La captura es de la ventana del objetivo (PrintWindow), no de la pantalla: otra ventana encima no aparece."""
+    image_mod = pytest.importorskip("PIL.Image", reason="Pillow para leer los JPEG capturados")
+    import io
+    import subprocess
+    import time
+
+    occ = samples.write(tmp_path, "tapa.ps1", samples.OCCLUDER)
+    cover = subprocess.Popen(["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", str(occ)],
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        time.sleep(3)   # la ventana magenta ya está encima de la zona donde aparecerá el objetivo
+        t = samples.write(tmp_path, "app.ps1", samples.WINFORMS_AT)
+        script = _script(t, [{"id": "ui", "action": "desktop", "timeout": 60, "cwd": "trabajo", "screenshots": True,
+                              "argv": ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", "{target}"],
+                              "actions": [{"id": "pulsar", "do": "invoke", "automation_id": "convertir"}]}],
+                         environment={"passthrough": ["PATH", "PSModulePath"]}, scope={"files": ["trabajo"]})
+        rep = run_observation(script, store, authorized=True)
+    finally:
+        subprocess.run(["taskkill", "/PID", str(cover.pid), "/T", "/F"], capture_output=True)
+    step = rep["steps"][0]
+    assert step["status"] == "ok", json.dumps(step)[:3000]
+    for action in step["actions"]:
+        shot = action["screenshot"]
+        assert shot["status"] == "captured" and shot["method"] == "PrintWindow"
+        img = image_mod.open(io.BytesIO(base64.b64decode(shot["data_base64"]))).convert("RGB")
+        pixels = list(img.getdata())
+        magenta = sum(1 for r, g, b in pixels if r > 200 and g < 80 and b > 200)
+        assert magenta / len(pixels) < 0.05, f"{magenta}/{len(pixels)} píxeles magenta: la captura incluye la ventana que tapa"

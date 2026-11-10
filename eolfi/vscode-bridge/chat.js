@@ -577,15 +577,16 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
     if (extraTools && extraTools.names().includes(call.name)) return extraTools.run(call, stream, token);
     const def = (workspaceTools || []).find((d) => d.name === call.name);
     if (def && actions) {
-      const label = { read: 'Leyendo', find: 'Buscando', list: 'Listando', write: 'Proponiendo cambio en', append: 'Escribiendo el informe', open: 'Abriendo', workspace: 'Mirando el workspace' }[def.action] || def.action;
+      const label = { read: 'Leyendo', find: 'Buscando', list: 'Listando', write: 'Proponiendo cambio en', edit: 'Editando', append: 'Escribiendo el informe', open: 'Abriendo', workspace: 'Mirando el workspace' }[def.action] || def.action;
       stream.progress(`${label} ${input.path || input.text || input.glob || ''}`.trim());
-      const r = await actions[def.action]((def.action === 'write' || def.action === 'append') && run?.journal ? { ...input, journal: run.journal } : input);
+      const writes = def.action === 'write' || def.action === 'edit' || def.action === 'append';
+      const r = await actions[def.action](writes && run?.journal ? { ...input, journal: run.journal } : input);
       if (def.action === 'read' && r?.path && run && !run.read.has(r.path)) {
         run.read.add(r.path);
         if (stream.reference) stream.reference(vscode.Uri.file(r.path));
       }
       const changed = r?.written || r?.appended;
-      if ((def.action === 'write' || def.action === 'append') && changed && run && !run.written.includes(changed)) run.written.push(changed);
+      if (writes && changed && run && !run.written.includes(changed)) run.written.push(changed);
       return JSON.stringify(r).slice(0, 100000);
     }
     return 'Herramienta desconocida.';
@@ -604,7 +605,9 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
       'una de estas no existe): ' + (openFolders().map((f) => `«${f.name}» = ${f.path}`).join('; ') || 'ninguna') + '.',
       'Usa tus herramientas en lugar de suponer: eolfi_analizar para analizar archivos, carpetas o webs; eolfi_incognitas',
       'y eolfi_informe para consultar el último análisis; y las de VS Code (eolfi_workspace, eolfi_list_files,',
-      'eolfi_read_file, eolfi_find_text, eolfi_open, eolfi_write_file) para mirar, abrir o cambiar archivos del proyecto.',
+      'eolfi_read_file, eolfi_find_text, eolfi_open, eolfi_edit_file, eolfi_write_file) para mirar, abrir o cambiar archivos del proyecto.',
+      'Para modificar un archivo que ya existe usa eolfi_edit_file (old_text copiado literalmente, new_text) una vez por cambio;',
+      'eolfi_write_file solo para crear archivos o reescribirlos enteros.',
       ...(rea ? ['Para análisis más profundos (descompilar, imports/exports, Java/.NET/Android, Electron/JS, firmware, webs en vivo,',
         'depuración) tienes REA, los agentes de ingeniería inversa del sistema: busca con rea_herramientas y usa con rea_usar.',
         'Las que ejecutan algo o tocan procesos y dispositivos (Frida, depuradores, adb…) las confirma el usuario.',

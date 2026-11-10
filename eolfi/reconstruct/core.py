@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from eolfi.core.cases import CaseStore, case_run
+from eolfi.core.cases import case_run
 from eolfi.core.evidence import EvidenceStore
 from eolfi.core.models import Authority, Confidence, Evidence
 

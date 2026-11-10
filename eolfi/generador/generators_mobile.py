@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any
 
-from eolfi.generador.generators import Writer, _page_sections, _pascal, _routes
+from eolfi.generador.generators import Writer, _page_sections, _routes
 from eolfi.generador.templates import content_for
 
 # Paquetes que `expo install` debe alinear con el SDK.

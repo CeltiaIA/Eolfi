@@ -20,3 +20,13 @@ Python usado: `C:\Users\mejil\AppData\Local\Programs\Python\Python312\python.exe
 - La captura visual no redacta texto, credenciales ni datos personales; la cobertura los marca `not_redacted`. Debe habilitarse solo para ventanas cuyo contenido se pueda conservar.
 - UI móvil sigue `NO VERIFICADO`: no se encontró `adb`, Android SDK ni dispositivo/emulador disponible.
 - La igualdad de hash visual estricta puede variar por animaciones, antialiasing o datos cambiantes; la diferencia se clasifica como aspecto no reproducible, no como defecto confirmado.
+
+## Corrección — 2026-11-09
+
+El texto anterior decía que el controlador «captura únicamente la primera ventana del proceso objetivo». No era exacto: la captura usaba `Graphics.CopyFromScreen` sobre el rectángulo de esa ventana, así que cualquier ventana de otro proceso que la tapara (notificaciones, otra aplicación, otra ventana del usuario) aparecía en la imagen.
+
+Desde esta fecha la captura usa `PrintWindow(hwnd, hdc, PW_RENDERFULLCONTENT)`: la propia ventana se pinta en un mapa de bits y lo que la tape no entra. Si `PrintWindow` falla, el resultado es `print_window_failed` sin imagen (no se vuelve a copiar la pantalla) y cada captura registra `method: PrintWindow`.
+
+Verificación: `tests/test_observe.py::test_desktop_screenshot_excludes_overlapping_windows` tapa la muestra WinForms con una ventana magenta siempre encima, de otro proceso, y comprueba que menos del 5 % de los píxeles capturados son magenta. La aserción de repetición de `test_desktop_scenario_windows_uia` exigía que todas las capturas variaran entre ejecuciones (efecto de copiar la pantalla); ahora exige que toda variación quede marcada como no reproducible, sin exigir que exista.
+
+Límites que siguen: la imagen sigue sin redactarse; `PrintWindow` depende de que la aplicación sepa pintarse fuera de pantalla (algunas aplicaciones con aceleración por GPU pueden salir en negro); solo Windows.

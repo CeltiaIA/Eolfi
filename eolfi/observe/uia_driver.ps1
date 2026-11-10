@@ -17,6 +17,7 @@ using System.Runtime.InteropServices;
 public static class EolfiWindowCapture {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr handle, IntPtr hdc, uint flags);
 }
 '@
 }
@@ -70,10 +71,14 @@ function CaptureWindow($window) {
     $scale = [Math]::Min(1.0, [Math]::Min(1280.0 / $width, 800.0 / $height))
     $outWidth = [Math]::Max(1, [int][Math]::Round($width * $scale))
     $outHeight = [Math]::Max(1, [int][Math]::Round($height * $scale))
+    # PrintWindow pide a la propia ventana que se pinte (PW_RENDERFULLCONTENT = 2): ventanas de otros procesos que
+    # la tapen no entran en la imagen. CopyFromScreen copiaba la pantalla y sí las incluía. Sin alternativa insegura.
     $source = New-Object System.Drawing.Bitmap($width, $height)
     $graphics = [System.Drawing.Graphics]::FromImage($source)
     try {
-      $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $source.Size)
+      $hdc = $graphics.GetHdc()
+      try { $printed = [EolfiWindowCapture]::PrintWindow($handle, $hdc, 2) } finally { $graphics.ReleaseHdc($hdc) }
+      if (-not $printed) { return @{ status = 'print_window_failed'; method = 'PrintWindow' } }
       $scaled = New-Object System.Drawing.Bitmap($outWidth, $outHeight)
       $scaledGraphics = [System.Drawing.Graphics]::FromImage($scaled)
       try {
@@ -86,7 +91,7 @@ function CaptureWindow($window) {
           $sha = [System.Security.Cryptography.SHA256]::Create()
           try { $digest = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
           finally { $sha.Dispose() }
-          return @{ status = 'captured'; mime_type = 'image/jpeg'; width = $outWidth; height = $outHeight;
+          return @{ status = 'captured'; method = 'PrintWindow'; mime_type = 'image/jpeg'; width = $outWidth; height = $outHeight;
                     bytes = $bytes.Length; sha256 = $digest; data_base64 = [Convert]::ToBase64String($bytes) }
         } finally { $stream.Dispose() }
       } finally { $scaledGraphics.Dispose(); $scaled.Dispose() }
