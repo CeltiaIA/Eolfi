@@ -37,7 +37,7 @@
 - O9: PENDIENTE (fuera de esta ejecución)
 - O11: PENDIENTE (fuera de esta ejecución)
 - O12: HECHO (2026-11-11); decisión sobre mover `eolfi.db` PENDIENTE del titular
-- O13: EN CURSO (2026-11-11): 2 guías nuevas con prueba en CI; faltan 5 flujos y el laboratorio en VS Code real
+- O13: EN CURSO (2026-11-11): 2 guías nuevas con prueba en CI; faltan el puente, el agente VS Code y el laboratorio en VS Code real
 
 ## O1 + O2 — resultado (2026-11-09)
 
@@ -243,3 +243,9 @@ All checks passed!
 - Defecto encontrado al escribir la guía y corregido: el filtro de datos personales tomaba la fecha del informe («2026-11-11 00:33») por un teléfono y la ocultaba. `eolfi/security/privacy.py` excluye ahora las fechas con hora, y `tests/test_privacy.py` tiene 2 casos nuevos.
 - Verificación (Linux, Python 3.13): las 3 guías 5/5; suite completa 459 aprobadas, 10 omitidas y los mismos 4 fallos del entorno que en O7.
 - Pendiente: guías de web, repo, crear proyecto, puente y agente VS Code; laboratorio del agente en un VS Code real; lista de opciones candidatas a retirar para revisarla con el titular.
+
+### O13 — guía de web, repo y crear proyecto (2026-11-11)
+
+- `ejemplos/web-y-repo/` (`sitio/`, estático de notas; `repo/`, paquete Python sin licencia a propósito) → `tests/test_guia_web_repo.py` (3 pruebas; la de `create` se omite si no hay Node.js, que la CI sí tiene): `web` sin framework atribuido, con esqueleto, tokens, `/api/notas`, `fetch` y `localStorage` leídos del JS sin ejecutarlo; `repo` con lenguajes, `pyproject.toml` (script `notas`), pruebas e incógnita «Sin licencia detectada»; `create` con destino `static` y verificación en verde.
+- **Hallazgo para la revisión de opciones (no se cambia sin el titular):** `create` añade por defecto las secciones `Hero` y `Features` aunque la fuente no las tenga (`eolfi/generador/spec.py`, «if "Hero" not in secs»), y `eolfi.spec.json` no distingue lo observado de lo añadido. La guía lo advierte y la prueba lo fija para que cualquier cambio sea deliberado.
+- Verificación (Linux): las 4 guías, 8/8.

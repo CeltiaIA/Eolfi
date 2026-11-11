@@ -594,6 +594,8 @@ Otras guías con el mismo formato, también ejecutadas en la CI:
   pendiente).
 - [`ejemplos/triaje-y-diff/GUIA.md`](ejemplos/triaje-y-diff/GUIA.md): triaje local de un WebAssembly, informe con
   umbral `--fail-on` para CI y verificación diferencial de una reimplementación.
+- [`ejemplos/web-y-repo/GUIA.md`](ejemplos/web-y-repo/GUIA.md): análisis de un sitio estático y de un repositorio
+  locales, y creación de un proyecto nuevo a partir del sitio (`create`), con lo que se observa y lo que se añade.
 
 ## Pruebas
 
