@@ -1,0 +1,53 @@
+{
+  "eolfi_observation_script": 1,
+  "name": "contador con contenido capturado de estado/total.txt",
+  "authorization": "muestra sintética propia del proyecto Eolfi (ejemplos/caja-negra/contador.py)",
+  "target": {
+    "path": "contador.py",
+    "version": "1.0",
+    "provenance": "ejemplo de la guía"
+  },
+  "steps": [
+    {
+      "id": "sumar",
+      "action": "run",
+      "argv": [
+        "{python}",
+        "{target}"
+      ],
+      "stdin": {
+        "text": "suma 2\nsuma 3\ntotal\n"
+      }
+    },
+    {
+      "id": "restar",
+      "action": "run",
+      "argv": [
+        "{python}",
+        "{target}"
+      ],
+      "stdin": {
+        "text": "suma 10\nresta 4\ntotal\n"
+      }
+    },
+    {
+      "id": "invalida",
+      "action": "run",
+      "argv": [
+        "{python}",
+        "{target}"
+      ],
+      "stdin": {
+        "text": "multiplica 3\n"
+      }
+    }
+  ],
+  "scope": {
+    "files": [
+      "."
+    ],
+    "capture_contents": [
+      "{sandbox}/estado/total.txt"
+    ]
+  }
+}

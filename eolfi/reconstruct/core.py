@@ -15,7 +15,12 @@ Tres piezas separadas:
    regeneración nunca pisa un archivo modificado a mano (escribe ``<archivo>.nuevo`` y lo informa).
 3. ``verify``: ejecuta la base generada con las entradas observadas y compara con lo esperado en la
    especificación (código de salida, stdout y stderr normalizados; en la API HTTP, estado, cuerpo y tipo de
-   contenido de cada respuesta, y los archivos capturados). Guarda la evidencia y el registro del caso.
+   contenido de cada respuesta, y los archivos capturados). Comprueba además que la base compila, que no
+   contiene líneas del objetivo original cuando este es accesible y que cada mejora aplicada cumple su razón.
+   Guarda la evidencia y el registro del caso.
+
+Mejoras (``improvements.py``): solo las que pide el operador, con razón de una categoría admitida, compatibles
+con todos los requisitos observados y comprobables al ejecutar; las demás quedan registradas como rechazadas.
 """
 from __future__ import annotations
 
@@ -34,6 +39,7 @@ from typing import Any
 from eolfi.core.cases import case_run
 from eolfi.core.evidence import EvidenceStore
 from eolfi.core.models import Authority, Confidence, Evidence
+from eolfi.reconstruct import improvements as _imp
 
 MODEL_FORMAT = 1
 PROVIDER = "eolfi.reconstruct"
@@ -306,6 +312,17 @@ import sys
 from pathlib import Path
 
 CASES = json.loads((Path(__file__).with_name("comportamiento.json")).read_text(encoding="utf-8"))
+_MEJORAS = Path(__file__).with_name("mejoras.json")
+MEJORAS = json.loads(_MEJORAS.read_text(encoding="utf-8")) if _MEJORAS.is_file() else {}
+
+
+def _write(stream, text):
+    if MEJORAS.get("utf8") and hasattr(stream, "buffer"):
+        stream.flush()
+        stream.buffer.write(text.encode("utf-8"))
+        stream.buffer.flush()
+    else:
+        stream.write(text)
 
 
 def _render(text):
@@ -358,8 +375,8 @@ def main(argv=None):
         except Exception as exc:
             sys.stderr.write("persistencia pendiente: " + str(exc) + chr(10))
             return 3
-        sys.stdout.write(_render(case["stdout"]))
-        sys.stderr.write(_render(case["stderr"]))
+        _write(sys.stdout, _render(case["stdout"]))
+        _write(sys.stderr, _render(case["stderr"]))
         return case["exit_code"] if case["exit_code"] is not None else 0
     sys.stderr.write("comportamiento no especificado para estas entradas" + chr(10))
     return 2
@@ -390,6 +407,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 CASES = json.loads((Path(__file__).with_name("api.json")).read_text(encoding="utf-8"))
+_MEJORAS = Path(__file__).with_name("mejoras.json")
+MEJORAS = json.loads(_MEJORAS.read_text(encoding="utf-8")) if _MEJORAS.is_file() else {}
 
 
 class Server(ThreadingHTTPServer):
@@ -411,6 +430,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         for k, v in headers.items():
             self.send_header(k, v)
+        if MEJORAS.get("nosniff"):
+            self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if self.command != "HEAD":
@@ -418,6 +439,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle(self):
         size = int(self.headers.get("Content-Length") or 0)
+        if MEJORAS.get("max_body") and size > MEJORAS["max_body"]:
+            self.close_connection = True
+            return self._send(413, "cuerpo de la petición demasiado grande".encode("utf-8"),
+                              {"@HEADER@": "limite", "Content-Type": "text/plain; charset=utf-8"})
         data = self.rfile.read(size) if size > 0 else b""
         digest = hashlib.sha256(data).hexdigest() if data else None
         for case in CASES:
@@ -624,7 +649,16 @@ def _readme(model: dict[str, Any], name: str, target: str, cases: list[dict[str,
                           not_generated=", ".join(others) or "ninguno", usage=_USAGE[target]).encode("utf-8")
 
 
-def _files(model: dict[str, Any], name: str, target: str) -> dict[str, tuple[bytes, list[str]]]:
+def _improvement_file(items: list[dict[str, Any]]) -> dict[str, tuple[bytes, list[str]]]:
+    cfg = _imp.config(items)
+    if not cfg:
+        return {}
+    reqs = sorted({r for it in items if it["status"] == "applied" for r in it.get("requirements", [])})
+    return {"mejoras.json": (json.dumps(cfg, ensure_ascii=False, indent=2).encode("utf-8"), reqs)}
+
+
+def _files(model: dict[str, Any], name: str, target: str,
+           items: list[dict[str, Any]] | None = None) -> dict[str, tuple[bytes, list[str]]]:
     primary = _primary(model, target)
     if target == "python-http":
         cases = [{k: c[k] for k in _HTTP_CASE_KEYS} for c in primary["cases"]]
@@ -632,7 +666,7 @@ def _files(model: dict[str, Any], name: str, target: str) -> dict[str, tuple[byt
         return {"server.py": (_SERVER.replace("{name}", name).encode("utf-8"), reqs),
                 "api.json": (json.dumps(cases, ensure_ascii=False, indent=2).encode("utf-8"), reqs),
                 "tests/test_server.py": (_HTTP_TESTS.encode("utf-8"), reqs),
-                "README.md": (_readme(model, name, target, cases), [])}
+                "README.md": (_readme(model, name, target, cases), []), **_improvement_file(items or [])}
     cases = [{k: c[k] for k in ("requirement", "args", "stdin", "stdout", "stderr", "exit_code", "status",
                                 "pending", "file_ops")} for c in primary["cases"]]
     readme = _readme(model, name, target, cases)
@@ -677,20 +711,33 @@ def test_entrada_no_especificada():
     return {"app.py": (_APP.replace("{name}", name).encode("utf-8"), reqs),
             "comportamiento.json": (json.dumps(cases, ensure_ascii=False, indent=2).encode("utf-8"), reqs),
             "tests/test_app.py": (tests.encode("utf-8"), reqs),
-            "README.md": (readme, [])}
+            "README.md": (readme, []), **_improvement_file(items or [])}
 
 
 def generate(model: dict[str, Any], out: str | Path, *, name: str = "reconstruccion",
-             target: str | None = None) -> dict[str, Any]:
+             target: str | None = None, improvements: list[str] | None = None) -> dict[str, Any]:
     """Escribe la base y el manifiesto; respeta los archivos modificados a mano desde la última generación.
-    Sin ``target`` elige la CLI si el modelo la tiene y, si no, la API HTTP observada."""
+    Sin ``target`` elige la CLI si el modelo la tiene y, si no, la API HTTP observada. ``improvements``: mejoras
+    pedidas por el operador (``id`` o ``id=valor``); solo se aplican las compatibles y comprobables."""
     target = resolve_target(model, target)
+    items = _imp.plan(improvements, target, _primary(model, target)["cases"])
     out = Path(out)
     manifest_path = out / MANIFEST
     old = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {"files": {}}
-    written, kept = [], []
+    written, kept, removed = [], [], []
     files_rec = {}
-    for rel, (data, reqs) in _files(model, name, target).items():
+    files = _files(model, name, target, items)
+    # Una mejora retirada en esta generación: su archivo se borra solo si nadie lo cambió a mano.
+    for rel, prev in old["files"].items():
+        dst = out / rel
+        if rel not in files and rel == "mejoras.json" and dst.is_file():
+            if prev.get("sha256") == _sha(dst.read_bytes()):
+                dst.unlink()
+                removed.append(rel)
+            else:
+                kept.append(rel)
+                files_rec[rel] = {**prev, "manual_changes": True}
+    for rel, (data, reqs) in files.items():
         dst = out / rel
         new_sha = _sha(data)
         prev = old["files"].get(rel)
@@ -718,10 +765,11 @@ def generate(model: dict[str, Any], out: str | Path, *, name: str = "reconstrucc
                            "captured_paths": c["captured_paths"], "evidence_ids": c["evidence_ids"],
                            **({"route": f"{c['method']} {c['path']}"} if target == "python-http" else {})}
                           for c in cli["cases"]],
-                "decisions": model["decisions"]}
+                "decisions": model["decisions"], "improvements": items}
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"out": str(out.resolve()), "written": written, "kept_manual": kept, "manifest": MANIFEST,
+    return {"out": str(out.resolve()), "written": written, "kept_manual": kept, "removed": removed,
+            "manifest": MANIFEST, "improvements": items,
             "simulated": sum(c["status"] == "simulado" for c in cli["cases"]),
             "partial": sum(c["status"] == "parcial" for c in cli["cases"]),
             "pending": sum(c["status"] == "pendiente" for c in cli["cases"])}
@@ -755,11 +803,14 @@ def _file_aspects(case: dict[str, Any], tmp: str, forms: set[str]) -> list[str]:
     return aspects
 
 
-def _cli_aspects(out: Path, case: dict[str, Any], timeout: float) -> list[str]:
+def _cli_aspects(out: Path, case: dict[str, Any], timeout: float,
+                 env: dict[str, str] | None = None) -> list[str]:
+    import os
+
     with tempfile.TemporaryDirectory(prefix="eolfi-rec-") as tmp:
         p = subprocess.run([sys.executable, str(out / "app.py"), *case["args"]],
                            input=(case["stdin"] or "").encode("utf-8"), capture_output=True, cwd=tmp,
-                           timeout=timeout)
+                           timeout=timeout, env={**os.environ, **env} if env else None)
         forms = {tmp, str(Path(tmp).resolve())}
 
         def norm(b: bytes) -> str:
@@ -822,7 +873,125 @@ def _http_aspects(out: Path, case: dict[str, Any], timeout: float) -> list[str]:
     return aspects
 
 
-def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
+def _start_server(out: Path, cwd: str) -> tuple[subprocess.Popen, str | None]:
+    p = subprocess.Popen([sys.executable, str(out / "server.py"), "--port", "0"], cwd=cwd,
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    line = p.stdout.readline().strip() if p.stdout else ""
+    return p, (line.rsplit(" ", 1)[-1] if line.startswith("escuchando en ") else None)
+
+
+def _stop_server(p: subprocess.Popen) -> None:
+    p.terminate()
+    try:
+        p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait(timeout=10)
+    if p.stdout:
+        p.stdout.close()
+
+
+def _check_improvement(out: Path, item: dict[str, Any], cases: list[dict[str, Any]],
+                       timeout: float) -> dict[str, Any]:
+    """Ejecuta la comprobación de una mejora aplicada sobre la base generada."""
+    import http.client
+
+    res: dict[str, Any] = {"id": item["id"], "category": item["category"], "check": item["check"]}
+    if item["id"] == "compatibilidad-utf8":
+        bad = []
+        for c in cases:
+            if c["requirement"] in item.get("requirements", []) and c["status"] != "pendiente":
+                aspects = _cli_aspects(out, c, timeout, env={"PYTHONIOENCODING": "ascii"})
+                if aspects:
+                    bad.append(f"{c['requirement']}: {', '.join(sorted(set(aspects)))}")
+        return res | {"verified": not bad, "detail": bad or [f"{len(item.get('requirements', []))} casos con "
+                                                               "salida no ASCII coinciden con PYTHONIOENCODING=ascii"]}
+    with tempfile.TemporaryDirectory(prefix="eolfi-mejora-") as tmp:
+        p, base = _start_server(out, tmp)
+        try:
+            if base is None:
+                return res | {"verified": False, "detail": ["el servidor no arrancó"]}
+            parts = urllib.parse.urlsplit(base)
+            conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
+            try:
+                if item["id"] == "seguridad-nosniff":
+                    paths = ["/eolfi-ruta-no-observada"] + [c["path"] for c in cases
+                                                             if c["status"] != "pendiente" and c["method"] == "GET"][:1]
+                    got = []
+                    for path in paths:
+                        conn.request("GET", path)
+                        r = conn.getresponse()
+                        r.read()
+                        got.append((path, r.getheader("X-Content-Type-Options")))
+                        conn.close()
+                    ok = all(v == "nosniff" for _p, v in got)
+                    return res | {"verified": ok, "detail": [f"{path}: {v}" for path, v in got]}
+                limit = item["params"]["bytes"]
+                conn.putrequest("POST", "/eolfi-limite")
+                conn.putheader("Content-Length", str(limit + 1))
+                conn.putheader("Content-Type", "application/octet-stream")
+                conn.endheaders()
+                r = conn.getresponse()
+                r.read()
+                return res | {"verified": r.status == 413, "detail": [f"Content-Length {limit + 1}: {r.status}"]}
+            except (OSError, http.client.HTTPException) as exc:
+                return res | {"verified": False, "detail": [f"{type(exc).__name__}: {exc}"[:300]]}
+            finally:
+                conn.close()
+        finally:
+            _stop_server(p)
+
+
+def _build_check(out: Path) -> dict[str, Any]:
+    """La base compila: py_compile de cada archivo Python generado (sin escribir cachés)."""
+    errors, n = [], 0
+    for f in sorted(out.rglob("*.py")):
+        if ".eolfi" in f.parts:
+            continue
+        n += 1
+        try:
+            compile(f.read_bytes(), str(f), "exec")
+        except (SyntaxError, ValueError) as exc:
+            errors.append(f"{f.relative_to(out).as_posix()}: {exc}"[:300])
+    return {"python_files": n, "errors": errors, "status": "ok" if n and not errors else "error"}
+
+
+INDEPENDENCE_MIN_LINE = 20
+INDEPENDENCE_MAX_BYTES = 16 * 1024 * 1024
+
+
+def independence(out: Path, sources: list[str | Path]) -> dict[str, Any]:
+    """Comprueba que el código generado (archivos .py y README) no contiene líneas del objetivo original.
+
+    Los datos generados (tabla de comportamiento, api.json) contienen a propósito salidas OBSERVADAS y no se
+    comparan. Si el objetivo no está accesible o no es texto, se declara sin comprobar."""
+    code = {}
+    for f in sorted(out.rglob("*")):
+        if f.is_file() and ".eolfi" not in f.parts and f.suffix in (".py", ".md"):
+            code[f.relative_to(out).as_posix()] = {ln.strip() for ln in f.read_text(
+                encoding="utf-8", errors="replace").splitlines() if len(ln.strip()) >= INDEPENDENCE_MIN_LINE}
+    checked, shared, skipped = [], [], []
+    for src in sources:
+        p = Path(src)
+        try:
+            if not p.is_file() or p.stat().st_size > INDEPENDENCE_MAX_BYTES:
+                skipped.append(f"{p.name}: no accesible o demasiado grande")
+                continue
+            text = p.read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            skipped.append(f"{p.name}: no es texto UTF-8 (binario): sin comparar línea a línea")
+            continue
+        checked.append({"name": p.name, "sha256": _sha(p.read_bytes())})
+        lines = {ln.strip() for ln in text.splitlines() if len(ln.strip()) >= INDEPENDENCE_MIN_LINE}
+        for rel, mine in code.items():
+            shared += [f"{rel}: {ln[:120]}" for ln in sorted(mine & lines)]
+    status = "copia" if shared else "independiente" if checked else "no_comprobado"
+    return {"status": status, "checked": checked, "shared_lines": shared[:50], "skipped": skipped,
+            "limits": "Compara líneas de al menos 20 caracteres entre el código generado y el objetivo cuando "
+                      "es texto accesible; no detecta copias reescritas ni compara binarios."}
+
+
+def verify(out: str | Path, *, timeout: float = 30.0, sources: list[str | Path] | None = None) -> dict[str, Any]:
     out = Path(out).resolve()
     manifest = json.loads((out / MANIFEST).read_text(encoding="utf-8"))
     http = manifest.get("target") == "python-http"
@@ -840,7 +1009,13 @@ def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
     ok = sum(r["status"] == "coincide" for r in results)
     partial = sum(r["status"] == "parcial" for r in results)
     pend = sum(r["status"] == "pendiente" for r in results)
+    applied = [it for it in manifest.get("improvements", []) if it["status"] == "applied"]
+    checks = [_check_improvement(out, it, cases, timeout) for it in applied]
     return {"out": str(out), "spec_version": manifest["spec_version"], "cases": len(results), "match": ok,
+            "build": _build_check(out), "independence": independence(out, sources or []),
+            "improvements": checks, "improvements_rejected": [it for it in manifest.get("improvements", [])
+                                                              if it["status"] != "applied"],
+            "improvements_verified": all(c["verified"] for c in checks) if checks else None,
             "partial": partial,
             "differ": len(results) - ok - partial - pend, "pending": pend, "results": results,
             "equivalent_on_observed": ok == len(results) - partial - pend and partial == 0 and ok > 0,
@@ -853,25 +1028,52 @@ def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
                          "redirecciones, ni las transiciones de estado entre peticiones." if http else "")}
 
 
+def target_sources(store: EvidenceStore, case_id: str) -> list[str]:
+    """Rutas de los objetivos observados del caso (para la comprobación de independencia)."""
+    from eolfi.spec import latest_spec
+
+    spec = latest_spec(store, case_id)
+    found: list[str] = []
+    for eid in (spec or {}).get("sources", {}).get("sessions", []):
+        ev = store.get_evidence(eid)
+        try:
+            params = json.loads(ev["params"]) if ev else {}
+        except (TypeError, ValueError):
+            continue
+        tpath = ((params.get("script") or {}).get("target") or {}).get("path")
+        if not tpath:
+            continue
+        p = Path(tpath)
+        if not p.is_absolute() and params.get("base_dir"):
+            p = Path(params["base_dir"]) / p
+        if str(p) not in found:
+            found.append(str(p))
+    return found
+
+
 def reconstruct(store: EvidenceStore, case_id: str, out: str | Path, *, name: str = "reconstruccion",
-                target: str | None = None) -> dict[str, Any]:
+                target: str | None = None, improvements: list[str] | None = None) -> dict[str, Any]:
     """Modelo → generación → verificación, con evidencia y registro «reconstruction» en el caso."""
-    with case_run(store, case_id, "reconstruct", {"out": str(out), "target": target, "name": name},
+    with case_run(store, case_id, "reconstruct", {"out": str(out), "target": target, "name": name,
+                                                  "improvements": list(improvements or [])},
                   "reconstrucción desde la especificación del caso") as run:
         model = build_model(store, case_id)
         target = resolve_target(model, target)
-        gen = generate(model, out, name=name, target=target)
-        ver = verify(out)
+        gen = generate(model, out, name=name, target=target, improvements=improvements)
+        ver = verify(out, sources=target_sources(store, case_id))
         subject = f"proyecto:{Path(out).resolve()}"
         eid, _ = store.add_evidence(Evidence(
             subject=subject, provider=PROVIDER, provider_version=VERSION, operation="reconstruction_verification",
             params={"spec_version": model["spec_version"], "model_sha256": model["content_sha256"], "target": target},
             result={k: ver[k] for k in ("cases", "match", "differ", "pending", "results", "equivalent_on_observed",
-                                        "complete")},
+                                        "complete", "build", "independence", "improvements",
+                                        "improvements_rejected", "improvements_verified")},
             authority=Authority.CONTROLLED_REPRO, confidence=Confidence.MEDIUM, limitations=ver["limits"]))
         run.artifact(subject, size=None, format="project", identity="derived", content_sha256="",
                      path=gen["out"], metadata={"manifest": MANIFEST})
-        status = "done" if ver["differ"] == 0 and ver["partial"] == 0 and ver["pending"] == 0 and ver["match"] > 0 else "partial"
+        status = "done" if ver["differ"] == 0 and ver["partial"] == 0 and ver["pending"] == 0 and ver["match"] > 0 \
+            and ver["build"]["status"] == "ok" and ver["independence"]["status"] != "copia" \
+            and ver["improvements_verified"] is not False else "partial"
         run.finish(status=status, evidence_ids=[eid],
                    tools=[{"name": PROVIDER, "version": VERSION, "status": "ran"},
                           {"name": "python", "version": sys.version.split()[0], "status": "ran"}],

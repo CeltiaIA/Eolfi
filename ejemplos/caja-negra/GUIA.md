@@ -49,6 +49,24 @@ python -m eolfi --db guia.db spec tests --case CASE_ID --out pruebas.json
 **Aceptación:** un requisito por entrada observada, con evidencias y confianza (`high` tras la repetición); la orden
 inválida aparece como requisito de error (código 2); las hipótesis y contradicciones no generan pruebas.
 
+### 3b. Contrato de implementación (implementar sin el original)
+
+```bash
+python -m eolfi --db guia.db observe run guion-contenidos.json --autorizo --case CASE_ID
+python -m eolfi --db guia.db spec build --case CASE_ID
+python -m eolfi --db guia.db spec contract --case CASE_ID --out contrato.md        # o --format json
+python -m eolfi --db guia.db reconstruct --case CASE_ID --equivalence desde-contrato/contador_contrato.py --autorizo
+```
+
+`guion-contenidos.json` es el mismo guion con `scope.capture_contents` para `estado/total.txt`. El contrato sale
+solo de la especificación: por requisito, **Dado** (argumentos, entrada estándar, petición) y **Entonces** (código,
+salidas, respuesta, archivos con su contenido si se capturó), el orden observado de los pasos y el grado de cada
+afirmación: **seguro** (igual en ≥2 ejecuciones), **inferido** (una observación, aspectos inestables, hipótesis) o
+**desconocido** (contradicciones, incógnitas, huecos de cobertura, contenidos solo conocidos por huella y toda
+entrada no observada). **Aceptación:** el contrato no contiene líneas de `contador.py`; la implementación de
+`desde-contrato/`, escrita leyendo solo el contrato, es `equivalent: true` en todos los requisitos observados
+(`tests/test_spec_contract.py`).
+
 ## 4. Reconstruir
 
 ```bash
@@ -59,6 +77,14 @@ python -m eolfi --db guia.db reconstruct --case CASE_ID --out reconstruccion
 `verification` deja como **parciales** (código CLI 4) los casos cuyo contenido de `estado/total.txt` solo se conoce
 por hash. La ejecución no inventa esos bytes ni declara equivalencia completa. Si se opta explícitamente por
 capturar el contenido, cada instantánea puede reconstruirse, pero el estado entre ejecuciones sigue siendo parcial.
+`verification` también dice si la base compila (`build`), si su código comparte líneas con el objetivo original
+cuando este es texto accesible (`independence`: `independiente`, `copia` o `no_comprobado`) y el resultado de cada
+mejora.
+
+Mejoras (`--mejora ID[=VALOR]`, repetible): `seguridad-nosniff` y `seguridad-limite-cuerpo[=BYTES]` para la API
+HTTP, `compatibilidad-utf8` para la CLI. Solo se aplican si se piden, si son compatibles con todos los requisitos
+observados (un límite menor que un cuerpo observado se rechaza) y si su razón se puede comprobar al ejecutar (sin
+salida no ASCII observada, la de UTF-8 se rechaza). Las rechazadas quedan en el manifiesto con el motivo.
 
 ## 5. Medir la equivalencia con el original
 
