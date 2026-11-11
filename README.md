@@ -599,6 +599,11 @@ Otras guías con el mismo formato, también ejecutadas en la CI:
   umbral `--fail-on` para CI y verificación diferencial de una reimplementación.
 - [`ejemplos/web-y-repo/GUIA.md`](ejemplos/web-y-repo/GUIA.md): análisis de un sitio estático y de un repositorio
   locales, y creación de un proyecto nuevo a partir del sitio (`create`), con lo que se observa y lo que se añade.
+- [`ejemplos/puente/GUIA.md`](ejemplos/puente/GUIA.md): el puente de chats web. Iniciar sesión y usarlo con tus
+  cuentas (laboratorio) y, en la CI, un cambio completo con la pasarela real y un chat simulado, el permiso
+  denegado y las protecciones de la pasarela.
+- [`ejemplos/agente-vscode/GUIA.md`](ejemplos/agente-vscode/GUIA.md): el agente @eolfi en VS Code (laboratorio) y,
+  en la CI, el servidor MCP de Eolfi por stdio y lo que declara la extensión.
 
 ## Pruebas
 

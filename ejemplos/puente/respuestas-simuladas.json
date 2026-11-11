@@ -1,0 +1,1 @@
+[{"summary": "Estilo para destacar las notas nuevas", "notes": ["Solo CSS: no cambia el HTML"], "files": [{"path": "css/ofertas.css", "content": ".nota-nueva { font-weight: 600; }\n"}]}]

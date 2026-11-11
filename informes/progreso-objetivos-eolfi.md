@@ -37,7 +37,7 @@
 - O9: CERRADO como `not_available` (decisión del titular 2026-11-11): la cobertura de cada sesión ya declara `ui_mobile` no disponible, con su motivo, y lo comprueban `tests/test_observe.py` (2 aserciones)
 - O11: PENDIENTE (fuera de esta ejecución)
 - O12: HECHO (2026-11-11); `eolfi.db` pasa a `~/.eolfi/` por decisión del titular
-- O13: EN CURSO (2026-11-11): 2 guías nuevas con prueba en CI; faltan el puente, el agente VS Code y el laboratorio en VS Code real
+- O13: HECHO en la parte de CI (2026-11-11): 6 guías nuevas con prueba en CI. Quedan los laboratorios en vivo (puente con tus cuentas y agente en un VS Code real), anotados como NO VERIFICADO en sus guías
 
 ## O1 + O2 — resultado (2026-11-09)
 
@@ -263,3 +263,10 @@ El titular delegó la elección («coge tú lo mejor»). Se aplicaron las recome
 - **Sin cambios, por su recomendación:** 5A (sin empaquetar Electron) y 6A (se mantiene `Bypass` con el hash recomendado).
 - **Pendiente de algo que no está aquí:** 1A y 2A (fusionar e integrar: necesitan `pytest` en Windows y GitHub), 3A (mover los archivos de supervisión fuera del repo: falta acceso a esa carpeta), 7A (inicio de sesión en vivo de ChatGPT y Le Chat), 18A (REA) y 19A (guías del puente y del agente VS Code).
 - Verificación (Linux, Python 3.13): suite completa 469 aprobadas, 10 omitidas, 4 fallos del entorno (los mismos de siempre); `node --test` en `eolfi/bridge` 63/0; en `eolfi/vscode-bridge` 167/0.
+
+### O13 — guías del puente y del agente de VS Code (2026-11-11, decisión 19A)
+
+- `ejemplos/puente/` → `tests/test_guia_puente.py` (3 pruebas; se omiten sin Node.js): con la pasarela real (`eolfi/bridge/server.mjs`) y un chat simulado (`tests/fake_bridge.mjs` + `respuestas-simuladas.json`), `create` desde `ejemplos/web-y-repo/sitio` y `assist --provider meta-web` aplica `css/ofertas.css` con la verificación en verde; con el permiso denegado (`EOLFI_FAKE_BRIDGE_DENY=1`, opción nueva de `fake_bridge.mjs` que no cambia lo que ya hacía) `assist` termina con código 1 y el proyecto queda igual byte a byte; la pasarela responde 401 sin credencial o con una inválida, 421 con otro `Host`, 403 a `/v1/screen` con la credencial de Eolfi y 200 a `/v1/status`.
+- `ejemplos/agente-vscode/` → `tests/test_guia_agente_vscode.py` (2 pruebas): sesión MCP real por stdio como la de VS Code (`initialize`, 12 herramientas, triaje del WebAssembly con el aviso de «DATOS», ruta fuera de `--root` con `isError`, herramienta desconocida con `-32602`) y las declaraciones de `package.json` que describe la guía.
+- Laboratorio (NO VERIFICADO): iniciar sesión y usar el puente con tus cuentas; el agente @eolfi en un VS Code real con el modelo local.
+- Verificación (Linux, Python 3.13): suite completa 474 aprobadas, 10 omitidas y los 4 fallos del entorno de siempre.

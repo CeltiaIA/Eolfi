@@ -19,7 +19,8 @@ const fake = (site) => ({
 const token = 'f'.repeat(64), panelToken = 'e'.repeat(64);
 const { port } = await startBridgeServer({
   adapters: { deepseek: async () => fake('deepseek'), gemini: async () => fake('gemini'), meta: async () => fake('meta') },
-  approve: async () => true, token, panelToken,
+  // EOLFI_FAKE_BRIDGE_DENY=1 simula que el usuario deniega cada envío en el diálogo del puente.
+  approve: async () => process.env.EOLFI_FAKE_BRIDGE_DENY !== '1', token, panelToken,
   screens: { meta: async () => Buffer.from([0xff, 0xd8, 0xff, 0xd9]) },
 });
 writeFileSync(bridgeFile, JSON.stringify({ url: `http://127.0.0.1:${port}`, token, panelToken }));

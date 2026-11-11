@@ -107,3 +107,7 @@ VS Code real.
 
 - Aviso de Pillow por `getdata` (obsoleto) en `tests/test_observe.py`: es una corrección pequeña y se puede hacer sin
   más.
+
+## Estado tras la respuesta del titular (2026-11-11)
+
+El titular delegó la elección en las recomendaciones. Aplicadas: 3A, 4A, 8A, 9A, 10A, LIM-011, 17A y 19A (parte de CI). Se mantienen sin cambios por recomendación: 5A y 6A. 1A: `pytest` en Windows en verde (481 aprobadas, 2 omitidas); falta fusionar la PR. Quedan: 2A (tras fusionar), 7A (en vivo con las cuentas del titular), 18A (sesión con REA) y los laboratorios de 19A. Detalle en `informes/progreso-objetivos-eolfi.md`.
