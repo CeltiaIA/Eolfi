@@ -196,3 +196,61 @@ def test_analisis_del_arbol_rechaza_dtd_y_acota():
     assert len(parsed["elements"]) == mobile.MAX_ELEMENTS and parsed["truncated"] and parsed["elements_total"] == 400
     assert mobile.shell_quote_text("a b'c") == "'a%sb'\"'\"'c'"
     assert os.path.basename(__file__)
+
+
+# -- situaciones vistas en un dispositivo real (Redmi Note 12R Pro, Android 14) ---------------------------------
+def test_reintenta_el_volcado_mientras_la_ventana_se_dibuja(store, adb, monkeypatch):
+    monkeypatch.setenv("FAKE_ADB_DUMP_FAILS", "2")
+    rep = run_observation(_script([_step()]), store, authorized=True)
+    assert rep["steps"][0]["status"] == "ok", rep["steps"][0].get("error")
+    monkeypatch.setenv("FAKE_ADB_DUMP_FAILS", "99")
+    adb.unlink()
+    rep = run_observation(_script([_step()]), store, authorized=True)
+    step = rep["steps"][0]
+    assert step["status"] == "error" and "could not get idle state" in step["error"]
+    assert step["stopped"] is True                       # la app se cierra aunque el paso falle
+
+
+def test_entrada_bloqueada_se_explica_y_no_es_comportamiento(store, adb, monkeypatch):
+    from eolfi.spec import build_spec
+
+    monkeypatch.setenv("FAKE_ADB_BLOCK_INPUT", "1")
+    cid = CaseStore(store).create("entrada bloqueada")["case_id"]
+    for _ in range(2):
+        rep = run_observation(_script([_step()]), store, authorized=True, case_id=cid)
+        adb.unlink()
+    step = rep["steps"][0]
+    assert step["status"] == "partial" and "INJECT_EVENTS" in step["input_blocked"]
+    assert "Depuración USB (ajustes de seguridad)" in step["error"]
+    assert [a["status"] for a in step["actions"]] == ["ok", "input_blocked", "skipped", "skipped", "skipped"]
+    req = next(r for r in build_spec(store, cid)["requirements"] if r["inputs"]["action"] == "mobile")
+    assert req["status"] == "not_observed" and req["certainty"] == "desconocido"
+    assert "INJECT_EVENTS" in req["not_observed_reason"][0]
+
+
+def test_pantalla_bloqueada_antes_y_durante(store, adb, monkeypatch):
+    from eolfi.spec import build_spec
+
+    monkeypatch.setenv("FAKE_ADB_LOCKED", "1")
+    rep = run_observation(_script([_step()]), store, authorized=True)
+    assert rep["steps"][0]["status"] == "unavailable" and "apagada o bloqueada" in rep["steps"][0]["error"]
+    log = json.loads(adb.read_text(encoding="utf-8"))["log"]
+    assert not any("input" in " ".join(c) for c in log)  # no intenta desbloquear ni tocar nada
+    adb.unlink()
+    monkeypatch.delenv("FAKE_ADB_LOCKED")
+    monkeypatch.setenv("FAKE_ADB_LOCK_AFTER", "2")       # se apaga tras escribir el nombre (tap + text)
+    cid = CaseStore(store).create("bloqueo a mitad")["case_id"]
+    for _ in range(2):
+        rep = run_observation(_script([_step()]), store, authorized=True, case_id=cid)
+        adb.unlink()
+    step = rep["steps"][0]
+    assert [a["status"] for a in step["actions"]] == ["ok", "ok", "interrupted", "skipped", "skipped"]
+    assert "se apagó o se bloqueó" in step["interrupted"]
+    req = next(r for r in build_spec(store, cid)["requirements"] if r["inputs"]["action"] == "mobile")
+    assert req["status"] == "not_observed" and req["certainty"] == "desconocido"
+
+
+def test_primer_plano_exige_la_ventana_dibujada():
+    drv = mobile._Driver(None, {"package": "org.eolfi.muestra"}, None)
+    assert drv.in_front({"package": "org.eolfi.muestra", "window_package": "org.eolfi.muestra"})
+    assert not drv.in_front({"package": "org.eolfi.muestra", "window_package": "com.android.systemui"})

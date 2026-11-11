@@ -74,6 +74,14 @@ def _kind(step: dict[str, Any]) -> str:
     return {"http": "interface", "write_file": "input", "delete_file": "input"}.get(act, "use_case")
 
 
+def _driver_failed(step: dict[str, Any]) -> bool:
+    """El paso no observó el objetivo: el controlador no estaba disponible o falló antes de registrar ninguna
+    acción de interfaz. Eso es un fallo de la observación, no un comportamiento del programa."""
+    if step.get("status") == "unavailable" or step.get("input_blocked") or step.get("interrupted"):
+        return True
+    return step["action"] in ("browser", "desktop", "mobile") and step.get("status") in ("error", "timeout")         and not step.get("actions")
+
+
 def _states(step: dict[str, Any]) -> dict[str, Any] | None:
     if step["action"] not in ("browser", "desktop", "mobile"):
         return None
@@ -360,6 +368,7 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
             skip = unstable.get(f"{s['evidence_id']}:{step['id']}", set())
             g["observations"].append({"evidence_id": s["evidence_id"], "step_id": step["id"], "values": obs,
                                       "unstable": sorted(skip), "kind": _kind(step), "states": _states(step),
+                                      "driver_failed": _driver_failed(step), "error": step.get("error"),
                                       "persistence": _persistence(step), "duration_ms": step.get("duration_ms")})
     requirements = []
     contradictions = []
@@ -378,11 +387,12 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
                 differing.append({"aspect": a, "values": [{"evidence_id": o["evidence_id"], "value": o["values"].get(a)}
                                                           for o in obs]})
         rid = "REQ-" + key[:10]
-        status = "contradicted" if differing else "observed"
+        not_observed = all(o["driver_failed"] for o in obs)
+        status = "not_observed" if not_observed else "contradicted" if differing else "observed"
         durations = [o["duration_ms"] for o in obs if isinstance(o["duration_ms"], int)]
         req = {
             "id": rid, "kind": obs[0]["kind"], "title": f"{g['inputs']['action']} «{obs[0]['step_id']}»",
-            "status": status, "confidence": "low" if differing else "high" if len(obs) >= 2 else "medium",
+            "status": status, "confidence": "low" if differing or not_observed else "high" if len(obs) >= 2 else "medium",
             "inputs": g["inputs"], "expected": expected, "unstable_aspects": unstable_aspects,
             "persistence": obs[0]["persistence"], "evidence_ids": sorted({o["evidence_id"] for o in obs}),
             "observations": len(obs), "source_steps": sorted({(o["evidence_id"], o["step_id"]) for o in obs}),
@@ -392,6 +402,8 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
         req["certainty"] = certainty(req)
         if obs[0]["states"]:
             req["state_machine"] = obs[0]["states"]
+        if not_observed:
+            req["not_observed_reason"] = sorted({str(o["error"] or "")[:300] for o in obs})
         if differing:
             req["contradictions"] = differing
             contradictions.append({"requirement": rid, "aspects": [d["aspect"] for d in differing]})
