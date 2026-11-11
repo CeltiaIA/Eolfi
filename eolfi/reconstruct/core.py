@@ -384,11 +384,19 @@ import hashlib
 import base64
 import json
 import os
+import socketserver
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 CASES = json.loads((Path(__file__).with_name("api.json")).read_text(encoding="utf-8"))
+
+
+class Server(ThreadingHTTPServer):
+    def server_bind(self):
+        # Sin la resolución inversa (socket.getfqdn) de HTTPServer: en algunos equipos macOS tarda decenas de segundos.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 @APPLY_FILES@
@@ -439,7 +447,7 @@ def main(argv=None):
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000, help="0 = puerto libre")
     args = parser.parse_args(argv)
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    srv = Server((args.host, args.port), Handler)
     print(f"escuchando en http://{args.host}:{srv.server_address[1]}", flush=True)
     try:
         srv.serve_forever()
@@ -461,6 +469,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -469,14 +479,41 @@ import pytest
 
 HERE = Path(__file__).resolve().parent.parent
 CASES = json.loads((HERE / "api.json").read_text(encoding="utf-8"))
+START_TIMEOUT = 60
 
 
 def _start(cwd):
+    """Arranca server.py con espera acotada; si no anuncia su dirección, falla mostrando su salida de error."""
+    err = tempfile.TemporaryFile()
     p = subprocess.Popen([sys.executable, str(HERE / "server.py"), "--port", "0"], cwd=cwd,
-                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    line = p.stdout.readline().strip()
-    assert line.startswith("escuchando en "), line
+                         stdout=subprocess.PIPE, stderr=err, text=True)
+    p.eolfi_err = err
+    lines = []
+    reader = threading.Thread(target=lambda: lines.append(p.stdout.readline()), daemon=True)
+    reader.start()
+    reader.join(START_TIMEOUT)
+    line = lines[0].strip() if lines else ""
+    if not line.startswith("escuchando en "):
+        p.kill()
+        p.wait(timeout=10)
+        reader.join(10)
+        err.seek(0)
+        detail = err.read().decode("utf-8", "replace")
+        _stop(p)
+        pytest.fail(f"server.py no arrancó en {START_TIMEOUT} s (salida: {line!r})\\n{detail}")
     return p, line.rsplit(" ", 1)[-1]
+
+
+def _stop(p):
+    if p.poll() is None:
+        p.terminate()
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait(timeout=10)
+    p.stdout.close()
+    p.eolfi_err.close()
 
 
 def _request(base, method, path, body=None, ctype=None):
@@ -511,8 +548,7 @@ def test_respuestas_observadas(case, tmp_path):
                 actual = actual.replace(os.fsencode(tmp_path), b"{sandbox}")
             assert actual == expected
     finally:
-        p.terminate()
-        p.wait(timeout=10)
+        _stop(p)
 
 
 def test_peticion_no_especificada(tmp_path):
@@ -521,8 +557,7 @@ def test_peticion_no_especificada(tmp_path):
         status, headers, _ = _request(base, "GET", "/eolfi-ruta-no-observada")
         assert status == @NOT_SPECIFIED@ and headers.get("@HEADER@") == "no-especificado"
     finally:
-        p.terminate()
-        p.wait(timeout=10)
+        _stop(p)
 '''.replace("@NOT_SPECIFIED@", str(HTTP_NOT_SPECIFIED)).replace("@HEADER@", STATE_HEADER)
 
 _USAGE = {"python-cli": "    python app.py [argumentos] < entrada",

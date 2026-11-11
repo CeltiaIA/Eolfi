@@ -78,8 +78,12 @@ def test_guia_api_http(guia, servidor, capsys):
     assert manifest["target"] == "python-http" and all(c["evidence_ids"] and c["route"] for c in manifest["cases"])
     assert "comprar pan" not in (guia / "reconstruccion" / "server.py").read_text(encoding="utf-8")
     # 5. usar y probar la API generada
-    p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "reconstruccion/tests"],
-                       capture_output=True, text=True, timeout=180)
+    # -v: si algo se cuelga, la salida nombra la prueba que no terminó.
+    try:
+        p = subprocess.run([sys.executable, "-m", "pytest", "-v", "-p", "no:cacheprovider", "reconstruccion/tests"],
+                           capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"las pruebas generadas no terminaron en {exc.timeout} s\n{exc.stdout}\n{exc.stderr}")
     assert p.returncode == 0, p.stdout + p.stderr
     gen = subprocess.Popen([sys.executable, "reconstruccion/server.py", "--port", "0"], stdout=subprocess.PIPE,
                            text=True)
