@@ -489,6 +489,12 @@ def _ui_desktop_coverage(steps: list[dict[str, Any]]) -> Any:
                                          for s in desk if s["status"] != "ok"}))}
 
 
+def _ui_mobile_coverage(steps: list[dict[str, Any]]) -> Any:
+    from eolfi.observe.mobile import coverage
+
+    return coverage(steps)
+
+
 CONTAINER_SANDBOX = "/sandbox"
 ISOLATION_CONTAINER = ("contenedor: los pasos run se ejecutan en {image} sin red, con sistema de archivos de solo "
                        "lectura salvo el sandbox montado, usuario sin privilegios (65534), sin capacidades, sin "
@@ -560,6 +566,13 @@ def static_unfixed_factors(script: dict[str, Any]) -> list[dict[str, str]]:
     if any(s["action"] == "browser" for s in script["steps"]):
         f.append({"factor": "navegador", "detail": "motor y versión del navegador (se registran); atribución de "
                   "peticiones por ventana temporal de cada acción"})
+    mobile = [s for s in script["steps"] if s["action"] == "mobile"]
+    if mobile:
+        f.append({"factor": "dispositivo Android", "detail": "modelo, versión de Android y de la app se registran; "
+                  "el estado del dispositivo, la red, las animaciones y otras apps no se fijan"})
+        if not all(s.get("clear_data") for s in mobile):
+            f.append({"factor": "datos de la app", "detail": "los datos de la app en el dispositivo no se borran "
+                      "antes del paso (clear_data=false): el estado inicial puede variar"})
     if script.get("isolation", {}).get("mode") == "container":
         f.append({"factor": "imagen del contenedor", "detail": f"{script['isolation']['image']}: su identificador se "
                   "registra en cada sesión; otra versión de la imagen puede cambiar el resultado"})
@@ -598,9 +611,7 @@ def _coverage(script: dict[str, Any], steps: list[dict[str, Any]]) -> dict[str, 
                    {"status": "partial", "reason": "; ".join(sorted({str(s.get('error', s['status']))[:200]
                                                                      for s in browser if s["status"] != "ok"}))}),
         "ui_desktop": _ui_desktop_coverage(steps),
-        "ui_mobile": {"status": "not_available",
-                      "reason": "Eolfi no automatiza interfaces móviles; ver REA capture_adb_screen / "
-                                "capture_native_ui_scenario con un dispositivo autorizado"},
+        "ui_mobile": _ui_mobile_coverage(steps),
     }
 
 
@@ -775,6 +786,10 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
                         programs[argv[0]] = _identity(Path(argv[0]))
                     rec["argv"] = [norm.text(a) for a in argv]
                     rec.update(_desktop_step(step, argv, cwd, senv, norm))
+                elif step["action"] == "mobile":
+                    from eolfi.observe.mobile import run_mobile_step
+
+                    rec.update(run_mobile_step(step, norm))
                 elif step["action"] == "browser":
                     rec.update(_browser_step(step, values, variables, script["allow_hosts"], norm, playwright))
             except ScriptError:
@@ -866,7 +881,8 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
             {"status": "not_redacted", "reason": "desactivado en el guion (privacy.redact_personal_data=false)"}),
             "visual_content": ({"status": "not_redacted", "reason": "la captura de ventana no admite redacción visual; "
                                "revisar el contenido del objetivo antes de habilitar screenshots"}
-                               if any(s.get("action") == "desktop" and s.get("screenshots") for s in script["steps"])
+                               if any(s.get("action") in ("desktop", "mobile") and s.get("screenshots")
+                                      for s in script["steps"])
                                else {"status": "not_requested"}),
             "file_contents": ({"status": ("captured" if file_capture_statuses and
                                             all(s == "captured" for s in file_capture_statuses) else
@@ -894,6 +910,10 @@ def _claims(session: dict[str, Any], eid: str) -> list[dict[str, Any]]:
             text = f"Paso {s['id']}: {s['traces'][0]['request']['method']} respondió {s['traces'][0]['response']['status']}"
         elif s["action"] == "desktop" and s["status"] == "ok":
             text = f"Paso {s['id']}: {len(s.get('actions', []))} instantáneas de interfaz (UI Automation)"
+        elif s["action"] == "mobile" and s["status"] == "ok":
+            app = s.get("app") or {}
+            text = (f"Paso {s['id']}: {len(s.get('actions', []))} pantallas de Android (uiautomator) de "
+                    f"{app.get('package')} {app.get('version_name') or ''}").rstrip()
         elif s["action"] == "browser" and s["status"] == "ok":
             text = f"Paso {s['id']}: {len(s.get('actions', []))} acciones de navegador con {len(s.get('traces', []))} peticiones"
         else:

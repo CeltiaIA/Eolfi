@@ -87,6 +87,15 @@ def session_plan(script: dict[str, Any], base_dir: str | Path, *, db_path: str =
                 prog = _resolve_program(argv0, base, dict(os.environ))
             programs.append({"step": s["id"], "action": s["action"], "program": prog,
                              "found": os.path.isfile(prog), "timeout_s": s["timeout"]})
+    mobile = [s for s in script["steps"] if s["action"] == "mobile"]
+    if mobile:
+        from eolfi.observe.mobile import adb_path
+
+        adb = adb_path()
+        for s in mobile:
+            programs.append({"step": s["id"], "action": "mobile", "program": adb or "adb (no encontrado)",
+                             "found": adb is not None, "timeout_s": s["timeout"], "package": s["package"],
+                             "device": s.get("device", "único dispositivo conectado")})
     hosts = sorted(LOOPBACK | set(script["allow_hosts"]))
     external_files = [p for p in script["scope"]["files"] if os.path.isabs(p)]
     iso = script.get("isolation", {"mode": "none"})
@@ -100,6 +109,13 @@ def session_plan(script: dict[str, Any], base_dir: str | Path, *, db_path: str =
     else:
         rt = None
         warnings = ["Sin aislamiento: el objetivo se ejecuta con tus permisos y puede leer o modificar lo que tú puedas."]
+    if mobile:
+        warnings.append("Los pasos mobile actúan sobre un dispositivo Android real conectado por adb: sin "
+                        "aislamiento; la app lanzada puede leer y cambiar lo que sus permisos le dejen y el estado del "
+                        "dispositivo no se restaura. Usa un emulador o un dispositivo de pruebas.")
+        cleared = sorted({s["package"] for s in mobile if s.get("clear_data")})
+        if cleared:
+            warnings.append("clear_data BORRA los datos de estas apps en el dispositivo: " + ", ".join(cleared))
     if script["environment"]["inherit"]:
         warnings.append("Hereda tu entorno completo (variables y posibles credenciales).")
     if [h for h in script["allow_hosts"] if h not in LOOPBACK]:
@@ -123,7 +139,8 @@ def session_plan(script: dict[str, Any], base_dir: str | Path, *, db_path: str =
                                         "passthrough": script["environment"]["passthrough"],
                                         "redirect_home": script["environment"]["redirect_home"]},
                         "browser": any(s["action"] == "browser" for s in script["steps"]),
-                        "desktop_ui_automation": any(s["action"] == "desktop" for s in script["steps"])},
+                        "desktop_ui_automation": any(s["action"] == "desktop" for s in script["steps"]),
+                        "mobile_adb": bool(mobile)},
         "data": {"captured": CAPTURED, "not_captured": NOT_CAPTURED,
                  "personal_data_redaction": script.get("privacy", {}).get("redact_personal_data", True),
                  "stored_in": str(Path(db_path).resolve()) if db_path and db_path != ":memory:" else db_path,

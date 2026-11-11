@@ -240,7 +240,7 @@ def build_model(store: EvidenceStore, case_id: str) -> dict[str, Any]:
             c["interfaces"].append({"method": case["method"], "path": case["path"],
                                     "url": r["inputs"].get("url")})
             c["cases"].append(case)
-        elif act in ("browser", "desktop"):
+        elif act in ("browser", "desktop", "mobile"):
             c = comp("ui", "user_interface", "Interfaz de usuario observada")
             c["requirements"].append(r["id"])
             if r.get("state_machine"):

@@ -58,6 +58,10 @@ def _inputs(step: dict[str, Any], target: str | None) -> dict[str, Any]:
         base["actions"] = [{k: a.get(k) for k in ("id", "do", "selector")} for a in step.get("actions", [])]
     if act == "desktop":
         base["actions"] = [{k: a.get(k) for k in ("id", "do", "target")} for a in step.get("actions", [])]
+    elif act == "mobile":
+        base["package"] = (step.get("app") or {}).get("package") or step.get("package")
+        base["actions"] = [{k: a.get(k) for k in ("id", "do", "target", "key", "value_sha256")}
+                           for a in step.get("actions", [])]
     return base
 
 
@@ -71,7 +75,7 @@ def _kind(step: dict[str, Any]) -> str:
 
 
 def _states(step: dict[str, Any]) -> dict[str, Any] | None:
-    if step["action"] not in ("browser", "desktop"):
+    if step["action"] not in ("browser", "desktop", "mobile"):
         return None
     states: dict[str, dict[str, Any]] = {}
     transitions = []
@@ -80,6 +84,9 @@ def _states(step: dict[str, Any]) -> dict[str, Any] | None:
         if step["action"] == "browser":
             label = a.get("url_after")
             fp = (a.get("visible") or {}).get("text_sha256")
+        elif step["action"] == "mobile":
+            label = (a.get("screen") or {}).get("activity") or ""
+            fp = a.get("screen_sha256")
         else:
             label = " | ".join(w.get("title") or "" for w in a.get("windows", []))
             fp = a.get("windows_sha256")
@@ -172,6 +179,17 @@ def _examples(step: dict[str, Any], sstep: dict[str, Any] | None) -> dict[str, A
             ex["response"] = {"status": resp.get("status"), "content_type": ct, "body": body}
     elif act in ("write_file", "delete_file"):
         ex["path"] = sstep.get("path") or step.get("path")
+    elif act == "mobile":
+        ex["package"] = (step.get("app") or {}).get("package")
+        ex["screens"] = [{"action": a.get("id"), "do": a.get("do"), "target": a.get("target"),
+                          "value": next((x.get("value") for x in sstep.get("actions", []) if x.get("id") == a.get("id")),
+                                        None),
+                          "status": a.get("status"), "activity": (a.get("screen") or {}).get("activity"),
+                          "visible_texts": [e.get("text") for e in (a.get("screen") or {}).get("elements", [])
+                                            if e.get("text")][:50]}
+                         for a in step.get("actions", [])]
+        if any("<dato personal:" in json.dumps(x, ensure_ascii=False) for x in ex["screens"]):
+            omitted.append("pantallas: con datos personales ocultados")
     else:
         omitted.append(f"acción {act}: solo huellas y máquina de estados en la evidencia")
     files = []
