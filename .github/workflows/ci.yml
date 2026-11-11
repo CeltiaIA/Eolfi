@@ -1,4 +1,6 @@
 # CI de Eolfi: pruebas de Python, del puente (Node) y e2e del panel con accesibilidad (axe-core fijado).
+# Sin macOS desde el 2026-11-11 (decisión del titular): en el repositorio privado sus minutos cuestan unas diez
+# veces más y agotaban la cuota. Última comprobación en macOS: ejecución 48, Python 3.10 y 3.12 en verde.
 name: CI
 
 on:
@@ -13,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
         python: ["3.10", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -31,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
