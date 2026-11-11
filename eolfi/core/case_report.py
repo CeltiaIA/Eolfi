@@ -24,6 +24,9 @@ IDENTITY_LABEL = {"content": "hash del contenido", "git_commit": "commit de git 
                   "descriptor": "referencia (el contenido puede cambiar)", "derived": "subject derivado por Eolfi"}
 STATUS_LABEL = {"done": "completado", "partial": "parcial", "error": "error", "cancelled": "cancelado"}
 IMPORT_MARK = "[importada de "
+# Capturas admitidas en el informe: bytes máximos, ancho, alto y firma (escritorio JPEG, móvil PNG).
+_SHOT_LIMITS = {"image/jpeg": (262_144, 1280, 800, b"\xff\xd8\xff"),
+                "image/png": (1_048_576, 2000, 4000, b"\x89PNG\r\n\x1a\n")}
 
 
 def _iso(t: Any) -> str:
@@ -58,24 +61,26 @@ def build_case_report(case: dict[str, Any]) -> dict[str, Any]:
             for action in actions if isinstance(actions, list) else []:
                 shot = action.get("screenshot") if isinstance(action, dict) else None
                 if not isinstance(shot, dict) or shot.get("status") != "captured" \
-                        or shot.get("mime_type") != "image/jpeg" or not isinstance(shot.get("data_base64"), str):
+                        or shot.get("mime_type") not in _SHOT_LIMITS or not isinstance(shot.get("data_base64"), str):
                     continue
+                mime = shot["mime_type"]
+                max_bytes, max_w, max_h, magic = _SHOT_LIMITS[mime]
                 encoded = shot["data_base64"]
-                if len(encoded) > 350_000:
+                if len(encoded) > max_bytes * 4 // 3 + 8:
                     continue
                 try:
                     image = base64.b64decode(encoded, validate=True)
                 except (ValueError, TypeError):
                     continue
                 width, height = shot.get("width"), shot.get("height")
-                if len(image) > 262_144 or not image.startswith(b"\xff\xd8\xff") \
-                        or isinstance(width, bool) or not isinstance(width, int) or not 1 <= width <= 1280 \
-                        or isinstance(height, bool) or not isinstance(height, int) or not 1 <= height <= 800 \
+                if len(image) > max_bytes or not image.startswith(magic) \
+                        or isinstance(width, bool) or not isinstance(width, int) or not 1 <= width <= max_w \
+                        or isinstance(height, bool) or not isinstance(height, int) or not 1 <= height <= max_h \
                         or hashlib.sha256(image).hexdigest() != shot.get("sha256"):
                     continue
                 screenshots.append({"evidence_id": ev["evidence_id"], "step_id": step.get("id", "?"),
                                     "action_id": action.get("id", "?"), "width": width, "height": height,
-                                    "sha256": shot["sha256"], "data_base64": encoded})
+                                    "sha256": shot["sha256"], "data_base64": encoded, "mime_type": mime})
     conclusions: list[dict[str, Any]] = []
     limits: list[str] = []
     for rec in case["records"]:
@@ -263,7 +268,7 @@ def render_case_html(r: dict[str, Any]) -> str:
             f'<details><summary>Datos del registro</summary><pre>{e(json.dumps(body, ensure_ascii=False, indent=2)[:20000])}</pre>'
             f'</details></article>')
     shots = "".join(
-        f'<figure><img loading="lazy" src="data:image/jpeg;base64,{e(s["data_base64"])}" '
+        f'<figure><img loading="lazy" src="data:{e(s.get("mime_type", "image/jpeg"))};base64,{e(s["data_base64"])}" '
         f'alt="Captura de {e(s["step_id"])} / {e(s["action_id"])}" width="{e(str(s["width"]))}" '
         f'height="{e(str(s["height"]))}"><figcaption>{e(s["step_id"])} / {e(s["action_id"])} · '
         f'{e(str(s["width"]))}×{e(str(s["height"]))} · SHA-256 <code>{e(s["sha256"][:16])}</code></figcaption></figure>'

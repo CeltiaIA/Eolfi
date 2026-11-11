@@ -156,7 +156,7 @@ def test_process_session_captures_io_files_children_and_cleans_up(store, tmp_pat
     assert rep["setup"]["inicial.txt"]["size"] == 7
     assert rep["cleanup"]["sandbox"] == "eliminado"
     assert rep["coverage"]["system_calls"]["status"] == "not_available"
-    assert rep["coverage"]["ui_mobile"]["status"] == "not_available" and rep["coverage"]["ui_desktop"] == "not_requested"
+    assert rep["coverage"]["ui_mobile"]["status"] == "not_requested" and rep["coverage"]["ui_desktop"] == "not_requested"
     assert rep["coverage"]["children"]["status"] == "sampled"
     assert {f["factor"] for f in rep["unfixed_factors"]} >= {"reloj", "planificación y PID", "rutas conocidas del SO"}
     assert "no es un sandbox de seguridad" in rep["isolation"]
@@ -555,7 +555,7 @@ def test_desktop_scenario_windows_uia(store, tmp_path):
     assert len(report["screenshots"]) == len(step["actions"])
     rendered = render_case_html(report)
     assert "data:image/jpeg;base64," in rendered and "Captura de ui / pulsar" in rendered
-    assert rep["coverage"]["ui_mobile"]["status"] == "not_available"
+    assert rep["coverage"]["ui_mobile"]["status"] == "not_requested"
     # Repetición: el resultado funcional (texto convertido y archivo) se repite; lo que varíe (p. ej. el árbol
     # inicial capturado antes de que la ventana termine de pintarse con el equipo cargado) queda MARCADO como no
     # reproducible, nunca oculto.

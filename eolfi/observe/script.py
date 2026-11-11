@@ -39,7 +39,7 @@ SCRIPT_VERSION = 1
 MAX_SCRIPT_BYTES = 1024 * 1024
 MAX_STEPS = 200
 MAX_BROWSER_ACTIONS = 100
-STEP_ACTIONS = {"run", "write_file", "delete_file", "http", "browser", "desktop"}
+STEP_ACTIONS = {"run", "write_file", "delete_file", "http", "browser", "desktop", "mobile"}
 DESKTOP_DO = {"invoke", "set_value", "toggle", "select", "wait_for", "read"}
 BROWSER_DO = {"goto", "click", "fill", "press", "check", "select", "wait_for", "reload"}
 HTTP_METHODS = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
@@ -251,6 +251,10 @@ def _step(raw: Any, i: int, seen: set[str]) -> dict[str, Any]:
             if a["do"] == "set_value" and "value" not in act:
                 _err(f"{al}: set_value necesita value")
             step["actions"].append(act)
+    elif action == "mobile":
+        from eolfi.observe import mobile
+
+        allowed |= mobile.validate_step(raw, step, label, _err, _text, _timeout, _ID, MAX_BROWSER_ACTIONS)
     extra = set(raw) - allowed
     if extra:
         _err(f"{label}: claves no admitidas para «{action}»: {sorted(extra)}")
@@ -360,6 +364,8 @@ def validate_script(raw: Any) -> dict[str, Any]:
             _err("isolation.pids: entre 8 y 32768")
         if any(s["action"] == "desktop" for s in out["steps"]):
             _err("isolation container no admite pasos desktop (necesitan el escritorio del anfitrión)")
+        if any(s["action"] == "mobile" for s in out["steps"]):
+            _err("isolation container no admite pasos mobile (actúan sobre un dispositivo conectado al anfitrión)")
         out["isolation"] = {"mode": "container", "image": image, "memory": memory, "cpus": cpus, "pids": pids}
     else:
         out["isolation"] = {"mode": "none"}
