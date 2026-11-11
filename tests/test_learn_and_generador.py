@@ -274,10 +274,15 @@ def test_create_verifies_by_default(tmp_path, monkeypatch):
 
 
 def test_create_cli_keeps_verify_mandatory_without_flag():
+    """La verificación de «create» es siempre obligatoria; --verify está obsoleta: se acepta, no sale en la ayuda
+    y solo sirve para avisar (decisión del titular 2026-11-11)."""
     from eolfi.cli import _parser
 
-    args = _parser().parse_args(["create", "--from", "fuente", "--out", "destino"])
-    assert args.verify is True
+    parser = _parser()
+    assert parser.parse_args(["create", "--from", "fuente", "--out", "destino"]).verify is False
+    assert parser.parse_args(["create", "--from", "f", "--out", "d", "--verify"]).verify is True
+    create = next(a for a in parser._subparsers._group_actions[0].choices.values() if a.prog.endswith(" create"))
+    assert "--verify" not in create.format_help()
 
 
 @pytest.mark.skipif(sys.platform != "win32" and not shutil.which("python3"), reason="requiere Python")

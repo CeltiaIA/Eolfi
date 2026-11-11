@@ -65,8 +65,9 @@ def test_guia_create(guia, capsys):
     assert spec["design"]["palette"]["background"] == "#fdfcf8" and spec["design"]["palette"]["text"] == "#222"
     assert spec["design"]["font"] == "system-ui"
     assert spec["api"]["observed_endpoints"] == ["/api/notas"] and spec["features"] == ["fetch", "localStorage"]
-    # Lo que la guía advierte: Hero y Features se añaden por defecto; ContactForm sale del formulario observado.
+    # Hero se infiere del h1 observado y ContactForm del formulario; Features la añade el generador y lo anota.
     assert spec["sections"] == ["Hero", "Features", "ContactForm"]
+    assert spec["sections_added"] == ["Features"]
     generado = "".join(p.read_text(encoding="utf-8") for p in (guia / "nuevo").rglob("*") if p.suffix in
                        (".html", ".js", ".css"))
     assert "localStorage.getItem('notas')" not in generado     # nada copiado de la fuente

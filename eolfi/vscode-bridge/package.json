@@ -258,7 +258,7 @@
         "eolfi.mcp.db": {
           "type": "string",
           "default": "",
-          "description": "Base de evidencias del servidor MCP (vacío: eolfi.db en la carpeta de Eolfi, la misma que usa el panel)."
+          "description": "Base de evidencias del servidor MCP (vacío: la de Eolfi por defecto, EOLFI_DB o ~/.eolfi/eolfi.db, la misma que usa el panel)."
         },
         "eolfi.mcp.library": {
           "type": "string",

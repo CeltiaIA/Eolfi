@@ -34,9 +34,9 @@
 - O6: HECHO en su parte sin dependencias (2026-11-11); empaquetado con fusibles PENDIENTE de autorización
 - O7: HECHO (2026-11-11)
 - O8: HECHO (commit `34c50aa`, 2026-11-10)
-- O9: PENDIENTE (fuera de esta ejecución)
+- O9: CERRADO como `not_available` (decisión del titular 2026-11-11): la cobertura de cada sesión ya declara `ui_mobile` no disponible, con su motivo, y lo comprueban `tests/test_observe.py` (2 aserciones)
 - O11: PENDIENTE (fuera de esta ejecución)
-- O12: HECHO (2026-11-11); decisión sobre mover `eolfi.db` PENDIENTE del titular
+- O12: HECHO (2026-11-11); `eolfi.db` pasa a `~/.eolfi/` por decisión del titular
 - O13: EN CURSO (2026-11-11): 2 guías nuevas con prueba en CI; faltan el puente, el agente VS Code y el laboratorio en VS Code real
 
 ## O1 + O2 — resultado (2026-11-09)
@@ -249,3 +249,17 @@ All checks passed!
 - `ejemplos/web-y-repo/` (`sitio/`, estático de notas; `repo/`, paquete Python sin licencia a propósito) → `tests/test_guia_web_repo.py` (3 pruebas; la de `create` se omite si no hay Node.js, que la CI sí tiene): `web` sin framework atribuido, con esqueleto, tokens, `/api/notas`, `fetch` y `localStorage` leídos del JS sin ejecutarlo; `repo` con lenguajes, `pyproject.toml` (script `notas`), pruebas e incógnita «Sin licencia detectada»; `create` con destino `static` y verificación en verde.
 - **Hallazgo para la revisión de opciones (no se cambia sin el titular):** `create` añade por defecto las secciones `Hero` y `Features` aunque la fuente no las tenga (`eolfi/generador/spec.py`, «if "Hero" not in secs»), y `eolfi.spec.json` no distingue lo observado de lo añadido. La guía lo advierte y la prueba lo fija para que cualquier cambio sea deliberado.
 - Verificación (Linux): las 4 guías, 8/8.
+
+## Decisiones del titular aplicadas (2026-11-11)
+
+El titular delegó la elección («coge tú lo mejor»). Se aplicaron las recomendaciones de `informes/decisiones-pendientes-2026-11-11.md` que se pueden hacer y verificar sin GitHub, Windows ni su presencia:
+
+- **4A — base de evidencias en `~/.eolfi/eolfi.db`.** `eolfi/core/dbpath.py`: orden `--db` > `EOLFI_DB` > `EOLFI_HOME`/`~/.eolfi`. La primera vez copia la `eolfi.db` de la carpeta actual con `sqlite3.backup` (incluye el WAL y es coherente aunque haya otra conexión abierta), deja la original intacta, lo avisa y lo anota en `eolfi.db.migrado.json`. Si la copia falla, sigue con la antigua. Si en otra carpeta hay una `eolfi.db` sin migrar, avisa de que no se usa. La extensión de VS Code ya no fuerza `--db <carpeta de Eolfi>/eolfi.db` para el servidor MCP cuando no hay ajuste. `tests/conftest.py` fija `EOLFI_DB` en una carpeta temporal para que ninguna prueba toque la base real. Pruebas: `tests/test_dbpath.py` (6).
+  - Efecto en tu equipo: la próxima `python -m eolfi …` desde `D:\Eolfi` copiará `D:\Eolfi\eolfi.db` a `~/.eolfi/eolfi.db` y avisará. Con el panel (`serve`) abierto también funciona, porque la copia es la de SQLite.
+- **8A — `create` anota `sections_added`.** Al aplicarlo se vio que `Hero` no es inventada: sale de un `h1` observado (inferencia). Solo `Features` se añade sin evidencia en la muestra. Guía y prueba corregidas (antes decían que `Hero` también se añadía).
+- **9A — `create --verify` obsoleta.** No sale en la ayuda; si se usa, avisa por stderr. Nunca hizo nada: la verificación ya era obligatoria. `test_create_cli_keeps_verify_mandatory_without_flag` adaptada.
+- **10A — campo `complete`** en `verify` y en la evidencia de la reconstrucción: solo es verdadero sin diferencias, parciales ni pendientes. `equivalent_on_observed` no cambia.
+- **LIM-011** retirado. **17A**: O9 cerrado como `not_available` (ya estaba declarado y probado). **Pillow**: `getdata()` sustituido por `tobytes()` (comprobado que da los mismos píxeles).
+- **Sin cambios, por su recomendación:** 5A (sin empaquetar Electron) y 6A (se mantiene `Bypass` con el hash recomendado).
+- **Pendiente de algo que no está aquí:** 1A y 2A (fusionar e integrar: necesitan `pytest` en Windows y GitHub), 3A (mover los archivos de supervisión fuera del repo: falta acceso a esa carpeta), 7A (inicio de sesión en vivo de ChatGPT y Le Chat), 18A (REA) y 19A (guías del puente y del agente VS Code).
+- Verificación (Linux, Python 3.13): suite completa 469 aprobadas, 10 omitidas, 4 fallos del entorno (los mismos de siempre); `node --test` en `eolfi/bridge` 63/0; en `eolfi/vscode-bridge` 167/0.

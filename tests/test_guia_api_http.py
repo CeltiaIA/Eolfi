@@ -73,6 +73,7 @@ def test_guia_api_http(guia, servidor, capsys):
     g, v = rec["generation"], rec["verification"]
     assert code == 4 and g["simulated"] == 5 and g["pending"] == 1 and g["partial"] == 0
     assert v["match"] == 5 and v["differ"] == 0 and v["pending"] == 1
+    assert v["equivalent_on_observed"] is True and v["complete"] is False      # lo pendiente no se oculta
     manifest = json.loads((guia / "reconstruccion" / ".eolfi" / "trazabilidad.json").read_text(encoding="utf-8"))
     assert manifest["target"] == "python-http" and all(c["evidence_ids"] and c["route"] for c in manifest["cases"])
     assert "comprar pan" not in (guia / "reconstruccion" / "server.py").read_text(encoding="utf-8")

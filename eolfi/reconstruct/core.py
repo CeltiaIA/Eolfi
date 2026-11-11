@@ -303,7 +303,6 @@ import base64
 import json
 import os
 import sys
-import base64
 from pathlib import Path
 
 CASES = json.loads((Path(__file__).with_name("comportamiento.json")).read_text(encoding="utf-8"))
@@ -810,6 +809,9 @@ def verify(out: str | Path, *, timeout: float = 30.0) -> dict[str, Any]:
             "partial": partial,
             "differ": len(results) - ok - partial - pend, "pending": pend, "results": results,
             "equivalent_on_observed": ok == len(results) - partial - pend and partial == 0 and ok > 0,
+            # «complete» (decisión del titular 2026-11-11): además, sin casos pendientes. equivalent_on_observed
+            # se mantiene igual para no romper a quien ya lo lee.
+            "complete": ok == len(results) and ok > 0,
             "limits": "Solo cubre las entradas observadas; los casos pendientes y las entradas no observadas no "
                       "están reconstruidos. Coincidir aquí no demuestra equivalencia general."
                       + (" En la API HTTP no se comparan las cabeceras de la petición, ni las cookies ni las "
@@ -829,7 +831,8 @@ def reconstruct(store: EvidenceStore, case_id: str, out: str | Path, *, name: st
         eid, _ = store.add_evidence(Evidence(
             subject=subject, provider=PROVIDER, provider_version=VERSION, operation="reconstruction_verification",
             params={"spec_version": model["spec_version"], "model_sha256": model["content_sha256"], "target": target},
-            result={k: ver[k] for k in ("cases", "match", "differ", "pending", "results", "equivalent_on_observed")},
+            result={k: ver[k] for k in ("cases", "match", "differ", "pending", "results", "equivalent_on_observed",
+                                        "complete")},
             authority=Authority.CONTROLLED_REPRO, confidence=Confidence.MEDIUM, limitations=ver["limits"]))
         run.artifact(subject, size=None, format="project", identity="derived", content_sha256="",
                      path=gen["out"], metadata={"manifest": MANIFEST})

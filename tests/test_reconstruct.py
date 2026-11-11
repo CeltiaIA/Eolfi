@@ -437,3 +437,16 @@ def test_http_reconstruct_records_evidence_and_target_errors(store, tmp_path, sa
     cli_case = _observed_case(store, tmp_path)
     with pytest.raises(ValueError, match="API HTTP"):
         generate(build_model(store, cli_case), tmp_path / "http", target="python-http")
+
+
+def test_complete_requires_no_pending_and_create_verify_is_deprecated(store, tmp_path, sample_api, capsys):
+    from eolfi.cli import main
+
+    cid = _http_case(store, sample_api)
+    out = tmp_path / "api"
+    generate(build_model(store, cid), out)
+    ver = verify(out)
+    assert ver["pending"] == 1 and ver["complete"] is False
+    code = main(["--db", str(tmp_path / "x.db"), "create", "--from", str(tmp_path / "no-existe"), "--out",
+                 str(tmp_path / "nuevo"), "--verify"])
+    assert code != 0 and "--verify está obsoleta" in capsys.readouterr().err

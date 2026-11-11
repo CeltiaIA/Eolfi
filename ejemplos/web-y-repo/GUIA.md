@@ -56,6 +56,5 @@ procede de la fuente, y la verificación (aquí `node --test`, que necesita Node
 - Destino `static` elegido solo (`target: auto`) y `verification.ok` es `true`.
 - `eolfi.spec.json` conserva lo observado: las páginas `home` y `acerca`, los colores de fondo y texto, la fuente,
   el endpoint `/api/notas` y las funciones `fetch` y `localStorage`.
-- **Ojo:** las secciones `Hero` y `Features` las añade el generador por defecto aunque la fuente no las tenga;
-  `ContactForm` sale del formulario observado. Los textos son de ejemplo. El archivo de especificación todavía no
-  distingue lo observado de lo añadido.
+- Secciones: `Hero` se infiere del `h1` observado y `ContactForm` del formulario; `Features` la añade el generador
+  por defecto aunque la fuente no la tenga, y lo anota en `sections_added`. Los textos son de ejemplo.

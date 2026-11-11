@@ -45,7 +45,7 @@ Comandos:
                                  Servidor de desarrollo: API JSON + panel web. --root limita las
                                  rutas locales (también EOLFI_ROOTS).
 
-Opción global: --db RUTA (base de evidencias, por defecto eolfi.db). En «create», --db memory|sqlite
+Opción global: --db RUTA (base de evidencias; por defecto EOLFI_DB o ~/.eolfi/eolfi.db). En «create», --db memory|sqlite
 (alias --backend-db) es la persistencia del backend generado, no la base de evidencias.
 """
 from __future__ import annotations
@@ -88,7 +88,8 @@ def _parser() -> argparse.ArgumentParser:
     from eolfi.core.cases import RECORD_KINDS
 
     ap = argparse.ArgumentParser(prog="eolfi", description="Eolfi — ingeniería inversa local con modelo de evidencias")
-    ap.add_argument("--db", default="eolfi.db", help="Ruta de la base de evidencias")
+    ap.add_argument("--db", default=None,
+                    help="Ruta de la base de evidencias (por defecto EOLFI_DB o ~/.eolfi/eolfi.db)")
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -277,8 +278,9 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--name", default="Nuevo proyecto")
     cr.add_argument("--target", default="auto",
                     choices=["auto", "static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet"])
-    cr.add_argument("--verify", action="store_true", default=True,
-                    help="Verificación obligatoria (opción conservada por compatibilidad)")
+    # Obsoleta (decisión del titular 2026-11-11): la verificación es siempre obligatoria. Se acepta y avisa; se
+    # retirará en una versión posterior.
+    cr.add_argument("--verify", action="store_true", default=False, help=argparse.SUPPRESS)
     # dest propio: con dest «db» pisaba el --db global y «create --db sqlite» creaba una base de
     # evidencias llamada «sqlite» en la carpeta actual (PLAN_MEJORAS servidor A1).
     cr.add_argument("--db", "--backend-db", dest="backend_db", choices=["memory", "sqlite"], default="memory",
@@ -1294,6 +1296,13 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
     args = _parser().parse_args(argv)
+    if args.cmd == "create" and args.verify:
+        print("Eolfi: --verify está obsoleta y no hace nada (la verificación siempre es obligatoria); se retirará "
+              "en una versión posterior.", file=sys.stderr)
+    if args.cmd != "llama":
+        from eolfi.core.dbpath import resolve_db
+
+        args.db = resolve_db(args.db)
     if args.cmd == "llama":
         from eolfi import llamacpp
 

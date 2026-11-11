@@ -314,12 +314,18 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
     if chosen not in TARGETS:
         raise ValueError(f"target desconocido: {chosen} (opciones: {', '.join(TARGETS)})")
     secs = [s for s in SECTION_ORDER if s in sections]
+    # Secciones que pone el generador sin evidencia en las fuentes: se anotan en «sections_added» (decisión del
+    # titular, 2026-11-11) para distinguirlas de las observadas o inferidas (Hero desde un h1, ContactForm desde un
+    # formulario).
+    added: list[str] = []
     if "Hero" not in secs:
         secs.insert(0, "Hero")
+        added.append("Hero")
     if not any(s in secs for s in ("Features", "CardGrid")):
         secs.insert(1, "Features")
+        added.append("Features")
     if has_forms and "ContactForm" not in secs:
-        secs.append("ContactForm")
+        secs.append("ContactForm")      # sale de un formulario observado: no se anota como añadida
     # Páginas reconocibles primero; otras solo si aparecen en varias fuentes/enlaces.
     known = [r for r, _ in routes.most_common() if r in PAGE_WORDS]
     other = [r for r, n in routes.most_common() if r not in PAGE_WORDS and n >= 2]
@@ -342,6 +348,7 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
         "stack_votes": dict(votes.most_common(25)),
         "pages": pages,
         "sections": secs[:9],
+        "sections_added": [x for x in added if x in secs[:9]],
         "design": {
             "palette": palette([c for c, _ in colors.most_common(40)]),
             "font": next((safe_font(f) for f, _ in fonts.most_common()

@@ -655,6 +655,7 @@ def test_desktop_screenshot_excludes_overlapping_windows(store, tmp_path):
         shot = action["screenshot"]
         assert shot["status"] == "captured" and shot["method"] == "PrintWindow"
         img = image_mod.open(io.BytesIO(base64.b64decode(shot["data_base64"]))).convert("RGB")
-        pixels = list(img.getdata())
+        raw = img.tobytes()      # RGB: sin getdata(), obsoleto en Pillow 12
+        pixels = list(zip(raw[0::3], raw[1::3], raw[2::3]))
         magenta = sum(1 for r, g, b in pixels if r > 200 and g < 80 and b > 200)
         assert magenta / len(pixels) < 0.05, f"{magenta}/{len(pixels)} píxeles magenta: la captura incluye la ventana que tapa"

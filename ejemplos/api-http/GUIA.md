@@ -61,8 +61,8 @@ evidencias por caso.
   reconstrucción queda parcial: lo pendiente no se inventa.
 - `verification`: 5 coinciden y 0 difieren. Para cada caso se arranca la API generada, se repite la petición
   observada y se comparan estado, cuerpo, tipo de contenido y archivos capturados.
-- `equivalent_on_observed` solo habla de los casos que se pudieron reconstruir; los pendientes se cuentan aparte
-  (`pending`). Coincidir aquí **no** demuestra equivalencia general.
+- `equivalent_on_observed` es `true` porque solo habla de los casos que se pudieron reconstruir; `complete` es
+  `false` porque queda un caso pendiente. Coincidir aquí **no** demuestra equivalencia general.
 
 ## 5. Usar y probar la API generada
 

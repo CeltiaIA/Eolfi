@@ -84,7 +84,10 @@ python -m eolfi resilience fuzz ./semilla --iters 200
 python -m eolfi resilience inject ./miprograma
 ```
 
-La base de evidencias por defecto es `eolfi.db` (cámbiala con `--db`).
+La base de evidencias por defecto es `~/.eolfi/eolfi.db` (o `EOLFI_HOME`); cámbiala con `--db` o `EOLFI_DB`.
+Si en la carpeta actual hay una `eolfi.db` antigua y aún no existe la de `~/.eolfi`, la primera ejecución la
+**copia** allí (con la API de copia de SQLite) y lo avisa; la original se conserva sin cambios. Contiene los
+tokens de los clientes del panel: no la copies junto con el código.
 Con `EOLFI_DEBUG=1` los errores muestran el traceback completo.
 
 ## Casos de análisis
@@ -258,7 +261,7 @@ en ella.
 
 ```bash
 pip install "eolfi[ai]"          # SDK oficial de Anthropic; credenciales: ANTHROPIC_API_KEY o `ant auth login`
-python -m eolfi create --from https://una-web.com/ --out D:/p/tienda --verify \
+python -m eolfi create --from https://una-web.com/ --out D:/p/tienda \
     --ai "Catálogo de bicis con filtro por precio y carrito con total"
 python -m eolfi assist D:/p/tienda --brief "Añade búsqueda en el catálogo"
 ```
