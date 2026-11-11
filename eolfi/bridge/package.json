@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "author": "Luis Manuel Cousido Hermida",
+  "author": "CeltiaIA <info@celtiaia.com> (https://celtiaia.com)",
   "description": "Puente de Eolfi para DeepSeek web, Gemini web y Meta AI web",
   "type": "module",
   "main": "main.mjs",

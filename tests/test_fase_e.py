@@ -395,7 +395,7 @@ def test_licencia_propietaria():
 
     root = Path(__file__).resolve().parents[1]
     lic = (root / "LICENSE").read_text(encoding="utf-8")
-    assert "Copyright (c) 2026 Luis Manuel Cousido Hermida." in lic
+    assert "Copyright (c) 2026 CeltiaIA (celtiaia.com)." in lic
     assert "Todos los derechos reservados" in lic
     assert "Proprietary" in (root / "pyproject.toml").read_text(encoding="utf-8")
     assert "Propietaria" in eolfi.__license__

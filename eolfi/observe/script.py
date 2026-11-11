@@ -6,7 +6,7 @@ inicial, alcance, pasos y limpieza. Se valida entero antes de ejecutar nada.
     {
       "eolfi_observation_script": 1,
       "name": "alta de usuario",
-      "authorization": "muestra sintética propia; autoriza L. M. Cousido",
+      "authorization": "muestra sintética propia; autoriza CeltiaIA",
       "target": {"path": "app.py", "version": "1.2", "provenance": "build local"},
       "environment": {"inherit": false, "vars": {"LANG": "C"}, "passthrough": ["PATH"], "redirect_home": true},
       "setup": {"files": {"datos/in.txt": {"text": "hola"}, "conf.ini": {"copy": "plantillas/conf.ini"}}},

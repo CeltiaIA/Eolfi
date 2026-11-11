@@ -391,7 +391,7 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
   sesión «VS Code (CeltIA)» → puente arriba con 7 modelos.
 
 ## Licencia y vinculación sin código visible (2026-11-05)
-- LICENSE: software propietario y privado, © 2026 Luis Manuel Cousido Hermida y CeltIA (Celtia IA), todos los
+- LICENSE: software propietario y privado, © 2026 CeltiaIA (celtiaia.com), todos los
   derechos reservados. pyproject (license, authors, «License :: Other/Proprietary License», «Private :: Do Not
   Upload»: PyPI rechaza subirlo), package.json de bridge y vscode-bridge (UNLICENSED + author), __license__ y
   LICENSE.txt dentro del VSIX. Cabecera en README.
@@ -658,7 +658,7 @@ que «Crear proyecto», porque «Crear» genera un proyecto nuevo y no modifica 
   en llamadas reales y quita el razonamiento; los encabezados del informe se normalizan a «### `ruta`». Prueba e2e en
   vivo (e2e/local-eolas-live.js): Eolfi usa Eolas y Copilot no se llama (8/8).
 - Extensión 0.6.6: pie «Modelo: X · en tu equipo, sin Copilot» en las respuestas del agente y «Modelos usados» en las
-  auditorías (ajuste eolfi.agent.showModel, activo por defecto). Licencia: titular único Luis Manuel Cousido Hermida;
+  auditorías (ajuste eolfi.agent.showModel, activo por defecto). Licencia: titular único CeltiaIA (celtiaia.com);
   nuevo LICENCIAS-TERCEROS.md. Pruebas 117 (1 solo en Windows).
 
 ## Continuación de hoja de ruta y registro de limpieza (2026-11-06)

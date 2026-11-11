@@ -1,6 +1,6 @@
 # Licencias de terceros — Eolfi
 
-Eolfi es software propietario de Luis Manuel Cousido Hermida (véase [LICENSE](LICENSE)). Este archivo enumera los
+Eolfi es software propietario de CeltiaIA (celtiaia.com) (véase [LICENSE](LICENSE)). Este archivo enumera los
 componentes de terceros que Eolfi usa, descarga o invoca. Cada uno se rige por su propia licencia; la licencia de
 Eolfi no la modifica (LICENSE, apartado 4).
 
