@@ -15,6 +15,7 @@ import json
 import os
 import shlex
 import sys
+import time
 from pathlib import Path
 
 PKG = "org.eolfi.muestra"
@@ -143,7 +144,8 @@ def main(argv):
                 return 1
             sys.stdout.buffer.write(st["dump"].encode("utf-8"))
         elif words[:2] == ["screencap", "-p"]:
-            sys.stdout.buffer.write(PNG + json.dumps([st["nombre"], st["saludo"], st["running"]]).encode())
+            # como en un móvil real, la imagen lleva la hora de la barra de estado: cambia en cada captura
+            sys.stdout.buffer.write(PNG + json.dumps([st["nombre"], st["saludo"], st["running"], time.time()]).encode())
         save(st)
         return 0
     if argv[:1] == ["shell"]:
