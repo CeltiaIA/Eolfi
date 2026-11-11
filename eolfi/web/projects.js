@@ -38,7 +38,7 @@ export function createProjectView({ $, el, api, setStatus }) {
       el("span", { class: "badge" }, KIND[s.kind]), el("span", { class: "proj-ref" }, s.label),
       el("button", { type: "button", class: "small-btn", "aria-label": `Quitar ${s.label}`,
         onclick: () => { sources.splice(i, 1); renderSources(); } }, "Quitar"))));
-    $("#proj-hint").textContent = sources.length ? `${sources.length} fuente(s)` : "Añade al menos una fuente";
+    $("#proj-hint").textContent = sources.length ? `${sources.length} fuente(s) adjunta(s)` : "Puedes empezar solo con el texto.";
   }
 
   async function addSource() {
@@ -73,14 +73,13 @@ export function createProjectView({ $, el, api, setStatus }) {
     e.preventDefault();
     const name = $("#proj-name").value.trim();
     if (!name) { setStatus("El proyecto necesita un nombre", true); $("#proj-name").focus(); return; }
-    if (!sources.length) { setStatus("Añade al menos una fuente", true); return; }
     $("#proj-go").disabled = true;
     setStatus("Eolfi está leyendo las fuentes y la descripción para proponer un plan…");
     try {
       current = await api("/api/projects/plan", { method: "POST", body: JSON.stringify({
         name, description: $("#proj-desc").value, sources: sources.map((s) => s.ref),
         mode: document.querySelector("input[name=proj-mode]:checked").value }) });
-      setStatus("Plan propuesto: revísalo y apruébalo para empezar");
+        setStatus("Caso creado y plan propuesto: revisa la evaluación y apruébalo para empezar");
       render();
       view.querySelector("h3")?.focus();
     } catch (err) { setStatus(err.message, true); } finally { $("#proj-go").disabled = false; }
@@ -92,6 +91,9 @@ export function createProjectView({ $, el, api, setStatus }) {
     const parts = [];
     parts.push(el("div", { class: "row between" },
       el("h3", { tabindex: "-1" }, `Plan · versión ${plan.version}`), badge(STATE[current.status] || [current.status, ""])));
+    if (plan.assessment) parts.push(el("div", { class: `proj-verdict proj-assessment ${plan.assessment.verdict === "favorable" ? "ok" : "bad"}` },
+      `${plan.assessment.verdict === "favorable" ? "Evaluación inicial favorable" : "Evaluación inicial no favorable"}: ${plan.assessment.summary}`,
+      el("div", { class: "small" }, plan.assessment.limits)));
     if (plan.changes?.length) parts.push(el("p", { class: "small warn" }, `Cambios respecto a la versión ${plan.revised_from}: ${plan.changes.join("; ")}`));
     parts.push(el("h4", {}, "Razonamiento"), el("ul", { class: "small" }, ...plan.reasoning.map((r) => el("li", {}, r))));
     const it = plan.interpretation;

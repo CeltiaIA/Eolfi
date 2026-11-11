@@ -181,6 +181,19 @@ test('modo automático: escribe y abre carpetas sin pedir permiso; manual pregun
   await assert.rejects(makeActions(auto.vscode).write({ path: '.env', content: 'X=1' }), /secretos/);   // bloqueado en los dos
 });
 
+test('divide un archivo de texto dentro del workspace y conserva el original', async () => {
+  const root = ws();
+  const source = path.join(root, 'grande.txt');
+  const content = Array.from({ length: 60 }, (_, i) => `fila ${i}\n`).join('');
+  fsp.writeFileSync(source, content);
+  const f = fake(root);
+  const result = await makeActions(f.vscode).split({ path: 'grande.txt', parts: 3 });
+  assert.equal(result.parts.length, 3);
+  assert.equal(fsp.readFileSync(source, 'utf8'), content);
+  assert.equal(fsp.existsSync(result.manifest), true);
+  await assert.rejects(makeActions(f.vscode).split({ path: '../fuera.txt', parts: 2 }), /fuera de las carpetas/);
+});
+
 test('informe incremental: crea, añade secciones, pide permiso una vez y se puede deshacer', async () => {
   const root = ws();
   const f = fake(root);

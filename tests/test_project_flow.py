@@ -45,7 +45,10 @@ def test_plan_is_proposed_without_running_anything(store, tmp_path):
         pf.run_plan(store, st["case_id"])
     with pytest.raises(pf.PlanError):
         pf.propose_plan(store, name="", description="", sources=[str(site)])
-    with pytest.raises(pf.PlanError, match="fuente"):
+    prompt_only = pf.propose_plan(store, name="x", description="Una herramienta CLI para organizar notas", sources=[])
+    assert [step["id"] for step in prompt_only["plan"]["steps"]] == ["especificar", "generar"]
+    assert "No hay fuentes adjuntas" in prompt_only["plan"]["reasoning"][0]
+    with pytest.raises(pf.PlanError, match="descripción o adjunta"):
         pf.propose_plan(store, name="x", description="", sources=[])
     with pytest.raises(pf.PlanError, match="no es una URL"):
         pf.propose_plan(store, name="x", description="", sources=["no-existe-eolfi-zz"])

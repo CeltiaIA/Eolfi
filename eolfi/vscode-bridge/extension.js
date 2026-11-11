@@ -22,6 +22,7 @@ const { findServer } = require('./llama-starter');
 const { makeEolasStarter } = require('./eolas-starter');
 const llamacfg = require('./llamacpp-config');
 const lmi = require('./lm-integration');
+const { splitTextFile, validateParts } = require('./file-splitter');
 
 const FILE = process.env.EOLFI_VSCODE_BRIDGE_FILE || path.join(os.homedir(), '.eolfi', 'vscode-bridge.json');
 let server = null;
@@ -47,11 +48,36 @@ function stop() {
   } catch { /* ya no está o no es nuestro */ }
 }
 
+let panelChatHandler;
+let panelChatBusy = false;
+
 function start() {
   stop();
   const token = crypto.randomBytes(32).toString('hex');
   server = http.createServer(makeHandler({ vscode, token, getAllowedTools: allowedTools, log: (m) => out.appendLine(m),
-    actions: makeActions(vscode) }));
+    actions: makeActions(vscode),
+    localChat: async ({ prompt, project }, token) => {
+      const folders = vscode.workspace.workspaceFolders || [];
+      const current = folders.length === 1 ? folders[0].uri.fsPath : null;
+      if (!current || project !== current) throw Object.assign(new Error('Abre un solo proyecto y actualiza el panel.'), { status: 409 });
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000 || /^\s*\//.test(prompt)) {
+        throw Object.assign(new Error('Mensaje inválido para el chat local.'), { status: 400 });
+      }
+      if (!panelChatHandler || panelChatBusy) throw Object.assign(new Error('Chat local ocupado o no disponible.'), { status: 409 });
+      panelChatBusy = true;
+      try {
+        const answer = await vscode.window.showWarningMessage(
+          'Eolfi recibió una tarea del panel para ' + current,
+          { modal: true, detail: prompt }, 'Executar'
+        );
+        if (answer !== 'Executar' || token.isCancellationRequested) return { cancelled: true };
+        let text = '';
+        const stream = { markdown: (part) => { text += String(part?.value ?? part); }, progress: () => {},
+          button: () => {}, reference: () => {}, anchor: () => {}, warning: () => {} };
+        const result = await panelChatHandler({ prompt }, { history: [] }, stream, token);
+        return { text, model: result?.metadata?.model, cancelled: token.isCancellationRequested };
+      } finally { panelChatBusy = false; }
+    } }));
   server.listen(0, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${server.address().port}`;
     writeFile({ url, token, pid: process.pid, vscode: vscode.version });
@@ -304,6 +330,30 @@ function openChat(help = false) {
     .then(undefined, () => vscode.commands.executeCommand('workbench.action.chat.open'));
 }
 
+async function splitFileCommand(uri) {
+  const target = uri?.fsPath || vscode.window.activeTextEditor?.document?.uri?.fsPath;
+  if (!target) return vscode.window.showWarningMessage('Eolfi: elige un archivo en el explorador.');
+  if (isSecretPath(target)) return vscode.window.showWarningMessage('Eolfi: no divide archivos de secretos.');
+  const value = await vscode.window.showInputBox({
+    prompt: `¿En cuántas partes dividir ${path.basename(target)}?`,
+    value: '4',
+    validateInput: (v) => { try { validateParts(v); return null; } catch (e) { return e.message; } },
+  });
+  if (value === undefined) return;
+  const count = validateParts(value);
+  const output = `${target}.eolfi-parts`;
+  const create = 'Crear partes';
+  const pick = await vscode.window.showWarningMessage(
+    `Eolfi creará ${count} partes y un manifiesto SHA-256.`,
+    { modal: true, detail: `El original no se modifica. Destino: ${output}` }, create);
+  if (pick !== create) return;
+  return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Eolfi: dividiendo ${path.basename(target)}` }, async () => {
+    const result = splitTextFile(target, count, { outputDir: output });
+    vscode.window.showInformationMessage(`Eolfi: ${result.parts.length} partes creadas junto al archivo original.`);
+    return result;
+  });
+}
+
 // Botón «Eolfi»: sin sesión pide iniciarla; con sesión abre el chat con la ayuda del agente.
 async function chatButton() {
   if (!(await sessionToken())) {
@@ -398,6 +448,7 @@ function activate(context) {
       const url = await vscode.window.showInputBox({ prompt: 'URL que analizar (https://…)', validateInput: (v) => (/^https?:\/\//.test(v) ? null : 'Debe empezar por http:// o https://') });
       if (url) return runAnalysis('web', { source: url }, url);
     })),
+    vscode.commands.registerCommand('eolfi.splitFile', guard(splitFileCommand)),
     vscode.commands.registerCommand('eolfi.openPanel', guard(async () => { await eolfiClient(); openPanel(lastSubject ? `#objetivo/${encodeURIComponent(lastSubject)}` : ''); })),
     vscode.commands.registerCommand('eolfi.lastReport', guard(async () => showReport(lastSubject))),
     vscode.commands.registerCommand('eolfi.openChat', () => openChat(false)),
@@ -487,6 +538,7 @@ function activate(context) {
   }
   const version = String(context.extension?.packageJSON?.version || '0');
   const mcpOk = lmi.registerMcp(vscode, context, version);
+  panelChatHandler = chatHandler;
   const nTools = lmi.registerTools(vscode, context, chatHandler);
   if (out) out.appendLine(`Modo agente: servidor MCP ${mcpOk ? 'registrado' : 'no disponible (VS Code < 1.101)'}; ${nTools} herramientas de Eolfi.`);
   context.subscriptions.push(vscode.commands.registerCommand('eolfi.installAgent', guard(async () => {

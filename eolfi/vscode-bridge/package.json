@@ -82,6 +82,11 @@
         "command": "eolfi.installAgent",
         "title": "Eolfi: instalar el agente en este workspace",
         "category": "Eolfi"
+      },
+      {
+        "command": "eolfi.splitFile",
+        "title": "Eolfi: dividir archivo grande para el agente",
+        "category": "Eolfi"
       }
     ],
     "configuration": {
@@ -280,6 +285,11 @@
           "group": "eolfi@1"
         },
         {
+          "command": "eolfi.splitFile",
+          "when": "!explorerResourceIsFolder",
+          "group": "eolfi@2"
+        },
+        {
           "command": "eolfi.analyzeFolder",
           "when": "explorerResourceIsFolder",
           "group": "eolfi@1"
@@ -437,6 +447,68 @@
         "tags": [
           "eolfi"
         ]
+      },
+      {
+        "name": "eolfi_partir_archivo",
+        "displayName": "Eolfi: dividir archivo grande",
+        "toolReferenceName": "partirArchivo",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(split-horizontal)",
+        "userDescription": "Divide un archivo de texto grande en partes manejables y conserva el original.",
+        "modelDescription": "Divide un archivo UTF-8 grande del workspace en 2 o más partes para revisarlo o trabajarlo por separado. Conserva el original y crea una carpeta de partes con manifiesto SHA-256. Úsala cuando un archivo no cabe cómodamente en el contexto del modelo.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "archivo": {
+              "type": "string",
+              "description": "Ruta del archivo dentro del workspace"
+            },
+            "partes": {
+              "type": "number",
+              "description": "Número de partes, entre 2 y 1000"
+            }
+          },
+          "required": [
+            "archivo"
+          ]
+        },
+        "tags": [
+          "eolfi"
+        ]
+      },
+      {
+        "name": "eolfi_herramientas_archivo",
+        "displayName": "Eolfi: herramientas de archivo",
+        "toolReferenceName": "archivo",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(archive)",
+        "userDescription": "Inspecciona, extrae, compara, reúne partes o busca duplicados de archivos del workspace.",
+        "modelDescription": "Herramienta unificada de archivos. Operaciones admitidas: inspeccionar, listar_archivo, extraer_archivo, reunir_partes, preparar_partes, mapa_codigo, comparar, duplicados y extraer_documento. preparar_partes comprueba qué partes siguen íntegras para reanudar el trabajo. Solo actúa dentro del workspace. La extracción y la reunión conservan el original y crean resultados nuevos.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "operacion": {
+              "type": "string",
+              "enum": ["inspeccionar", "listar_archivo", "extraer_archivo", "reunir_partes", "preparar_partes", "mapa_codigo", "comparar", "duplicados", "extraer_documento"]
+            },
+            "archivo": { "type": "string", "description": "Ruta dentro del workspace" },
+            "izquierdo": { "type": "string", "description": "Primer archivo para comparar" },
+            "derecho": { "type": "string", "description": "Segundo archivo para comparar" }
+          },
+          "required": ["operacion"]
+        },
+        "tags": ["eolfi"]
+      },
+      {
+        "name": "eolfi_medir_modelo",
+        "displayName": "Eolfi: medir modelo local",
+        "toolReferenceName": "medirModelo",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(pulse)",
+        "userDescription": "Mide el rendimiento del modelo GGUF local configurado.",
+        "modelDescription": "Ejecuta llama-bench sobre el GGUF configurado con tres repeticiones breves de prefill y generación. No inicia llama-server ni altera la configuración. Úsala solo cuando se necesiten cifras reales de rendimiento.",
+        "inputSchema": { "type": "object", "properties": {} },
+        "tags": ["eolfi", "modelo"]
       },
       {
         "name": "rea_herramientas",

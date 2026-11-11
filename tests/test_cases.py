@@ -46,6 +46,17 @@ def test_case_record_rejects_unknown_references_and_bad_kind():
     store.close()
 
 
+def test_case_history_keeps_only_three_most_recent_cases():
+    store = EvidenceStore(":memory:")
+    cases = CaseStore(store)
+    created = [cases.create(f"Proyecto {number}")["case_id"] for number in range(4)]
+    listed = [case["case_id"] for case in cases.list()]
+    assert listed == list(reversed(created[1:]))
+    with pytest.raises(ValueError, match="no encontrado"):
+        cases.get(created[0])
+    store.close()
+
+
 def test_case_artifact_requires_sha256_and_export_contains_bundle(tmp_path):
     store = EvidenceStore(":memory:")
     cases = CaseStore(store)

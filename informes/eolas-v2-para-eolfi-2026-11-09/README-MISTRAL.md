@@ -1,0 +1,1 @@
+Mistral 7B Instruct v0.3 Q4_K_M: hash REA coincide con Hugging Face; probado en RTX 3060 Ti con 8 capas GPU y contexto 32,000; carga y health OK, sin generación. Ver INFORME-REA-MISTRAL.md y rea-evidence-mistral.json.

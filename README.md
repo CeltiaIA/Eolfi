@@ -314,6 +314,27 @@ razonamiento en un bloque «💭 Razonamiento»); `@eolfi /modelo copilot` vuelv
 «Eolfi: configurar el modelo local» abre el mismo JSON, y el ajuste `eolfi.agent.instructions` añade
 instrucciones propias para cualquier modelo. En «Crear», «IA: Gemma 4 local (llama.cpp)».
 
+### Eolas V2: Gemma/Mistral alternos en RTX 3060 Ti
+
+El motor nuevo administra un solo `llama-server` en el puerto 8090. Gemma 4 12B Q5_K_M y Mistral 7B Q4_K_M
+son perfiles alternos, con 8 capas GPU, contexto 32,000 y lotes 128/64 como punto de partida. Para cambiar,
+Eolas detiene su servidor y espera a que desaparezcan su PID y `/health` antes de cargar el otro perfil:
+
+```bash
+python -m eolfi eolas-v2 status
+python -m eolfi eolas-v2 start
+python -m eolfi eolas-v2 switch mistral
+python -m eolfi eolas-v2 switch gemma
+python -m eolfi eolas-v2 stop
+python -m eolfi create --from D:/fuente --out D:/nuevo --ai "Añade validación" --provider eolas-v2
+python -m eolfi create --from D:/fuente --out D:/nuevo --ai "Añade validación" --provider celtia-v2
+```
+
+El proveedor legado `eolas` sigue siendo el servicio CeltIA en `127.0.0.1:11435`; `eolas-v2` permite usar un
+perfil de `llama.cpp`, mientras que `celtia-v2` compone una respuesta: Mistral redacta y Gemma revisa y entrega
+la versión final, cargándose uno por vez. El feedback está desactivado inicialmente. Revisa
+[docs/EOLAS-V2.md](docs/EOLAS-V2.md) para el flujo completo y los límites del ajuste local.
+
 ### Herramientas de análisis instaladas
 
 En `~/.eolfi/tools` (Eolfi también busca ahí, además del PATH) y en el PATH de usuario: **capa** 10.0.0
@@ -690,3 +711,18 @@ instaladores) y **línea de comandos** (Python, ejecutable por sistema). Modo as
 puente con tu navegador real), panel con vista en directo, selector de
 carpetas, trabajos en segundo plano con progreso, pestaña **Proveedores** (elige la IA
 y qué proveedores de análisis se ejecutan) y tema automático, claro u oscuro. Auditoría de seguridad aplicada: ver `PLAN_CORRECCIONES.md`.
+
+
+#### Enrutamiento automático y perfil MoE
+
+Con el proveedor `eolas-v2`, selecciona `--model auto` para usar Mistral con
+esfuerzo `low` y Gemma con los demás niveles. Si falta el GGUF elegido, se usa
+el perfil activo. La elección por petición no modifica el perfil guardado.
+Eolas mantiene una sola instancia administrada y bloquea los cambios de perfil
+mientras esa instancia procesa una solicitud.
+
+Para cargar un GGUF con arquitectura MoE compatible con llama.cpp, configura
+`profiles.moe.model` en `~/.eolfi/eolas-v2.json` o define
+`EOLFI_EOLAS_V2_MOE_GGUF`. Usa `eolfi eolas-v2 switch moe` para seleccionarlo
+o `--provider eolas-v2 --model moe` para una solicitud. Puedes configurar
+`gpu_layers`, `ctx` y `extra_args` dentro de `profiles.moe` según el modelo.

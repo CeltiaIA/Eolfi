@@ -37,3 +37,6 @@ node_modules/
 /PROMPT_*
 /prompts-o*/
 /plan-v2/
+
+# Logs locales del servidor
+.eolfi-server.*.log

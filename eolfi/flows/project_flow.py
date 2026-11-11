@@ -198,9 +198,11 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
         raise PlanError("descripción demasiado larga")
     if mode not in MODES:
         raise PlanError("modo debe ser auto o guided")
-    if not isinstance(sources, list) or not sources or len(sources) > 50 or not all(
+    if not isinstance(sources, list) or len(sources) > 50 or not all(
             isinstance(s, str) and s.strip() for s in sources):
-        raise PlanError("añade al menos una fuente (archivo, web o repositorio)")
+        raise PlanError("las fuentes deben ser archivos, webs o repositorios válidos")
+    if not sources and not description.strip():
+        raise PlanError("escribe una descripción o adjunta al menos una fuente")
     srcs = []
     for ref in dict.fromkeys(s.strip() for s in sources):
         kind = _classify(ref)
@@ -218,6 +220,10 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
     plan = {"type": "plan", "format": PLAN_FORMAT, "version": 1, "plan_id": str(uuid.uuid4()), "mode": mode,
             "name": name.strip(), "description": description, "sources": srcs, "out": out,
             "target": interp["target"], "options": interp["options"], "instructions": [],
+            "assessment": {"verdict": "favorable", "scope": "planificación",
+                           "summary": (f"Se aceptan {len(srcs)} fuente(s) como entrada para analizar."
+                                       if srcs else "El prompt es suficiente para crear una base inicial; no hay fuentes externas que contrastar."),
+                           "limits": "La conformidad técnica del proyecto se decide después de generar, compilar y ejecutar las pruebas."},
             "interpretation": {"directives": interp["directives"], "uninterpreted": interp["uninterpreted"]},
             "reasoning": _reasoning(srcs, interp) + (
                 [f"La carpeta destino {out} ya existe y no está vacía: generar fallará salvo que la vacíes o "
@@ -229,7 +235,8 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
 
 def _reasoning(srcs: list[dict[str, str]], interp: dict[str, Any]) -> list[str]:
     kinds = sorted({_KIND_LABEL.get(s["kind"], s["kind"]) for s in srcs})
-    r = [f"Fuentes: {len(srcs)} ({', '.join(kinds)}). Se analizan primero para tener evidencias de cada una."]
+    r = ([f"Fuentes: {len(srcs)} ({', '.join(kinds)}). Se analizan primero para tener evidencias de cada una."]
+         if srcs else ["No hay fuentes adjuntas: el primer proyecto se derivará del prompt y quedará marcado como base por validar."])
     if interp["target"] == "auto":
         r.append("La descripción no fija la tecnología: se elegirá a partir de la pila detectada en las fuentes.")
     else:

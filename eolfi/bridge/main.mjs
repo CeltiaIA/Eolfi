@@ -179,7 +179,12 @@ function writeBridgeFile(data) {
 app.whenReady().then(async () => {
   const token = randomBytes(32).toString('hex');        // Eolfi automático: cada envío pide aprobación
   const panelToken = randomBytes(32).toString('hex');   // panel de Eolfi: lo que teclea el usuario
+  const configuredPort = Number(process.env.EOLFI_BRIDGE_PORT ?? 0);
+  if (!Number.isInteger(configuredPort) || configuredPort < 0 || configuredPort > 65535) {
+    throw new Error('EOLFI_BRIDGE_PORT debe ser un puerto valido o 0');
+  }
   const { port } = await startBridgeServer({
+    port: configuredPort,
     adapters: Object.fromEntries(Object.keys(SITES).map((n) => [n, (opts) => getAdapter(n, opts)])),
     info: () => ({ engine: engineLabel(), grants: grants() }),
     revoke,

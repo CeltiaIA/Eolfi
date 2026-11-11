@@ -90,6 +90,7 @@ test('la actividad del agente de VS Code aparece en la franja del panel', async 
 });
 
 test('subir un binario: se analiza como trabajo y aparece como objetivo', async () => {
+  await page.click('[data-panel-action="analyze"]');
   await page.setInputFiles('#file', join(tmp, 'muestra.elf'));
   await page.click('#go');
   await page.waitForFunction(() => /Listo en/.test(document.querySelector('#status').textContent), null, { timeout: 60000 });
@@ -203,6 +204,7 @@ test('informe HTML del objetivo: se descarga, escapa el texto y es accesible', a
 test('formatos nuevos: un ejecutable firmado muestra firma, empresa e integridad', { skip: process.platform !== 'win32' }, async () => {
   const exe = 'C:/Program Files/dotnet/dotnet.exe';   // barras normales: Windows las acepta
   await page.keyboard.press('Alt+1');
+  await page.click('[data-panel-action="analyze"]');
   await page.click('#tab-binary');
   await page.fill('#path', exe);
   await page.click('#path-go');
@@ -218,14 +220,14 @@ test('formatos nuevos: un ejecutable firmado muestra firma, empresa e integridad
 test('casos: crear, analizar con el caso activo, ver progreso y abrir el informe navegable', async () => {
   await page.goto(BASE + '/');
   await page.waitForSelector('#version:not(:empty)');
-  await page.click('#panel-cases-tab');
+  await page.click('[data-panel-action="cases"]');
   await page.fill('#case-name', 'Caso e2e');
   await page.click('#case-go');
   await page.waitForSelector('#case-view:not([hidden])');
   assert.match(await page.textContent('#case-active'), /Caso activo: Caso e2e/);
   const caseId = (await page.evaluate(() => location.hash)).slice('#caso/'.length);
   // Con el caso activo, el análisis normal del panel se registra en él.
-  await page.click('#panel-analyze-tab');
+  await page.click('[data-panel-action="analyze"]');
   await page.fill('#path', join(tmp, 'muestra.elf'));
   await page.selectOption('#mode', 'local');
   await page.click('#path-go');
@@ -283,7 +285,7 @@ test('crear proyecto: formulario único, plan razonado, aprobación y modo autom
   writeFileSync(join(site, 'index.html'), '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Demo</title></head><body><h1>Hola</h1><p>Sitio sintético.</p></body></html>');
   await page.goto(BASE + '/');
   await page.waitForSelector('#version:not(:empty)');
-  await page.click('#panel-create-tab');
+  await page.click('[data-panel-action="create"]');
   await page.fill('#proj-name', `Web e2e ${runId}`);
   await page.fill('#proj-desc', 'Una web estática. Que tenga modo oscuro.');
   await page.selectOption('#proj-kind', 'web');
@@ -307,8 +309,8 @@ test('crear proyecto: formulario único, plan razonado, aprobación y modo autom
   await page.setViewportSize({ width: 1280, height: 800 });
   await axe('plan del proyecto');
   await page.click('#proj-approve');
-  await page.waitForFunction(() => document.querySelector('.proj-verdict'), null, { timeout: 240000 });
-  const verdict = await page.textContent('.proj-verdict');
+  await page.waitForFunction(() => document.querySelector('.proj-verdict:not(.proj-assessment)'), null, { timeout: 240000 });
+  const verdict = await page.textContent('.proj-verdict:not(.proj-assessment)');
   const status = await page.textContent('#proj-view .badge');
   if (/^Verificado/.test(verdict)) assert.match(status, /Terminado y verificado/);
   else { assert.match(verdict, /NO VERIFICADO/); assert.match(status, /SIN verificación/); }
@@ -323,7 +325,7 @@ test('crear proyecto: modo guiado se detiene, la instrucción que cambia el plan
   const runId = Date.now().toString(36);
   await page.goto(BASE + '/');
   await page.waitForSelector('#version:not(:empty)');
-  await page.click('#panel-create-tab');
+  await page.click('[data-panel-action="create"]');
   await page.fill('#proj-name', `Guiado e2e ${runId}`);
   await page.selectOption('#proj-kind', 'web');
   await page.fill('#proj-ref', join(tmp, 'sitio-e2e'));
