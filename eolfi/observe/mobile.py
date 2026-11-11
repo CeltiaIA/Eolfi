@@ -29,6 +29,7 @@ MAX_DUMP_BYTES = 4 * 1024 * 1024
 MAX_SCREENSHOT_BYTES = 1024 * 1024
 MAX_SCREENSHOTS = 20
 DUMP_PATH = "/sdcard/eolfi_ui.xml"
+DUMP_ATTEMPTS = 5
 KEYS = {"BACK", "HOME", "ENTER", "TAB", "DEL", "MENU", "APP_SWITCH", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT",
         "DPAD_RIGHT", "DPAD_CENTER", "ESCAPE", "SPACE"}
 SELECTORS = ("resource_id", "text", "content_desc")
@@ -51,7 +52,29 @@ LIMITS = ("árbol de accesibilidad de uiautomator (hasta 300 elementos con texto
 
 
 class AdbError(RuntimeError):
-    pass
+    def __init__(self, message: str, output: str = ""):
+        super().__init__(message)
+        self.output = output              # salida completa de adb, para reconocer el error sin truncarla
+
+
+class InputBlocked(AdbError):
+    """El dispositivo no deja inyectar toques ni teclas desde adb."""
+
+
+class Interrupted(AdbError):
+    """La pantalla se apagó o se bloqueó durante el paso: lo que siga no es comportamiento de la app."""
+
+
+SYSTEM_UI = "com.android.systemui"
+SCREEN_LOCKED = ("la pantalla del dispositivo está apagada o bloqueada: desbloquéala y alarga el tiempo de "
+                 "apagado de pantalla mientras dure la observación (Eolfi no desbloquea dispositivos)")
+_WAKEFULNESS = re.compile(r"mWakefulness=(\w+)")
+_SHADE_FOCUS = re.compile(r"mCurrentFocus=Window\{[^}]*\s(NotificationShade|StatusBar|Keyguard)\}")
+
+
+INPUT_BLOCKED = ("el dispositivo bloquea los toques y teclas enviados por adb (SecurityException INJECT_EVENTS). "
+                 "En Xiaomi/MIUI/HyperOS hay que activar «Depuración USB (ajustes de seguridad)» en las opciones "
+                 "de desarrollador; en otros fabricantes, una opción equivalente")
 
 
 def validate_step(raw: dict[str, Any], step: dict[str, Any], label: str, err: Callable[[str], None],
@@ -141,8 +164,10 @@ class Adb:
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError(f"adb {args[0]} no terminó a tiempo") from exc
         if check and p.returncode != 0:
+            output = (p.stdout + b"\n" + p.stderr).decode("utf-8", "replace")
+            first = next((ln.strip() for ln in output.splitlines() if "Exception" in ln or "rror" in ln), "")
             raise AdbError(f"adb {' '.join(args)[:200]} → código {p.returncode}: "
-                           f"{p.stderr.decode('utf-8', 'replace')[-400:]}")
+                           f"{(first or output.strip())[:400]}", output)
         return p.stdout if binary else p.stdout.decode("utf-8", "replace")
 
     def shell(self, command: str, check: bool = True) -> str:
@@ -230,7 +255,8 @@ def parse_hierarchy(xml_text: str) -> dict[str, Any]:
             el["bounds"] = [int(x) for x in m.groups()]
         elements.append(el)
     return {"elements": elements, "elements_total": total, "truncated": total > len(elements),
-            "packages": sorted(packages)}
+            "packages": sorted(packages), "window_package": next(
+                (n.attrib.get("package") for n in root.iter("node") if n.attrib.get("package")), None)}
 
 
 def screen_hash(screen: dict[str, Any]) -> str:
@@ -258,16 +284,39 @@ class _Driver:
         self.adb, self.step, self.norm = adb, step, norm
         self.shots = 0
 
+    def locked(self) -> bool | None:
+        """True si la pantalla está apagada o la tapa la pantalla de bloqueo/panel; None si no se puede saber."""
+        power = self.adb.shell("dumpsys power", check=False)
+        m = _WAKEFULNESS.search(power)
+        if m and m.group(1) != "Awake":
+            return True
+        window = self.adb.shell("dumpsys window", check=False)
+        if _SHADE_FOCUS.search(window):
+            return True
+        return False if m else None
+
     def focus(self) -> tuple[str | None, str | None]:
         out = self.adb.shell("dumpsys window", check=False)
         m = _FOCUS.search(out) or _FOCUSED_APP.search(out)
         return (m.group(1), m.group(2)) if m else (None, None)
 
+    def _dump(self) -> str:
+        """uiautomator no escribe el volcado mientras la ventana se está dibujando (p. ej. justo tras lanzar la
+        app; visto en un Xiaomi con Android 14): se reintenta dentro del plazo del paso."""
+        said = ""
+        for attempt in range(DUMP_ATTEMPTS):
+            said = self.adb.shell(f"uiautomator dump {DUMP_PATH}", check=False).strip()
+            raw = self.adb.run("exec-out", f"cat {DUMP_PATH}", binary=True, check=False)
+            self.adb.shell(f"rm -f {DUMP_PATH}", check=False)
+            text = raw.decode("utf-8", "replace")
+            if "</hierarchy>" in text:
+                return text
+            if attempt + 1 < DUMP_ATTEMPTS:
+                time.sleep(0.5 * (attempt + 1))
+        raise AdbError(f"uiautomator no dejó un volcado tras {DUMP_ATTEMPTS} intentos: {said[-300:]}")
+
     def screen(self) -> dict[str, Any]:
-        self.adb.shell(f"uiautomator dump {DUMP_PATH}", check=False)
-        raw = self.adb.run("exec-out", f"cat {DUMP_PATH}", binary=True)
-        self.adb.shell(f"rm -f {DUMP_PATH}", check=False)
-        text = raw.decode("utf-8", "replace")
+        text = self._dump()
         if self.norm is not None:
             text = self.norm.text(text)
         screen = parse_hierarchy(text)
@@ -298,11 +347,16 @@ class _Driver:
                 return screen, node
             time.sleep(0.3)
 
+    def in_front(self, screen: dict[str, Any]) -> bool:
+        """La app tiene el foco Y es la que dibuja la ventana volcada. Solo con dumpsys no basta: con la pantalla
+        bloqueada o el panel de notificaciones abierto, dumpsys sigue dando la app y el árbol es de systemui."""
+        return screen.get("package") == self.step["package"] == screen.get("window_package")
+
     def wait_foreground(self, seconds: float) -> dict[str, Any]:
         limit = time.monotonic() + seconds
         while True:
             screen = self.screen()
-            if screen.get("package") == self.step["package"] or time.monotonic() >= limit:
+            if self.in_front(screen) or time.monotonic() >= limit:
                 return screen
             time.sleep(0.3)
 
@@ -313,11 +367,21 @@ class _Driver:
             rec["screenshot"] = self.screenshot()
         return rec
 
+    def input(self, command: str) -> None:
+        try:
+            self.adb.shell(f"input {command}")
+        except AdbError as exc:
+            if "INJECT_EVENTS" in exc.output or "INJECT_EVENTS" in str(exc):
+                raise InputBlocked(INPUT_BLOCKED) from exc
+            raise
+
     def act(self, a: dict[str, Any]) -> dict[str, Any]:
+        if self.locked():
+            raise Interrupted("la pantalla se apagó o se bloqueó durante el paso: " + SCREEN_LOCKED)
         target = {k: a[k] for k in SELECTORS if a.get(k)}
         extra: dict[str, Any] = {"target": target} if target else {}
         if a["do"] == "key":
-            self.adb.shell(f"input keyevent KEYCODE_{a['value']}")
+            self.input(f"keyevent KEYCODE_{a['value']}")
             time.sleep(0.3)
             return self.record(a["id"], "key", "ok", self.screen(), key=a["value"])
         if a["do"] == "read":
@@ -331,9 +395,9 @@ class _Driver:
         if not b:
             return self.record(a["id"], a["do"], "error", screen, error="el elemento no tiene posición", **extra)
         x, y = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
-        self.adb.shell(f"input tap {x} {y}")
+        self.input(f"tap {x} {y}")
         if a["do"] == "input_text":
-            self.adb.shell(f"input text {shell_quote_text(a['value'])}")
+            self.input(f"text {shell_quote_text(a['value'])}")
             extra["value_sha256"] = hashlib.sha256(a["value"].encode("utf-8")).hexdigest()
         time.sleep(0.3)
         return self.record(a["id"], a["do"], "ok", self.screen(), **extra)
@@ -373,20 +437,45 @@ def run_mobile_step(step: dict[str, Any], norm: Any) -> dict[str, Any]:
         else:
             adb.shell(f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1")
         drv = _Driver(adb, step, norm)
-        first = drv.wait_foreground(min(15.0, step["timeout"]))
-        actions = [drv.record("_inicio", "launch", "ok" if first.get("package") == step["package"] else
-                              "not_foreground", first)]
-        for a in step["actions"]:
-            actions.append(drv.act(a))
-        if step.get("stop", True):
-            adb.shell(f"am force-stop {pkg}", check=False)
-            rec["stopped"] = True
-        rec["actions"] = actions
-        rec["adb_calls"] = adb.calls
+        if drv.locked():
+            return {**rec, "status": "unavailable", "error": f"interfaz móvil no disponible: {SCREEN_LOCKED}",
+                    "duration_ms": round((time.monotonic() - t0) * 1000)}
+        actions: list[dict[str, Any]] = []
+        rec["actions"] = actions                      # lo registrado se conserva aunque falle una acción posterior
+        try:
+            first = drv.wait_foreground(min(15.0, step["timeout"]))
+            if not drv.in_front(first) and first.get("window_package") == SYSTEM_UI:
+                raise Interrupted("la app no llegó a primer plano: la tapa la interfaz del sistema. " + SCREEN_LOCKED)
+            actions.append(drv.record("_inicio", "launch", "ok" if drv.in_front(first) else "not_foreground", first))
+            blocked = None
+            for a in step["actions"]:
+                if blocked:
+                    actions.append({"id": a["id"], "do": a["do"], "status": "skipped",
+                                    "error": "no ejecutada: la observación se interrumpió antes"})
+                    continue
+                try:
+                    actions.append(drv.act(a))
+                except (InputBlocked, Interrupted) as exc:
+                    blocked = str(exc)
+                    kind = "input_blocked" if isinstance(exc, InputBlocked) else "interrupted"
+                    rec[kind] = blocked
+                    actions.append({"id": a["id"], "do": a["do"], "status": kind, "error": blocked})
+        finally:
+            if step.get("stop", True):
+                adb.deadline = max(adb.deadline, time.monotonic() + 10)   # cerrar la app aunque se agotara el plazo
+                try:
+                    adb.run("shell", f"am force-stop {pkg}", check=False)
+                    rec["stopped"] = True
+                except (TimeoutError, OSError):
+                    rec["stopped"] = False
+            rec["adb_calls"] = adb.calls
         bad = [a for a in actions if a["status"] != "ok"]
         rec["status"] = "ok" if not bad else "partial"
         if bad:
             rec["error"] = "; ".join(f"{a['id']}: {a['status']}" for a in bad)[:1000]
+            reason = rec.get("input_blocked") or rec.get("interrupted")
+            if reason:
+                rec["error"] = (reason + ". " + rec["error"])[:1000]
         if step.get("screenshots") and any((a.get("screenshot") or {}).get("status") != "captured" for a in actions):
             rec["status"] = "partial"
             rec["error"] = (rec.get("error", "") + "; captura visual no completa").strip("; ")

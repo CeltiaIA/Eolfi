@@ -3,6 +3,13 @@
 App ``org.eolfi.muestra`` (versión 1.2, código 3): un campo «nombre», un botón «Saludar» que escribe «Hola, NOMBRE»
 en «saludo», y un campo de contraseña. BACK la cierra y vuelve al lanzador. El estado vive en el archivo JSON de
 ``FAKE_ADB_STATE``. ``FAKE_ADB_DEVICES`` controla la salida de ``adb devices`` (por defecto un emulador listo).
+
+Situaciones vistas en un Redmi Note 12R Pro real (Android 14, MIUI), reproducidas con variables de entorno:
+- ``FAKE_ADB_DUMP_FAILS=N``: los N primeros ``uiautomator dump`` no escriben el archivo (ventana dibujándose).
+- ``FAKE_ADB_BLOCK_INPUT=1``: ``input`` falla con SecurityException INJECT_EVENTS seguida de una traza larga.
+- ``FAKE_ADB_LOCK_AFTER=N``: tras N órdenes ``input`` la pantalla se apaga y queda la pantalla de bloqueo; dumpsys
+  sigue dando la app como ``mFocusedApp``.
+- ``FAKE_ADB_LOCKED=1``: la pantalla está apagada desde el principio.
 """
 import json
 import os
@@ -18,7 +25,8 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (360).to_bytes(4, "big") + 
 def load():
     if STATE.exists():
         return json.loads(STATE.read_text(encoding="utf-8"))
-    return {"running": False, "nombre": "", "saludo": "", "dump": "", "log": []}
+    return {"running": False, "nombre": "", "saludo": "", "dump": "", "log": [], "dumps": 0, "inputs": 0,
+            "locked": os.environ.get("FAKE_ADB_LOCKED") == "1"}
 
 
 def save(st):
@@ -26,6 +34,10 @@ def save(st):
 
 
 def xml(st):
+    if st.get("locked"):
+        return ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0"><node class="android.widget.FrameLayout" '
+                'package="com.android.systemui" text="" resource-id="com.android.systemui:id/notification_panel" '
+                'content-desc="" bounds="[0,0][360,640]"/></hierarchy>')
     if not st["running"]:
         return ('<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0"><node class="android.widget.FrameLayout" '
                 'package="com.android.launcher3" text="" resource-id="" content-desc="Inicio" clickable="false" '
@@ -61,18 +73,35 @@ def shell(st, words):
     elif cmd == "dumpsys" and words[1] == "package":
         out = "    versionCode=3 minSdk=24 targetSdk=34\n    versionName=1.2\n" if words[2] == PKG else ""
     elif cmd == "dumpsys" and words[1] == "window":
-        focus = f"{PKG}/{PKG}.Principal" if st["running"] else "com.android.launcher3/com.android.launcher3.Launcher"
+        focus = ("NotificationShade" if st.get("locked") else f"{PKG}/{PKG}.Principal" if st["running"] else
+                 "com.android.launcher3/com.android.launcher3.Launcher")
         out = f"  mCurrentFocus=Window{{1a2b3c u0 {focus}}}\n"
+        if st.get("locked") and st["running"]:          # como en el Redmi: la app sigue como mFocusedApp
+            out += f"  mFocusedApp=ActivityRecord{{9 u0 {PKG}/.Principal t5}}\n"
+    elif cmd == "dumpsys" and words[1] == "power":
+        out = f"  mWakefulness={'Dozing' if st.get('locked') else 'Awake'}\n"
     elif cmd in ("monkey", "am") and (cmd == "monkey" or words[1] == "start"):
         st["running"] = True
         out = "Events injected: 1\n"
     elif cmd == "am" and words[1] == "force-stop":
         st["running"] = False
     elif cmd == "uiautomator":
+        st["dumps"] += 1
+        if st["dumps"] <= int(os.environ.get("FAKE_ADB_DUMP_FAILS", "0")):
+            st["dump"] = ""
+            return 0, "ERROR: could not get idle state.\n"
         st["dump"] = xml(st)
         out = "UI hierchary dumped to: /sdcard/eolfi_ui.xml\n"
     elif cmd == "rm":
         pass
+    elif cmd == "input" and os.environ.get("FAKE_ADB_BLOCK_INPUT") == "1":
+        sys.stderr.write(f"Exception occurred while executing '{words[1]}':\njava.lang.SecurityException: Injecting "
+                         "input events requires the caller (or the source of the instrumentation, if any) to have the "
+                         "INJECT_EVENTS permission.\n"
+                         + "\tat com.android.server.input.InputManagerService.x(InputManagerService.java:1)\n" * 30)
+        return 255, ""
+    elif cmd == "input" and st.get("locked"):
+        pass                                             # con la pantalla apagada el toque no llega a la app
     elif cmd == "input" and words[1] == "tap":
         x, y = int(words[2]), int(words[3])
         st["focus"] = "nombre" if 100 <= y < 180 else None
@@ -87,6 +116,11 @@ def shell(st, words):
     else:
         sys.stderr.write(f"orden no simulada: {words}\n")
         return 1, out
+    if cmd == "input":
+        st["inputs"] += 1
+        limit = os.environ.get("FAKE_ADB_LOCK_AFTER")
+        if limit and st["inputs"] >= int(limit):
+            st["locked"] = True
     return 0, out
 
 
@@ -103,6 +137,10 @@ def main(argv):
     if argv[:1] == ["exec-out"]:
         words = shlex.split(" ".join(argv[1:]))
         if words[:1] == ["cat"]:
+            if not st["dump"]:
+                sys.stdout.write("cat: /sdcard/eolfi_ui.xml: No such file or directory\n")
+                save(st)
+                return 1
             sys.stdout.buffer.write(st["dump"].encode("utf-8"))
         elif words[:2] == ["screencap", "-p"]:
             sys.stdout.buffer.write(PNG + json.dumps([st["nombre"], st["saludo"], st["running"]]).encode())
