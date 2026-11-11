@@ -11,7 +11,12 @@ Reglas:
   incógnita; los aspectos que una repetición marcó como no reproducibles quedan ``unstable`` y fuera de lo esperado;
 - las conclusiones ``hypothesis`` del caso se listan aparte y nunca se convierten en requisitos ni en pruebas;
 - pasos de navegador/escritorio producen una máquina de estados (estado = URL/ventana + huella de la interfaz,
-  transición = acción).
+  transición = acción);
+- cada requisito lleva ``examples`` con los valores literales observados (entrada estándar, argumentos, salidas,
+  petición y respuesta HTTP, contenido capturado de archivos) cuando la evidencia los guarda completos, y su
+  ``certainty``: ``seguro`` (observado igual en ≥2 ejecuciones y sin aspectos inestables), ``inferido`` (una sola
+  observación o con aspectos inestables) o ``desconocido`` (contradicho). Así la especificación se puede
+  implementar sin el original y se ve qué es seguro, qué inferido y qué desconocido.
 """
 from __future__ import annotations
 
@@ -95,6 +100,119 @@ def _persistence(step: dict[str, Any]) -> list[dict[str, Any]]:
            for e in eff.get("files", [])]
     out += [{"kind": "registry", "path": e["path"], "change": e["change"]} for e in eff.get("registry", [])]
     return out
+
+
+EXAMPLE_MAX = 64 * 1024
+
+
+def _text(o: dict[str, Any] | None, what: str, omitted: list[str]) -> str | None:
+    """Texto literal de una salida guardada, solo si está completo, en UTF-8 y sin datos personales ocultados."""
+    if not o:
+        return None
+    if o.get("preview_truncated") or not o.get("utf8", True):
+        omitted.append(f"{what}: no guardado completo en la evidencia")
+        return None
+    text = o.get("preview", "")
+    if "<dato personal:" in text:
+        omitted.append(f"{what}: con datos personales ocultados")
+        return None
+    return text.replace(chr(13) + chr(10), chr(10))
+
+
+def _content_text(value: Any, what: str, omitted: list[str]) -> str | None:
+    from eolfi.observe.script import content_bytes
+
+    try:
+        data = content_bytes(value)
+    except (ValueError, TypeError, OSError):
+        omitted.append(f"{what}: no recuperable del guion")
+        return None
+    if len(data) > EXAMPLE_MAX:
+        omitted.append(f"{what}: más de {EXAMPLE_MAX} bytes")
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        omitted.append(f"{what}: no es texto UTF-8")
+        return None
+
+
+def _examples(step: dict[str, Any], sstep: dict[str, Any] | None) -> dict[str, Any]:
+    """Valores literales observados de un paso (entradas y salidas). Lo que la evidencia no guarda completo se
+    lista en ``omitted`` y no se inventa."""
+    import base64
+
+    omitted: list[str] = []
+    ex: dict[str, Any] = {}
+    sstep = sstep or {}
+    act = step["action"]
+    if act in ("run", "desktop"):
+        argv = list(sstep.get("argv") or step.get("argv") or [])[1:]
+        ex["argv"] = argv[1:] if argv[:1] == ["{target}"] else argv
+        if "stdin" in sstep:
+            ex["stdin"] = _content_text(sstep["stdin"], "stdin", omitted)
+        ex["exit_code"] = step.get("exit_code")
+        for name in ("stdout", "stderr"):
+            ex[name] = _text(step.get(name), name, omitted)
+    elif act == "http":
+        trace = (step.get("traces") or [{}])[0]
+        req, resp = trace.get("request") or {}, trace.get("response")
+        ex["request"] = {"method": req.get("method") or sstep.get("method"), "url": req.get("url")}
+        if "body" in sstep:
+            ex["request"]["body"] = _content_text(sstep["body"], "cuerpo de la petición", omitted)
+        if resp is None:
+            omitted.append("sin respuesta observada")
+        else:
+            ct = next((v for k, v in (resp.get("headers") or {}).items() if k.lower() == "content-type"), None)
+            if resp.get("body_truncated"):
+                omitted.append("cuerpo de la respuesta: truncado en la evidencia")
+                body = None
+            else:
+                body = _text(resp.get("body"), "cuerpo de la respuesta", omitted)
+            ex["response"] = {"status": resp.get("status"), "content_type": ct, "body": body}
+    elif act in ("write_file", "delete_file"):
+        ex["path"] = sstep.get("path") or step.get("path")
+    else:
+        omitted.append(f"acción {act}: solo huellas y máquina de estados en la evidencia")
+    files = []
+    for e in step.get("effects", {}).get("files", []):
+        item: dict[str, Any] = {"path": e["path"], "change": e["change"]}
+        after = e.get("after") if isinstance(e.get("after"), dict) else {}
+        cap = after.get("content_capture") or {}
+        if e["change"] != "deleted":
+            text = None
+            if cap.get("status") == "captured" and cap.get("utf8") and isinstance(cap.get("data_base64"), str):
+                try:
+                    text = base64.b64decode(cap["data_base64"], validate=True).decode("utf-8")
+                except (ValueError, UnicodeDecodeError):
+                    text = None
+            if text is None:
+                omitted.append(f"contenido de {e['path']}: no capturado (solo su huella)")
+            item["content"] = text
+        files.append(item)
+    if files:
+        ex["files"] = files
+    ex["omitted"] = omitted
+    return ex
+
+
+def certainty(req: dict[str, Any]) -> str:
+    """seguro / inferido / desconocido, a partir del estado y la confianza del requisito."""
+    if req.get("status") != "observed":
+        return "desconocido"
+    if req.get("confidence") == "high" and not req.get("unstable_aspects"):
+        return "seguro"
+    return "inferido"
+
+
+def _script_steps(store: EvidenceStore, eid: str) -> dict[str, dict[str, Any]]:
+    """Pasos del guion de una sesión (en sus parámetros): de ahí salen la entrada estándar y los cuerpos literales."""
+    ev = store.get_evidence(eid)
+    try:
+        params = json.loads(ev["params"]) if ev and ev.get("params") else {}
+    except (TypeError, ValueError):
+        params = {}
+    return {s.get("id"): s for s in (params.get("script") or {}).get("steps", []) if isinstance(s, dict)}
 
 
 def _sessions(store: EvidenceStore, case: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, set[str]]]:
@@ -214,10 +332,12 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
     groups: dict[str, dict[str, Any]] = {}
     for s in sessions:
         target = (s["session"].get("target") or {}).get("sha256")
+        script_steps = _script_steps(store, s["evidence_id"])
         for step in s["session"].get("steps", []):
             inp = _inputs(step, target)
             key = _h(inp)
-            g = groups.setdefault(key, {"inputs": inp, "observations": [], "step": step})
+            g = groups.setdefault(key, {"inputs": inp, "observations": [], "step": step,
+                                        "examples": _examples(step, script_steps.get(step["id"]))})
             obs = dict(observables(step))
             skip = unstable.get(f"{s['evidence_id']}:{step['id']}", set())
             g["observations"].append({"evidence_id": s["evidence_id"], "step_id": step["id"], "values": obs,
@@ -250,6 +370,8 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
             "observations": len(obs), "source_steps": sorted({(o["evidence_id"], o["step_id"]) for o in obs}),
             "non_functional": {"duration_ms_max": max(durations)} if durations else {},
         }
+        req["examples"] = g["examples"]
+        req["certainty"] = certainty(req)
         if obs[0]["states"]:
             req["state_machine"] = obs[0]["states"]
         if differing:
@@ -274,8 +396,16 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
                 "coverage_gaps": sorted(set(gaps)),
                 "unfixed_factors": sorted({f["factor"] for s in sessions for f in s["session"].get("unfixed_factors", [])})}
     sequences = _sequences(sessions, unstable)
+    summary = {"seguro": [r["id"] for r in requirements if r["certainty"] == "seguro"],
+               "inferido": [r["id"] for r in requirements if r["certainty"] == "inferido"]
+               + [f"hipótesis: {h['text'][:200]}" for h in hypotheses]
+               + [f"artefacto {a['subject']}: identidad derivada" for a in artifacts],
+               "desconocido": [r["id"] for r in requirements if r["certainty"] == "desconocido"]
+               + [f"incógnita: {i['question'][:200]}" for i in unknowns["open_incognitas"]]
+               + [f"cobertura: {g}" for g in unknowns["coverage_gaps"]]
+               + ["entradas no observadas: comportamiento no especificado"]}
     body = {"requirements": requirements, "artifacts": artifacts, "contradictions": contradictions,
-            "hypotheses": hypotheses, "unknowns": unknowns, "sequences": sequences}
+            "hypotheses": hypotheses, "unknowns": unknowns, "sequences": sequences, "certainty": summary}
     return {"spec_format": SPEC_FORMAT, "case_id": case_id, "generated_at": time.time(),
             "sources": {"sessions": [s["evidence_id"] for s in sessions]}, "content_sha256": _h(body), **body}
 

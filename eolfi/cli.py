@@ -11,7 +11,7 @@ Comandos:
                                  Verificación diferencial (EJECUTA ambos).
   reconstruct --case ID --out DIR [--model]
                                  Reconstrucción independiente por etapas desde la especificación, con trazabilidad.
-  spec build|show|diff|review|tests --case ID
+  spec build|show|diff|review|tests|contract --case ID
                                  Especificación versionada y sustentada por las evidencias del caso.
   observe run|replay|compare|show|check
                                  Observación de caja negra desde un guion (run/replay EJECUTAN el objetivo).
@@ -171,6 +171,9 @@ def _parser() -> argparse.ArgumentParser:
     rc.add_argument("--target", default=None, choices=["python-cli", "python-http"],
                     help="Base generada (por defecto: la CLI si se observó; si no, la API HTTP observada)")
     rc.add_argument("--model", action="store_true", help="Solo muestra el modelo de comportamiento (no genera)")
+    rc.add_argument("--mejora", action="append", default=[], metavar="ID[=VALOR]",
+                    help="Mejora con razón verificable (seguridad-nosniff, seguridad-limite-cuerpo[=BYTES], "
+                         "compatibilidad-utf8); se rechaza si rompe un requisito observado o no se puede comprobar")
     rc.add_argument("--equivalence", metavar="CANDIDATO", default=None,
                     help="Repite los guiones del caso con este candidato y compara con el original (EJECUTA)")
     rc.add_argument("--explore", metavar="CANDIDATO", default=None,
@@ -186,13 +189,16 @@ def _parser() -> argparse.ArgumentParser:
     sps = sp.add_subparsers(dest="spec_cmd", required=True)
     for name, hlp in (("build", "Construye y guarda una versión nueva si el contenido cambió"),
                       ("show", "Muestra la última versión (o --version N)"),
-                      ("tests", "Casos de prueba derivados solo de requisitos observados")):
+                      ("tests", "Casos de prueba derivados solo de requisitos observados"),
+                      ("contract", "Contrato de implementación: qué es seguro, inferido o desconocido")):
         x = sps.add_parser(name, help=hlp)
         x.add_argument("--case", dest="case_id", required=True)
         if name != "build":
             x.add_argument("--version", type=int, default=None)
-        if name == "tests":
-            x.add_argument("--out", default=None, help="Escribe los casos en este JSON")
+        if name in ("tests", "contract"):
+            x.add_argument("--out", default=None, help="Escribe el resultado en este archivo")
+        if name == "contract":
+            x.add_argument("--format", choices=["md", "json"], default="md")
     sdiff = sps.add_parser("diff", help="Compara dos versiones de la especificación")
     sdiff.add_argument("--case", dest="case_id", required=True)
     sdiff.add_argument("a", type=int)
@@ -443,7 +449,8 @@ def _vars(items: list[str]) -> dict[str, str]:
 def _spec(args, store: EvidenceStore) -> int:
     from pathlib import Path
 
-    from eolfi.spec import diff_specs, latest_spec, review_requirement, spec_tests, store_spec
+    from eolfi.spec import (build_contract, contract_markdown, diff_specs, latest_spec, review_requirement,
+                            spec_tests, store_spec)
 
     try:
         if args.spec_cmd == "build":
@@ -465,6 +472,19 @@ def _spec(args, store: EvidenceStore) -> int:
                 _print({"out": args.out, "tests": len(t["tests"]), "skipped": len(t["skipped"])})
             else:
                 _print(t)
+        elif args.spec_cmd == "contract":
+            spec = latest_spec(store, args.case_id, args.version)
+            if spec is None:
+                _print({"error": "el caso no tiene especificación: ejecuta eolfi spec build"})
+                return 1
+            c = build_contract(spec)
+            text = contract_markdown(c) if args.format == "md" else json.dumps(c, ensure_ascii=False, indent=2)
+            if args.out:
+                Path(args.out).write_text(text, encoding="utf-8")
+                _print({"out": args.out, "format": args.format, "requirements": len(c["requirements"]),
+                        **{k: len(v) for k, v in c["summary"].items()}})
+            else:
+                print(text)
         elif args.spec_cmd == "diff":
             a, b = latest_spec(store, args.case_id, args.a), latest_spec(store, args.case_id, args.b)
             _print(diff_specs(a, b))
@@ -621,14 +641,17 @@ def _dispatch(args, store: EvidenceStore) -> int:
             if not args.out:
                 _print({"error": "indica --out"})
                 return 1
-            rep = reconstruct(store, args.case_id, args.out, name=args.name, target=args.target)
+            rep = reconstruct(store, args.case_id, args.out, name=args.name, target=args.target,
+                              improvements=args.mejora)
         except ValueError as exc:
             _print({"error": str(exc)})
             return 1
         rep.pop("model")
         _print(rep)
         v = rep["verification"]
-        return 0 if v["differ"] == 0 and v["partial"] == 0 and v["pending"] == 0 and v["match"] > 0 else 4
+        return 0 if v["differ"] == 0 and v["partial"] == 0 and v["pending"] == 0 and v["match"] > 0 \
+            and v["build"]["status"] == "ok" and v["independence"]["status"] != "copia" \
+            and v["improvements_verified"] is not False else 4
     elif args.cmd == "spec":
         return _spec(args, store)
     elif args.cmd == "observe":

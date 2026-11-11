@@ -804,7 +804,9 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
                                 is_utf8 = False
                             capture.update(raw_sha256=capture["sha256"], sha256=_sha(normalized),
                                            data_base64=base64.b64encode(normalized).decode("ascii"), utf8=is_utf8)
-                        effect.setdefault("after", {})["content_capture"] = capture
+                        # Copia: «after» es el mismo dict que la instantánea que sirve de punto de partida del
+                        # paso siguiente; si se modificara, ese paso vería un cambio falso («modified»).
+                        effect["after"] = {**(effect.get("after") or {}), "content_capture": capture}
                         file_capture_statuses.append(capture.get("status", "unknown"))
                         if capture.get("status") != "captured" and rec.get("status") == "ok":
                             rec["status"] = "partial"
