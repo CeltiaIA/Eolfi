@@ -37,7 +37,7 @@
 - O9: PENDIENTE (fuera de esta ejecución)
 - O11: PENDIENTE (fuera de esta ejecución)
 - O12: HECHO (2026-11-11); decisión sobre mover `eolfi.db` PENDIENTE del titular
-- O13: PENDIENTE (fuera de esta ejecución)
+- O13: EN CURSO (2026-11-11): 2 guías nuevas con prueba en CI; faltan 5 flujos y el laboratorio en VS Code real
 
 ## O1 + O2 — resultado (2026-11-09)
 
@@ -230,7 +230,16 @@ All checks passed!
 - `eolfi/reconstruct/core.py`: componente `http_api` con casos por requisito (método, ruta con consulta, cuerpo de la petición tomado del guion, estado, tipo de contenido y cuerpo de la respuesta, archivos capturados). Nuevo destino `python-http` (`server.py` + `api.json` + `tests/test_server.py`, solo biblioteca estándar). La lógica de archivos capturados se extrajo a `_file_effects` y se comparte con la CLI. Sin `--target`, se elige la CLI si se observó y, si no, la API HTTP.
 - Sin inventar: solo se generan rutas, métodos, códigos y cuerpos observados. Lo no observado responde **501** con `X-Eolfi-Estado: no-especificado`, y lo pendiente **503** con `X-Eolfi-Estado: pendiente`. Pasan a pendientes las respuestas que cambian entre peticiones iguales (contradicción, estado no modelado), los cuerpos truncados o no UTF-8, los cuerpos con datos personales ocultados o con `{var:…}`, y las peticiones sin respuesta. Las cookies (solo se conocen por nombre) y las redirecciones dejan el caso en «parcial».
 - Trazabilidad: `.eolfi/trazabilidad.json` lleva `route`, requisito y evidencias por caso.
-- Verificador: arranca un servidor por caso en una carpeta vacía y compara `respuesta[*].estado`, `respuesta[*].cuerpo`, `respuesta[*].cabeceras` (tipo de contenido) y `archivos`; no da verde solo por el código. `equivalent_on_observed` exige 0 parciales y 0 pendientes.
+- Verificador: arranca un servidor por caso en una carpeta vacía y compara `respuesta[*].estado`, `respuesta[*].cuerpo`, `respuesta[*].cabeceras` (tipo de contenido) y `archivos`; no da verde solo por el código. `equivalent_on_observed` exige 0 diferencias y 0 parciales, como en la CLI; los pendientes se cuentan aparte (`pending`) y dejan la reconstrucción en «partial» (código 4 de la CLI). Corregido el 2026-11-11: antes aquí decía que también exigía 0 pendientes.
 - `eolfi reconstruct --target` admite `python-cli` y `python-http` (por defecto, automático).
 - Verificación (Linux, Python 3.13, copia del árbol): `tests/test_reconstruct.py` 15/15 (3 nuevas: modelo y trazabilidad + pruebas generadas en verde; 501/503 y detección de un cambio de cuerpo como `respuesta[*].cuerpo`; `reconstruct` con evidencia y errores de destino). Suite completa: 453 aprobadas, 10 omitidas y 4 fallos que **también fallan sin estos cambios** en ese entorno (sin red ni procesos de Windows): `test_fase_a::test_cli_create_db_flag_does_not_replace_evidence_store`, `test_fase_b_sites::test_old_clones_are_pruned_but_foreign_folders_are_kept`, `test_fase_e::test_clone_privado_sin_token_explica_que_hacer` y `test_observe::test_timeout_kills_process_tree`.
 - NO VERIFICADO: la suite en Windows tras este cambio; equivalencia general (por definición); cabeceras de la petición, cookies, redirecciones y transiciones de estado entre peticiones.
+
+## O13 — Guías por flujo ejecutadas en la CI (2026-11-11, parcial)
+
+- Nuevas, con el patrón de `tests/test_guia_caja_negra.py` (la prueba ejecuta los mismos comandos que la guía y comprueba cada criterio de aceptación):
+  - `ejemplos/api-http/` (`servidor.py`, API de notas sintética, y `guion.json`) → `tests/test_guia_api_http.py`: plan, observación con `--var port`, especificación (6 requisitos, 2 de error, 1 contradicción), reconstrucción `python-http` (5 simulados y 1 pendiente, 5 coinciden y 0 difieren, código 4), pruebas generadas en verde, 501/503 y el informe del caso.
+  - `ejemplos/triaje-y-diff/` (`muestra.wasm` de 42 bytes, `referencia.py`, `candidato.py` con un fallo deliberado, `corpus/`) → `tests/test_guia_triaje_diff.py`: triaje `--local`, evidencia `wasm_module`, informe Markdown con `--fail-on high`, `diff` sin `--autorizo` (no ejecuta), con divergencia (código 4, incógnita abierta) y tras corregir (código 0, incógnita cerrada).
+- Defecto encontrado al escribir la guía y corregido: el filtro de datos personales tomaba la fecha del informe («2026-11-11 00:33») por un teléfono y la ocultaba. `eolfi/security/privacy.py` excluye ahora las fechas con hora, y `tests/test_privacy.py` tiene 2 casos nuevos.
+- Verificación (Linux, Python 3.13): las 3 guías 5/5; suite completa 459 aprobadas, 10 omitidas y los mismos 4 fallos del entorno que en O7.
+- Pendiente: guías de web, repo, crear proyecto, puente y agente VS Code; laboratorio del agente en un VS Code real; lista de opciones candidatas a retirar para revisarla con el titular.

@@ -587,6 +587,14 @@ tests/         pruebas (pytest) con muestras sintéticas
 comprobada (plan, observación, especificación, reconstrucción, equivalencia, informe y borrado) con una muestra
 sintética propia y criterios de aceptación por paso. La CI la ejecuta tal cual (`tests/test_guia_caja_negra.py`).
 
+Otras guías con el mismo formato, también ejecutadas en la CI:
+
+- [`ejemplos/api-http/GUIA.md`](ejemplos/api-http/GUIA.md): de una API HTTP sin fuentes a una API reconstruida
+  (`reconstruct --target python-http`) que solo responde a lo observado (501 para lo no observado, 503 para lo
+  pendiente).
+- [`ejemplos/triaje-y-diff/GUIA.md`](ejemplos/triaje-y-diff/GUIA.md): triaje local de un WebAssembly, informe con
+  umbral `--fail-on` para CI y verificación diferencial de una reimplementación.
+
 ## Pruebas
 
 ```bash
