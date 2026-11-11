@@ -167,7 +167,8 @@ def _parser() -> argparse.ArgumentParser:
     rc.add_argument("--case", dest="case_id", required=True)
     rc.add_argument("--out", default=None, help="Carpeta destino (obligatoria salvo con --model)")
     rc.add_argument("--name", default="reconstruccion")
-    rc.add_argument("--target", default="python-cli", choices=["python-cli"])
+    rc.add_argument("--target", default=None, choices=["python-cli", "python-http"],
+                    help="Base generada (por defecto: la CLI si se observó; si no, la API HTTP observada)")
     rc.add_argument("--model", action="store_true", help="Solo muestra el modelo de comportamiento (no genera)")
     rc.add_argument("--equivalence", metavar="CANDIDATO", default=None,
                     help="Repite los guiones del caso con este candidato y compara con el original (EJECUTA)")

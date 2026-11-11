@@ -32,7 +32,7 @@
 
 ## Otros Objetivos
 - O6: HECHO en su parte sin dependencias (2026-11-11); empaquetado con fusibles PENDIENTE de autorización
-- O7: PENDIENTE (fuera de esta ejecución)
+- O7: HECHO (2026-11-11)
 - O8: HECHO (commit `34c50aa`, 2026-11-10)
 - O9: PENDIENTE (fuera de esta ejecución)
 - O11: PENDIENTE (fuera de esta ejecución)
@@ -223,3 +223,14 @@ All checks passed!
 
 - Estado: **HECHO**. `REGISTRO_LIMPIEZA.md`: nueva LIM-013 (`eolfi.db*`, `CONSERVAR`) y LIM-008 actualizada con el esquema de R6. No se borró ni movió nada.
 - Pendiente del titular: decidir si `eolfi.db` pasa a `~/.eolfi/`.
+
+## O7 — Fase 4: generación de la API HTTP observada (2026-11-11)
+
+- Estado: **HECHO**. Hecho directamente por la supervisión, sin Eolfi en automático.
+- `eolfi/reconstruct/core.py`: componente `http_api` con casos por requisito (método, ruta con consulta, cuerpo de la petición tomado del guion, estado, tipo de contenido y cuerpo de la respuesta, archivos capturados). Nuevo destino `python-http` (`server.py` + `api.json` + `tests/test_server.py`, solo biblioteca estándar). La lógica de archivos capturados se extrajo a `_file_effects` y se comparte con la CLI. Sin `--target`, se elige la CLI si se observó y, si no, la API HTTP.
+- Sin inventar: solo se generan rutas, métodos, códigos y cuerpos observados. Lo no observado responde **501** con `X-Eolfi-Estado: no-especificado`, y lo pendiente **503** con `X-Eolfi-Estado: pendiente`. Pasan a pendientes las respuestas que cambian entre peticiones iguales (contradicción, estado no modelado), los cuerpos truncados o no UTF-8, los cuerpos con datos personales ocultados o con `{var:…}`, y las peticiones sin respuesta. Las cookies (solo se conocen por nombre) y las redirecciones dejan el caso en «parcial».
+- Trazabilidad: `.eolfi/trazabilidad.json` lleva `route`, requisito y evidencias por caso.
+- Verificador: arranca un servidor por caso en una carpeta vacía y compara `respuesta[*].estado`, `respuesta[*].cuerpo`, `respuesta[*].cabeceras` (tipo de contenido) y `archivos`; no da verde solo por el código. `equivalent_on_observed` exige 0 parciales y 0 pendientes.
+- `eolfi reconstruct --target` admite `python-cli` y `python-http` (por defecto, automático).
+- Verificación (Linux, Python 3.13, copia del árbol): `tests/test_reconstruct.py` 15/15 (3 nuevas: modelo y trazabilidad + pruebas generadas en verde; 501/503 y detección de un cambio de cuerpo como `respuesta[*].cuerpo`; `reconstruct` con evidencia y errores de destino). Suite completa: 453 aprobadas, 10 omitidas y 4 fallos que **también fallan sin estos cambios** en ese entorno (sin red ni procesos de Windows): `test_fase_a::test_cli_create_db_flag_does_not_replace_evidence_store`, `test_fase_b_sites::test_old_clones_are_pruned_but_foreign_folders_are_kept`, `test_fase_e::test_clone_privado_sin_token_explica_que_hacer` y `test_observe::test_timeout_kills_process_tree`.
+- NO VERIFICADO: la suite en Windows tras este cambio; equivalencia general (por definición); cabeceras de la petición, cookies, redirecciones y transiciones de estado entre peticiones.

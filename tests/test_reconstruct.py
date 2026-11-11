@@ -278,3 +278,162 @@ def test_normalize_paths_longest_first_macos_private_var():
     for forms in ({"/var/folders/ab/T/eolfi-rec-x", "/private/var/folders/ab/T/eolfi-rec-x"},
                   {"/private/var/folders/ab/T/eolfi-rec-x", "/var/folders/ab/T/eolfi-rec-x"}):
         assert normalize_paths(text, forms) == "cwd={sandbox}\n"
+
+
+# -- O7: API HTTP observada ------------------------------------------------------------------------------
+class _SampleApi(__import__("http.server").server.BaseHTTPRequestHandler):
+    """Muestra sintética propia: dos rutas estables, una con cookie y un contador que cambia entre peticiones."""
+    count = 0
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, status, body, ctype="application/json", extra=None):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/api/estado":
+            return self._send(200, b'{"version": 1, "estado": "listo"}')
+        if self.path == "/api/sesion":
+            return self._send(200, b'{"sesion": true}', extra={"Set-Cookie": "sid=secreto-abc; Path=/"})
+        if self.path == "/api/contador":
+            _SampleApi.count += 1
+            return self._send(200, json.dumps({"n": _SampleApi.count}).encode())
+        return self._send(404, b"no existe", "text/plain; charset=utf-8")
+
+    def do_POST(self):
+        data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self.path == "/api/eco" and json.loads(data) == {"x": 1}:
+            return self._send(201, b'{"recibido": 1}')
+        return self._send(400, b'{"error": "entrada"}')
+
+
+@pytest.fixture
+def sample_api():
+    from http.server import ThreadingHTTPServer
+    import threading
+
+    _SampleApi.count = 0
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _SampleApi)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield srv.server_address[1]
+    srv.shutdown()
+    srv.server_close()
+
+
+def _http_case(store, port):
+    cid = CaseStore(store).create("api")["case_id"]
+    base = "http://127.0.0.1:{var:port}"
+    steps = [{"id": "estado", "action": "http", "url": base + "/api/estado"},
+             {"id": "eco", "action": "http", "method": "POST", "url": base + "/api/eco", "body": {"json": {"x": 1}},
+              "headers": {"Content-Type": "application/json"}},
+             {"id": "noexiste", "action": "http", "url": base + "/nada"},
+             {"id": "sesion", "action": "http", "url": base + "/api/sesion"},
+             {"id": "contador1", "action": "http", "url": base + "/api/contador"},
+             {"id": "contador2", "action": "http", "url": base + "/api/contador"}]
+    run_observation(_script(None, steps), store, authorized=True, case_id=cid, variables={"port": str(port)})
+    store_spec(store, cid)
+    return cid
+
+
+def test_http_model_generates_only_observed_routes_with_traceability(store, tmp_path, sample_api):
+    cid = _http_case(store, sample_api)
+    model = build_model(store, cid)
+    api = next(c for c in model["components"] if c["id"] == "http_api")
+    by_path = {(c["method"], c["path"]): c for c in api["cases"]}
+    assert by_path[("GET", "/api/estado")]["status"] == "simulado"
+    assert by_path[("GET", "/api/estado")]["response_status"] == 200
+    assert by_path[("GET", "/api/estado")]["content_type"] == "application/json"
+    eco = by_path[("POST", "/api/eco")]
+    assert eco["status"] == "simulado" and eco["response_status"] == 201
+    assert base64.b64decode(eco["request_body_base64"]) == b'{"x": 1}' or json.loads(
+        base64.b64decode(eco["request_body_base64"])) == {"x": 1}
+    assert by_path[("GET", "/nada")]["response_status"] == 404     # un 404 observado también se reproduce
+    sesion = by_path[("GET", "/api/sesion")]
+    assert sesion["status"] == "parcial" and any("cookies" in p for p in sesion["pending"])
+    assert "secreto-abc" not in json.dumps(model)
+    contador = by_path[("GET", "/api/contador")]
+    assert contador["status"] == "pendiente" and any("contradicho" in p for p in contador["pending"])
+    assert all(c["evidence_ids"] for c in api["cases"])
+    assert any("API HTTP" in d["decision"] and d["evidence_ids"] for d in model["decisions"])
+
+    out = tmp_path / "api"
+    gen = generate(model, out)                     # sin objetivo: no hay CLI, se elige la API HTTP
+    assert {"server.py", "api.json", "tests/test_server.py", "README.md"} <= set(gen["written"])
+    assert gen["simulated"] == 3 and gen["partial"] == 1 and gen["pending"] == 1
+    manifest = json.loads((out / MANIFEST).read_text(encoding="utf-8"))
+    assert manifest["target"] == "python-http"
+    assert {c["route"] for c in manifest["cases"]} >= {"GET /api/estado", "POST /api/eco", "GET /api/contador"}
+    assert all(c["evidence_ids"] for c in manifest["cases"])
+    assert "secreto-abc" not in (out / "api.json").read_text(encoding="utf-8")
+
+    ver = verify(out)
+    assert ver["match"] == 3 and ver["partial"] == 1 and ver["pending"] == 1 and ver["differ"] == 0
+    assert ver["equivalent_on_observed"] is False      # hay casos parciales y pendientes: no se da verde
+    assert "cabeceras de la petición" in ver["limits"]
+
+    p = subprocess.run([sys.executable, "-m", "pytest", "-q", str(out / "tests")], capture_output=True, text=True,
+                       timeout=180)
+    assert p.returncode == 0, p.stdout + p.stderr
+
+
+def test_http_generated_server_marks_unobserved_and_pending_and_verify_detects_changes(store, tmp_path, sample_api):
+    import urllib.error
+    import urllib.request
+
+    cid = _http_case(store, sample_api)
+    out = tmp_path / "api"
+    generate(build_model(store, cid), out, target="python-http")
+    proc = subprocess.Popen([sys.executable, str(out / "server.py"), "--port", "0"], cwd=tmp_path,
+                            stdout=subprocess.PIPE, text=True)
+    try:
+        base = proc.stdout.readline().strip().rsplit(" ", 1)[-1]
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+        def get(path, method="GET", data=None):
+            try:
+                r = opener.open(urllib.request.Request(base + path, method=method, data=data), timeout=10)
+            except urllib.error.HTTPError as exc:
+                r = exc
+            with r:
+                return r.code if hasattr(r, "code") else r.status, r.headers.get("X-Eolfi-Estado")
+        assert get("/no-observada") == (501, "no-especificado")
+        assert get("/api/estado", "DELETE") == (501, "no-especificado")        # método no observado
+        assert get("/api/eco", "POST", b'{"x": 2}') == (501, "no-especificado")  # cuerpo no observado
+        assert get("/api/contador") == (503, "pendiente")
+        assert get("/api/estado") == (200, None)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+        proc.stdout.close()
+
+    # Un cambio en la respuesta generada se detecta por su aspecto concreto, no solo por el código.
+    cases = json.loads((out / "api.json").read_text(encoding="utf-8"))
+    estado = next(c for c in cases if c["path"] == "/api/estado")
+    expected_body = estado["response_body"]
+    server = (out / "server.py").read_text(encoding="utf-8")
+    (out / "server.py").write_text(server.replace('_render(case["response_body"])',
+                                                  '_render(case["response_body"]).replace("listo", "otro")'),
+                                   encoding="utf-8")
+    ver = verify(out)
+    diff = next(r for r in ver["results"] if r.get("route") == "GET /api/estado")
+    assert diff["status"] == "difiere" and diff["aspects"] == ["respuesta[*].cuerpo"]
+    assert "listo" in expected_body
+
+
+def test_http_reconstruct_records_evidence_and_target_errors(store, tmp_path, sample_api):
+    cid = _http_case(store, sample_api)
+    rep = reconstruct(store, cid, tmp_path / "rec")
+    assert rep["generation"]["simulated"] == 3 and rep["verification"]["differ"] == 0
+    assert store.get_evidence(rep["evidence_id"])["operation"] == "reconstruction_verification"
+    with pytest.raises(ValueError, match="línea de comandos"):
+        generate(build_model(store, cid), tmp_path / "cli", target="python-cli")
+    cli_case = _observed_case(store, tmp_path)
+    with pytest.raises(ValueError, match="API HTTP"):
+        generate(build_model(store, cli_case), tmp_path / "http", target="python-http")
