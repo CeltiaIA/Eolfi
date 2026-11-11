@@ -1012,6 +1012,32 @@ function wireJobs() {
   loadJobs();
 }
 
+// Actividad del agente @eolfi en VS Code: visible sobre cualquier vista del panel.
+let vscodeActivityTimer = null;
+async function refreshVSCodeActivity() {
+  clearTimeout(vscodeActivityTimer);
+  if (document.hidden) { vscodeActivityTimer = setTimeout(refreshVSCodeActivity, 5000); return; }
+  let active = false;
+  try {
+    const { activity = [] } = await api("/api/vscode/activity");
+    const run = activity.find((x) => x.status === "running") || activity[0];
+    const banner = $("#vscode-activity");
+    if (run) {
+      const running = run.status === "running";
+      active = running;
+      banner.hidden = false;
+      $("#vscode-activity-state").textContent = running ? "en marcha" : run.status === "error" ? "error" : "terminado";
+      $("#vscode-activity-state").className = "badge " + (running ? "warn" : run.status === "error" ? "bad" : "ok");
+      $("#vscode-activity-title").textContent = "Agente Eolfi en VS Code · " + (run.label || "Chat");
+      const last = (run.log || []).slice(-2).map((x) => x.msg).filter(Boolean);
+      $("#vscode-activity-message").textContent = last.join(" · ") || (running ? "Esperando el siguiente paso…" : "La última petición terminó.");
+    } else banner.hidden = true;
+  } catch { /* el panel puede estar abierto sin una extensión vinculada */ }
+  vscodeActivityTimer = setTimeout(refreshVSCodeActivity, active ? 1200 : 8000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshVSCodeActivity(); });
+refreshVSCodeActivity();
+
 // -- Atajos de teclado ------------------------------------------------------------------------
 document.addEventListener("keydown", (e) => {
   const t = e.target;

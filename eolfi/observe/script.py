@@ -212,7 +212,7 @@ def _step(raw: Any, i: int, seen: set[str]) -> dict[str, Any]:
                 _err(f"{label}.viewport: {{width, height}} enteros")
             step["viewport"] = dict(vp)
     elif action == "desktop":
-        allowed |= {"argv", "timeout", "env", "cwd", "actions", "close"}
+        allowed |= {"argv", "timeout", "env", "cwd", "actions", "close", "screenshots"}
         argv = raw.get("argv")
         if not isinstance(argv, list) or not argv or len(argv) > 500 or not all(
                 isinstance(a, str) and len(a) <= 8000 for a in argv) or not argv[0]:
@@ -225,6 +225,9 @@ def _step(raw: Any, i: int, seen: set[str]) -> dict[str, Any]:
         if not isinstance(raw.get("close", True), bool):
             _err(f"{label}.close: booleano")
         step["close"] = raw.get("close", True)
+        if not isinstance(raw.get("screenshots", False), bool):
+            _err(f"{label}.screenshots: booleano")
+        step["screenshots"] = raw.get("screenshots", False)
         acts = raw.get("actions", [])
         if not isinstance(acts, list) or len(acts) > MAX_BROWSER_ACTIONS:
             _err(f"{label}.actions: lista de hasta {MAX_BROWSER_ACTIONS} acciones")
@@ -300,8 +303,8 @@ def validate_script(raw: Any) -> dict[str, Any]:
     out["setup"] = {"files": {_rel_path(k, f"setup.files[{k!r}]"): _content(v, f"setup.files[{k!r}]", allow_copy=True)
                               for k, v in files.items()}}
     scope = raw.get("scope", {})
-    if not isinstance(scope, dict) or not set(scope) <= {"files", "registry", "children"}:
-        _err("scope: {files, registry, children}")
+    if not isinstance(scope, dict) or not set(scope) <= {"files", "registry", "children", "capture_contents"}:
+        _err("scope: {files, registry, children, capture_contents}")
     sfiles = scope.get("files", ["."])
     if not isinstance(sfiles, list) or len(sfiles) > 50 or not all(isinstance(x, str) and x for x in sfiles):
         _err("scope.files: lista de carpetas")
@@ -317,7 +320,12 @@ def validate_script(raw: Any) -> dict[str, Any]:
             _err(f"scope.registry: {exc}")
     if "children" in scope and not isinstance(scope["children"], bool):
         _err("scope.children: booleano")
-    out["scope"] = {"files": list(sfiles), "registry": list(reg), "children": scope.get("children", True)}
+    capture_contents = scope.get("capture_contents", [])
+    if not isinstance(capture_contents, list) or len(capture_contents) > 50 or not all(
+            isinstance(x, str) and x.startswith("{sandbox}/") and ".." not in x.split("/") for x in capture_contents):
+        _err('scope.capture_contents: lista de hasta 50 rutas exactas con prefijo "{sandbox}/"')
+    out["scope"] = {"files": list(sfiles), "registry": list(reg), "children": scope.get("children", True),
+                    "capture_contents": list(dict.fromkeys(capture_contents))}
     hosts = raw.get("allow_hosts", [])
     if not isinstance(hosts, list) or len(hosts) > 50 or not all(
             isinstance(h, str) and re.fullmatch(r"[A-Za-z0-9.:\[\]-]{1,255}", h) for h in hosts):

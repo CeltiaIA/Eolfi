@@ -52,8 +52,9 @@ PRESETS: dict[str, dict[str, Any]] = {
                "model": os.environ.get("OPENAI_MODEL", ""), "key_env": "OPENAI_API_KEY",
                "json_mode": "json_schema", "context_bytes": 200_000},
     "claude": {"kind": "claude", "context_bytes": 350_000},
-    # Modelo local con llama.cpp (por defecto Gemma 4), configurable en ~/.eolfi/llamacpp.json; se arranca solo.
-    "gemma": {"kind": "llamacpp", "context_bytes": 40_000},
+    # Alias de compatibilidad: «gemma» usa el Gemma 12B servido por Eolas; no inicia un servidor paralelo.
+    "gemma": {"kind": "ollama", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
+              "model": os.environ.get("EOLAS_MODEL", "gemma-4-12b-it:latest"), "context_bytes": 60_000},
     # Modelos de IA de VS Code (Language Model API, extensión eolfi/vscode-bridge). Modelo con
     # EOLFI_COPILOT_MODEL (familia, nombre o id; por defecto el primero que ofrezca VS Code) y herramientas de
     # VS Code con EOLFI_COPILOT_TOOLS (solo las que también permitas en el ajuste «eolfi.allowedTools»).
@@ -67,7 +68,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "copilot-web": {"kind": "bridge", "site": "copilot", "context_bytes": 14_000},
     "lechat-web": {"kind": "bridge", "site": "lechat", "context_bytes": 14_000},
     # El primer chat web listo, prefiriendo los que tienen sesión iniciada.
-    # Orden configurable con EOLFI_WEB_ORDER (por defecto gemini,meta,deepseek).
+    # Orden configurable con EOLFI_WEB_ORDER (por defecto meta,deepseek,gemini).
     "web": {"kind": "bridge", "site": "auto", "context_bytes": 14_000},
 }
 
@@ -85,7 +86,7 @@ def bridge_status() -> dict[str, Any]:
 def choose_web_site(status: dict[str, Any] | None = None) -> str:
     """Elige el chat web: primero los listos con sesión, luego los listos en modo invitado."""
     status = status if status is not None else bridge_status()
-    order = [s.strip() for s in os.environ.get("EOLFI_WEB_ORDER", "gemini,meta,deepseek,lechat").split(",") if s.strip()]
+    order = [s.strip() for s in os.environ.get("EOLFI_WEB_ORDER", "meta,deepseek,gemini,lechat").split(",") if s.strip()]
     order += [s for s in ("gemini", "meta", "deepseek", "chatgpt", "lechat", "copilot") if s not in order]
     ready = [s for s in order if status.get(s, {}).get("ok") and not status.get(s, {}).get("busy")]
     signed = [s for s in ready if status[s].get("signedIn")]

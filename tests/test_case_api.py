@@ -87,6 +87,31 @@ def test_case_api_end_to_end(srv):
     assert req(port, "GET", "/api/cases/00000000-0000-4000-8000-000000000000")[0] == 404
 
 
+def test_vscode_agent_activity_is_ephemeral_and_redacted(tmp_path):
+    from eolfi.server import EolfiApp
+
+    app = EolfiApp(str(tmp_path / "activity.db"), tmp_path / "samples")
+    run_id = "a" * 32
+    app.update_vscode_activity({"run_id": run_id, "phase": "start", "label": "@eolfi /auditar"})
+    app.update_vscode_activity({"run_id": run_id, "phase": "progress", "message": "Paso 2 de 10: eolfi_read_file"})
+    live = app.vscode_activity()["activity"][0]
+    assert live["status"] == "running" and live["label"] == "@eolfi /auditar"
+    assert live["log"][-1]["msg"] == "Paso 2 de 10: eolfi_read_file"
+    app.update_vscode_activity({"run_id": run_id, "phase": "done", "message": "terminado"})
+    assert app.vscode_activity()["activity"][0]["status"] == "done"
+    assert "prompt" not in app.vscode_activity()["activity"][0]
+    with pytest.raises(Exception, match="run_id o phase inválido"):
+        app.update_vscode_activity({"run_id": "../escape", "phase": "start"})
+
+
+def test_vscode_activity_api_requires_vscode_client(srv):
+    port, _ = srv
+    assert req(port, "GET", "/api/vscode/activity")[1] == {"activity": []}
+    status, body, _ = req(port, "POST", "/api/vscode/activity", json.dumps({
+        "run_id": "b" * 32, "phase": "start"}), {"X-Eolfi": "1"})
+    assert status == 403 and "extensión vinculada" in body["error"]
+
+
 def test_panel_serves_case_module(srv):
     port, _ = srv
     st, body, hdrs = req(port, "GET", "/cases.js")

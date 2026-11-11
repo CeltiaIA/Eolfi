@@ -45,6 +45,8 @@ function makeClient(base, authToken = null) {
     // Canje del código de vinculación por un token (lo único que se hace sin token).
     exchange: (code, name) => request(base, 'POST', '/api/clients/token', { code, name }),
     health: () => req('GET', '/api/health'),
+    // Progreso efímero del agente: solo fases y mensajes de estado, nunca prompts ni resultados.
+    agentActivity: (body) => req('POST', '/api/vscode/activity', body),
     // Análisis como trabajo en segundo plano, con progreso.
     async analyze(kind, body, onLog = () => {}, signal = null) {
       const { job_id: id } = await req('POST', '/api/jobs', { kind, body });
@@ -64,6 +66,8 @@ function makeClient(base, authToken = null) {
     },
     incognitas: (subject) => req('GET', `/api/incognitas?subject=${encodeURIComponent(subject)}`),
     report: (subject, format = 'md') => req('GET', `/api/report?format=${format}&subject=${encodeURIComponent(subject)}`),
+    deepseekWeb: (prompt, conversation) => req('POST', '/api/bridge/chat', { provider: 'deepseek', prompt, conversation }, 1900000),
+    metaWeb: (prompt, conversation) => req('POST', '/api/bridge/chat', { provider: 'meta', prompt, conversation }, 1900000),
     // Casos de análisis: el mismo estado que el panel y la CLI (eolfi case …).
     cases: () => req('GET', '/api/cases'),
     caseGet: (id) => req('GET', `/api/cases/${encodeURIComponent(id)}`),

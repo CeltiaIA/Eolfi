@@ -81,3 +81,17 @@ $f.Controls.AddRange(@($t, $b, $l))
 [void]$f.ShowDialog()
 [Console]::Out.WriteLine('cerrado')
 '''
+
+# La misma muestra en una posición fija, para poder taparla con otra ventana en la prueba de captura.
+WINFORMS_AT = WINFORMS.replace("$f.Text = 'Muestra Eolfi'",
+                               "$f.Text = 'Muestra Eolfi'\n$f.StartPosition = 'Manual'; $f.Location = New-Object System.Drawing.Point(120, 120)")
+
+# Ventana magenta, siempre encima y sin borde, que tapa la zona de WINFORMS_AT (otro proceso).
+OCCLUDER = r'''
+Add-Type -AssemblyName System.Windows.Forms
+$o = New-Object System.Windows.Forms.Form
+$o.FormBorderStyle = 'None'; $o.TopMost = $true; $o.ShowInTaskbar = $false
+$o.StartPosition = 'Manual'; $o.Location = New-Object System.Drawing.Point(60, 60); $o.Size = New-Object System.Drawing.Size(700, 600)
+$o.BackColor = [System.Drawing.Color]::FromArgb(255, 0, 255)
+[void]$o.ShowDialog()
+'''

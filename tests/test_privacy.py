@@ -34,6 +34,8 @@ def test_detects_and_redacts(value, kind):
     "ES00 0000 0000 0000 0000 0000",  # IBAN con control inválido
     "127.0.0.1 192.168.1.10 10.0.0.1",  # IP privadas/locales
     "2026-11-07 versión 1.2.3 puerto 8080 código 0",
+    "Generado: 2026-11-11 00:33 UTC con Eolfi 0.8.0",   # marca de tiempo del informe
+    "inicio 2026-11-11T00:33:12Z",
     "cwd={sandbox} secreto_visible=False eco=hola",
 ])
 def test_no_false_positives_on_common_text(text):

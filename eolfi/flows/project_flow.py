@@ -76,9 +76,18 @@ def interpret(description: str) -> dict[str, Any]:
         if m:
             options[key] = True
             directives.append({"text": m.group(0), "effect": f"incluir {label}"})
-    sentences = [s.strip() for s in re.split(r"(?<=[.;!?\n])\s*", text) if s.strip()]
+    # Fin de frase solo con espacio o salto detrás: «Next.js» o «v1.2» no parten la frase.
+    sentences = [s.strip() for s in re.split(r"(?<=[.;!?])\s+|\n+", text) if s.strip()]
     used = [d["text"] for d in directives]
-    uninterpreted = [s for s in sentences if not any(u in s.lower() for u in used)]
+    uninterpreted = []
+    for s in sentences:
+        rest = s.lower()
+        for u in used:
+            rest = rest.replace(u, " ")
+        # Una frase con directivas pero con más órdenes («…con Next.js, manteniendo sus páginas y su API») también se
+        # muestra: lo que sobra no lo aplica el generador por sí solo.
+        if len(re.findall(r"[a-záéíóúñü]{3,}", rest)) >= (1 if rest == s.lower() else 5):
+            uninterpreted.append(s)
     return {"target": target, "options": options, "directives": directives, "uninterpreted": uninterpreted}
 
 
@@ -98,8 +107,8 @@ def _steps(sources: list[dict[str, str]], interp: dict[str, Any], out: str) -> l
         remote = s["ref"].startswith(("http://", "https://", "git@", "ssh://"))
         how = {"web": ("descarga la página y sus recursos públicos" if remote else "lee el sitio local (HTML y "
                        "recursos)") + " y deduce la pila (sin ejecutar su código)",
-               "repo": "clona superficialmente el repositorio y analiza su estructura y dependencias (no ejecuta "
-                       "sus scripts)",
+               "repo": ("clona superficialmente el repositorio" if remote else "lee la carpeta local (solo lectura)")
+                       + " y analiza su estructura, dependencias y rutas (no ejecuta sus scripts)",
                "subject": "reutiliza el análisis ya guardado"}.get(
             kind, "triaje estático local: huella, formato, cabeceras y cadenas (no ejecuta el archivo)")
         steps.append({"id": f"analizar-{i}", "action": "analyze", "source": s["ref"],

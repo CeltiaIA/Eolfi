@@ -2,7 +2,7 @@
   "name": "eolfi-vscode-bridge",
   "displayName": "Eolfi",
   "description": "Eolfi en VS Code: agente de ingeniería inversa (MCP + herramientas para el modo agente), panel y puente privado con Eolfi.",
-  "version": "0.6.6",
+  "version": "0.6.11",
   "publisher": "eolfi",
   "private": true,
   "license": "UNLICENSED",
@@ -99,6 +99,11 @@
           "type": "boolean",
           "default": false,
           "description": "Modo automático permanente: las escrituras de Eolfi NO piden confirmación. Sin activarlo, Eolfi puede pedir el modo automático y VS Code te pregunta una vez (para la sesión o para siempre). Cada cambio queda en un diario y se deshace solo si la petición falla o la verificación de Eolfi no queda en verde."
+        },
+        "eolfi.meta.autoExecute": {
+          "type": "boolean",
+          "default": true,
+          "description": "Entrega automáticamente cada respuesta de Meta al agente Eolas/llama.cpp local para que verifique y ejecute las acciones aplicables. Meta no usa herramientas. Se respetan el modo de trabajo, las aprobaciones y los límites de Eolfi. Copilot no se usa."
         },
         "eolfi.allowedCommands": {
           "type": "array",
@@ -200,45 +205,29 @@
         "eolfi.fallback.local": {
           "type": "boolean",
           "default": true,
-          "description": "Cuando todos los modelos de Copilot están en su límite de peticiones, la auditoría sigue con un modelo local llama.cpp (Eolas en 127.0.0.1:11435 o un llama-server en 127.0.0.1:8080): sin límites y sin que el código salga del equipo."
+          "description": "El agente usa siempre el modelo local Gemma 12B servido por Eolas en 127.0.0.1:11435."
         },
-        "eolfi.fallback.url": {
+        "eolfi.fallback.eolasLauncher": {
           "type": "string",
           "default": "",
-          "description": "Servidor llama.cpp local para el respaldo (solo 127.0.0.1/localhost; API de Eolas o de OpenAI de llama-server). Vacío = Eolas (11435) y, si no está, llama-server (8080)."
+          "description": "Script local que arranca CELTIAIA/Eolas con Gemma 12B mediante llama.cpp y CUDA."
         },
-        "eolfi.fallback.model": {
-          "type": "string",
-          "default": "",
-          "description": "Modelo local del respaldo. Vacío = el que sirva Eolas o llama-server (prefiere gemma-4, *coder*, phi-4…)."
-        },
+        "eolfi.fallback.eolasLauncherSha256": { "type": "string", "default": "", "description": "SHA-256 esperado del lanzador de Eolas. Si se indica y el script no coincide, no se ejecuta. El SHA-256 real se anota siempre en la salida Eolfi." },
         "eolfi.fallback.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Si no hay ningún llama.cpp local en marcha, Eolfi arranca un llama-server (solo 127.0.0.1) para seguir la auditoría; en modo manual lo pregunta una vez por sesión. Se para al cerrar VS Code o tras 15 minutos sin uso."
-        },
-        "eolfi.fallback.llamaServer": {
-          "type": "string",
-          "default": "",
-          "description": "Ruta de llama-server.exe. Vacío = el primero que encuentre (~/.eolfi/tools/llama, D:\\HYDRA-BASE\\llama, D:\\HYDRA\\runtime\\llama-bin, D:\\EOLAS-BASE\\llama o el PATH)."
-        },
-        "eolfi.fallback.gguf": {
-          "type": "string",
-          "default": "",
-          "description": "Modelo .gguf que arranca. Vacío = el más adecuado para código en ~/.eolfi/models o D:\\HYDRA-BASE\\.hydra\\gguf (prefiere *coder*, gemma-4, qwen3.5… en Q4_K_M)."
+          "description": "Activado: si Eolas no responde, arranca CELTIAIA/Eolas con Gemma 12B y CUDA. Nunca inicia un llama-server independiente ni otro modelo."
         },
         "eolfi.agent.model": {
           "type": "string",
           "enum": [
-            "copilot",
             "local"
           ],
-          "default": "copilot",
+          "default": "local",
           "enumDescriptions": [
-            "Copilot (con el modelo local de respaldo cuando está limitado).",
-            "Modelo local llama.cpp (Gemma 4) con razonamiento, configurable en ~/.eolfi/llamacpp.json."
+            "Agente local llama.cpp con herramientas (Eolas o llama-server, Gemma 4 por defecto). Meta AI Web se consulta con /meta y es el primer respaldo de auditorías; DeepSeek, el segundo."
           ],
-          "description": "Modelo principal del agente @eolfi."
+          "description": "Agente principal local de @eolfi con herramientas. Consulta Meta AI Web con @eolfi /meta <mensaje>; Copilot permanece desconectado."
         },
         "eolfi.agent.showModel": {
           "type": "boolean",
@@ -269,7 +258,7 @@
         "eolfi.mcp.db": {
           "type": "string",
           "default": "",
-          "description": "Base de evidencias del servidor MCP (vacío: eolfi.db en la carpeta de Eolfi, la misma que usa el panel)."
+          "description": "Base de evidencias del servidor MCP (vacío: la de Eolfi por defecto, EOLFI_DB o ~/.eolfi/eolfi.db, la misma que usa el panel)."
         },
         "eolfi.mcp.library": {
           "type": "string",
@@ -316,6 +305,7 @@
         }
       ]
     },
+    "languageModelChatProviders": [{ "vendor": "eolas", "displayName": "Eolas (local)" }],
     "chatParticipants": [
       {
         "id": "eolfi.chat",
@@ -341,8 +331,16 @@
             "description": "Modelo principal: «local» (llama.cpp, Gemma 4) o «copilot»"
           },
           {
+            "name": "meta",
+            "description": "Consulta Meta AI Web y entrega automáticamente la respuesta al agente Eolas local para verificarla y ejecutar las acciones aplicables"
+          },
+          {
             "name": "auditar",
             "description": "Auditar archivo por archivo una carpeta (o «continuar» la última) con informe"
+          },
+          {
+            "name": "desarrollar",
+            "description": "Recupera un informe Markdown del workspace y desarrolla el proyecto con el agente del chat"
           },
           {
             "name": "analizar",

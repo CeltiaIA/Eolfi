@@ -79,7 +79,8 @@ test('el cliente usa las rutas de casos de la API con token y cabecera anti-CSRF
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      seen.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null, auth: req.headers.authorization, csrf: req.headers['x-eolfi'] });
+      seen.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null, auth: req.headers.authorization,
+        csrf: req.headers['x-eolfi'], client: req.headers['x-eolfi-client'] });
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ok: true }));
     });
@@ -93,10 +94,13 @@ test('el cliente usa las rutas de casos de la API con token y cabecera anti-CSRF
     await c.caseCreate('N', 'D');
     await c.caseLink('c1', 'sub', 'prov');
     await c.caseRecord('c1', 'specification', { claims: [] });
+    await c.agentActivity({ run_id: 'a'.repeat(32), phase: 'start', label: '@eolfi /auditar' });
     assert.deepStrictEqual(seen.map((s) => `${s.method} ${s.url}`), ['GET /api/cases', 'GET /api/cases/c%201', 'POST /api/cases',
-      'POST /api/cases/c1/artifacts', 'POST /api/cases/c1/records']);
+      'POST /api/cases/c1/artifacts', 'POST /api/cases/c1/records', 'POST /api/vscode/activity']);
     assert.deepStrictEqual(seen[3].body, { subject: 'sub', provenance: 'prov' });
     assert.ok(seen.every((s) => s.auth === 'Bearer tok' && s.csrf === '1'));
+    assert.strictEqual(seen[5].client, 'vscode');
+    assert.deepStrictEqual(seen[5].body, { run_id: 'a'.repeat(32), phase: 'start', label: '@eolfi /auditar' });
     assert.strictEqual(c.caseReportUrl('c1'), `${base}/api/cases/c1/report`);
   } finally { server.close(); }
 });

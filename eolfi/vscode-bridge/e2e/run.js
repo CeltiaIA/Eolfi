@@ -70,7 +70,9 @@ async function run() {
 
     const [s4, r4] = frozenStream();
     await h({ prompt: '¿qué hicimos?' }, { history: [] }, s4, token);
-    step('pregunta libre sin Copilot: pasa al modelo local o avisa, sin romperse', /modelo de IA|modelo local/.test(r4.md), r4.md);
+    // Sin Copilot: responde el modelo local (Eolas / llama.cpp, O14) o, si no hay ninguno, avisa; nunca un error.
+    step('pregunta libre sin Copilot: responde el modelo local o avisa, sin romperse',
+      /modelo de IA|modelo local/.test(r4.md) || (r4.md.trim().length > 20 && !/⚠️|Error:|excepción/i.test(r4.md)), r4.md);
 
     const [s5, r5] = frozenStream();
     await h({ command: 'historial', prompt: 'ayuda' }, { history: [] }, s5, token);

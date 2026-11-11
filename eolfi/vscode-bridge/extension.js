@@ -14,11 +14,12 @@ const { makeClient, summarize } = require('./eolfi-client');
 const { makeChatHandler } = require('./chat');
 const { reaConfig, McpClient } = require('./rea');
 const { readCodexMcpServers } = require('./codex-mcp');
-const { makeAgentTools } = require('./agent-tools');
+const { makeAgentTools } = require('./agent-tools'); const { registerEolasModel } = require('./lm-provider');
 const { makeCaseTools, combineTools } = require('./case-tools');
 const { makeHistory } = require('./history');
-const { makeLocalModel } = require('./local-model');
-const { makeLlamaStarter, findServer } = require('./llama-starter');
+const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('./local-model');
+const { findServer } = require('./llama-starter');
+const { makeEolasStarter } = require('./eolas-starter');
 const llamacfg = require('./llamacpp-config');
 const lmi = require('./lm-integration');
 
@@ -377,11 +378,8 @@ function activate(context) {
     vscode.commands.registerCommand('eolfi.login', guard(login)),
     vscode.commands.registerCommand('eolfi.logout', guard(logout)),
     vscode.commands.registerCommand('eolfi.bridge.status', async () => {
-      const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-      const tools = (vscode.lm.tools || []).map((t) => t.name);
-      out.appendLine(`Modelos de IA: ${models.map((m) => `${m.name} (${m.family})`).join(', ') || 'ninguno'}`);
-      out.appendLine(`Herramientas disponibles: ${tools.join(', ') || 'ninguna'}`);
-      out.appendLine(`Permitidas para Eolfi (eolfi.allowedTools): ${allowedTools().join(', ') || 'ninguna'}`);
+      out.appendLine('Modelo principal @eolfi: llama.cpp local; Copilot desconectado.');
+      out.appendLine(`Herramientas permitidas para Eolfi: ${allowedTools().join(', ') || 'ninguna'}`);
       out.show(true);
     }),
     { dispose: stop },
@@ -431,6 +429,7 @@ function activate(context) {
     vscode.window.showInformationMessage(`Eolfi: deshechos ${r.restored.length} archivos.`);
   })));
   let chatHandler = null;
+  let primaryLocalModel = null;
   {
     const rea = reaBridge(context);
     const reaDisabled = vscode.workspace.getConfiguration('eolfi').get('rea.enabled') === false;
@@ -440,35 +439,27 @@ function activate(context) {
       actions: chatActions, workspaceTools: TOOL_DEFS, rea, codexMcp,
       extraTools: combineTools(agentTools(), makeCaseTools({ client: eolfiClient, log: (m) => out.appendLine(m) })),
       maxSteps: () => vscode.workspace.getConfiguration('eolfi').get('agent.maxSteps'),
+      autoExecuteMeta: () => vscode.workspace.getConfiguration('eolfi').get('meta.autoExecute') !== false,
       workMode, setWorkMode,
-      preferLocal: () => vscode.workspace.getConfiguration('eolfi').get('agent.model') === 'local',
-      setPreferLocal: async (v) => { await vscode.workspace.getConfiguration('eolfi').update('agent.model', v ? 'local' : 'copilot', vscode.ConfigurationTarget.Global); },
+      preferLocal: () => true,
+      setPreferLocal: async (v) => { if (!v) return false; await vscode.workspace.getConfiguration('eolfi').update('agent.model', 'local', vscode.ConfigurationTarget.Global); return true; },
       localConfig: () => llamacfg.loadConfig({ findServer }),
       instructions: () => String(vscode.workspace.getConfiguration('eolfi').get('agent.instructions') || '').trim(),
       showModel: () => vscode.workspace.getConfiguration('eolfi').get('agent.showModel') !== false,
       localModel: (() => {
         const c = vscode.workspace.getConfiguration('eolfi');
-        if (c.get('fallback.local') === false) return null;
-        const url = String(c.get('fallback.url') || '').trim();
-        // Si no hay ninguno en marcha, Eolfi arranca un llama-server (en manual, con permiso una vez por sesión).
-        // Servidor, modelo (Gemma 4), puerto, contexto, GPU y parámetros: ~/.eolfi/llamacpp.json (común con Eolfi en Python).
-        const starter = c.get('fallback.autoStart') === false ? null : makeLlamaStarter({
-          server: String(c.get('fallback.llamaServer') || '').trim(), gguf: String(c.get('fallback.gguf') || '').trim(),
-          config: () => llamacfg.loadConfig({ findServer }), log: (m) => out.appendLine(m) });
-        let allowed = false;
-        const port = llamacfg.loadConfig({ findServer }).port;
-        const lm = makeLocalModel({ endpoints: url ? [url] : [`http://127.0.0.1:${port}`, 'http://127.0.0.1:11435', 'http://127.0.0.1:8080'],
-          model: String(c.get('fallback.model') || '').trim(), starter,
+        const endpoint = EOLAS_URL;
+        const model = EOLAS_MODEL;
+        // El único proveedor local es Eolas/Gemma 12B; el autoarranque nunca usa un GGUF externo ni 8090.
+        const autoStart = c.get('fallback.autoStart') === true;
+        const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
+        const starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
+        const lm = makeLocalModel({ endpoints: [endpoint], model, starter,
           options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
-          allowStart: async (plan) => {
-            // Elegido como modelo principal (/modelo local) o modo automático: sin preguntar.
-            if (allowed || workMode() === 'automatico' || vscode.workspace.getConfiguration('eolfi').get('agent.model') === 'local') return true;
-            const yes = 'Arrancar llama-server';
-            const pick = await vscode.window.showWarningMessage('¿Arranco el modelo local (llama.cpp) para seguir? Copilot no está disponible ahora (límite de peticiones o sin sesión).',
-              { modal: true, detail: `Servidor: ${plan.exe}\nModelo: ${plan.model}\n\nSolo en 127.0.0.1; el código no sale del equipo. Se para al cerrar VS Code o tras 15 minutos sin uso.` }, yes);
-            allowed = pick === yes;
-            return allowed;
-          } });
+          allowStart: async () => autoStart });
+        out.appendLine(`Modelo local: ${model} en ${endpoint}; autoarranque Eolas ${autoStart ? 'activado' : 'desactivado'}.`);
+        primaryLocalModel = lm;
+        registerEolasModel(vscode, context, lm, { modelId: model, limits: () => { const k = llamacfg.loadConfig({ findServer }); return { ctx: Number(k.ctx) || 32768, maxTokens: Number(k.max_tokens) || 4096 }; } });
         context.subscriptions.push({ dispose: () => lm.stop() });
         return lm;
       })(),
@@ -487,6 +478,11 @@ function activate(context) {
       const p = vscode.chat.createChatParticipant('eolfi.chat', chatHandler);
       p.iconPath = new vscode.ThemeIcon('search');
       context.subscriptions.push(p);
+    }
+    if (primaryLocalModel) {
+      void primaryLocalModel.locate().then((at) => {
+        out.appendLine(at ? `Modelo local primario listo: ${at.model} en ${at.url}` : 'No se encontró servidor local activo.');
+      }).catch((e) => out.appendLine(`No se pudo iniciar el modelo local primario: ${e.message || e}`));
     }
   }
   const version = String(context.extension?.packageJSON?.version || '0');

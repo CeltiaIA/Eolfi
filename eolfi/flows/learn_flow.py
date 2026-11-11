@@ -58,6 +58,7 @@ def _run_web(source: str, store: EvidenceStore, *, max_assets: int, cross_origin
         "summary": {
             "title": by.get("web_structure", {}).get("title"),
             "stack": bp.get("stack"),
+            "stack_label": bp.get("stack_label"),
             "suggested_scaffold": bp.get("suggested_scaffold"),
             "page_skeleton": bp.get("page_skeleton", [])[:12],
             "design_tokens": bp.get("design_tokens"),

@@ -89,7 +89,10 @@ def _states(step: dict[str, Any]) -> dict[str, Any] | None:
 
 def _persistence(step: dict[str, Any]) -> list[dict[str, Any]]:
     eff = step.get("effects", {})
-    out = [{"kind": "file", "path": e["path"], "change": e["change"]} for e in eff.get("files", [])]
+    out = [{"kind": "file", "path": e["path"], "change": e["change"],
+            **({"content_capture": e["after"]["content_capture"]} if
+               isinstance(e.get("after"), dict) and e["after"].get("content_capture") else {})}
+           for e in eff.get("files", [])]
     out += [{"kind": "registry", "path": e["path"], "change": e["change"]} for e in eff.get("registry", [])]
     return out
 

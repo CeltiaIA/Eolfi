@@ -394,6 +394,42 @@ def parse_pubspec(text: str) -> set[str]:
 # ---------------------------------------------------------------------------
 # Análisis principal
 # ---------------------------------------------------------------------------
+_PAGE_FILE = re.compile(r"^(?:src/)?app/(?:(.*)/)?page\.(?:tsx|jsx|ts|js|mdx)$")
+_ROUTE_FILE = re.compile(r"^(?:src/)?app/(?:(.*)/)?route\.(?:ts|js|mjs)$")
+_PAGES_FILE = re.compile(r"^(?:src/)?pages/(.+)\.(?:tsx|jsx|ts|js)$")
+_HTTP_EXPORT = re.compile(r"export\s+(?:async\s+)?(?:function\s+|const\s+)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b")
+
+
+def _route_path(dirpart: str | None) -> str:
+    """app/(grupo)/@slot/x/[id] → /x/[id]: los grupos y slots no forman parte de la URL."""
+    segs = [s for s in (dirpart or "").split("/") if s and not (s.startswith("(") and s.endswith(")"))
+            and not s.startswith("@")]
+    return "/" + "/".join(segs)
+
+
+def _routes(files: list[str], root: Path) -> dict[str, Any]:
+    """Rutas por convención de archivos (Next.js app/ y pages/): páginas y API con sus métodos HTTP exportados.
+    Es un contrato de interfaz (qué URL y métodos existen), no se copia código."""
+    pages, api = set(), {}
+    for p in files:
+        if m := _PAGE_FILE.match(p):
+            pages.add(_route_path(m.group(1)))
+        elif m := _ROUTE_FILE.match(p):
+            text = _read(root / p, 256 * 1024)
+            api[_route_path(m.group(1))] = sorted(set(_HTTP_EXPORT.findall(text))) or ["?"]
+        elif m := _PAGES_FILE.match(p):
+            rel = m.group(1)
+            if rel.split("/")[-1].startswith("_"):
+                continue
+            path = "/" + re.sub(r"(?:^|/)index$", "", rel)
+            if path.startswith("/api/") or path == "/api":
+                api[path] = ["?"]
+            else:
+                pages.add(path if path != "/" else "/")
+    return {"framework": "next" if pages or api else None, "pages": sorted(pages)[:200],
+            "api": [{"path": k, "methods": v} for k, v in sorted(api.items())][:200]}
+
+
 def _f(op: str, result: Any, authority: str = "distributed_artifact", confidence: str = "high",
        limitations: str = "") -> dict[str, Any]:
     return {"operation": op, "result": result, "authority": authority, "confidence": confidence,
@@ -586,6 +622,12 @@ def analyze_repo(source: str, *, workdir: str | Path = "samples/repos",
         "monorepo": any(k.rstrip("/") in ("packages", "apps", "crates") for k in top) or bool(
             any(m.get("workspaces") for m in manifests.values() if isinstance(m, dict))),
     }))
+
+    routes = _routes(files, root)
+    if routes["pages"] or routes["api"]:
+        findings.append(_f("repo_routes", routes, "distributed_artifact", "high",
+                           "Rutas deducidas por la convención de archivos de Next.js (app/ y pages/); los métodos "
+                           "HTTP son las funciones exportadas. No se ejecuta nada ni se resuelven rutas dinámicas."))
 
     # -- pruebas, CI, contenedores ---------------------------------------------
     test_files = [p for p in files if re.search(

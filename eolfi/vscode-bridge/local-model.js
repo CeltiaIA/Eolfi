@@ -43,6 +43,20 @@ function splitGemma(text) {
   return { content: content.trim(), reasoning: reasoning.join('\n'), calls };
 }
 
+// Eolas gestiona su llama.cpp (capas en GPU, hilos y límite de VRAM en launch-eolas.ps1): Eolfi no le impone
+// num_gpu ni num_thread de ~/.eolfi/llamacpp.json, que son de su llama-server propio. El contexto sí se pide:
+// sin num_ctx, Eolas carga con 2048 tokens y las peticiones del agente no caben.
+function eolasOptions(runtime = {}) {
+  return { num_ctx: Number(runtime.num_ctx) || 32768, temperature: runtime.temperature ?? 0.2 };
+}
+
+// Razonamiento de Gemma 4 en Eolas: «think» en la petición (equivale a enable_thinking de llama-server). Sin él,
+// Eolas razona por defecto: una revisión breve pasa de ~130 a ~590 tokens y el pensamiento llega dentro de content.
+function eolasThink(runtime = {}) {
+  const t = runtime.chat_template_kwargs?.enable_thinking;
+  return typeof t === 'boolean' ? { think: t } : {};
+}
+
 function isLoopback(url) {
   try { const u = new URL(url); return u.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname); } catch { return false; }
 }
@@ -90,7 +104,12 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
   let started = false;
 
   async function locate() {
-    if (found) return found;
+    if (found) {
+      const previous = found;
+      found = null;
+      const current = await probe([previous.url]);
+      if (current) return current;
+    }
     const at = await probe(endpoints);
     if (at || !starter) return at;
     // Ninguno en marcha: se arranca un llama-server (si el usuario lo permite) y se usa ese.
@@ -101,27 +120,47 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     return probe([url]);
   }
 
+  // Diagnóstico del último sondeo: qué respondió cada endpoint (para decir el primer punto de fallo).
+  let lastProbe = [];
+
   async function probe(list) {
+    lastProbe = [];
     for (const url of list.filter(isLoopback)) {
       // Eolas expone su API en /api/* (con el backend llama.cpp); llama-server, la de OpenAI en /v1/*.
       const tags = await getJson(fetchFn, `${url}/api/tags`);
       if (tags && Array.isArray(tags.models)) {
-        const m = pickModel(tags.models.map((x) => x.name || x.model).filter(Boolean), model);
+        const names = tags.models.map((x) => x.name || x.model).filter(Boolean);
+        const m = pickModel(names, model);
         if (m) { found = { url, api: 'eolas', model: m }; return found; }
+        lastProbe.push({ url, api: 'eolas', models: names });
+        continue;
       }
       const v1 = await getJson(fetchFn, `${url}/v1/models`);
       if (v1 && Array.isArray(v1.data)) {
-        const m = pickModel(v1.data.map((x) => x.id).filter(Boolean), model) || v1.data[0]?.id || 'local';
-        found = { url, api: 'openai', model: m };
-        return found;
+        const names = v1.data.map((x) => x.id).filter(Boolean);
+        // Con un modelo pedido no se cambia en silencio a otro: si no está, este endpoint no vale.
+        const m = pickModel(names, model) || (model ? null : names[0] || 'local');
+        if (m) { found = { url, api: 'openai', model: m }; return found; }
+        lastProbe.push({ url, api: 'openai', models: names });
+        continue;
       }
+      lastProbe.push({ url, api: null, models: [] });
     }
     return null;
   }
 
+  function notFound() {
+    const seen = lastProbe.filter((p) => p.api);
+    if (model && seen.length) {
+      return `el modelo local ${model} no está disponible: ${seen.map((p) => `${p.url} anuncia ${p.models.length ? p.models.join(', ') : 'ningún modelo'}`).join('; ')}`;
+    }
+    const where = endpoints.filter(isLoopback).join(', ') || 'ningún endpoint loopback';
+    return `no hay modelo local llama.cpp: sin respuesta en ${where} (arranca Eolas con launch-eolas.ps1)`;
+  }
+
   async function ready() {
     let at = await locate();
-    if (!at) throw new Error('no hay modelo local llama.cpp (arranca Eolas con launch-eolas.ps1 o un llama-server en 127.0.0.1:8080)');
+    if (!at) throw new Error(notFound());
     if (started && starter && !starter.running()) { found = null; at = await locate(); }   // se paró por inactividad: otra vez
     if (started) starter?.touch();
     return at;
@@ -137,14 +176,16 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     const fns = tools.map((x) => ({ type: 'function', function: { name: x.name, description: x.description, parameters: x.inputSchema || { type: 'object', properties: {} } } }));
     try {
       let endpoint, body;
+      const runtime = opts() || {};
+      const { num_ctx, num_gpu, num_thread, ...requestOptions } = runtime;
       if (at.api === 'eolas') {
         // API de Eolas (como la de Ollama): argumentos como objeto y resultados de herramienta sin id.
         const msgs = messages.map((m) => (m.tool_calls ? { role: 'assistant', content: m.content || '', tool_calls: m.tool_calls.map((c) => ({ function: { name: c.function.name, arguments: safeJson(c.function.arguments) } })) }
           : m.role === 'tool' ? { role: 'tool', content: m.content, tool_name: m.name } : m));
-        [endpoint, body] = [`${at.url}/api/chat`, { model: at.model, stream: false, messages: msgs, tools: fns, options: { num_ctx: 32768, temperature: opts().temperature ?? 0.2 } }];
+        [endpoint, body] = [`${at.url}/api/chat`, { model: at.model, stream: false, messages: msgs, tools: fns, ...eolasThink(runtime), options: eolasOptions(runtime) }];
       } else {
         [endpoint, body] = [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, tools: fns, tool_choice: 'auto',
-          temperature: 0.2, max_tokens: 4000, chat_template_kwargs: { enable_thinking: false }, ...opts() }];
+          temperature: 0.2, max_tokens: 4000, chat_template_kwargs: { enable_thinking: false }, ...requestOptions }];
       }
       const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) {
@@ -168,11 +209,14 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     token?.onCancellationRequested?.(() => ctrl.abort());
     try {
       const messages = [{ role: 'user', content: prompt }];
+      // Revisión: el mismo perfil (review_reasoning) con Eolas y con llama-server.
+      const runtime = opts({ review: true }) || {};
       const [endpoint, body] = at.api === 'eolas'
-        ? [`${at.url}/api/chat`, { model: at.model, stream: false, messages, options: { num_ctx: 32768, temperature: 0.2 } }]
+        ? [`${at.url}/api/chat`, { model: at.model, stream: false, messages, ...eolasThink(runtime), options: eolasOptions(runtime) }]
         // Sin «modo pensar» (qwen3, gemma…): la revisión va directa y no se dispara el tiempo.
-        : [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, temperature: 0.2, max_tokens: 6000,
-          chat_template_kwargs: { enable_thinking: false }, ...opts({ review: true }), ...(opts({ review: true }).max_tokens ? { max_tokens: Math.max(6000, opts({ review: true }).max_tokens) } : {}) }];
+        : (() => { const o = opts({ review: true }) || {}; const { num_ctx, num_gpu, num_thread, ...requestOptions } = o;
+          return [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, temperature: 0.2, max_tokens: 6000,
+            chat_template_kwargs: { enable_thinking: false }, ...requestOptions, ...(o.max_tokens ? { max_tokens: Math.max(6000, o.max_tokens) } : {}) }]; })();
       const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) {
         let detail = '';
@@ -186,8 +230,13 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     } finally { clearTimeout(t); }
   }
 
-  return { locate, complete, chatTools, name: () => (found ? `${found.model} (llama.cpp local${started ? ', arrancado por Eolfi' : ''})` : 'modelo local llama.cpp'),
+  return { locate, complete, chatTools, diagnose: () => ({ endpoints: [...endpoints], model, probe: lastProbe.map((p) => ({ ...p })), error: found ? null : notFound() }),
+    name: () => (found ? `${found.model} (llama.cpp local${started ? ', arrancado por Eolfi' : ''})` : 'modelo local llama.cpp'),
     reset: () => { found = null; }, stop: () => { if (started) starter?.stop(); started = false; found = null; } };
 }
 
-module.exports = { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS, httpFetch };
+// Integración acordada: Eolas (llama.cpp gestionado por Eolas) con un único modelo Gemma 4 12B.
+const EOLAS_URL = 'http://127.0.0.1:11435';
+const EOLAS_MODEL = 'gemma-4-12b-it:latest';
+
+module.exports = { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS, EOLAS_URL, EOLAS_MODEL, httpFetch };

@@ -290,6 +290,55 @@ function makeActions(vscode) {
       return { written: full, created: !exists, chars: content.length, ...(journal ? { journal } : {}) };
     },
 
+    // Edición parcial: sustituye un fragmento literal (único en el archivo) y escribe el resultado con «write»,
+    // así se conservan la confirmación/diff del modo manual, el diario y «Deshacer». Evita que el modelo tenga que
+    // reescribir un archivo existente entero para cambiar unas líneas.
+    async edit({ path: p, old_text, new_text, start_line, end_line, expect_start, reason = '', auto = false, journal = null } = {}) {
+      const full = resolveInside(vscode, p);
+      if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo modifica (edítalo tú)`);
+      if (typeof new_text !== 'string') throw new ActionError(400, 'new_text inválido');
+      const byLines = (old_text === undefined || old_text === '') && start_line !== undefined;
+      if (!byLines) {
+        if (typeof old_text !== 'string' || !old_text) throw new ActionError(400, 'old_text vacío: copia literalmente el fragmento que quieres cambiar (o usa start_line, end_line y expect_start)');
+        if (old_text === new_text) throw new ActionError(400, 'old_text y new_text son iguales: no hay nada que cambiar');
+      }
+      let bytes;
+      try { bytes = await fs.readFile(U(full)); } catch { throw new ActionError(404, `no existe: ${full} (para crear un archivo usa eolfi_write_file)`); }
+      if (bytes.subarray(0, 8000).includes(0)) throw new ActionError(415, 'archivo binario');
+      const text = Buffer.from(bytes).toString('utf8');
+      if (byLines) {
+        // Rango de líneas (1-based, inclusivo). expect_start es obligatorio: un número de línea desfasado
+        // (el archivo cambió desde que se leyó) no debe sustituir otra cosa en silencio.
+        const lines = text.split('\n');
+        const a = Number(start_line), b = Number(end_line ?? start_line);
+        if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < a || b > lines.length) {
+          throw new ActionError(400, `rango inválido ${start_line}-${end_line}: el archivo tiene ${lines.length} líneas`);
+        }
+        if (typeof expect_start !== 'string' || !expect_start.trim()) throw new ActionError(400, 'expect_start obligatorio: un trozo del texto de la línea start_line');
+        if (!lines[a - 1].includes(expect_start.trim())) {
+          const hit = lines.findIndex((l) => l.includes(expect_start.trim()));
+          throw new ActionError(409, `la línea ${a} no contiene «${expect_start.trim()}»${hit >= 0 ? `; aparece en la línea ${hit + 1}` : ''}: vuelve a leer el rango`);
+        }
+        const eol = lines[a - 1].endsWith('\r') ? '\r' : '';
+        const replaced = lines.slice(a - 1, b).join('\n');
+        const repl = new_text === '' ? [] : new_text.replace(/\r?\n/g, '\n').split('\n').map((l) => l + eol);
+        const content = [...lines.slice(0, a - 1), ...repl, ...lines.slice(b)].join('\n');
+        const r = await actions.write({ path: full, content, reason, auto, journal });
+        return { edited: r.written, written: r.written, lines: [a, b], replaced: replaced.replace(/\r/g, '').slice(0, 4000), ...(journal ? { journal } : {}) };
+      }
+      // Los modelos suelen copiar con \n aunque el archivo use \r\n: se adapta solo si así coincide.
+      const crlf = text.includes('\r\n') && !old_text.includes('\r\n');
+      const oldT = crlf ? old_text.replace(/\n/g, '\r\n') : old_text;
+      const newT = crlf ? new_text.replace(/\r?\n/g, '\r\n') : new_text;
+      const first = text.indexOf(oldT);
+      if (first < 0) throw new ActionError(409, 'old_text no aparece en el archivo: vuelve a leerlo (eolfi_read_file) y copia el fragmento exacto');
+      if (text.indexOf(oldT, first + 1) >= 0) throw new ActionError(409, 'old_text aparece más de una vez: incluye más líneas de contexto para que sea único');
+      const content = text.slice(0, first) + newT + text.slice(first + oldT.length);
+      const r = await actions.write({ path: full, content, reason, auto, journal });
+      const line = text.slice(0, first).split('\n').length;
+      return { edited: r.written, written: r.written, line, removed_chars: oldT.length, added_chars: newT.length, ...(journal ? { journal } : {}) };
+    },
+
     // Informe incremental: añade una sección al final de un .md/.txt del workspace. En modo manual se pide permiso una
     // vez por informe y sesión (no un diff por sección); queda en el diario para «Deshacer estos cambios».
     async append({ path: p, content, journal = null } = {}) {
@@ -377,6 +426,8 @@ const TOOL_DEFS = [
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string', description: 'Sección en Markdown' } }, required: ['path', 'content'] } },
   { name: 'eolfi_write_file', action: 'write', description: 'Crea o reemplaza un archivo del workspace (el usuario lo confirma en VS Code).',
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, reason: { type: 'string' } }, required: ['path', 'content'] } },
+  { name: 'eolfi_edit_file', action: 'edit', description: 'Cambia una parte de un archivo existente sin reescribirlo: o sustituye old_text (copiado literalmente y único en el archivo) por new_text, o sustituye las líneas start_line..end_line por new_text (entonces expect_start, un trozo del texto actual de start_line, es obligatorio; los números de línea los da eolfi_find_text o eolfi_read_file). Para varios cambios, llámala varias veces.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, old_text: { type: 'string', description: 'Fragmento exacto actual (con unas líneas de contexto si hace falta para que sea único)' }, new_text: { type: 'string', description: 'Texto que lo sustituye (vacío = borrar el rango de líneas)' }, start_line: { type: 'number', description: 'Primera línea a sustituir (1-based), en lugar de old_text' }, end_line: { type: 'number', description: 'Última línea a sustituir (incluida)' }, expect_start: { type: 'string', description: 'Trozo del texto actual de start_line, para comprobar que el número no está desfasado' }, reason: { type: 'string' } }, required: ['path', 'new_text'] } },
 ];
 
 module.exports = { makeActions, TOOL_DEFS, ActionError, resolveInside, isSecretPath, findFolderByName, folders, norm };

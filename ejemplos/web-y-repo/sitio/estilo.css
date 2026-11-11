@@ -1,0 +1,3 @@
+:root { --fondo: #fdfcf8; --tinta: #222; }
+body { font-family: system-ui, sans-serif; background: var(--fondo); color: var(--tinta); margin: 0 auto; max-width: 40rem; }
+header { display: flex; justify-content: space-between; align-items: baseline; }

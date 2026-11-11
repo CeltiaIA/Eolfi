@@ -24,7 +24,6 @@ import sys
 import threading
 import time
 import traceback
-from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -95,6 +94,9 @@ class EolfiApp:
         self._jobs: dict[str, threading.Lock] = {}
         self._jobs_guard = threading.Lock()
         self.jobs: dict[str, dict[str, Any]] = {}   # trabajos en segundo plano (id -> estado)
+        # Actividad efímera del agente de VS Code: solo progreso, nunca prompts/resultados.
+        self._vscode_activity_lock = threading.Lock()
+        self._vscode_activity_runs: dict[str, dict[str, Any]] = {}
         self._tl = threading.local()
         # Como mucho MAX_RUNNING trabajos a la vez; el resto espera «en cola» (PLAN_MEJORAS M2).
         self._slots = threading.BoundedSemaphore(self.MAX_RUNNING)
@@ -254,6 +256,40 @@ class EolfiApp:
                 if k in job:
                     out[k] = job[k]
         return out
+
+    def vscode_activity(self, _q=None) -> dict[str, Any]:
+        with self._vscode_activity_lock:
+            runs = sorted(self._vscode_activity_runs.values(), key=lambda x: x["updated"], reverse=True)
+            return {"activity": runs[:10]}
+
+    def update_vscode_activity(self, body: dict[str, Any]) -> dict[str, Any]:
+        run_id = str(body.get("run_id") or "")
+        phase = str(body.get("phase") or "")
+        if not re.fullmatch(r"[0-9a-f]{32}", run_id) or phase not in ("start", "progress", "done", "error"):
+            raise ApiError(400, "run_id o phase inválido")
+        from eolfi.security.privacy import redact
+        message = redact(str(body.get("message") or "")[:500])[0]
+        label = redact(str(body.get("label") or "Chat de Eolfi")[:120])[0]
+        now = time.time()
+        with self._vscode_activity_lock:
+            run = self._vscode_activity_runs.get(run_id)
+            if phase == "start":
+                run = {"run_id": run_id, "label": label, "status": "running", "started": now, "log": []}
+                self._vscode_activity_runs[run_id] = run
+            elif run is None:
+                raise ApiError(404, "actividad de VS Code no encontrada")
+            if phase == "progress" and message:
+                run["log"].append({"t": round(now - run["started"], 1), "msg": message})
+                del run["log"][:-100]
+            elif phase in ("done", "error"):
+                run["status"] = "done" if phase == "done" else "error"
+                run["finished"] = now
+                if message:
+                    run["log"].append({"t": round(now - run["started"], 1), "msg": message})
+            run["updated"] = now
+            for old_id, _ in sorted(self._vscode_activity_runs.items(), key=lambda item: item[1]["updated"], reverse=True)[20:]:
+                del self._vscode_activity_runs[old_id]
+            return {"activity": run}
 
     def cancel_job(self, q: dict[str, str]) -> dict[str, Any]:
         job = self.jobs.get(q.get("id", ""))
@@ -1311,6 +1347,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/vscode/status": app.vscode_status, "/api/clients": app.clients,
                         "/api/subjects": app.subjects, "/api/evidence": app.evidence,
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
+                        "/api/vscode/activity": app.vscode_activity,
                     }
                     if path in routes:
                         return self._json(200, routes[path](q))
@@ -1353,6 +1390,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             "Content-Disposition": f'attachment; filename="eolfi.{fmt}"'})
                     raise ApiError(404, "ruta no encontrada")
                 if method == "POST":
+                    if path == "/api/vscode/activity":
+                        if self.headers.get("X-Eolfi-Client") != "vscode":
+                            raise ApiError(403, "solo la extensión vinculada de VS Code puede publicar actividad")
+                        return self._json(200, app.update_vscode_activity(self._obj()))
                     if path == "/api/triage":
                         body = self._obj()
                         return self._json(200, app.triage_path(body))

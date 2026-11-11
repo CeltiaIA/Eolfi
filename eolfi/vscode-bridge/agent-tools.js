@@ -111,7 +111,7 @@ const DEFS = {
 };
 
 function makeAgentTools({ vscode, isSecretPath, resolveInside, log = () => {}, record = () => {}, ask, enabled = () => ({ terminal: true, web: true, privateNetwork: false }),
-  spawnFn = spawn, fetchFn = null, lookup = dns.lookup, platform = process.platform, runInTerminal = null }) {
+  spawnFn = spawn, fetchFn = null, lookup = dns.lookup, platform = process.platform, runInTerminal = null, killFn = (pid, sig) => process.kill(pid, sig) }) {
   const session = { terminal: false, web: false };
 
   async function permit(kind, what) {
@@ -131,16 +131,29 @@ function makeAgentTools({ vscode, isSecretPath, resolveInside, log = () => {}, r
       const [bin, args] = platform === 'win32'
         ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${cmd}`]]
         : ['bash', ['-lc', cmd]];
-      const p = spawnFn(bin, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const p = spawnFn(bin, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: platform !== 'win32' });
       let out = '';
       const add = (d) => { if (out.length < MAX_OUT) out += String(d); };
       p.stdout.on('data', add);
       p.stderr.on('data', add);
-      const kill = () => { try { p.kill(); } catch { /* ya terminó */ } };
+      // Mata el árbol completo: en Windows p.kill() solo termina powershell.exe y deja vivos sus hijos.
+      let killed = false;
+      const kill = () => {
+        if (killed) return;
+        killed = true;
+        try {
+          if (platform === 'win32' && p.pid) {
+            // Si taskkill no se puede lanzar, su «error» sin oyente tumbaría el host de extensiones: se cae a p.kill().
+            const tk = spawnFn('taskkill', ['/PID', String(p.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+            tk?.on?.('error', () => { try { p.kill(); } catch { /* ya terminó */ } });
+          } else if (p.pid) killFn(-p.pid, 'SIGKILL');
+          else p.kill();
+        } catch { try { p.kill(); } catch { /* ya terminó */ } }
+      };
       const timer = setTimeout(() => { out += `\n[Eolfi: cortado a los ${seconds} s]`; kill(); }, seconds * 1000);
       token?.onCancellationRequested?.(kill);
       p.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, out: `no se pudo ejecutar: ${e.message}` }); });
-      p.on('close', (code) => { clearTimeout(timer); resolve({ code, out: out.slice(0, MAX_OUT) }); });
+      p.on('close', (code) => { killed = true; clearTimeout(timer); resolve({ code, out: out.slice(0, MAX_OUT) }); });
     });
   }
 

@@ -4,10 +4,10 @@ La configuración vive en ~/.eolfi/llamacpp.json (EOLFI_LLAMACPP_CONFIG) y la co
 (proveedor «gemma») y la extensión de VS Code (@eolfi con el modelo local). Campos:
 
   server          llama-server.exe (vacío = el primero que se encuentre)
-  model           .gguf (vacío = Gemma 4: E4B si existe, si no 12B)
   port            puerto en 127.0.0.1 (8090)
   ctx             contexto en tokens (32768: los lotes de la auditoría llegan a ~20 000)
   gpu_layers      capas en la GPU (99 = todas las que quepan)
+  threads         hilos CPU para generación y procesamiento de lotes (0 = automático)
   reasoning       razonamiento del modelo en el agente y el modo asistido (true)
   review_reasoning razonamiento en las revisiones de la auditoría archivo por archivo (false: más rápido)
   show_reasoning  mostrar el razonamiento en el chat (true)
@@ -33,18 +33,17 @@ SERVER_CANDIDATES = [
     Path(r"D:\EOLAS-BASE\llama\llama-server.exe"),
 ]
 GEMMA_CANDIDATES = [
-    Path.home() / ".eolfi" / "models" / "gemma-4-E4B-it-Q4_K_M.gguf",
-    Path(r"D:\LMStudio\models\lmstudio-community\gemma-4-E4B-it-GGUF\gemma-4-E4B-it-Q4_K_M.gguf"),
     Path(r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q5_K_M.gguf"),
 ]
 
 DEFAULTS: dict[str, Any] = {
     "server": "",
     "model": "",
-    "alias": "gemma-4",
+    "alias": "gemma-4-12b-it:latest",
     "port": 8090,
     "ctx": 32768,
     "gpu_layers": 99,
+    "threads": 0,
     "reasoning": True,
     "review_reasoning": False,
     "show_reasoning": True,
@@ -102,8 +101,10 @@ def base_url(cfg: dict[str, Any] | None = None) -> str:
 
 def server_args(cfg: dict[str, Any]) -> list[str]:
     """Solo 127.0.0.1; plantillas jinja (herramientas) y razonamiento separado en reasoning_content."""
+    threads = int(cfg.get("threads") or 0)
     return [cfg["server"], "-m", cfg["model"], "--host", "127.0.0.1", "--port", str(cfg["port"]), "-c", str(cfg["ctx"]),
             "-ngl", str(cfg["gpu_layers"]), "--alias", cfg["alias"], "--jinja", "--reasoning-format", "deepseek",
+            *(["--threads", str(threads), "--threads-batch", str(threads)] if threads > 0 else []),
             *[str(a) for a in cfg.get("extra_args") or []]]
 
 

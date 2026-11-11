@@ -5,7 +5,8 @@
 // una vez y queda guardada en el perfil del puente. Eolfi envía las peticiones a
 // una pasarela local con token; cada envío pide tu permiso en un diálogo.
 // Automatizar estas webs puede ir contra sus condiciones de uso: úsalo bajo tu cuenta y responsabilidad.
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, session } from 'electron';
+import { allowedNavigation as policyAllowed, siteSuffixes, permissionDecision, DENIED_PERMISSIONS, electronEngineWarning } from './policy.mjs';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -29,8 +30,9 @@ const SITES = {
 // EOLFI_BRIDGE_CHATS=deepseek,gemini,chatgpt limita qué ventanas se abren al arrancar.
 for (const [name, cfg] of Object.entries(loadSites())) {
   SITES[name] = { url: cfg.home, origin: cfg.origin, Adapter: makeDeclarativeAdapter(cfg), title: cfg.title,
-    authHostSuffixes: cfg.authHostSuffixes || [] };
+    authHostSuffixes: [...siteSuffixes(name), ...(cfg.authHostSuffixes || [])] };
 }
+for (const name of ['deepseek', 'gemini', 'meta']) SITES[name].authHostSuffixes = siteSuffixes(name);
 const STARTUP = (process.env.EOLFI_BRIDGE_CHATS || 'deepseek,gemini,meta,lechat').split(',').map((s) => s.trim()).filter((s) => SITES[s]);
 const AUTH_HOSTS = new Set(['accounts.google.com', 'myaccount.google.com', 'appleid.apple.com', 'account.apple.com',
   'auth.meta.com', 'accountscenter.meta.com', 'www.facebook.com', 'www.instagram.com']);
@@ -44,7 +46,8 @@ let browserEngine = null;
 if (ENGINE !== 'electron') {
   try {
     const exe = findBrowser(process.env.EOLFI_BROWSER || '');
-    if (exe) { browserEngine = new ChromeEngine({ browser: exe, log: (m) => console.log(m) }); ENGINE = 'browser'; }
+    if (exe) { browserEngine = new ChromeEngine({ browser: exe, log: (m) => console.log(m),
+      policy: { allowed: (name, url) => allowedNavigation(name, url), deniedPermissions: DENIED_PERMISSIONS } }); ENGINE = 'browser'; }
     else ENGINE = 'electron';
   } catch (e) {
     console.error(String(e.message || e));
@@ -53,6 +56,8 @@ if (ENGINE !== 'electron') {
   }
 }
 const engineLabel = () => (ENGINE === 'browser' ? browserEngine.name : 'Electron');
+const ENGINE_WARNING = electronEngineWarning(ENGINE, app.isPackaged);
+if (ENGINE_WARNING) console.warn(ENGINE_WARNING);
 
 // Adaptador "en reposo" para el estado cuando la ventana del sitio está cerrada (no la reabre).
 const closed = (name) => ({ status: async () => ({ ok: false, detail: `Ventana de ${SITES[name].title} cerrada: se abrirá al enviar o al pulsar su pestaña` }) });
@@ -67,16 +72,15 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function allowedNavigation(name, target) {
-  try {
-    const u = new URL(target);
-    return u.protocol === 'https:' && (u.origin === SITES[name].origin || AUTH_HOSTS.has(u.hostname) || u.hostname.endsWith('.google.com') || u.hostname.endsWith('.deepseek.com') || u.hostname.endsWith('.meta.ai')
-      || (SITES[name].authHostSuffixes || []).some((h) => u.hostname === h || (h.startsWith('.') && u.hostname.endsWith(h))));
-  } catch { return false; }
+  return policyAllowed(SITES[name], target, AUTH_HOSTS);
 }
 
 function openWindow(name) {
   if (windows[name] && !windows[name].isDestroyed()) return windows[name];
   const site = SITES[name];
+  const ses = session.fromPartition(`persist:eolfi-${name}`);
+  ses.setPermissionRequestHandler((wc, perm, cb, details) => cb(permissionDecision(SITES[name], perm, details?.requestingUrl || wc.getURL())));
+  ses.setPermissionCheckHandler((wc, perm, origin) => permissionDecision(SITES[name], perm, origin));
   const win = new BrowserWindow({
     width: 1100, height: 820, title: `Eolfi · ${site.title}`,
     webPreferences: { partition: `persist:eolfi-${name}`, contextIsolation: true, sandbox: true, nodeIntegration: false },

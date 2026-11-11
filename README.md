@@ -84,7 +84,10 @@ python -m eolfi resilience fuzz ./semilla --iters 200
 python -m eolfi resilience inject ./miprograma
 ```
 
-La base de evidencias por defecto es `eolfi.db` (cámbiala con `--db`).
+La base de evidencias por defecto es `~/.eolfi/eolfi.db` (o `EOLFI_HOME`); cámbiala con `--db` o `EOLFI_DB`.
+Si en la carpeta actual hay una `eolfi.db` antigua y aún no existe la de `~/.eolfi`, la primera ejecución la
+**copia** allí (con la API de copia de SQLite) y lo avisa; la original se conserva sin cambios. Contiene los
+tokens de los clientes del panel: no la copies junto con el código.
 Con `EOLFI_DEBUG=1` los errores muestran el traceback completo.
 
 ## Casos de análisis
@@ -258,7 +261,7 @@ en ella.
 
 ```bash
 pip install "eolfi[ai]"          # SDK oficial de Anthropic; credenciales: ANTHROPIC_API_KEY o `ant auth login`
-python -m eolfi create --from https://una-web.com/ --out D:/p/tienda --verify \
+python -m eolfi create --from https://una-web.com/ --out D:/p/tienda \
     --ai "Catálogo de bicis con filtro por precio y carrito con total"
 python -m eolfi assist D:/p/tienda --brief "Añade búsqueda en el catálogo"
 ```
@@ -400,6 +403,11 @@ python -m eolfi vscode-do open --path src/app.py --line 40
   sin uso (`eolfi.fallback.autoStart`, `eolfi.fallback.llamaServer`, `eolfi.fallback.gguf`).
   El **agente** (`@eolfi` con herramientas) también sigue en local cuando todos los modelos de Copilot con
   herramientas están limitados: llama.cpp con llamadas a herramientas (`--jinja`) y las mismas herramientas.
+- **Autoarranque de Eolas** (`eolfi.fallback.autoStart`): si Eolas no responde, Eolfi ejecuta el lanzador de CeltIA
+  (`launch-eolas.ps1 -Detach -NoBrowser`). No hay ruta fija: se toma de `eolfi.fallback.eolasLauncher` (p. ej.
+  `D:\celtiaia\launch-eolas.ps1`) o, si está vacío, de `%CELTIAIA_HOME%\launch-eolas.ps1`; sin ninguno, el autoarranque
+  no se ejecuta y lo dice. Antes de ejecutarlo se anota su SHA-256 en la salida «Eolfi»; con
+  `eolfi.fallback.eolasLauncherSha256` se exige ese hash y, si no coincide, no se ejecuta.
 - **Auditoría archivo por archivo** (`@eolfi /auditar [carpeta]`, o «audita … archivo por archivo»): la dirige Eolfi,
   no el modelo. Inventario de todo el código (sin dependencias, compilados, `samples`, minificados ni secretos), lotes
   de hasta 5 archivos (los grandes por partes, con números de línea) con una plantilla fija (propósito, seguridad,
@@ -479,6 +487,14 @@ python -m eolfi assist D:/p/tienda --provider meta-web --brief "Añade ofertas"
   reutiliza esas sesiones.
 - **Sesiones persistentes**: inicias sesión una vez en cada chat y el perfil de
   Eolfi la conserva entre reinicios (también si cierras el navegador).
+- **Motor Electron (`--engine electron` o sin navegador instalado)**: se ejecuta con
+  `electron .` sin empaquetar, y Electron 45 de serie trae el fusible
+  `EnableCookieEncryption` deshabilitado y `RunAsNode`, `NODE_OPTIONS` e `--inspect`
+  habilitados. Por eso las sesiones de las ventanas (`persist:eolfi-*`) se guardan
+  **sin ese cifrado de cookies**; el puente lo avisa al arrancar. El motor
+  recomendado es tu navegador real (el predeterminado si hay uno instalado).
+  Empaquetar con `@electron/fuses` lo resolvería, pero requiere instalar esa
+  dependencia y no está hecho.
 - **Control por tubería privada**: el puente controla su Chrome con
   `--remote-debugging-pipe`, sin ningún puerto de depuración TCP; ningún otro
   programa ni usuario del equipo puede conectarse a él ni leer sus cookies. Al
@@ -487,7 +503,7 @@ python -m eolfi assist D:/p/tienda --provider meta-web --brief "Añade ofertas"
   panel (lo que tecleas tú); solo el panel puede ver y manejar la ventana. El estado indica si cada chat está "con
   sesión" o en "modo invitado".
 - `--provider web` elige solo el primer chat listo, prefiriendo los que tienen
-  sesión (orden configurable con `EOLFI_WEB_ORDER=gemini,meta,deepseek`).
+  sesión (orden configurable con `EOLFI_WEB_ORDER=meta,deepseek,gemini`).
 - La respuesta se da por terminada en cuanto la web retira su botón de
   "Detener respuesta" (~0,2-0,6 s de margen); el resto del tiempo es la web
   generando en sus servidores.
@@ -574,6 +590,21 @@ tests/         pruebas (pytest) con muestras sintéticas
 comprobada (plan, observación, especificación, reconstrucción, equivalencia, informe y borrado) con una muestra
 sintética propia y criterios de aceptación por paso. La CI la ejecuta tal cual (`tests/test_guia_caja_negra.py`).
 
+Otras guías con el mismo formato, también ejecutadas en la CI:
+
+- [`ejemplos/api-http/GUIA.md`](ejemplos/api-http/GUIA.md): de una API HTTP sin fuentes a una API reconstruida
+  (`reconstruct --target python-http`) que solo responde a lo observado (501 para lo no observado, 503 para lo
+  pendiente).
+- [`ejemplos/triaje-y-diff/GUIA.md`](ejemplos/triaje-y-diff/GUIA.md): triaje local de un WebAssembly, informe con
+  umbral `--fail-on` para CI y verificación diferencial de una reimplementación.
+- [`ejemplos/web-y-repo/GUIA.md`](ejemplos/web-y-repo/GUIA.md): análisis de un sitio estático y de un repositorio
+  locales, y creación de un proyecto nuevo a partir del sitio (`create`), con lo que se observa y lo que se añade.
+- [`ejemplos/puente/GUIA.md`](ejemplos/puente/GUIA.md): el puente de chats web. Iniciar sesión y usarlo con tus
+  cuentas (laboratorio) y, en la CI, un cambio completo con la pasarela real y un chat simulado, el permiso
+  denegado y las protecciones de la pasarela.
+- [`ejemplos/agente-vscode/GUIA.md`](ejemplos/agente-vscode/GUIA.md): el agente @eolfi en VS Code (laboratorio) y,
+  en la CI, el servidor MCP de Eolfi por stdio y lo que declara la extensión.
+
 ## Pruebas
 
 ```bash
@@ -603,6 +634,10 @@ cd eolfi/vscode-bridge && node e2e/local-eolas-live.js
 - Observación aislada en contenedor (`tests/test_container.py`): se ejecuta si Docker tiene la imagen
   `python:3.12-slim` (o la de `EOLFI_TEST_IMAGE`) en local; si no, se omite. Eolfi nunca la descarga.
 - Escritorio con UI Automation (`tests/test_observe.py`) solo en Windows; el registro, solo en Windows.
+- Los pasos de escritorio pueden incluir `"screenshots": true`: guardan hasta 20 imágenes JPEG por paso, limitadas
+  a 1280×800 y 256 KiB cada una, y las muestran en el informe HTML del caso. Es opcional; las imágenes no reciben
+  redacción automática de datos visuales, así que habilítalo solo si el contenido de esa ventana se puede conservar.
+- La observación de interfaz móvil sigue sin implementarse; exige herramientas Android y un dispositivo/emulador autorizado.
 
 ## Android
 

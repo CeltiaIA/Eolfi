@@ -28,6 +28,34 @@ test('cliente MCP: inicializa, pagina tools/list y llama herramientas', async ()
   } finally { c.dispose(); }
 });
 
+test('cliente MCP: gestiona fallos stdin y limita tramas stdout por bytes UTF-8', async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const c = new McpClient(FAKE, { timeoutMs: 100 });
+  const proc = new EventEmitter();
+  proc.stdout = new PassThrough();
+  proc.stderr = new PassThrough();
+  proc.stdin = { write: (_data, cb) => cb(new Error('pipe cerrado')) };
+  proc.kill = () => proc.emit('exit', 1);
+  c.proc = proc;
+  await assert.rejects(c.request('tools/list'), /pipe cerrado/);
+  // El límite se ejercita en el listener real instalado al arrancar; un frame gigante
+  // debe cerrar el proceso y limpiar solicitudes pendientes.
+  for (const frame of ['x'.repeat(1024 * 1024 + 1), 'é'.repeat(1024 * 512 + 1)]) {
+    const oversized = new McpClient(FAKE);
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.stdin = { write: () => {} };
+    child.kill = () => child.emit('exit', 1);
+    oversized.spawnFn = () => child;
+    const pending = oversized.listTools();
+    await new Promise((resolve) => setImmediate(resolve));
+    child.stdout.write(frame);
+    await assert.rejects(pending, /REA se cerró/);
+    oversized.dispose();
+  }
+});
+
 test('stringsIn recoge todas las cadenas de unos argumentos', () => {
   assert.deepStrictEqual(stringsIn({ a: 'x', b: [1, 'y', { c: 'z' }] }), ['x', 'y', 'z']);
 });

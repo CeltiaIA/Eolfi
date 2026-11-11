@@ -1,0 +1,16 @@
+{
+  "eolfi_observation_script": 1,
+  "name": "notas: salud, lectura, validación, errores y un contador",
+  "authorization": "muestra sintética propia del proyecto Eolfi (ejemplos/api-http/servidor.py)",
+  "steps": [
+    {"id": "salud", "action": "http", "url": "http://127.0.0.1:{var:port}/api/salud"},
+    {"id": "nota", "action": "http", "url": "http://127.0.0.1:{var:port}/api/notas/1"},
+    {"id": "nota_inexistente", "action": "http", "url": "http://127.0.0.1:{var:port}/api/notas/99"},
+    {"id": "validar", "action": "http", "method": "POST", "url": "http://127.0.0.1:{var:port}/api/validar",
+     "headers": {"Content-Type": "application/json"}, "body": {"json": {"texto": "hola"}}},
+    {"id": "validar_vacio", "action": "http", "method": "POST", "url": "http://127.0.0.1:{var:port}/api/validar",
+     "headers": {"Content-Type": "application/json"}, "body": {"json": {}}},
+    {"id": "visitas1", "action": "http", "url": "http://127.0.0.1:{var:port}/api/visitas"},
+    {"id": "visitas2", "action": "http", "url": "http://127.0.0.1:{var:port}/api/visitas"}
+  ]
+}

@@ -105,7 +105,7 @@ def redact(text: str) -> tuple[str, dict[str, int]]:
     sub(_DNI, "dni", lambda m: _dni_ok(*m.groups()))
     sub(_IPV4, "ip", _public_ip)
     sub(_PHONE, "telefono", lambda m: 9 <= len(re.sub(r"\D", "", m.group(0))) <= 15
-        and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", m.group(0).strip()))
+        and not re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:[ T]\d{2})?", m.group(0).strip()))   # fecha (y hora)
     return text, found
 
 

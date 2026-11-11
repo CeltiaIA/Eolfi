@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const PROTOCOL = '2025-06-18';
 const MAX_RESULT = 100000;
+const MAX_FRAME = 1024 * 1024;
 
 // { command, args, env } del servidor REA, o null si no hay ninguno configurado.
 function reaConfig({ command, args, configFile } = {}) {
@@ -67,11 +68,21 @@ class McpClient {
       this.proc.stdout.setEncoding('utf8');
       this.proc.stdout.on('data', (chunk) => {
         buf += chunk;
+        if (Buffer.byteLength(buf, 'utf8') > MAX_FRAME && !buf.includes('\n')) {
+          this.log('MCP: trama stdout excede el límite; cerrando el servidor');
+          this.proc?.kill();
+          return;
+        }
         let i;
         while ((i = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, i).trim();
           buf = buf.slice(i + 1);
           if (!line) continue;
+          if (Buffer.byteLength(line, 'utf8') > MAX_FRAME) {
+            this.log('MCP: trama stdout excede el límite; cerrando el servidor');
+            this.proc?.kill();
+            return;
+          }
           let msg;
           try { msg = JSON.parse(line); } catch { continue; }
           const p = msg.id !== undefined && this.pending.get(msg.id);
@@ -116,7 +127,20 @@ class McpClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`REA no respondió a ${method} en ${Math.round(timeoutMs / 1000)} s`)); }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params: params || {} })}\n`);
+      try {
+        this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params: params || {} })}\n`, (error) => {
+          if (!error) return;
+          const pending = this.pending.get(id);
+          if (!pending) return;
+          this.pending.delete(id);
+          clearTimeout(pending.timer);
+          pending.reject(error);
+        });
+      } catch (error) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(error);
+      }
     });
   }
 

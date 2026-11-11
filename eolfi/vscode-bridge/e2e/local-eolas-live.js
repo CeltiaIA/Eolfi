@@ -9,7 +9,7 @@ const path = require('node:path');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-live-local-'));
 process.env.EOLFI_AUDIT_DIR = path.join(tmp, 'audits');
 const { makeChatHandler } = require('../chat');
-const { makeLocalModel } = require('../local-model');
+const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('../local-model');
 const llamacfg = require('../llamacpp-config');
 
 const proj = path.join(tmp, 'proyecto');
@@ -45,8 +45,11 @@ const workspaceTools = [
   { name: 'eolfi_list_files', action: 'list', description: 'Lista archivos del workspace.', inputSchema: { type: 'object', properties: { glob: { type: 'string' } } } },
 ];
 
+// Solo Eolas y el modelo exacto: ni otro puerto (8090/8080) ni otro modelo, ni arranque de servidores.
 const cfg = llamacfg.loadConfig({});
-const localModel = makeLocalModel({ endpoints: [`http://127.0.0.1:${cfg.port}`, 'http://127.0.0.1:11435', 'http://127.0.0.1:8080'],
+const url = process.env.EOLFI_LOCAL_URL || EOLAS_URL;
+const wanted = process.env.EOLFI_LOCAL_MODEL || EOLAS_MODEL;
+const localModel = makeLocalModel({ endpoints: [url], model: wanted, starter: null, allowStart: async () => false,
   options: (o) => llamacfg.requestOptions(cfg, o) });
 
 function stream() {
@@ -58,21 +61,33 @@ function stream() {
   const res = [];
   const step = (name, ok, detail = '') => { res.push({ name, ok: !!ok }); console.log(`${ok ? '✓' : '✗'} ${name}${detail ? ` — ${String(detail).replace(/\s+/g, ' ').slice(0, 300)}` : ''}`); };
   const token = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} }) };
+  const fail = (where) => { console.log(`\nRESULTADO: FALLA en «${where}». Carpeta de la prueba: ${tmp}`); process.exit(1); };
   const at = await localModel.locate().catch(() => null);
-  step('Eolas / modelo local en marcha', at, at ? `${at.url} · ${at.model} (${at.api})` : 'no responde: arranca Eolas con «npm start» en D:\\celtiaia');
-  if (!at) { console.log('\nRESULTADO: FALLA (sin modelo local)'); process.exit(1); }
+  step('API: Eolas responde y anuncia el modelo esperado', at && at.api === 'eolas' && at.model === wanted,
+    at ? `${at.url} · ${at.model} (${at.api})` : localModel.diagnose().error);
+  if (!at || at.api !== 'eolas' || at.model !== wanted) fail(at ? 'selección del modelo' : 'API');
 
   const h = makeChatHandler({ vscode, summarize: () => '', state: {}, getClient: async () => ({}), actions, workspaceTools,
-    localModel, preferLocal: () => true, workMode: () => 'automatico', maxSteps: () => 8 });
+    localModel, preferLocal: () => true, workMode: () => 'automatico', maxSteps: () => 8, localConfig: () => cfg });
 
-  // 1) Agente con herramientas: tiene que LEER notas.txt para saber la palabra clave.
+  // 0) Respuesta directa (sin herramientas): la carga del modelo y la primera generación.
   let t0 = Date.now();
   let [s, rec] = stream();
+  try {
+    const r = await h({ prompt: 'Responde únicamente con la palabra: PONG' }, { history: [] }, s, token);
+    step('chat: respuesta directa visible', /PONG/i.test(rec.md), `${Math.round((Date.now() - t0) / 1000)} s · ${rec.md.slice(-160)}`);
+    step('chat: modelo/proveedor registrados', String(r?.metadata?.model || '').includes(wanted), r?.metadata?.model);
+  } catch (e) { step('chat: respuesta directa sin errores', false, e.message); }
+  if (!res.every((x) => x.ok)) fail('chat');
+
+  // 1) Agente con herramientas: tiene que LEER notas.txt para saber la palabra clave.
+  t0 = Date.now();
+  [s, rec] = stream();
   try {
     const r = await h({ prompt: 'Lee el archivo notas.txt con la herramienta eolfi_read_file y dime cuál es la palabra clave. Responde solo con la palabra clave.' }, { history: [] }, s, token);
     step('agente: usó la herramienta de leer archivos', toolsUsed.some((x) => /notas\.txt/.test(x)), toolsUsed.join(', '));
     step('agente: respondió con el contenido real (CALABAZA-42)', /CALABAZA-42/.test(rec.md), rec.md.slice(-200));
-    step('agente: lo hizo el modelo local', /local/i.test(String(r?.metadata?.model || '')), `${r?.metadata?.model} · ${Math.round((Date.now() - t0) / 1000)} s`);
+    step('agente: lo hizo el modelo de Eolas', String(r?.metadata?.model || '').includes(wanted),`${r?.metadata?.model} · ${Math.round((Date.now() - t0) / 1000)} s`);
   } catch (e) { step('agente: sin errores', false, e.message); }
 
   // 2) /auditar de una carpeta pequeña: revisión archivo a archivo, verificación y resumen, todo en local.

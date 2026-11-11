@@ -83,7 +83,8 @@ def observables(step: dict[str, Any]) -> list[tuple[str, Any]]:
             p = a.get("id", "?")
             obs_ += [(f"{p}.estado", a.get("status")),
                      (f"{p}.ventanas", [w.get("title") for w in a.get("windows", [])]),
-                     (f"{p}.interfaz", a.get("windows_sha256"))]
+                     (f"{p}.interfaz", a.get("windows_sha256")),
+                     (f"{p}.captura visual", (a.get("screenshot") or {}).get("sha256"))]
     effects = step.get("effects", {})
     obs_.append(("archivos", _file_effects(effects.get("files", []))))
     if "registry" in effects:

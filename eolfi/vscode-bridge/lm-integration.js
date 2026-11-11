@@ -48,7 +48,8 @@ function pythonCommand(vscode, { platform = process.platform, localAppData = pro
 
 function mcpDefinition(vscode, version) {
   const c = vscode.workspace.getConfiguration('eolfi');
-  const db = String(c.get('mcp.db') || '').trim() || path.join(EOLFI_ROOT, 'eolfi.db');
+  // Sin ajuste, Eolfi elige la base (EOLFI_DB o ~/.eolfi/eolfi.db, la misma que el panel y la CLI).
+  const db = String(c.get('mcp.db') || '').trim();
   const roots = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
   const env = { PYTHONPATH: EOLFI_ROOT, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' };
   const library = String(c.get('mcp.library') || '').trim();
@@ -57,7 +58,7 @@ function mcpDefinition(vscode, version) {
   if (c.get('mcp.restrictToWorkspace') !== false && roots.length) {
     env.EOLFI_ROOTS = [...roots, path.join(EOLFI_ROOT, 'samples')].join(path.delimiter);
   }
-  const def = new vscode.McpStdioServerDefinition('Eolfi', pythonCommand(vscode), ['-m', 'eolfi', '--db', db, 'mcp'], env, version);
+  const def = new vscode.McpStdioServerDefinition('Eolfi', pythonCommand(vscode), ['-m', 'eolfi', ...(db ? ['--db', db] : []), 'mcp'], env, version);
   try { def.cwd = vscode.Uri.file(EOLFI_ROOT); } catch { /* versiones sin cwd */ }
   return def;
 }

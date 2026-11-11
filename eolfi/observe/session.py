@@ -87,6 +87,17 @@ class _Normalizer:
         except UnicodeDecodeError:
             return b
 
+    def path_data(self, b: bytes) -> bytes:
+        """Normaliza rutas del sandbox para reconstrucción sin sustituir valores de entorno observados."""
+        try:
+            text = b.decode("utf-8").replace("\r\n", "\n")
+        except UnicodeDecodeError:
+            return b
+        for path in self.paths:
+            text = text.replace(path, "{sandbox}")
+            text = text.replace(path.replace("\\", "\\\\"), "{sandbox}")
+        return text.encode("utf-8")
+
 
 def _output(data: bytes, norm: _Normalizer) -> dict[str, Any]:
     try:
@@ -395,7 +406,8 @@ def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[st
             return {"status": "error", "error": f"{type(exc).__name__}: {exc}", "duration_ms": 0}
         rpath = Path(tmp, "request.json")
         rpath.write_text(json.dumps({"pid": proc.pid, "timeout_ms": int(step["timeout"] * 1000),
-                                     "actions": step["actions"], "close": step["close"]}), encoding="utf-8")
+                                     "actions": step["actions"], "close": step["close"],
+                                     "screenshots": step.get("screenshots", False)}), encoding="utf-8")
         res: dict[str, Any]
         try:
             drv = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass",
@@ -424,7 +436,27 @@ def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[st
         wins = a.get("windows") or []
         a["windows"] = [normalize_window(w) for w in (wins if isinstance(wins, list) else [wins])]
         a["windows_sha256"] = _sha(json.dumps(a["windows"], sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        shot = a.get("screenshot")
+        if isinstance(shot, dict) and shot.get("status") == "captured":
+            encoded = shot.pop("data_base64", "")
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError):
+                shot.clear()
+                shot.update(status="invalid_capture")
+            else:
+                actual_sha = _sha(data)
+                if len(data) != shot.get("bytes") or actual_sha != shot.get("sha256"):
+                    shot.clear()
+                    shot.update(status="integrity_error")
+                else:
+                    shot["data_base64"] = encoded
+                    shot["sha256"] = actual_sha
+        if step.get("screenshots") and (not isinstance(shot, dict) or shot.get("status") != "captured"):
+            res["status"] = "partial"
+            res["error"] = f"captura visual no completa: {shot.get('status') if isinstance(shot, dict) else 'sin resultado'}"
     rec: dict[str, Any] = {"status": res.get("status", "error"), "duration_ms": round((time.monotonic() - t0) * 1000),
+                           "screenshots_requested": step.get("screenshots", False),
                            "driver": {"name": "Windows UI Automation (PowerShell)", "path": shell},
                            "actions": actions, "exit_code": proc.returncode,
                            "exit_status": probes.exit_status(proc.returncode), "killed_after_close": killed,
@@ -441,12 +473,20 @@ def _ui_desktop_coverage(steps: list[dict[str, Any]]) -> Any:
     desk = [s for s in steps if s["action"] == "desktop"]
     if not desk:
         return "not_requested"
+    if all(s["status"] == "unavailable" for s in desk):
+        return {"status": "not_available", "reason": "; ".join(sorted({s["error"] for s in desk}))}
     if all(s["status"] == "ok" for s in desk):
+        requested = any(s.get("screenshots_requested") for s in desk)
         return {"status": "observed", "method": "Windows UI Automation",
+                "screenshots": "captured" if requested else "not_requested",
                 "limits": "árbol de accesibilidad acotado (300 elementos por ventana) de las ventanas del proceso "
-                          "lanzado; sin capturas de imagen; controles sin UI Automation no se ven"}
-    return {"status": "partial", "reason": "; ".join(sorted({str(s.get("error", s["status"]))[:200]
-                                                             for s in desk if s["status"] != "ok"}))}
+                          "lanzado; capturas opcionales con PrintWindow (solo la ventana del objetivo, no lo que la tape), "
+                          "limitadas a 20 imágenes JPEG de 256 KiB por paso; "
+                          "contenido visual sin redacción automática; controles sin UI Automation no se ven"}
+    requested = any(s.get("screenshots_requested") for s in desk)
+    return {"status": "partial", "screenshots": "partial" if requested else "not_requested",
+            "reason": "; ".join(sorted({str(s.get("error", s["status"]))[:200]
+                                         for s in desk if s["status"] != "ok"}))}
 
 
 CONTAINER_SANDBOX = "/sandbox"
@@ -640,6 +680,8 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
     programs: dict[str, dict[str, Any]] = {}
     survivors: list[dict[str, Any]] = []
     setup_rec: dict[str, Any] = {}
+    capture_remaining = probes.MAX_CAPTURE_SESSION_BYTES
+    file_capture_statuses: list[str] = []
     try:
         for rel, spec in script["setup"]["files"].items():
             data = content_bytes(spec, base_dir)
@@ -740,7 +782,34 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
             except Exception as exc:  # noqa: BLE001 — se registra el fallo del paso y la sesión sigue
                 rec.update(status="error", error=f"{type(exc).__name__}: {str(exc)[:1000]}")
             after = probes.snapshot_files(roots, norm.data)
-            rec["effects"] = {"files": _effects(fsnap["files"], after["files"])}
+            file_effects = _effects(fsnap["files"], after["files"])
+            selected_paths = script["scope"].get("capture_contents", [])
+            changed_paths = [e["path"] for e in file_effects
+                             if e["change"] in ("created", "modified") and e["path"] in selected_paths]
+            if selected_paths:
+                rec["file_capture_requested"] = True
+                rec["file_capture_paths"] = selected_paths
+            if changed_paths:
+                contents, capture_remaining = probes.capture_file_contents(roots, changed_paths, capture_remaining)
+                for effect in file_effects:
+                    capture = contents.get(effect["path"])
+                    if capture:
+                        if capture.get("status") == "captured":
+                            raw = base64.b64decode(capture["data_base64"], validate=True)
+                            normalized = norm.path_data(raw)
+                            try:
+                                raw.decode("utf-8")
+                                is_utf8 = True
+                            except UnicodeDecodeError:
+                                is_utf8 = False
+                            capture.update(raw_sha256=capture["sha256"], sha256=_sha(normalized),
+                                           data_base64=base64.b64encode(normalized).decode("ascii"), utf8=is_utf8)
+                        effect.setdefault("after", {})["content_capture"] = capture
+                        file_capture_statuses.append(capture.get("status", "unknown"))
+                        if capture.get("status") != "captured" and rec.get("status") == "ok":
+                            rec["status"] = "partial"
+                            rec["error"] = f"contenido de archivo solicitado no capturado: {capture.get('status')}"
+            rec["effects"] = {"files": file_effects}
             fsnap = after
             if rsnap is not None:
                 rafter = probes.snapshot_registry(reg_keys)
@@ -792,7 +861,19 @@ def execute(script: dict[str, Any], base_dir: Path, *, variables: dict[str, str]
         "started_at": started, "duration_ms": round((time.monotonic() - t0) * 1000), "cleanup": cleanup,
         "coverage": {**_coverage(script, steps_out), "personal_data": (
             {"status": "redacted", "redacted": redacted, "limits": _PRIVACY_LIMITS} if privacy_on else
-            {"status": "not_redacted", "reason": "desactivado en el guion (privacy.redact_personal_data=false)"})},
+            {"status": "not_redacted", "reason": "desactivado en el guion (privacy.redact_personal_data=false)"}),
+            "visual_content": ({"status": "not_redacted", "reason": "la captura de ventana no admite redacción visual; "
+                               "revisar el contenido del objetivo antes de habilitar screenshots"}
+                               if any(s.get("action") == "desktop" and s.get("screenshots") for s in script["steps"])
+                               else {"status": "not_requested"}),
+            "file_contents": ({"status": ("captured" if file_capture_statuses and
+                                            all(s == "captured" for s in file_capture_statuses) else
+                                            "partial" if file_capture_statuses else
+                                            "not_observed" if not script["scope"].get("capture_contents") else "no_changes"),
+                               "not_redacted": True, "paths": script["scope"].get("capture_contents", []),
+                               "limits": f"captura optativa; máximo {probes.MAX_CAPTURE_FILE_BYTES} bytes por archivo y "
+                                         f"{probes.MAX_CAPTURE_SESSION_BYTES} bytes por sesión"}
+                              if script["scope"].get("capture_contents") else {"status": "not_requested"})},
         "unfixed_factors": static_unfixed_factors(script),
         "status": "done" if all(s["status"] == "ok" for s in steps_out) else "partial",
     }

@@ -158,3 +158,31 @@ def test_triage_without_external_tools_reports_gaps_not_equivalent_coverage(tmp_
         assert all("NO equivalente" in g["note"] and g["not_covered"] for g in gaps.values())
     finally:
         store.close()
+
+
+def test_static_site_is_labelled_only_when_evidence_supports_it(tmp_path):
+    """Un sitio sin framework detectado ni JS compilado se describe como HTML estático (no «pila no determinada»)."""
+    from eolfi.core.case_report import _flow_sentence
+    from eolfi.core.cases import CaseStore
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.learn_flow import run_web
+    from tests.fixtures import build_site
+
+    plain = tmp_path / "plano"
+    plain.mkdir()
+    (plain / "index.html").write_text("<!doctype html><html lang='es'><head><meta charset='utf-8'><title>T</title>"
+                                      "</head><body><main><h1>Hola</h1></main></body></html>", encoding="utf-8")
+    store = EvidenceStore(tmp_path / "e.db")
+    try:
+        cid = CaseStore(store).create("web")["case_id"]
+        rep = run_web(str(plain), store, case_id=cid)
+        assert rep["summary"]["stack"] == [] and rep["summary"]["stack_label"] == "HTML estático sin framework detectado"
+        fw = run_web(str(build_site(tmp_path / "sitio")), store)        # con framework detectado: se nombra
+        assert fw["summary"]["stack_label"] == ", ".join(fw["summary"]["stack"]) != ""
+        rec = [r for r in CaseStore(store).get(cid)["records"] if r["payload"].get("flow") == "web"][0]
+        assert "no determinada" not in _flow_sentence(rec["payload"])
+    finally:
+        store.close()
+    # Sin tecnologías detectadas pero con JS minificado: no se afirma que sea estático.
+    assert _flow_sentence({"flow": "web", "result": {"summary": {"stack": [], "stack_label": None}}}) == \
+        "Análisis web: pila no determinada."
