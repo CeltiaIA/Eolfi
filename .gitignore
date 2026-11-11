@@ -30,3 +30,10 @@ node_modules/
 # Salidas locales de pruebas y comprobaciones del panel
 .pytest-tmp*/
 .eolfi-browser-check.*.log
+
+# Archivos de supervisión de las ejecuciones automáticas de Eolfi: se guardan fuera del repo
+# (decisión 3A del titular, 2026-11-11; ver informes/decisiones-pendientes-2026-11-11.md)
+/OBJETIVOS_EOLFI.md
+/PROMPT_*
+/prompts-o*/
+/plan-v2/
