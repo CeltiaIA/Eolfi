@@ -38,7 +38,7 @@ export function createProjectView({ $, el, api, setStatus }) {
       el("span", { class: "badge" }, KIND[s.kind]), el("span", { class: "proj-ref" }, s.label),
       el("button", { type: "button", class: "small-btn", "aria-label": `Quitar ${s.label}`,
         onclick: () => { sources.splice(i, 1); renderSources(); } }, "Quitar"))));
-    $("#proj-hint").textContent = sources.length ? `${sources.length} fuente(s)` : "Añade al menos una fuente";
+    $("#proj-hint").textContent = sources.length ? `${sources.length} fuente(s) adjunta(s)` : "Puedes empezar solo con el texto.";
   }
 
   async function addSource() {
@@ -91,6 +91,9 @@ export function createProjectView({ $, el, api, setStatus }) {
     const parts = [];
     parts.push(el("div", { class: "row between" },
       el("h3", { tabindex: "-1" }, `Plan · versión ${plan.version}`), badge(STATE[current.status] || [current.status, ""])));
+    if (plan.assessment) parts.push(el("div", { class: `proj-verdict ${plan.assessment.verdict === "favorable" ? "ok" : "bad"}` },
+      `${plan.assessment.verdict === "favorable" ? "Evaluación inicial favorable" : "Evaluación inicial no favorable"}: ${plan.assessment.summary}`,
+      el("div", { class: "small" }, plan.assessment.limits)));
     if (plan.changes?.length) parts.push(el("p", { class: "small warn" }, `Cambios respecto a la versión ${plan.revised_from}: ${plan.changes.join("; ")}`));
     parts.push(el("h4", {}, "Razonamiento"), el("ul", { class: "small" }, ...plan.reasoning.map((r) => el("li", {}, r))));
     const it = plan.interpretation;

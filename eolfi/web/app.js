@@ -320,7 +320,9 @@ function wire() {
   const panelNames = new Set(["create", "analyze", "subjects", "cases"]);
   try {
     const saved = localStorage.getItem(STORE.panel);
-    if (panelNames.has(saved)) state.panel = saved;
+    // La pantalla inicial siempre es «Crear proyecto»; las demás acciones se
+    // abren puntualmente desde sus botones, no quedan como pestañas recordadas.
+    if (saved === "create") state.panel = saved;
   } catch { /* Prefer the default panel when browser storage is unavailable. */ }
   const showPanel = (name, focus = false) => {
     if (!panelNames.has(name)) return;

@@ -208,7 +208,7 @@ class CaseStore:
         # El historial del panel es deliberadamente corto: conserva los tres
         # proyectos/casos más recientes y al cuarto libera el más antiguo.
         # Las evidencias globales no se borran; solo su agrupación de historial.
-        stale = self.conn.execute("SELECT case_id FROM cases ORDER BY created_at DESC, case_id DESC "
+        stale = self.conn.execute("SELECT case_id FROM cases ORDER BY created_at DESC, rowid DESC "
                                   "LIMIT -1 OFFSET ?", (MAX_RECENT_PROJECTS,)).fetchall()
         for row in stale:
             self.conn.execute("DELETE FROM cases WHERE case_id=?", (row[0],))
@@ -217,7 +217,7 @@ class CaseStore:
 
     def list(self) -> list[dict[str, Any]]:
         out = []
-        for row in self.conn.execute("SELECT * FROM cases ORDER BY updated_at DESC, case_id").fetchall():
+        for row in self.conn.execute("SELECT * FROM cases ORDER BY updated_at DESC, rowid DESC").fetchall():
             case = dict(row)
             cid = case["case_id"]
             subjects = self._subjects(cid)

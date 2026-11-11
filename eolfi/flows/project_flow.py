@@ -220,6 +220,10 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
     plan = {"type": "plan", "format": PLAN_FORMAT, "version": 1, "plan_id": str(uuid.uuid4()), "mode": mode,
             "name": name.strip(), "description": description, "sources": srcs, "out": out,
             "target": interp["target"], "options": interp["options"], "instructions": [],
+            "assessment": {"verdict": "favorable", "scope": "planificación",
+                           "summary": (f"Se aceptan {len(srcs)} fuente(s) como entrada para analizar."
+                                       if srcs else "El prompt es suficiente para crear una base inicial; no hay fuentes externas que contrastar."),
+                           "limits": "La conformidad técnica del proyecto se decide después de generar, compilar y ejecutar las pruebas."},
             "interpretation": {"directives": interp["directives"], "uninterpreted": interp["uninterpreted"]},
             "reasoning": _reasoning(srcs, interp) + (
                 [f"La carpeta destino {out} ya existe y no está vacía: generar fallará salvo que la vacíes o "
