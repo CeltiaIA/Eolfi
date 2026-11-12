@@ -953,3 +953,18 @@ test('el empujón prohíbe simular resultados', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'chat.js'), 'utf8');
   assert.match(src, /No simules ni inventes resultados/);
 });
+
+test('los archivos adjuntos llegan al modelo en el mensaje del usuario (laboratorio 2026-11-12)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-adj-'));
+  const file = path.join(dir, 'referencia.py');
+  fs.writeFileSync(file, 'def total(a, b):\n    return a + b\n');
+  const vs = fakeVscode({ answer: 'Recibido: referencia.py' });
+  vs.workspace.getWorkspaceFolder = () => ({ uri: { fsPath: dir } });
+  vs.workspace.asRelativePath = (u) => path.relative(dir, u.fsPath);
+  const h = makeChatHandler({ vscode: vs, summarize, state: {}, getClient: async () => fakeClient() });
+  await h({ prompt: '¿Qué archivos te he adjuntado?', references: [{ id: 'f', value: { scheme: 'file', fsPath: file, path: file } }] },
+    {}, fakeStream(), {});
+  const user = vs.sent[0].msgs.at(-1).content;
+  assert.match(user, /^¿Qué archivos te he adjuntado\?/);
+  assert.match(user, /ARCHIVOS ADJUNTOS POR EL USUARIO[\s\S]*referencia\.py — contenido completo:[\s\S]*def total\(a, b\)/);
+});

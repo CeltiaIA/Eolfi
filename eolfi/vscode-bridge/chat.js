@@ -7,6 +7,7 @@
 'use strict';
 const fs = require('node:fs');
 const { isSecretPath } = require('./workspace');
+const { attachmentsBlock } = require('./attachments');
 const { needsConfirm, stringsIn, signature, checkArgs } = require('./rea');
 const { runAudit } = require('./audit');
 const checks = require('./checks');
@@ -690,7 +691,8 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
     ].filter(Boolean).join('\n');
     const msgs = [...history(context)];
     msgs.unshift(M.User(system));
-    msgs.push(M.User(request.prompt));
+    const attached = attachmentsBlock(vscode, request);   // 📎 / arrastrados / #file: van en request.references
+    msgs.push(M.User(request.prompt + attached));
     const options = { justification: 'Eolfi usa el modelo de IA del chat como agente de ingeniería inversa.', tools };
     let model = null;
     const steps = Math.max(1, Math.min(Number(maxSteps()) || DEFAULT_STEPS, 200));
@@ -711,7 +713,7 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
         }
       }
       conv.splice(1, Math.max(0, conv.length - 1 - 8));   // como mucho las 8 últimas intervenciones
-      conv.push({ role: 'user', content: request.prompt });
+      conv.push({ role: 'user', content: request.prompt + attached });
       stream.progress(preferLocal() ? `Trabajo con ${localModel.name()}…` : `Copilot está en su límite de peticiones: sigo con ${localModel.name()}…`);
       const size = () => conv.reduce((n, m) => n + String(m.content || '').length + JSON.stringify(m.tool_calls || '').length, 0);
       let nudgesLocal = 0;

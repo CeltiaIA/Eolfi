@@ -2,7 +2,7 @@
   "name": "eolfi-vscode-bridge",
   "displayName": "Eolfi",
   "description": "Eolfi en VS Code: agente de ingeniería inversa (MCP + herramientas para el modo agente), panel y puente privado con Eolfi.",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "publisher": "eolfi",
   "private": true,
   "license": "UNLICENSED",
