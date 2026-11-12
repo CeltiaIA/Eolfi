@@ -63,7 +63,7 @@ archivos FUSE, probablemente residuo) y los cambios en `cli.py`, `eolas_v2.py`, 
 
 ## Qué hace falta del titular
 
-1. **A3 y A4** son decisiones de producto. **A4** es la más urgente: es la causa de los fallos de memoria.
+1. **A4: DECIDIDA (2026-11-12): guardia común.** Eolas para el uso diario; eolas-v2 con guardia en los dos sentidos y vigilante de inactividad; `eolfi llama start` retirado. PR #8, `informes/guardia-modelo-local-2026-11-12.md`. **A3** sigue pendiente como decisión de producto.
 2. **A2, A6 y la parte B:** marcar en cada fila «retirar», «conservar» o «más adelante».
 3. Con esa lista, una PR retirará solo lo marcado, con la suite completa y la entrada correspondiente en
    `REGISTRO_LIMPIEZA.md`.
