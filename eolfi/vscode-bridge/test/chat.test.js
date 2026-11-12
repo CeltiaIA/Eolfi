@@ -925,3 +925,31 @@ test('modelo principal local (Gemma 4): /modelo, herramientas locales e instrucc
   assert.ok(local);
   assert.match(s.md, /Copilot está desconectado de Eolfi hasta nueva orden/);
 });
+
+test('no empuja cuando ya respondió y solo ofrece trabajo extra (laboratorio VS Code 2026-11-12)', async () => {
+  const { asksInsteadOfDoing, offersExtraAfterAnswer } = require('../chat');
+  // Respuesta real de Gemma local tras el triaje de muestra.wasm: la tarea está hecha y solo ofrece más.
+  const real = 'Evidencias:\n- Formato: WebAssembly (wasm).\n- Hash SHA-256: ed2bf44b34f0c3c7c84cc25227cb80bc071f6725d108fe97dba5b6df453d84e4.\n'
+    + '- Capacidades: No se detectaron capacidades específicas mediante las herramientas de triaje inicial.\n'
+    + 'Inferencias:\n- Al ser un archivo .wasm, es un binario compilado diseñado para ejecutarse en entornos WebAssembly.\n'
+    + 'Incógnitas:\n- No hay incógnitas abiertas en este momento según el análisis inicial.\n'
+    + '¿Deseas que realice un análisis más profundo con las herramientas de REA (como descompilación o inspección de funciones)?';
+  assert.ok(asksInsteadOfDoing(real));                       // sigue pareciendo una pregunta…
+  assert.ok(offersExtraAfterAnswer(real, true));              // …pero es una oferta extra tras responder
+  assert.ok(!offersExtraAfterAnswer(real, false));            // sin haber usado herramientas, no hay respuesta
+  assert.ok(!offersExtraAfterAnswer('He listado los archivos. ¿Quieres que los analice?', true));   // pide permiso para la tarea
+  assert.ok(!offersExtraAfterAnswer('He encontrado varias herramientas de REA... ¿Te gustaría que ejecute alguna herramienta específica?', true));
+
+  const vs = fakeVscode({ rounds: [{ calls: [{ id: '1', name: 'eolfi_incognitas' }] }, { text: real }] });
+  const h = makeChatHandler({ vscode: vs, summarize, state: { lastSubject: 'abc' }, getClient: async () => fakeClient() });
+  const s = fakeStream();
+  await h({ prompt: 'analiza ejemplos/triaje-y-diff/muestra.wasm' }, {}, s, {});
+  assert.match(s.md, /análisis más profundo/);
+  assert.strictEqual(vs.sent.length, 2);                      // no hubo una tercera ronda empujada
+  assert.ok(!s.progress_.includes('Sigo con la tarea sin preguntarte…'));
+});
+
+test('el empujón prohíbe simular resultados', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'chat.js'), 'utf8');
+  assert.match(src, /No simules ni inventes resultados/);
+});

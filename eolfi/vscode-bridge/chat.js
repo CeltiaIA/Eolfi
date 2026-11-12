@@ -114,6 +114,19 @@ function asksInsteadOfDoing(text) {
   return tail.length > 0 && ASKS.test(tail);
 }
 
+// ¿Ya respondió (con herramientas usadas y una respuesta de verdad) y solo ofrece trabajo EXTRA al final
+// («¿Deseas que realice un análisis más profundo…?»)? Eso no es preguntar en vez de hacer: la tarea está hecha.
+// Visto en el laboratorio de VS Code (2026-11-12): empujar en ese caso convertía una tarea terminada en otra sin fin
+// y el modelo local acabó «simulando» trabajo (print('Simulando triaje…')) para cumplir la orden.
+const EXTRA = /m[aá]s (profund|detall|a fondo)|profundiz|adicional|ampli(ar|e|o)|adem[aá]s|otro an[aá]lisis|tambi[eé]n (puedo|podr)|descompil/i;
+function offersExtraAfterAnswer(text, didWork) {
+  const t = String(text || '').trim();
+  const q = t.lastIndexOf('¿');
+  if (!didWork || q < 0) return false;
+  const body = t.slice(0, q).trim();
+  return body.length >= 300 && EXTRA.test(t.slice(q));
+}
+
 // ¿Anuncia que va a seguir («Sigo con…», «Voy a…», «A continuación…», «Queda pendiente…») pero no llama a nada?
 const PROMISES = /\b(sigo (con|analizando|revisando|auditando)|seguir[eé] (con|analizando)|contin[uú]o (con|analizando)|continuar[eé]|voy a (seguir|continuar|analizar|revisar|auditar|ejecutar|completar|leer|pasar)|ahora (voy|paso|sigo)|a continuaci[oó]n (voy|analizar[eé]|revisar[eé]|paso)|el siguiente paso (es|ser[aá])|pr[oó]ximo paso|queda(n)? (pendiente|por (analizar|revisar|auditar|hacer))|falta(n)? por (analizar|revisar|auditar|hacer)|en curso|lanzad[ao]s? .*(sigo|contin))/i;
 function promisesWithoutDoing(text) {
@@ -127,8 +140,9 @@ const NUDGE_PROMISE = 'Has dicho que sigues, pero has parado sin llamar a ningun
 
 const NUDGE = 'No me preguntes ni me des opciones: el usuario ya te dio la orden. Elige tú lo más razonable y HAZLO ahora '
   + 'con tus herramientas, sin parar hasta terminar la tarea completa (si pidió un informe, escríbelo y guárdalo). Los permisos '
-  + 'los piden las propias herramientas: no los pidas en texto. Solo si es IMPOSIBLE seguir sin un dato que no puedes averiguar, '
-  + 'di exactamente qué falta y por qué.';
+  + 'los piden las propias herramientas: no los pidas en texto. No simules ni inventes resultados ni ejecutes órdenes que solo '
+  + 'imprimen texto: si algo no puedes hacerlo de verdad con una herramienta, dilo. Solo si es IMPOSIBLE seguir sin un dato que '
+  + 'no puedes averiguar, di exactamente qué falta y por qué.';
 const KEEP_RECENT = 6;   // los resultados de las últimas rondas se conservan enteros
 
 // Auditorías largas: si la conversación con el modelo crece demasiado, los resultados de herramientas antiguos se
@@ -729,7 +743,7 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
         }
         const text = String(r.content || '').trim();
         if (text) { stream.markdown(`${wroteLocal || wrote ? '\n\n' : ''}${text}`); wroteLocal = true; }
-        const asked = asksInsteadOfDoing(text);
+        const asked = asksInsteadOfDoing(text) && !offersExtraAfterAnswer(text, run.tools.length > 0);
         const promised = !asked && promisesWithoutDoing(text);
         if ((asked || promised) && nudgesLocal < (workMode() === 'automatico' ? MAX_NUDGES_AUTO : MAX_NUDGES) && round < steps) {
           nudgesLocal++;
@@ -830,7 +844,7 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
       }
       if (!calls.length) {
         // Se ha parado a preguntar u ofrecer opciones en vez de hacerlo: se le ordena seguir (como mucho MAX_NUDGES veces).
-        const asked = asksInsteadOfDoing(text);
+        const asked = asksInsteadOfDoing(text) && !offersExtraAfterAnswer(text, run.tools.length > 0);
         const promised = !asked && promisesWithoutDoing(text);
         if ((asked || promised) && nudges < (workMode() === 'automatico' ? MAX_NUDGES_AUTO : MAX_NUDGES) && round < steps) {
           nudges++;
@@ -1109,4 +1123,4 @@ function makeChatHandler({ vscode, getClient, summarize, state, mode = () => 'de
   return handler;
 }
 
-module.exports = { makeChatHandler, resolveTarget, HELP, AGENT_HELP, asksInsteadOfDoing, promisesWithoutDoing };
+module.exports = { makeChatHandler, resolveTarget, HELP, AGENT_HELP, asksInsteadOfDoing, promisesWithoutDoing, offersExtraAfterAnswer };
