@@ -389,11 +389,13 @@ def _parser() -> argparse.ArgumentParser:
     eos_train.add_argument("--checkpoint", required=True)
     eos_train.add_argument("--dataset", required=True)
     eos_train.add_argument("--out", required=True)
+    eos_start.add_argument("--liberar-eolas", action="store_true",
+                           help="Pide antes a Eolas (11435) que descargue su modelo de la GPU")
     eos_train.add_argument("--epochs", type=float, default=1.0)
     eos_train.add_argument("--max-seq-length", type=int, default=1024)
     eos_train.add_argument("--consent", action="store_true", help="Autoriza uso de GPU y escritura de un adaptador nuevo")
 
-    lm = sub.add_parser("llama", help="Modelo local llama.cpp: estado, arrancar, parar o abrir la configuración")
+    lm = sub.add_parser("llama", help="Servidor llama.cpp antiguo de Eolfi: estado y parada (arrancar está retirado: usa Eolas o eolas-v2)")
     lm.add_argument("accion", nargs="?", default="status", choices=["status", "start", "stop", "config"])
 
     vs = sub.add_parser("vscode", help="Abre VS Code con la extensión de Eolfi (IA de VS Code: --provider copilot-vscode)")
@@ -1369,7 +1371,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.eolas_action == "status":
                 _print(eolas_v2.status())
             elif args.eolas_action == "start":
-                _print(eolas_v2.start(args.profile))
+                _print(eolas_v2.start(args.profile, release_eolas=args.liberar_eolas))
             elif args.eolas_action == "switch":
                 _print(eolas_v2.switch(args.profile))
             elif args.eolas_action == "stop":
@@ -1415,7 +1417,10 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi import llamacpp
 
         if args.accion == "start":
-            _print(llamacpp.start())
+            print("eolfi llama: «start» está retirado: dejaba un segundo modelo en la GPU (puerto 8090) junto al de "
+                  "Eolas. Usa Eolas (proveedor eolas) o «eolfi eolas-v2 start». «eolfi llama stop» sigue disponible "
+                  "para parar uno antiguo.", file=sys.stderr)
+            return 2
         elif args.accion == "stop":
             _print({"stopped": llamacpp.stop()})
         elif args.accion == "config":

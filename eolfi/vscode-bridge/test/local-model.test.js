@@ -143,3 +143,23 @@ test('Eolas: razonamiento como «think» (revisión con review_reasoning, agente
   assert.strictEqual(bodies[1].think, true);
   assert.deepStrictEqual(bodies[0].options, { num_ctx: 12288, temperature: 0.2 });
 });
+
+test('no pide a Eolas que cargue su modelo si Eolas V2 ya ocupa la GPU (11-12/11/2026)', async () => {
+  const { makeLocalModel, eolasV2Holder } = require('../local-model');
+  const fetchFn = async (url) => (url.endsWith('/api/tags')
+    ? { ok: true, json: async () => ({ models: [{ name: 'gemma-4-12b-it:latest' }] }) }
+    : { ok: true, json: async () => ({ message: { content: 'hola' } }) });
+  const busy = makeLocalModel({ endpoints: ['http://127.0.0.1:11435'], model: 'gemma-4-12b-it:latest', fetchFn,
+    gpuHolder: () => ({ pid: 18248, profile: 'nemo_q4', port: 8090 }) });
+  await assert.rejects(busy.chatTools([{ role: 'user', content: 'x' }], []), /Eolas V2 tiene cargado el perfil nemo_q4.*eolas-v2 stop/);
+  const free = makeLocalModel({ endpoints: ['http://127.0.0.1:11435'], model: 'gemma-4-12b-it:latest', fetchFn, gpuHolder: () => null });
+  assert.strictEqual((await free.chatTools([{ role: 'user', content: 'x' }], [])).content, 'hola');
+  // Lectura real del archivo de estado: proceso vivo (este) frente a uno muerto.
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eolfi-v2-'));
+  const env = { EOLFI_EOLAS_V2_CONFIG: path.join(dir, 'eolas-v2.json') };
+  assert.strictEqual(eolasV2Holder({ env }), null);
+  fs.writeFileSync(path.join(dir, 'eolas-v2.runtime.json'), JSON.stringify({ pid: process.pid, profile: 'gemma', port: 8090 }));
+  assert.deepStrictEqual(eolasV2Holder({ env }), { pid: process.pid, profile: 'gemma', port: 8090 });
+  assert.strictEqual(eolasV2Holder({ env, alive: () => false }), null);
+});

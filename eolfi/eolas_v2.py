@@ -241,9 +241,11 @@ def _healthy(c: dict[str, Any], expected_alias: str | None = None) -> bool:
 
 
 def _legacy_eolas_models() -> list[str]:
-    """Modelos anunciados por Eolas V1/CeltIA, que también puede ocupar la GPU."""
-    tags = _read_json("http://127.0.0.1:11435/api/tags") or {}
-    return [str(item.get("name") or item.get("model")) for item in tags.get("models", []) if isinstance(item, dict)]
+    """Modelos que Eolas V1/CeltIA tiene CARGADOS en la GPU (``/api/ps``). Su catálogo (``/api/tags``) no cuenta:
+    Eolas lo anuncia aunque no tenga nada en memoria, y carga el modelo solo al recibir una petición."""
+    from eolfi.local_gpu import eolas_loaded
+
+    return eolas_loaded()
 
 
 def _runtime() -> dict[str, Any] | None:
@@ -289,7 +291,7 @@ def stop() -> dict[str, Any]:
 
 
 def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callable[..., Any] = subprocess.Popen,
-                  wait: float | None = None) -> dict[str, Any]:
+                  wait: float | None = None, release_eolas: bool = False) -> dict[str, Any]:
     cfg = cfg or load_config()
     c = profile_config(name, cfg)
     record = _runtime()
@@ -298,10 +300,15 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
             return {"running": True, "started": False, "profile": name, "url": c["url"], "pid": record["pid"]}
         raise RuntimeError(f"Eolas ya tiene activo el perfil {record.get('profile')}; cambia de perfil con switch")
     runtime_file().unlink(missing_ok=True)
+    if release_eolas:
+        from eolfi.local_gpu import release_eolas as _release_eolas
+
+        _release_eolas()
     legacy_models = _legacy_eolas_models()
     if legacy_models:
-        raise RuntimeError("Eolas V1/CeltIA sigue anunciando modelos en 127.0.0.1:11435 (" + ", ".join(legacy_models)
-                           + "); detén su servicio antes de cargar Eolas V2 para no ocupar la GPU con ambos")
+        raise RuntimeError("Eolas V1/CeltIA tiene cargado en la GPU " + ", ".join(legacy_models)
+                           + "; no cargo Eolas V2 a la vez. Espera a que Eolas lo descargue solo o arranca con "
+                           "--liberar-eolas")
     if _healthy(c):
         raise RuntimeError(f"El puerto {c['port']} ya tiene un servidor que Eolas no inició; no lo detengo")
     log_path = config_file().with_suffix(".log")
@@ -328,7 +335,13 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
             if proc.poll() is not None:
                 raise RuntimeError(f"llama-server se cerró al iniciar Eolas (código {proc.returncode}; mira {log_path})")
             if _healthy(c, str(c["alias"])):
-                return {"running": True, "started": True, "profile": name, "url": c["url"], "pid": proc.pid}
+                watchdog = None
+                if popen is subprocess.Popen:      # solo un servidor real lleva vigilante de inactividad
+                    from eolfi.local_gpu import IDLE_MINUTES, start_watchdog
+
+                    watchdog = start_watchdog(proc.pid, int(c["port"]), IDLE_MINUTES)
+                return {"running": True, "started": True, "profile": name, "url": c["url"], "pid": proc.pid,
+                        "idle_watchdog_pid": watchdog}
             time.sleep(0.5)
         raise TimeoutError(f"Eolas no publicó health y el modelo {c['alias']} en {timeout:g} s")
     except Exception:
@@ -341,11 +354,11 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
         raise
 
 
-def start(profile: str | None = None, *, wait: float | None = None) -> dict[str, Any]:
+def start(profile: str | None = None, *, wait: float | None = None, release_eolas: bool = False) -> dict[str, Any]:
     cfg = load_config()
     name = profile or str(cfg["active_profile"])
     with _exclusive_lock():
-        return _start_locked(name, cfg, wait=wait)
+        return _start_locked(name, cfg, wait=wait, release_eolas=release_eolas)
 
 
 def switch(profile: str, *, wait: float | None = None) -> dict[str, Any]:

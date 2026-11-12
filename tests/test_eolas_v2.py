@@ -143,7 +143,7 @@ def test_motor_v2_se_abstiene_si_celtia_v1_anuncia_modelo(tmp_path, monkeypatch)
         **eolas_v2.DEFAULT_PROFILES, "gemma": {**eolas_v2.DEFAULT_PROFILES["gemma"], "model": str(tmp_path / "gemma.gguf")}}}
     monkeypatch.setattr(eolas_v2, "_legacy_eolas_models", lambda: ["gemma-4-12b-it:latest"])
     monkeypatch.setattr(eolas_v2, "_healthy", lambda *args, **kwargs: False)
-    with pytest.raises(RuntimeError, match="Eolas V1/CeltIA sigue anunciando"):
+    with pytest.raises(RuntimeError, match="Eolas V1/CeltIA tiene cargado en la GPU"):
         eolas_v2._start_locked("gemma", cfg, popen=lambda *a, **kw: pytest.fail("no debe lanzar llama-server"))
 
 

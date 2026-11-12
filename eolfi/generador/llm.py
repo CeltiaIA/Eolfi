@@ -274,6 +274,15 @@ class OllamaProvider(Provider):
         msgs = [{"role": "system", "content": system}] + [
             {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])}
             for m in messages]
+        from eolfi.local_gpu import GpuBusy, free_for_eolas
+
+        from urllib.parse import urlsplit
+
+        if urlsplit(self.base_url).hostname in ("127.0.0.1", "localhost", "::1"):
+            try:
+                free_for_eolas()               # un solo modelo en la GPU: Eolas V2 ocioso se para antes
+            except GpuBusy as exc:
+                raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
             "options": {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2},

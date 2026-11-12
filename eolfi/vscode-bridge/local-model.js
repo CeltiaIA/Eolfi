@@ -97,8 +97,21 @@ function httpFetch(url, { method = 'GET', headers = {}, body, signal } = {}) {
   });
 }
 
+// Un solo modelo local en la GPU (ver eolfi/local_gpu.py): Eolas carga su modelo al recibir la petición, así que
+// antes se comprueba que Eolas V2 (eolfi eolas-v2, otro llama-server) no tenga ya uno cargado. El 11-12/11/2026 los dos
+// juntos llenaron los 8 GB de VRAM («bad allocation» y un agente casi parado).
+function eolasV2Holder({ fs = require('node:fs'), path = require('node:path'), os = require('node:os'), env = process.env,
+  alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } } } = {}) {
+  const config = env.EOLFI_EOLAS_V2_CONFIG || path.join(os.homedir(), '.eolfi', 'eolas-v2.json');
+  const file = config.replace(/\.json$/i, '') + '.runtime.json';
+  let record;
+  try { record = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  const pid = Number(record?.pid) || 0;
+  return pid > 0 && alive(pid) ? { pid, profile: record.profile, port: record.port } : null;
+}
+
 function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = httpFetch, timeoutMs = 20 * 60 * 1000, options = null,
-  starter = null, allowStart = async () => true } = {}) {
+  starter = null, allowStart = async () => true, gpuHolder = eolasV2Holder } = {}) {
   let found = null;   // { url, api: 'eolas' | 'openai', model }
   const opts = (o) => (options ? options(o) || {} : {});   // temperatura, longitud y razonamiento de la configuración
   let started = false;
@@ -163,6 +176,14 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     if (!at) throw new Error(notFound());
     if (started && starter && !starter.running()) { found = null; at = await locate(); }   // se paró por inactividad: otra vez
     if (started) starter?.touch();
+    if (at.api === 'eolas') {
+      const other = gpuHolder();
+      if (other) {
+        throw new Error(`Eolas V2 tiene cargado el perfil ${other.profile} (PID ${other.pid}, puerto ${other.port}) en la GPU; `
+          + 'no pido a Eolas que cargue otro modelo encima (8 GB no dan para dos). Páralo con «python -m eolfi eolas-v2 stop» '
+          + 'o espera: se para solo tras 15 minutos sin uso.');
+      }
+    }
     return at;
   }
 
@@ -239,4 +260,4 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
 const EOLAS_URL = 'http://127.0.0.1:11435';
 const EOLAS_MODEL = 'gemma-4-12b-it:latest';
 
-module.exports = { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS, EOLAS_URL, EOLAS_MODEL, httpFetch };
+module.exports = { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS, EOLAS_URL, EOLAS_MODEL, httpFetch, eolasV2Holder };
