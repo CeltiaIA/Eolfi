@@ -1591,14 +1591,28 @@ def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool
 # --reload: proceso vigilante que reinicia el servidor al cambiar el código
 # ---------------------------------------------------------------------------
 def _snapshot(root: Path) -> dict[str, float]:
+    # Solo el código Python obliga a reiniciar: el panel (.html/.js/.css) se lee del disco en cada petición. Antes un
+    # cambio en app.js reiniciaba el servidor y cortaba el trabajo en curso (12/11/2026, batería de código).
     out = {}
-    for p in root.rglob("*"):
-        if p.suffix in (".py", ".html", ".js", ".css") and "__pycache__" not in p.parts:
+    for p in root.rglob("*.py"):
+        if "__pycache__" not in p.parts:
             try:
                 out[str(p)] = p.stat().st_mtime
             except OSError:
                 pass
     return out
+
+
+def _active_jobs(port: int) -> int:
+    """Trabajos en marcha o en cola en el servidor hijo (0 si no responde)."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/jobs", timeout=3) as r:
+            jobs = json.loads(r.read().decode("utf-8")).get("jobs", [])
+        return sum(1 for j in jobs if j.get("status") in ("running", "queued"))
+    except Exception:  # noqa: BLE001 — sin respuesta no hay nada que proteger
+        return 0
 
 
 def serve_with_reload(child_argv: list[str], interval: float = 0.7) -> int:
@@ -1618,6 +1632,13 @@ def serve_with_reload(child_argv: list[str], interval: float = 0.7) -> int:
                         time.sleep(interval)
                     break
                 if _snapshot(root) != snap:
+                    # No se corta un trabajo en curso (una batería de motores puede durar una hora): se espera a
+                    # que termine y entonces se recarga.
+                    port = int(child_argv[child_argv.index("--port") + 1]) if "--port" in child_argv else 8777
+                    if _active_jobs(port):
+                        print("eolfi: cambio detectado; hay trabajos en marcha: recargaré al terminar…", flush=True)
+                        while proc.poll() is None and _active_jobs(port):
+                            time.sleep(2)
                     print("eolfi: cambio detectado, reiniciando…", flush=True)
                     proc.terminate()
                     try:
