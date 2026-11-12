@@ -254,3 +254,24 @@ def test_primer_plano_exige_la_ventana_dibujada():
     drv = mobile._Driver(None, {"package": "org.eolfi.muestra"}, None)
     assert drv.in_front({"package": "org.eolfi.muestra", "window_package": "org.eolfi.muestra"})
     assert not drv.in_front({"package": "org.eolfi.muestra", "window_package": "com.android.systemui"})
+
+
+def test_estado_persistente_y_capturas_en_la_especificacion(store, adb):
+    """Visto en un ZTE Blade A34 real: sin clear_data la app recuerda la sesión anterior (contradicción legítima);
+    con clear_data la interfaz se repite y las capturas, que llevan la hora, no rompen el requisito."""
+    from eolfi.spec import build_spec
+
+    persistente = CaseStore(store).create("sin borrar datos")["case_id"]
+    for _ in range(2):
+        run_observation(_script([_step(clear_data=False)]), store, authorized=True, case_id=persistente)
+    req = next(r for r in build_spec(store, persistente)["requirements"] if r["inputs"]["action"] == "mobile")
+    assert req["status"] == "contradicted" and any(c["aspect"].endswith(".interfaz") for c in req["contradictions"])
+    limpio = CaseStore(store).create("con datos borrados")["case_id"]
+    for _ in range(2):
+        rep = run_observation(_script([_step(screenshots=True)]), store, authorized=True, case_id=limpio)
+    shots = {a["screenshot"]["sha256"] for a in rep["steps"][0]["actions"]}
+    assert len(shots) == len(rep["steps"][0]["actions"])            # cada captura es distinta (lleva la hora)
+    req = next(r for r in build_spec(store, limpio)["requirements"] if r["inputs"]["action"] == "mobile")
+    assert req["status"] == "observed" and req["certainty"] == "seguro", req.get("contradictions")
+    assert req["visual_evidence"]["compared"] is False and req["visual_evidence"]["aspects"] == 5
+    assert not any(a.endswith("captura visual") for a in req["expected"])

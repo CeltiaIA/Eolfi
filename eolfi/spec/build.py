@@ -31,6 +31,7 @@ from eolfi.core.models import Incognita
 from eolfi.observe.compare import observables
 
 SPEC_FORMAT = 1
+VISUAL_ASPECT = ".captura visual"
 REVIEW_DECISIONS = {"accepted", "rejected", "needs_info"}
 _DYNAMIC_PROVIDER = "eolfi.observe"
 
@@ -376,8 +377,11 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
         obs = g["observations"]
         unstable_aspects = sorted({a for o in obs for a in o["unstable"]})
         aspects = list(obs[0]["values"].keys())
-        expected, differing = {}, []
+        expected, differing, visual = {}, [], []
         for a in aspects:
+            if a.endswith(VISUAL_ASPECT):
+                visual.append(a)        # evidencia, no requisito: la imagen lleva reloj, batería, cursor...
+                continue
             if a in unstable_aspects:
                 continue
             vals = [o["values"].get(a) for o in obs]
@@ -399,6 +403,11 @@ def build_spec(store: EvidenceStore, case_id: str) -> dict[str, Any]:
             "non_functional": {"duration_ms_max": max(durations)} if durations else {},
         }
         req["examples"] = g["examples"]
+        if visual:
+            req["visual_evidence"] = {"aspects": len(visual), "compared": False,
+                                      "reason": "las capturas se conservan como evidencia pero no se comparan píxel a "
+                                                "píxel: incluyen reloj, batería, cursor y animaciones; el comportamiento "
+                                                "lo fijan el árbol de la interfaz, la actividad y el estado"}
         req["certainty"] = certainty(req)
         if obs[0]["states"]:
             req["state_machine"] = obs[0]["states"]

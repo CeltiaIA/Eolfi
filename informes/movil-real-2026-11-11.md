@@ -47,7 +47,7 @@ Otra corrección: la app se cierra (`am force-stop`) aunque el paso falle o se a
 | Comprobación | Resultado |
 |---|---|
 | `python -m pytest -q tests/test_observe_mobile.py` | 23 aprobadas |
-| `python -m pytest -q` | 539 aprobadas, 2 omitidas, 0 fallos |
+| `python -m pytest -q` | 539 aprobadas, 2 omitidas, 0 fallos. Tras los cambios del ZTE: 540 aprobadas, 2 omitidas, 0 fallos |
 | `python -m ruff check --select F eolfi tests/test_observe_mobile.py tests/fake_adb.py` | sin avisos |
 | `node --test` en `eolfi/bridge`, `eolfi/vscode-bridge` y `npm test` en `tests/e2e` | Ver la PR: este cambio no toca el código de Node. |
 
@@ -62,3 +62,26 @@ Otra corrección: la app se cierra (`am force-stop`) aunque el paso falle o se a
 
 `D:\Tools\platform-tools` es una herramienta instalada a petición del titular, no un artefacto temporal. Las bases
 de prueba están en el scratchpad de la sesión, fuera del repositorio.
+
+## Segundo dispositivo: ZTE Blade A34 — toques verificados (2026-11-12)
+
+- **Dispositivo:** ZTE Blade A34 (`P963F94`), Android 13, SDK 33. Conectado por USB y autorizado por el titular.
+  Al contrario que MIUI, acepta `input` desde adb sin ningún ajuste extra.
+- **App:** Calculadora de Google (`com.google.android.calculator` 9.3, código 85022643).
+- **Escenario:** borrar todo, 7, ×, 6, = y leer.
+- **Resultado:** las 7 pantallas en estado `ok` y en primer plano. Fórmula y resultado leídos del árbol:
+  «Sin fórmula» → «7» → «7×» → «7×6» con vista previa «42» → «42». Capturas PNG de 720×1612.
+  Cobertura `ui_mobile: observed`. El informe del caso muestra las 7 capturas.
+
+Dos hallazgos más, que solo se ven en un dispositivo real:
+
+| Observado en el ZTE | Situación en Eolfi | Decisión | Prueba |
+|---|---|---|---|
+| Sin `clear_data`, la segunda sesión muestra en el historial el «42» de la primera. | La especificación marca el requisito como contradicho en `*.interfaz`. | **Es correcto:** la app guarda historial entre ejecuciones y el plan ya avisaba («datos de la app» como factor no fijado). Con `clear_data` (solo borra el historial de la Calculadora, creado en esta prueba) las 7 huellas de interfaz coinciden en las dos sesiones. | `test_estado_persistente_y_capturas_en_la_especificacion` |
+| Los hashes de las capturas cambian en cada ejecución (reloj, batería y cursor de la barra de estado). | Dos sesiones independientes dejaban el requisito «contradicted» y con grado «desconocido» solo por los píxeles. | **Defecto corregido:** la especificación ya no compara las capturas. Las guarda como `visual_evidence` (`compared: false`, con el motivo). El requisito del ZTE queda `observed`, `seguro`, `high`, con 24 aspectos esperados. La comparación entre sesiones sigue listando las diferencias visuales: es un hecho y no se oculta. | ídem |
+
+Con esto, **`tap`, `wait_for`, `key` y `read` quedan verificados en un dispositivo real**. Escenario aparte con
+`clear_data`: 7, esperar a que la fórmula sea «7» y BACK. El paso termina `ok` y la última pantalla es el lanzador
+de ZTE (`com.zte.mifavor.launcher`). **`input_text` sigue NO VERIFICADO en un dispositivo real:** la Calculadora no
+tiene campo de texto y no se usaron apps con datos personales. En el Redmi, los toques siguen bloqueados por
+MIUI.
