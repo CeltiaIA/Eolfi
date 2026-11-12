@@ -34,6 +34,9 @@ En el chat de VS Code:
 
 **Aceptación (anótala en `informes/` cuando la recorras):**
 
+*Recorrido el 2026-11-12: resultado y lo que queda NO VERIFICADO en
+[informes/laboratorio-vscode-2026-11-12.md](../../informes/laboratorio-vscode-2026-11-12.md).*
+
 - Responde el modelo local, sin Copilot, y al final indica qué modelo trabajó (`eolfi.agent.showModel`).
 - En modo **manual** (el predeterminado), cada escritura muestra un diff para aprobarla, y la terminal e internet
   piden permiso una vez por sesión. En modo **automático** no lo pide para lo normal, pero cada borrado y cada URL
