@@ -181,11 +181,16 @@ class EolfiApp:
 
     # -- historial persistente (pestaña «Trabajos») ------------------------------
     _JOB_FIELDS = ("id", "kind", "status", "label", "started", "finished", "error", "subject")
+    MAX_STORED_RESULT = 4_000_000
+    HISTORY_KEEP = 4
 
     def _history(self):
         s = self.store()
         s.conn.execute("CREATE TABLE IF NOT EXISTS job_history (id TEXT PRIMARY KEY, kind TEXT, status TEXT, "
                        "label TEXT, started REAL, finished REAL, error TEXT, subject TEXT, body TEXT)")
+        # Resultado y registro del trabajo terminado: antes se perdían si el servidor se reiniciaba (12/11/2026,
+        # una batería de una hora quedó sin resultados tras un --reload).
+        s.conn.execute("CREATE TABLE IF NOT EXISTS job_results (id TEXT PRIMARY KEY, result TEXT, log TEXT)")
         return s
 
     def _save_job(self, job: dict[str, Any]) -> None:
@@ -198,8 +203,15 @@ class EolfiApp:
                         job["id"], job["kind"], job["status"], job.get("label"), job["started"], job.get("finished"),
                         (job.get("error") or "")[:2000] or None, job.get("subject"),
                         json.dumps(job.get("body") or {}, ensure_ascii=False)[:200_000]))
+                    result = json.dumps(job.get("result"), ensure_ascii=False, default=str) if "result" in job else None
+                    if result is not None and len(result) > self.MAX_STORED_RESULT:
+                        result = json.dumps({"omitido": f"resultado de {len(result)} caracteres: no se guarda"})
+                    log = json.dumps((job.get("log") or [])[-2000:], ensure_ascii=False, default=str)
+                    s.conn.execute("INSERT OR REPLACE INTO job_results VALUES (?,?,?)", (job["id"], result, log))
+                    # El historial guarda solo los últimos trabajos terminados (decisión del titular, 12/11/2026).
                     s.conn.execute("DELETE FROM job_history WHERE id NOT IN "
-                                   "(SELECT id FROM job_history ORDER BY started DESC LIMIT 500)")
+                                   "(SELECT id FROM job_history ORDER BY started DESC LIMIT ?)", (self.HISTORY_KEEP,))
+                    s.conn.execute("DELETE FROM job_results WHERE id NOT IN (SELECT id FROM job_history)")
             finally:
                 s.close()
         except Exception:  # noqa: BLE001 — el historial nunca tumba un trabajo
@@ -212,6 +224,25 @@ class EolfiApp:
             return dict(row) if row else None
         finally:
             s.close()
+
+    def _stored_result(self, job_id: str) -> dict[str, Any] | None:
+        """Un trabajo terminado de una ejecución anterior del servidor, con su resultado y su registro."""
+        row = self._stored_job(job_id) if job_id else None
+        if row is None:
+            return None
+        s = self._history()
+        try:
+            extra = s.conn.execute("SELECT result, log FROM job_results WHERE id=?", (job_id,)).fetchone()
+        finally:
+            s.close()
+        log = json.loads(extra["log"]) if extra and extra["log"] else []
+        out = {"id": row["id"], "kind": row["kind"], "status": row["status"], "log": log, "next": len(log),
+               "elapsed": round((row["finished"] or row["started"]) - row["started"], 1), "stored": True}
+        if extra and extra["result"] is not None:
+            out["result"] = json.loads(extra["result"])
+        if row["error"]:
+            out["error"] = row["error"]
+        return out
 
     def repeat_job(self, job_id: str) -> dict[str, Any]:
         job = self.jobs.get(job_id)
@@ -233,7 +264,7 @@ class EolfiApp:
             s = self._history()
             try:
                 rows = s.conn.execute(f"SELECT {', '.join(self._JOB_FIELDS)} FROM job_history "
-                                      "ORDER BY started DESC LIMIT 100").fetchall()
+                                      "ORDER BY started DESC LIMIT ?", (self.HISTORY_KEEP,)).fetchall()
             finally:
                 s.close()
             old = [{k: v for k, v in dict(r).items() if v is not None} | {"stored": True}
@@ -241,7 +272,10 @@ class EolfiApp:
             return {"jobs": (live + old)[:100], "max_running": self.MAX_RUNNING}
         job = self.jobs.get(q.get("id", ""))
         if job is None:
-            raise ApiError(404, "trabajo no encontrado")
+            stored = self._stored_result(q.get("id", ""))
+            if stored is None:
+                raise ApiError(404, "trabajo no encontrado")
+            return stored
         try:
             since = max(0, int(q.get("since", 0)))
         except ValueError as exc:
