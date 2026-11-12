@@ -208,3 +208,40 @@ def test_remote_mode_requires_token(tmp_path):
         assert req(port, "GET", "/api/health?token=secreto123")[0] == 200
     finally:
         httpd.shutdown()
+
+
+def test_resultado_y_registro_sobreviven_a_un_reinicio(tmp_path, monkeypatch):
+    """12/11/2026: tras un --reload, una batería de una hora quedó sin resultados (solo se guardaba la petición)."""
+    import time as _time
+
+    from eolfi.server import ApiError, EolfiApp
+    db = str(tmp_path / "jobs.db")
+    app = EolfiApp(db)
+    result = {"summary": {"qwen14_q4": {"correctos": 6, "casos": 8}}, "results": [{"case": "palindromo", "passed": True}]}
+    monkeypatch.setattr(app, "create", lambda body: (app._progress("qwen14_q4: caso 1/8"), result)[1])
+    job_id = app.start_job({"kind": "create", "body": {"name": "prueba"}})["job_id"]
+    deadline = _time.time() + 10
+    while app.job_status({"id": job_id}).get("status") != "done" and _time.time() < deadline:
+        _time.sleep(0.05)
+    otra = EolfiApp(db)                                        # el servidor tras un reinicio: sin trabajos en memoria
+    stored = otra.job_status({"id": job_id})
+    assert stored["status"] == "done" and stored["stored"] is True
+    assert stored["result"] == result
+    assert any("caso 1/8" in e.get("msg", "") for e in stored["log"])
+    try:
+        otra.job_status({"id": "no-existe"})
+        raise AssertionError("debía dar 404")
+    except ApiError as exc:
+        assert exc.status == 404
+
+
+def test_historial_guarda_solo_los_ultimos_4(tmp_path):
+    from eolfi.server import EolfiApp
+    app = EolfiApp(str(tmp_path / "h.db"))
+    for i in range(7):
+        app._save_job({"id": f"t{i}", "kind": "create", "status": "done", "started": 1000.0 + i, "finished": 1001.0 + i,
+                       "body": {}, "result": {"n": i}, "log": []})
+    ids = [j["id"] for j in app.job_status({})["jobs"]]
+    assert ids == ["t6", "t5", "t4", "t3"]
+    assert app.job_status({"id": "t6"})["result"] == {"n": 6}
+
