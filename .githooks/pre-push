@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Guardia de Eolfi (14/11/2026): no se sube nada con fallos sin arreglar.
+# Ejecuta las cuatro suites de AGENTS.md; si alguna falla o no se puede ejecutar, el push se cancela.
+# Activación (una vez por copia): git config core.hooksPath .githooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+PY="${PYTHON:-python}"
+command -v "$PY" >/dev/null 2>&1 || PY=python3
+exec "$PY" tools/verificar_suites.py

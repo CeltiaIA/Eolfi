@@ -124,7 +124,7 @@ nav.views .ico { font-size: 12px; opacity: .7; }
 .menu-list a:hover, .menu-list a:focus-visible { background: var(--accent-soft); }
 
 /* -- diseño ------------------------------------------------------------------- */
-main { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); gap: var(--s4); padding: var(--s4) var(--s5);
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); padding: var(--s4) var(--s5);
   height: calc(100vh - var(--topbar-h)); }
 aside { display: flex; flex-direction: column; gap: var(--s3); min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s4); box-shadow: var(--shadow-1); }
@@ -349,3 +349,62 @@ a.small-btn { display: inline-block; border-radius: 6px; text-decoration: none; 
 .proj-change .small-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--text); }
 .proj-log { max-height: 14rem; overflow: auto; white-space: pre-wrap; }
 .proj-classic { margin-top: var(--s4); }
+
+/* -- chat con Eolfi (motor de Eolas) ------------------------------------------- */
+.eolas-chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+.eolas-chat-head h2 { margin: 0; }
+#eolas-chat-engine.ok::before { content: "● "; color: var(--ok); }
+#eolas-chat-engine.bad::before { content: "▲ "; color: var(--bad); }
+.eolas-chat-log { height: auto; min-height: 45vh; max-height: 68vh; margin-top: var(--s3); }
+.eolas-chat-log:empty::before { content: "Aquí aparecerán tus mensajes y las respuestas de Eolfi."; color: var(--muted); margin: auto; }
+.eolas-chat-log .msg { font-size: 14px; line-height: 1.5; max-width: min(92%, 70rem); }
+.eolas-chat-log .msg.progress { align-self: flex-start; background: transparent; border: 1px dashed var(--line-strong); color: var(--muted); font-size: 12px; }
+.eolas-chat-log .analysis-chip.bad { color: var(--bad); }
+.eolas-chat-log .analysis-chip { display: inline-block; margin: 4px 6px 0 0; padding: 1px 8px; border-radius: 999px; font-size: 11px; background: var(--bg-2); border: 1px solid var(--line); white-space: nowrap; }
+.eolas-chat-form { display: grid; gap: var(--s2); margin-top: var(--s3); }
+.eolas-chat-form textarea { width: 100%; min-height: 9rem; resize: vertical; font-size: 14px; line-height: 1.5; box-sizing: border-box; }
+.eolas-chat-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.eolas-chat-tools select, .eolas-chat-tools input[type="text"] { min-width: 0; }
+.eolas-chat-tools input[type="text"] { flex: 1 1 16rem; }
+.eolas-chat-spacer { flex: 1 1 auto; }
+.eolas-chat-attach { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: var(--r-sm); cursor: pointer; }
+.eolas-chat-attach:focus-visible { box-shadow: var(--ring); outline: none; }
+.eolas-chat-binary { display: inline-flex; align-items: center; gap: 4px; }
+.eolas-chat-attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.eolas-chat-attachments:empty { display: none; }
+.eolas-chat-attachments li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); font-size: 12px; max-width: 100%; }
+.eolas-chat-attachments li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22rem; }
+.eolas-chat-attachments li button { padding: 0 7px; font-size: 12px; line-height: 1.5; background: transparent; color: var(--muted); border: 0; }
+.eolas-chat-vscode { margin-top: var(--s4); }
+.eolas-chat-vscode summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 640px) {
+  .eolas-chat-log { min-height: 55vh; }
+  .eolas-chat-tools > * { flex: 1 1 100%; }
+  .eolas-chat-spacer { display: none; }
+}
+
+/* -- pantalla de chat y panel de herramientas (12/11/2026) ---------------------- */
+.vscode-activity { cursor: pointer; }
+body.chat-full #detail { display: flex; flex-direction: column; padding: var(--s4); }
+body.chat-full #local-chat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; border: 0; box-shadow: none; padding: 0; }
+body.chat-full #local-chat[hidden] { display: none; }
+body.chat-full .eolas-chat-log { flex: 1 1 auto; min-height: 16rem; max-height: none; }
+body.chat-full .eolas-chat-form textarea { min-height: 7rem; }
+.msg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--s2); white-space: normal; }
+.tools-drawer { position: fixed; z-index: 30; top: var(--topbar-h); left: 0; bottom: 0; width: min(440px, 100vw);
+  padding: var(--s3); background: var(--bg); border-right: 1px solid var(--line); box-shadow: var(--shadow-2, 0 8px 30px rgba(0,0,0,.25)); }
+.tools-drawer[hidden] { display: none !important; }
+.tools-drawer .workspace { height: 100%; box-sizing: border-box; }
+.tools-switch { margin: var(--s2) 0 var(--s3); }
+@media (max-width: 640px) { .tools-drawer { width: 100vw; } }
+.eolas-chat-motor { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.eolas-chat-motor p { margin: 0; }
+.eolas-chat-motor select { max-width: 22rem; }
+.auth-card { margin-top: var(--s2); padding: var(--s2) var(--s3); border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line));
+  border-radius: var(--r-sm); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); white-space: normal; display: grid; gap: 4px; }
+.auth-card .auth-args { font-size: 11px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 8rem; overflow: auto; }
+/* -- «Ahora mismo»: registro en directo del trabajo en marcha (14/11/2026) ------- */
+.jobs-live { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-2); }
+.jobs-live[hidden] { display: none; }
+.jobs-live-log { margin: var(--s2) 0 0; min-height: 45vh; max-height: 70vh; overflow: auto; resize: vertical;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.55; }

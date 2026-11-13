@@ -65,3 +65,32 @@ def test_read_returns_bounded_chunks(tmp_path):
     second = library.read("corpus/texto/Eolfi/guia.md", first["siguiente_desde"])
     assert len(first["contenido"]) == 30_000 and first["recortado"]
     assert second["contenido"] == "A" * 1_000 and not second["recortado"]
+
+
+def test_search_ranks_definition_and_whole_words_first(tmp_path):
+    """12/11/2026: «class AlexandriaLibrary» devolvía componentes con muchas líneas «class» antes que la definición."""
+    code = tmp_path / "Alejandria" / "corpus" / "codigo" / "Eolfi"
+    root = _library(tmp_path, [{"path": f"corpus/codigo/Eolfi/{n}"} for n in ("ui.tsx", "uso.py", "lib.py", "otro.py")])
+    code.mkdir(parents=True, exist_ok=True)
+    (code / "ui.tsx").write_text("\n".join(f'<div className="class-{i}">class</div>' for i in range(200)), encoding="utf-8")
+    (code / "uso.py").write_text("from lib import Biblioteca\nb = Biblioteca('x')\nBiblioteca.leer(b)\n", encoding="utf-8")
+    (code / "lib.py").write_text("import os\n\n\nclass Biblioteca:\n    pass\n\n\ndef _normal(t):\n    return t\n", encoding="utf-8")
+    (code / "otro.py").write_text("def _normalize_all(x):\n    return _normalize_all(x)\n# _normalize _normalize\n", encoding="utf-8")
+    lib = AlexandriaLibrary(root)
+    first = lib.search("class Biblioteca")["resultados"][0]
+    assert first["ruta"].endswith("lib.py") and first["fragmento"].startswith("4: class Biblioteca:")
+    assert lib.search("_normal")["resultados"][0]["ruta"].endswith("lib.py")        # palabra completa, no «_normalize»
+    assert lib.search("def _normal")["resultados"][0]["ruta"].endswith("lib.py")
+
+
+def test_search_prefiere_la_definicion_a_un_archivo_que_repite_el_contexto(tmp_path):
+    """13/11/2026: «MAX_READ_CHARS eolfi» devolvía el archivo del examen (con «eolfi» cientos de veces) antes que el
+    que define la constante, y el motor contestaba con otra constante de ese archivo."""
+    code = tmp_path / "Alejandria" / "corpus" / "codigo" / "Eolfi" / "eolfi"
+    root = _library(tmp_path, [{"path": f"corpus/codigo/Eolfi/eolfi/{n}"} for n in ("examen.py", "library.py")])
+    code.mkdir(parents=True, exist_ok=True)
+    (code / "examen.py").write_text("from eolfi import x  # eolfi\n" * 50 + "PROMPT = 'Lee el archivo de Eolfi que define "
+                                    "MAX_READ_CHARS'\nLIMITE = 300\n", encoding="utf-8")
+    (code / "library.py").write_text("import json\n\nMAX_READ_CHARS = 30_000\n\nchunk = MAX_READ_CHARS\n", encoding="utf-8")
+    first = AlexandriaLibrary(root).search("MAX_READ_CHARS eolfi")["resultados"][0]
+    assert first["ruta"].endswith("library.py") and "MAX_READ_CHARS = 30_000" in first["fragmento"]

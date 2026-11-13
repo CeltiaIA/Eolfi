@@ -8,6 +8,24 @@ from eolfi.server import make_server
 from tests.elfgen import build_elf64
 
 
+def test_failed_assisted_creation_is_error_and_keeps_result(tmp_path, monkeypatch):
+    from eolfi.server import EolfiApp
+    app = EolfiApp(str(tmp_path / 'jobs.db'))
+    result = {'assist': {'ok': False, 'restored': True}, 'verification': {'ok': True}}
+    monkeypatch.setattr(app, 'create', lambda body: result)
+    saved = []
+    finished = threading.Event()
+    def save(job):
+        saved.append(dict(job))
+        finished.set()
+    monkeypatch.setattr(app, '_save_job', save)
+    app.start_job({'kind': 'create', 'body': {}})
+    assert finished.wait(5)
+    assert saved[-1]['status'] == 'error'
+    assert saved[-1]['result'] == result
+    assert 'restaurados' in saved[-1]['error']
+
+
 @pytest.fixture
 def srv(tmp_path):
     httpd = make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
@@ -208,3 +226,126 @@ def test_remote_mode_requires_token(tmp_path):
         assert req(port, "GET", "/api/health?token=secreto123")[0] == 200
     finally:
         httpd.shutdown()
+
+
+def test_resultado_y_registro_sobreviven_a_un_reinicio(tmp_path, monkeypatch):
+    """12/11/2026: tras un --reload, una batería de una hora quedó sin resultados (solo se guardaba la petición)."""
+    import time as _time
+
+    from eolfi.server import ApiError, EolfiApp
+    db = str(tmp_path / "jobs.db")
+    app = EolfiApp(db)
+    result = {"summary": {"qwen14_q4": {"correctos": 6, "casos": 8}}, "results": [{"case": "palindromo", "passed": True}]}
+    monkeypatch.setattr(app, "eolas_e2e", lambda body: (app._progress("qwen14_q4: caso 1/8"), result)[1])
+    job_id = app.start_job({"kind": "eolas-e2e", "body": {"profiles": ["qwen14_q4"], "suite": True}})["job_id"]
+    deadline = _time.time() + 10
+    while app.job_status({"id": job_id}).get("status") != "done" and _time.time() < deadline:
+        _time.sleep(0.05)
+    otra = EolfiApp(db)                                        # el servidor tras un reinicio: sin trabajos en memoria
+    stored = otra.job_status({"id": job_id})
+    assert stored["status"] == "done" and stored["stored"] is True
+    assert stored["result"] == result
+    assert any("caso 1/8" in e.get("msg", "") for e in stored["log"])
+    try:
+        otra.job_status({"id": "no-existe"})
+        raise AssertionError("debía dar 404")
+    except ApiError as exc:
+        assert exc.status == 404
+
+
+def test_historial_guarda_solo_los_ultimos_4(tmp_path):
+    from eolfi.server import EolfiApp
+    app = EolfiApp(str(tmp_path / "h.db"))
+    for i in range(7):
+        app._save_job({"id": f"t{i}", "kind": "eolas-e2e", "status": "done", "started": 1000.0 + i, "finished": 1001.0 + i,
+                       "body": {}, "result": {"n": i}, "log": []})
+    ids = [j["id"] for j in app.job_status({})["jobs"]]
+    assert ids == ["t6", "t5", "t4", "t3"]
+    assert app.job_status({"id": "t6"})["result"] == {"n": 6}
+
+
+def test_trabajo_de_banco_lleva_etiqueta(tmp_path, monkeypatch):
+    from eolfi.server import EolfiApp
+    app = EolfiApp(str(tmp_path / "l.db"))
+    monkeypatch.setattr(app, "eolas_e2e", lambda body: {})
+    jid = app.start_job({"kind": "eolas-e2e", "body": {"battery": "codigo", "profiles": ["qwen14_q3"], "suite": True}})["job_id"]
+    assert app.jobs[jid]["label"] == "Banco · codigo · qwen14_q3"
+
+
+def test_recarga_no_corta_trabajos_si_el_servidor_tarda_en_responder(capsys):
+    """12/11/2026: una respuesta lenta se tomaba como «0 trabajos» y la recarga mató una ronda de motores."""
+    from eolfi import server
+
+    class Proc:
+        def poll(self):
+            return None
+
+    readings = iter([None, None, 1, None, 0, 1, 0, 0])
+    seen = []
+    server._wait_jobs_idle(Proc(), 8777, sleep=lambda s: None,
+                           active=lambda port: seen.append(1) or next(readings))
+    assert len(seen) == 8                              # solo dos lecturas SEGUIDAS de 0 permiten recargar
+    assert "recargaré al terminar" in capsys.readouterr().out
+
+    class Dead:
+        def poll(self):
+            return 1
+
+    server._wait_jobs_idle(Dead(), 8777, sleep=lambda s: None, active=lambda port: None)   # hijo caído: no espera
+
+
+def test_trabajo_cortado_por_un_reinicio_queda_como_interrumpido(tmp_path, monkeypatch):
+    """12/11/2026: un reinicio cortó dos pruebas de horas y desaparecieron sin rastro del historial."""
+    import time as _time
+
+    from eolfi.server import EolfiApp
+
+    db = str(tmp_path / "i.db")
+    app = EolfiApp(db)
+    job = {"id": "a" * 16, "kind": "eolas-e2e", "status": "running", "label": "Banco", "started": _time.time() - 60,
+           "log": [{"t": 1, "msg": "gemma: 3/19"}], "body": {"suite": True}}
+    app._save_job(job)                                            # instantánea mientras corre
+    s = app._history()
+    s.conn.execute("UPDATE job_live SET pid=999999999")            # su proceso ya no existe
+    s.conn.commit()
+    s.close()
+    otra = EolfiApp(db)                                           # el servidor tras el reinicio
+    listed = {j["id"]: j for j in otra.job_status({})["jobs"]}
+    assert listed["a" * 16]["status"] == "interrupted" and "reinició" in listed["a" * 16]["error"]
+    stored = otra.job_status({"id": "a" * 16})
+    assert stored["log"][0]["msg"] == "gemma: 3/19"               # conserva el registro hasta el último guardado
+    vivo = {**job, "id": "b" * 16}
+    otra._save_job(vivo)                                          # uno de un servidor vivo no se toca
+    EolfiApp(db)
+    assert otra.job_status({"id": "b" * 16})["status"] == "running"
+    otra._save_job({**vivo, "status": "done", "finished": _time.time()})
+    s = otra._history()
+    assert s.conn.execute("SELECT COUNT(*) FROM job_live").fetchone()[0] == 0
+    s.close()
+
+
+def test_prueba_en_vivo_solo_lista_motores_instalados(srv, monkeypatch):
+    """14/11/2026: la lista de la prueba en vivo no ofrece motores retirados ni sin GGUF."""
+    from eolfi import eolas_v2
+
+    monkeypatch.setattr(eolas_v2, "available_evaluation_profiles", lambda cfg=None: ["gemma_q4", "gemma3_q4"])
+    port, _ = srv
+    status, data, _h = req(port, "GET", "/api/eolas/perfiles")
+    assert status == 200 and data == {"perfiles": ["gemma_q4", "gemma3_q4"]}
+
+
+def test_perfiles_disponibles_excluyen_retirados_y_sin_gguf(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    cfg_path = tmp_path / "eolas.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(cfg_path))
+    cfg = eolas_v2.load_config()
+    for name in ("gemma_q4", "qwen14_q5"):
+        cfg["profiles"][name]["model"] = str(tmp_path / f"{name}.gguf")
+        (tmp_path / f"{name}.gguf").write_bytes(b"x")
+    for name in cfg["profiles"]:
+        if name not in ("gemma_q4", "qwen14_q5"):
+            cfg["profiles"][name]["model"] = str(tmp_path / "no-existe.gguf")
+    cfg["retired_profiles"] = ["qwen14_q5"]
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    assert eolas_v2.available_evaluation_profiles() == ["gemma_q4"]

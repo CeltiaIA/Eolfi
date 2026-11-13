@@ -35,7 +35,7 @@ const { loadSubjects, renderSubjects } = createSubjectView({ $, el, api, fmtTime
 
 // -- casos: el caso activo se añade a cada trabajo (mismo estado que la CLI y el agente) -----
 const cases = createCaseView({ $, el, api, fmtTime, setStatus, showView: (v) => showView(v) });
-createProjectView({ $, el, api, setStatus });
+const projects = createProjectView({ $, el, api, setStatus });
 const withCase = (body) => cases.withCase(body);
 
 function updateCompare() {
@@ -48,30 +48,80 @@ function updateCompare() {
 function showView(view) {
   if (view === "analysis") view = state.subject ? "content" : "empty";
   state.view = view;
+  // «Chat»: pantalla de inicio a pantalla completa; coordina el resto de funciones (12/11/2026).
+  const chatView = view === "chat";
+  document.body.classList.toggle("chat-full", chatView);
+  $("#local-chat").hidden = !chatView;
+  if (!chatView) closeTools();
   const wasChats = chat.visible;
   chat.visible = view === "chats";
   $("#content").hidden = view !== "content";
   $("#empty").hidden = view !== "empty";
   $("#chats").hidden = view !== "chats";
-  $("#local-chat").hidden = view !== "local-chat";
+  // «Seguimiento»: trabajos, prueba en vivo y chat local juntos (antes eran tres pestañas).
+  const tracking = view === "tracking";
+  if (tracking) orderTracking();
+  $("#tracking-index").hidden = !tracking;
+  $("#eolas-e2e").hidden = !tracking;
   $("#providers-view").hidden = view !== "providers";
-  $("#jobs-view").hidden = view !== "jobs";
+  $("#jobs-view").hidden = !tracking;
   $("#vscode-view").hidden = view !== "vscode";
   $("#case-view").hidden = view !== "case";
   // Cabecera: todas las vistas a la vista, la actual marcada (aria-current).
-  const current = { chats: "#open-chats", "local-chat": "#open-local-chat", providers: "#open-providers", jobs: "#open-jobs", content: "#open-analysis", empty: "#open-analysis" }[view];
-  for (const id of ["#open-analysis", "#open-chats", "#open-local-chat", "#open-providers", "#open-jobs"]) {
+  const current = { chat: "#open-chat", chats: "#open-chats", tracking: "#open-jobs", providers: "#open-providers", content: "#open-analysis", empty: "#open-analysis" }[view];
+  for (const id of ["#open-chat", "#open-analysis", "#open-chats", "#open-providers", "#open-jobs"]) {
     if (id === current) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current");
   }
   $(".menu")?.removeAttribute("open");
   if (view === "chats" && !wasChats) { renderChatLog(); refreshLive(); pollBridge(); }
-  if (view === "local-chat") { renderLocalChat(); refreshLocalChatProject(); }
+  if (tracking) { loadJobs(); initEolasE2E(); loadLessons(); }
+  // El proyecto de VS Code se consulta al abrir su desplegable, no al cargar el chat: sin VS Code responde 503 y el
+  // chat es la pantalla de inicio (14/11/2026).
+  if (chatView) renderLocalChat();
   if (view === "providers") $("#providers-view h2")?.focus();
-  if (view === "jobs") { $("#jobs-view h2")?.focus(); loadJobs(); }
   if (view === "vscode") showVSCode();
   if (view === "providers") loadClients();
   if (view === "content" || view === "empty") showAnalysisChoice?.();
 }
+// Orden de «Seguimiento»: índice, trabajos, prueba en vivo y chat local (en el HTML están en otro orden).
+let trackingOrdered = false;
+function orderTracking() {
+  if (trackingOrdered) return;
+  trackingOrdered = true;
+  const index = $("#tracking-index");
+  index.after($("#jobs-view"));
+  $("#jobs-view").after($("#eolas-e2e"));
+}
+
+// -- herramientas: las funciones de la antigua columna, en un panel que se abre desde el chat --------------
+function openTools(panel) {
+  const drawer = $("#tools-drawer");
+  drawer.hidden = false;
+  if (panel) document.querySelector(`.tools-switch [data-panel-action="${panel}"]`)?.click();
+  $("#tools-close").focus();
+}
+function closeTools() {
+  const drawer = $("#tools-drawer");
+  if (!drawer || drawer.hidden) return;
+  drawer.hidden = true;
+  if (state.view === "chat") $("#eolas-chat-input")?.focus();
+}
+document.addEventListener("click", (e) => { if (e.target.closest?.("#tools-close")) closeTools(); });
+// Escape cierra «Herramientas» solo si nadie lo atendió antes: un selector de carpetas, un diálogo o un menú abierto
+// dentro del panel se cierran primero y el foco vuelve a su botón (antes este atajo se lo llevaba).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || $("#tools-drawer").hidden || e.defaultPrevented) return;
+  if (!e.target.isConnected || e.target.closest?.(".picker, dialog, details.menu[open]")) return;
+  closeTools();
+});
+// El chat pide abrir algo: el plan propuesto (se aprueba aquí, nunca en el chat), un informe o las herramientas.
+window.addEventListener("eolfi:open-tools", (e) => openTools(e.detail?.panel));
+window.addEventListener("eolfi:open-project", async (e) => {
+  openTools("create");
+  try { await projects.open(e.detail.caseId); $("#proj-view")?.scrollIntoView({ block: "start" }); }
+  catch (err) { setStatus(err.message, true); }
+});
+window.addEventListener("eolfi:open-subject", (e) => { location.hash = "#objetivo/" + encodeURIComponent(e.detail.subject); });
 const showChats = (on) => showView(on ? "chats" : "analysis");
 const showProviders = (on) => showView(on ? "providers" : "analysis");
 
@@ -731,7 +781,9 @@ function wireChats() {
   $("#chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) sendChat(e); });   // Mayús+Intro: salto de línea
 }
 
-const ROUTES = { "#chats": "chats", "#chat-local": "local-chat", "#proveedores": "providers", "#trabajos": "jobs", "#vscode": "vscode", "#analisis": "analysis", "": "analysis" };
+const ROUTES = { "#chat": "chat", "#chat-local": "chat", "#chats": "chats", "#seguimiento": "tracking", "#prueba-e2e": "tracking", "#proveedores": "providers", "#trabajos": "tracking", "#vscode": "vscode", "#analisis": "analysis", "": "chat" };
+// Los enlaces antiguos llevan a su sección dentro de «Seguimiento».
+const TRACKING_SECTIONS = { "#trabajos": "#jobs-view", "#prueba-e2e": "#eolas-e2e" };
 function route() {
   const h = location.hash;
   if (h.startsWith("#caso/")) {
@@ -744,6 +796,7 @@ function route() {
     return;
   }
   showView(ROUTES[h] || "analysis");
+  if (TRACKING_SECTIONS[h]) requestAnimationFrame(() => $(TRACKING_SECTIONS[h])?.scrollIntoView({ block: "start", behavior: "smooth" }));
 }
 window.addEventListener("hashchange", route);
 window.addEventListener("popstate", route);
@@ -752,11 +805,119 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden && chat.visible) { refreshLive(true); pollBridge(); }
 });
 
+const E2E_PROFILES = [
+  ["gemma_q4", "Gemma 12B Q4"], ["gemma", "Gemma 12B Q5"],
+  ["mistral", "Mistral 7B Q4"], ["nemo_q4", "Mistral Nemo 12B Q4"], ["nemo_moe", "Mistral Nemo 12B Q4 · MoE"], ["nemo_q5", "Mistral Nemo 12B Q5"],
+  ["qwen14_q4", "Qwen2.5 14B Q4"], ["qwen14_q3", "Qwen2.5 14B Q3"], ["qwen14_q5", "Qwen2.5 14B Q5"],
+  ["gemma3_q4", "Gemma 3 12B Q4"], ["gemma3_q3", "Gemma 3 12B Q3"], ["gemma3_q5", "Gemma 3 12B Q5"],
+  ["msmall_q4", "Mistral Small 24B Q4"], ["msmall_q3", "Mistral Small 24B Q3"], ["msmall_q5", "Mistral Small 24B Q5"],
+];
+// Lecciones aprendidas por motor: qué causas de fallo ha registrado Eolfi y cuáles se aplican.
+async function loadLessons() {
+  const box = $("#eolas-lessons");
+  if (!box) return;
+  let data;
+  try { data = await api("/api/eolas/lecciones"); } catch (err) { box.textContent = err.message; return; }
+  const motors = Object.entries(data.motores || {});
+  if (!motors.length) { box.replaceChildren(el("p", { class: "muted" }, "Todavía no hay lecciones: aparecen tras la primera batería de código con fallos.")); return; }
+  box.replaceChildren(...motors.map(([profile, list]) => el("div", { class: "card" }, el("strong", {}, profile),
+    ...list.map((l) => {
+      const input = el("input", { type: "checkbox", ...(l.activa ? { checked: "checked" } : {}) });
+      input.addEventListener("change", async () => {
+        try { await api("/api/eolas/lecciones", { method: "POST", body: JSON.stringify({ profile, categoria: l.categoria, activa: input.checked }) }); }
+        catch (err) { input.checked = !input.checked; box.prepend(el("p", { class: "bad" }, err.message)); }
+      });
+      return el("label", { class: "row" }, input, ` ${l.categoria} ×${l.veces} — ${l.leccion}`);
+    }))));
+}
+let e2eWired = false;
+function initEolasE2E() {
+  if (e2eWired) return;
+  e2eWired = true;
+  const choices = $("#eolas-e2e-profiles");
+  // Solo los motores INSTALADOS (14/11/2026): sin los retirados ni los que ya no tienen su GGUF en el disco.
+  choices.replaceChildren(el("span", { class: "small muted" }, "Comprobando qué motores están instalados…"));
+  api("/api/eolas/perfiles").then(({ perfiles = [] }) => {
+    const labels = new Map(E2E_PROFILES);
+    choices.replaceChildren(...(perfiles.length ? perfiles.map((id) => el("label", {},
+      el("input", { type: "checkbox", value: id, checked: "checked" }), " ", labels.get(id) || id))
+      : [el("span", { class: "small muted" }, "No hay motores instalados para la prueba.")]));
+  }).catch((err) => choices.replaceChildren(el("span", { class: "small bad" }, `No se pudo saber qué motores están instalados: ${err.message}`)));
+  $("#eolas-e2e-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const prompt = $("#eolas-e2e-prompt").value.trim();
+    const expected = $("#eolas-e2e-expected").value.trim();
+    const round = $("#eolas-e2e-round").checked;
+    const codeNew = $("#eolas-e2e-code-new").checked;
+    const code = $("#eolas-e2e-code").checked || codeNew;
+    const lessons = $("#eolas-e2e-lessons").checked;
+    const suite = $("#eolas-e2e-suite").checked || code || round;
+    const profiles = [...choices.querySelectorAll("input:checked")].map((input) => input.value);
+    if (!prompt || !profiles.length) return;
+    const live = $("#eolas-e2e-live"), results = $("#eolas-e2e-results"), state = $("#eolas-e2e-state");
+    live.replaceChildren(); delete live.dataset.mirror; results.replaceChildren(); state.textContent = "en marcha"; state.className = "badge warn";
+    $("#eolas-e2e-go").disabled = true;
+    $("#eolas-e2e-status").textContent = "Un solo motor se carga cada vez.";
+    try {
+      const report = await runJob("eolas-e2e", { prompt, expected, profiles, suite, battery: round ? "completa" : codeNew ? "codigo_nuevo" : code ? "codigo" : "json", lessons }, (entries) => {
+        for (const item of entries) live.append(el("p", { class: "small" }, `[${item.t}s] ${item.msg}`));
+        live.scrollTop = live.scrollHeight;
+        if (entries.some((item) => String(item.msg).includes("lecciones actualizadas"))) loadLessons();   // en directo
+      });
+      results.replaceChildren(...report.results.map((row) => el("article", { class: "card" },
+        el("h3", {}, `${row.case_label ? row.case_label + " · " : ""}${row.alias}`), el("p", { class: "small" }, `${row.seconds}s · ${row.passed === null ? "sin respuesta esperada" : row.passed ? (row.repaired ? "correcto tras corregir con el error" : "correcto") : "no coincide"}`),
+        el("h4", {}, "Análisis"), el("pre", {}, row.analysis || "—"),
+        el("h4", {}, "Respuesta"), el("pre", {}, row.answer || "—"),
+        ...(row.first_output ? [el("h4", {}, "Primer intento: error de la ejecución"), el("pre", {}, row.first_output)] : []),
+        ...(row.test_output ? [el("h4", {}, row.first_output ? "Tras la corrección: ejecución" : "Ejecución de las pruebas (contenedor)"), el("pre", {}, row.test_output)] : []))));
+      state.textContent = "terminado"; state.className = "badge ok";
+      loadLessons();
+      const roundLine = report.battery === "completa" ? `Mejor: ${report.mejor || "ninguno aprueba"} · aprueban: ${(report.aprobados || []).join(", ") || "—"} · no aprueban: ${(report.no_aprueban || []).join(", ") || "—"}. ` : "";
+      const totals = roundLine + Object.entries(report.summary || {}).map(([name, x]) => x.codigo_primera_pct !== undefined
+        ? `${name}: código ${x.codigo_primera_pct} % y herramientas ${x.herramientas_pct} % a la primera → ${x.aprobado ? "APROBADO" : "no aprueba"}` : `${name}: ${x.correctos_primer_intento !== undefined ? `${x.correctos_primer_intento}/${x.casos} a la primera (tras corregir: ${x.correctos})` : `${x.correctos}/${x.casos} correctos`} (carga ${x.carga_s ?? "—"} s, respuestas ${x.respuesta_s} s)`).join(" · ");
+      $("#eolas-e2e-status").textContent = `${totals ? totals + ". " : ""}${report.restored_profile ? `Restaurado: ${report.restored_profile}.` : "No había ningún perfil en marcha: la GPU queda libre."} ${report.protocol}`;
+    } catch (err) {
+      state.textContent = "error"; state.className = "badge bad";
+      $("#eolas-e2e-status").textContent = err.message;
+    } finally { $("#eolas-e2e-go").disabled = false; }
+  });
+  // Un trabajo iniciado desde otra vista o por la API también pertenece a
+  // «Prueba en vivo»: recupéralo para que no se pierda su seguimiento visual.
+  (async () => {
+    try {
+      const listing = await api("/api/jobs");
+      const job = (listing.jobs || []).find((item) => item.kind === "eolas-e2e" && (item.status === "running" || item.status === "queued"));
+      if (!job) return;
+      const live = $("#eolas-e2e-live"), state = $("#eolas-e2e-state");
+      live.replaceChildren(); delete live.dataset.mirror;
+      state.textContent = "en marcha"; state.className = "badge warn";
+      $("#eolas-e2e-status").textContent = "Recuperando comparación en curso de Eolfi…";
+      let since = 0;
+      const refresh = async () => {
+        const current = await api(`/api/jobs?id=${encodeURIComponent(job.id)}&since=${since}`);
+        since = current.next || since;
+        for (const item of current.log || []) live.append(el("p", { class: "small" }, `[${item.t}s] ${item.msg}`));
+        live.scrollTop = live.scrollHeight;
+        if ((current.log || []).some((item) => String(item.msg).includes("lecciones actualizadas"))) loadLessons();
+        if (current.status === "running" || current.status === "queued") return setTimeout(refresh, 1500);
+        loadLessons();
+        state.textContent = current.status === "done" ? "terminado" : "error";
+        state.className = current.status === "done" ? "badge ok" : "badge bad";
+        $("#eolas-e2e-status").textContent = current.status === "done" ? "Resultado recuperado de Eolfi." : (current.error || "La prueba terminó con error.");
+      };
+      refresh();
+    } catch (_) { /* la prueba manual sigue disponible aunque no haya historial */ }
+  })();
+}
+
 (async function init() {
   wire();
   cases.wire();
   wireChats();
   wireJobs();
+  // El chat se carga aparte: si su módulo no llega (p. ej. servidor sin recargar), el panel sigue funcionando.
+  import("./eolas-chat.js").then((m) => m.initEolasChat())
+    .catch((err) => { const e = $("#eolas-chat-engine"); if (e) e.textContent = `El chat no se pudo cargar: ${err.message}`; });
   route();
   try {
     const h = await api("/api/health");
@@ -977,7 +1138,7 @@ function setTheme(value) {
 
 // -- Pestaña «Trabajos»: cola, progreso, cancelar y repetir ----------------------------------
 const JOB_STATE = { queued: ["en cola", "warn"], running: ["en marcha", "warn"], done: ["hecho", "ok"],
-  error: ["error", "bad"], cancelled: ["cancelado", ""] };
+  error: ["error", "bad"], cancelled: ["cancelado", ""], interrupted: ["interrumpido", "warn"] };
 const JOB_KIND = { triage: "binario", web: "web", repo: "repositorio", create: "crear" };
 var jobsTimer = null;   // var: init() puede llamar a loadJobs() antes de llegar aquí
 
@@ -989,12 +1150,54 @@ async function loadJobs() {
   const badge = $("#jobs-badge");
   badge.hidden = !active;
   badge.textContent = active ? String(active) : "";
-  if (state.view === "jobs") {
+  if (state.view === "tracking") {
     $("#jobs-state").textContent = `${active} en marcha o en cola · como mucho ${data.max_running} a la vez`;
     renderJobs(data.jobs);
+    followLive(data.jobs);
   }
   // Mientras haya trabajos activos (o la vista esté abierta) se refresca; si no, cada 15 s para el contador.
-  if (!document.hidden) jobsTimer = setTimeout(loadJobs, active || state.view === "jobs" ? 1500 : 15000);
+  if (!document.hidden) jobsTimer = setTimeout(loadJobs, active || state.view === "tracking" ? 1500 : 15000);
+}
+
+// «Ahora mismo» (14/11/2026): el registro en directo del trabajo en marcha más reciente, sea del tipo que sea
+// (chat, ronda de motores, análisis, proyecto). Antes solo se veía el estado en la tabla y el visor de la prueba en
+// vivo seguía únicamente las rondas, así que un chat de varios minutos no mostraba lo que hacía Eolfi.
+const live = { id: null, since: 0, lines: [], busy: false };
+async function followLive(jobs) {
+  const running = jobs.find((j) => j.status === "running" || j.status === "queued");
+  // Sin nada en marcha, se queda el último trabajo (su registro y su resultado) en vez de un visor vacío.
+  const target = running || (live.id && jobs.find((j) => j.id === live.id)) || jobs[0];
+  const box = $("#jobs-live");
+  if (!target) { box.hidden = true; return; }
+  if (target.id !== live.id) Object.assign(live, { id: target.id, since: 0, lines: [] });
+  if (live.busy) return;
+  live.busy = true;
+  try {
+    const d = await api(`/api/jobs?id=${encodeURIComponent(target.id)}&since=${live.since}`);
+    for (const l of d.log || []) live.lines.push(`[${Math.round(l.t ?? 0)} s] ${l.msg ?? l}`);
+    live.lines = live.lines.slice(-200);
+    live.since = d.next ?? live.since;
+    const [label] = JOB_STATE[d.status] || [d.status];
+    box.hidden = false;
+    $("#jobs-live-title").textContent = `Ahora mismo · ${target.kind} · ${target.label || target.id}`;
+    $("#jobs-live-time").textContent = `${label} · ${Math.round(d.elapsed ?? 0)} s`;
+    const final = d.status === "done" && d.result?.text ? [`— Respuesta: ${String(d.result.text).slice(0, 400)}`]
+      : d.error ? [`— ${d.error}`] : [];
+    const pre = $("#jobs-live-log");
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent = [...live.lines, ...final].join("\n") || "Esperando el primer paso…";
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+    // El visor de la prueba en vivo no se queda vacío: sin ronda propia, muestra lo que está haciendo Eolfi.
+    const bench = $("#eolas-e2e-live");
+    if (bench && target.kind !== "eolas-e2e" && (!bench.children.length || bench.dataset.mirror === "1")) {
+      bench.dataset.mirror = "1";
+      bench.replaceChildren(el("div", { class: "msg assistant small" },
+        `No hay ninguna ronda en marcha. Eolfi ${running ? "está con" : "terminó"}: ${target.kind} · ${target.label || target.id} (${label}, ${Math.round(d.elapsed ?? 0)} s)`),
+        ...live.lines.slice(-25).map((line) => el("div", { class: "msg assistant small" }, line)));
+      bench.scrollTop = bench.scrollHeight;
+    }
+  } catch { /* el trabajo pudo desaparecer; la tabla sigue mostrando su estado */ }
+  finally { live.busy = false; }
 }
 
 function renderJobs(jobs) {
@@ -1078,6 +1281,16 @@ function renderLocalChat() {
   }));
 }
 
+const ACTIVITY_SHOW_S = 15 * 60;    // una petición terminada se muestra arriba 15 minutos
+const ACTIVITY_STALE_S = 10 * 60;   // «en marcha» sin noticias durante 10 minutos: probablemente cortada
+function agoText(seconds) {
+  const s = Math.round(seconds);
+  if (s < 60) return "hace un momento";
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return `hace ${h} h${m ? ` ${m} min` : ""}`;
+}
+$("#vscode-activity")?.addEventListener("click", () => { location.hash = "#chat-local"; });
 async function refreshVSCodeActivity() {
   clearTimeout(vscodeActivityTimer);
   if (document.hidden) { vscodeActivityTimer = setTimeout(refreshVSCodeActivity, 5000); return; }
@@ -1088,18 +1301,27 @@ async function refreshVSCodeActivity() {
     localChatUnavailable = false;
     const run = activity.find((x) => x.status === "running") || activity[0];
     const banner = $("#vscode-activity");
-    if (run) {
-      const running = run.status === "running";
+    // Cuándo fue la última noticia de esa petición: sin esto, una terminada hace horas parecía actual y una cortada
+    // (VS Code cerrado o detenido) se quedaba «en marcha» para siempre (12/11/2026).
+    // Sin marca de tiempo la edad es DESCONOCIDA: no se da por cortada ni se inventa un «hace…» (antes salía
+    // «hace 498483 h», contando desde 1970).
+    const stamp = run ? (run.updated || run.finished || run.started || null) : null;
+    const age = stamp ? Math.max(0, Date.now() / 1000 - stamp) : 0;
+    const stale = Boolean(stamp) && run.status === "running" && age > ACTIVITY_STALE_S;
+    if (run && (run.status === "running" || age <= ACTIVITY_SHOW_S)) {
+      const running = run.status === "running" && !stale;
       active = running;
       banner.hidden = false;
-      $("#vscode-activity-state").textContent = running ? "en marcha" : run.status === "error" ? "error" : "terminado";
-      $("#vscode-activity-state").className = "badge " + (running ? "warn" : run.status === "error" ? "bad" : "ok");
-      $("#vscode-activity-title").textContent = "Agente Eolfi en VS Code · " + (run.label || "Chat");
+      $("#vscode-activity-state").textContent = stale ? "sin noticias" : running ? "en marcha" : run.status === "error" ? "error" : "terminado";
+      $("#vscode-activity-state").className = "badge " + (stale ? "bad" : running ? "warn" : run.status === "error" ? "bad" : "ok");
+      $("#vscode-activity-title").textContent = "Agente Eolfi en VS Code · " + (run.label || "Chat") + (stamp ? ` · ${agoText(age)}` : "");
       const last = (run.log || []).slice(-2).map((x) => x.msg).filter(Boolean);
-      $("#vscode-activity-message").textContent = last.join(" · ") || (running ? "Esperando el siguiente paso…" : "La última petición terminó.");
-    } else banner.hidden = true;
+      $("#vscode-activity-message").textContent = stale
+        ? `Sin actividad desde ${agoText(age)}: la petición pudo cortarse (VS Code cerrado o detenido).`
+        : last.join(" · ") || (running ? "Esperando el siguiente paso…" : "La última petición terminó.");
+    } else banner.hidden = true;   // lo antiguo sigue en «Seguimiento» → Chat local
   } catch { localChatUnavailable = true; }
-  if (state.view === "local-chat") renderLocalChat();
+  if (state.view === "chat") renderLocalChat();
   vscodeActivityTimer = setTimeout(refreshVSCodeActivity, active ? 1200 : 8000);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshVSCodeActivity(); });
@@ -1111,7 +1333,7 @@ document.addEventListener("keydown", (e) => {
   const typing = t.closest?.("input, textarea, select, [contenteditable='true'], #live-img");
   if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-4]$/.test(e.key)) {
     e.preventDefault();
-    location.hash = ["#analisis", "#chats", "#proveedores", "#trabajos"][Number(e.key) - 1];
+    location.hash = ["#analisis", "#chats", "#proveedores", "#seguimiento"][Number(e.key) - 1];
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1264,3 +1486,6 @@ document.addEventListener("keydown", (e) => {
   const m = document.querySelector(".menu[open]");
   if (e.key === "Escape" && m) { m.removeAttribute("open"); m.querySelector("summary")?.focus(); }
 });
+
+// Tarea para Eolfi en VS Code: el proyecto abierto se consulta solo cuando se abre su desplegable.
+$("#local-chat-form")?.closest("details")?.addEventListener("toggle", (e) => { if (e.currentTarget.open) refreshLocalChatProject(); });

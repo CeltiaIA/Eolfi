@@ -17,11 +17,11 @@
       <span id="version" class="muted small version"></span>
     </div>
     <nav class="views" aria-label="Vistas">
-      <a href="#analisis" id="open-analysis" aria-current="page">Análisis</a>
+      <a href="#chat" id="open-chat" aria-current="page">Chat</a>
+      <a href="#analisis" id="open-analysis">Análisis</a>
       <a href="#chats" id="open-chats">Chats web</a>
-      <a href="#chat-local" id="open-local-chat">Chat local</a>
       <a href="#proveedores" id="open-providers">Proveedores</a>
-      <a href="#trabajos" id="open-jobs">Trabajos <span id="jobs-badge" class="badge" hidden></span></a>
+      <a href="#seguimiento" id="open-jobs" title="Trabajos, prueba en vivo y chat local en una sola vista">Seguimiento <span id="jobs-badge" class="badge" hidden></span></a>
     </nav>
     <div class="tools">
       <details class="menu">
@@ -43,18 +43,24 @@
     </div>
   </header>
 
-  <section id="vscode-activity" class="vscode-activity" aria-live="polite" role="status" hidden>
+  <section id="vscode-activity" class="vscode-activity" aria-live="polite" role="status" hidden title="Ver en el chat (actividad de VS Code)">
     <span id="vscode-activity-state" class="badge warn">en marcha</span>
     <strong id="vscode-activity-title">Agente Eolfi en VS Code</strong>
     <span id="vscode-activity-message" class="muted small"></span>
   </section>
 
   <main>
-    <aside>
+    <aside id="tools-drawer" class="tools-drawer" hidden aria-label="Herramientas de Eolfi">
       <section class="workspace card" aria-label="Panel de trabajo">
         <div class="project-shell-head">
-          <div><span class="eyebrow">Eolfi Studio</span><h2>Crear proyecto</h2></div>
-          <span class="badge ok">flujo guiado</span>
+          <div><span class="eyebrow">Eolfi Studio</span><h2>Herramientas</h2></div>
+          <button type="button" id="tools-close" class="ghost-btn" aria-label="Cerrar herramientas y volver al chat">Cerrar ✕</button>
+        </div>
+        <div class="project-actions tools-switch" aria-label="Secciones de herramientas">
+          <button type="button" class="small-btn" data-panel-action="create">Crear proyecto</button>
+          <button type="button" class="small-btn" data-panel-action="analyze">Analizar</button>
+          <button type="button" class="small-btn" data-panel-action="subjects">Objetivos</button>
+          <button type="button" class="small-btn" data-panel-action="cases">Casos</button>
         </div>
         <p id="case-active" class="small case-active" role="status" aria-live="polite"></p>
         <p id="workspace-alert" class="workspace-alert" role="alert" hidden></p>
@@ -104,12 +110,6 @@
 
       <div id="panel-create" role="region" aria-label="Crear proyecto" tabindex="0">
         <p class="small muted">Escribe tu idea o pega un prompt. Adjunta referencias solo si las tienes: Eolfi crea un caso, evalúa las fuentes, propone objetivos y un plan. Nada se ejecuta hasta tu aprobación.</p>
-        <div class="project-actions" aria-label="Herramientas del proyecto">
-          <button type="button" class="small-btn" data-panel-action="analyze">Analizar una fuente</button>
-          <button type="button" class="small-btn" data-panel-action="subjects">Objetivos</button>
-          <button type="button" class="small-btn" data-panel-action="cases">Historial (3)</button>
-          <a class="small-btn" href="#chat-local">Chat con Eolfi</a>
-        </div>
         <form id="proj-form" class="stack" novalidate>
           <label class="field"><span class="small">Nombre del proyecto</span>
             <input id="proj-name" autocomplete="off" required placeholder="Mi proyecto"></label>
@@ -170,7 +170,7 @@
                 <option value="claude">IA: Claude</option>
                 <option value="eolas">IA: Eolas V1 (local)</option>
                 <option value="eolas-v2">IA: Eolas V2 Gemma/Mistral (local)</option>
-                <option value="celtia-v2">IA: CeltIA V2 Composite — Mistral + Gemma (local, secuencial)</option>
+                <option value="celtia-v2">IA: CeltIA V2 Composite — Gemma Q5 redacta + Gemma Q4 revisa (local, secuencial)</option>
                 <option value="deepseek">IA: DeepSeek (API)</option>
                 <option value="gemini">IA: Gemini (API)</option>
                 <option value="openai">IA: OpenAI o compatible (API)</option>
@@ -305,18 +305,81 @@
         </div>
       </div>
       <section id="local-chat" class="card" hidden aria-labelledby="local-chat-heading">
-        <h2 id="local-chat-heading">Chat local</h2>
-        <p class="muted">Sigue los pasos que Eolfi registra desde VS Code. El panel guarda las sesiones recientes y sus pasos en la base local de Eolfi.</p>
-        <p id="local-chat-status" class="muted" role="status"></p>
-        <form id="local-chat-form">
-          <p id="local-chat-project" class="muted"></p>
-          <label for="local-chat-prompt">Mensaxe para Eolfi</label>
-          <textarea id="local-chat-prompt" required maxlength="4000" rows="3"></textarea>
-          <button type="submit">Enviar a Eolfi</button>
+        <div class="eolas-chat-head">
+          <h2 id="local-chat-heading">Chat con Eolfi</h2>
+          <div class="eolas-chat-motor">
+            <label for="eolas-chat-profile" class="small">Motor de Eolas V2</label>
+            <select id="eolas-chat-profile" disabled><option>Cargando…</option></select>
+            <p id="eolas-chat-engine" class="muted small" role="status">Comprobando Eolas…</p>
+          </div>
+        </div>
+        <p class="muted">Tú le pides a Eolas y Eolas manda hacer a Eolfi: el modelo cargado en el motor Eolas V2 decide qué herramientas usar (analizar archivos y binarios, webs, repositorios, consultar Alejandría o probar código) y verás cada paso aquí. Al adjuntar un archivo, lo analiza y te propone qué se podría generar.</p>
+        <div id="eolas-chat-log" class="chat-log eolas-chat-log" role="log" aria-live="polite" aria-label="Conversación con Eolfi"></div>
+        <form id="eolas-chat-form" class="eolas-chat-form">
+          <label for="eolas-chat-input" class="visually-hidden">Mensaje para Eolfi</label>
+          <textarea id="eolas-chat-input" maxlength="8000" rows="6" placeholder="Escribe a Eolfi… (Ctrl+Intro para enviar)"></textarea>
+          <ul id="eolas-chat-attachments" class="eolas-chat-attachments" aria-label="Adjuntos"></ul>
+          <div class="eolas-chat-tools">
+            <button type="button" id="eolas-chat-tools" class="ghost-btn" aria-controls="tools-drawer" title="Crear proyecto, analizar, objetivos y casos">Herramientas</button>
+            <label class="ghost-btn eolas-chat-attach" role="button" tabindex="0">Adjuntar archivos
+              <input id="eolas-chat-files" type="file" multiple hidden>
+            </label>
+            <label class="visually-hidden" for="eolas-chat-kind">Qué analizar</label>
+            <select id="eolas-chat-kind">
+              <option value="">Analizar también…</option>
+              <option value="archivo">Archivo (ruta local)</option>
+              <option value="binario">Binario (ruta local)</option>
+              <option value="url">URL de una web</option>
+              <option value="repositorio">Repositorio (carpeta o git)</option>
+            </select>
+            <label class="visually-hidden" for="eolas-chat-target">Ruta, URL o repositorio</label>
+            <input id="eolas-chat-target" type="text" hidden placeholder="Ruta, URL o repositorio">
+            <label class="small eolas-chat-binary"><input id="eolas-chat-as-binary" type="checkbox"> Adjuntos como binarios (análisis profundo)</label>
+            <span class="eolas-chat-spacer"></span>
+            <button type="button" id="eolas-chat-clear" class="ghost-btn">Nueva conversación</button>
+            <button type="submit" id="eolas-chat-send">Enviar</button>
+          </div>
         </form>
-        <pre id="local-chat-answer" role="status"></pre>
-        <div id="local-chat-runs"></div>
-        <p><a href="vscode://eolfi.eolfi-vscode-bridge/chat">Abrir el chat de Eolfi en VS Code</a></p>
+        <details class="eolas-chat-vscode">
+          <summary>Permisos de REA (lo que ejecuta o abre algo vivo)</summary>
+          <p class="small muted">Eolas pide permiso en el chat cuando necesita ejecutar algo (Frida, depuradores, capturas). «Una vez» vale para esa llamada exacta; «en este caso», para esa herramienta en el caso activo hasta que la revoques.</p>
+          <div id="eolas-chat-perms"></div>
+        </details>
+        <details class="eolas-chat-vscode">
+          <summary>Actividad de Eolfi en VS Code</summary>
+          <p class="muted">Sigue los pasos que Eolfi registra desde VS Code. El panel guarda las sesiones recientes y sus pasos en la base local de Eolfi.</p>
+          <p id="local-chat-status" class="muted" role="status"></p>
+          <form id="local-chat-form">
+            <p id="local-chat-project" class="muted"></p>
+            <label for="local-chat-prompt">Tarea para Eolfi en VS Code</label>
+            <textarea id="local-chat-prompt" required maxlength="4000" rows="3"></textarea>
+            <button type="submit">Enviar a VS Code</button>
+          </form>
+          <pre id="local-chat-answer" role="status"></pre>
+          <div id="local-chat-runs"></div>
+          <p><a href="vscode://eolfi.eolfi-vscode-bridge/chat">Abrir el chat de Eolfi en VS Code</a></p>
+        </details>
+      </section>
+
+      <section id="eolas-e2e" class="card" hidden aria-labelledby="eolas-e2e-heading">
+        <div class="row between"><h2 id="eolas-e2e-heading" tabindex="-1">Prueba de motores en vivo</h2>
+          <span id="eolas-e2e-state" class="badge">listo</span></div>
+        <p class="muted small">Todos reciben el mismo ciclo visible: análisis → verificación → respuesta. Se carga un único motor cada vez (Eolas suelta antes su modelo); si había un perfil en marcha, se restaura al terminar y, si no, la GPU queda libre.</p>
+        <form id="eolas-e2e-form" class="stack">
+          <label>Pregunta<textarea id="eolas-e2e-prompt" required maxlength="4000" rows="3">Calcula 17*3-8. Responde solo con el número.</textarea></label>
+          <label>Respuesta esperada <input id="eolas-e2e-expected" value="43" maxlength="500" placeholder="Opcional: puntúa coincidencia exacta"></label>
+          <label class="small"><input id="eolas-e2e-suite" type="checkbox" checked> Batería completa (12 casos JSON validados por campos)</label>
+          <label class="small"><input id="eolas-e2e-code" type="checkbox"> Batería de código (8 tareas: generar, desempaquetar, construir, corregir, analizar; el código se ejecuta en un contenedor Docker sin red)</label>
+          <label class="small"><input id="eolas-e2e-code-new" type="checkbox"> Tareas de código NUEVAS (6, nunca vistas: comprueban si lo aprendido generaliza; no generan lecciones)</label>
+          <label class="small"><input id="eolas-e2e-round" type="checkbox"> RONDA COMPLETA (código 8 + nuevas 6 + herramientas reales de Eolfi y Alejandría 5): decide aprobados con ≥85 % a la primera; el código aprobado se aporta a Alejandría</label>
+          <label class="small"><input id="eolas-e2e-lessons" type="checkbox" checked> Aplicar las lecciones aprendidas de cada motor</label>
+          <fieldset><legend class="small">Modelos locales</legend><div id="eolas-e2e-profiles" class="choice-list"></div></fieldset>
+          <div class="row between"><span id="eolas-e2e-status" class="muted small" role="status"></span><button id="eolas-e2e-go" type="submit">Ejecutar comparación justa</button></div>
+        </form>
+        <div id="eolas-e2e-live" class="chat-log" role="log" aria-live="polite" aria-label="Progreso de la evaluación"></div>
+        <div id="eolas-e2e-results" class="compare-grid" aria-live="polite"></div>
+        <!-- Lecciones aprendidas: fuera de la pantalla (titular, 13/11/2026); se siguen guardando y aplicando por motor
+             en eolas-v2-lecciones.json y se borran al desinstalar un motor. -->
       </section>
 
       <div id="providers-view" hidden>
@@ -380,11 +443,23 @@
         </div>
         <div id="case-body" aria-live="polite"></div>
       </div>
+      <nav id="tracking-index" class="card row" hidden aria-label="Secciones de seguimiento">
+        <strong>Seguimiento</strong>
+        <a href="#trabajos">Trabajos</a> · <a href="#prueba-e2e">Prueba en vivo</a> · <a href="#chat">Chat con Eolfi</a>
+        <span class="muted small">Todo lo que hace Eolfi, en una sola vista: trabajos en segundo plano, bancos de motores y los pasos del agente.</span>
+      </nav>
       <div id="jobs-view" hidden>
         <div class="row between">
           <h2 tabindex="-1">Trabajos</h2>
           <span id="jobs-state" class="muted small" role="status"></span>
         </div>
+        <section id="jobs-live" class="jobs-live" hidden aria-labelledby="jobs-live-title">
+          <div class="row between">
+            <strong id="jobs-live-title">Ahora mismo</strong>
+            <span id="jobs-live-time" class="small muted"></span>
+          </div>
+          <pre id="jobs-live-log" class="jobs-live-log" role="log" aria-live="polite"></pre>
+        </section>
         <p class="muted small">Análisis, descargas y proyectos en segundo plano. Se guardan en la base de evidencias:
           el historial sobrevive a los reinicios del servidor.</p>
         <table class="jobs">

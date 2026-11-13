@@ -50,6 +50,8 @@ def test_proveedor_gemma_usa_eolas_sin_arrancar_llama_cpp(monkeypatch):
 
 
 def test_proveedor_eolas_v2_usa_perfil_activo_sin_cargar_modelo_doble(monkeypatch):
+    from contextlib import contextmanager
+
     from eolfi import eolas_v2
     from eolfi.generador import llm
 
@@ -60,12 +62,20 @@ def test_proveedor_eolas_v2_usa_perfil_activo_sin_cargar_modelo_doble(monkeypatc
     monkeypatch.setattr(eolas_v2, "load_config", lambda: cfg)
     monkeypatch.setattr(eolas_v2, "status", lambda: {"running_profile": "mistral"})
     monkeypatch.setattr(eolas_v2, "profile_config", lambda name, config: c)
-    monkeypatch.setattr(eolas_v2, "start", lambda profile=None: calls.append(("start", profile)))
-    monkeypatch.setattr(eolas_v2, "switch", lambda profile: calls.append(("switch", profile)))
+    # El proveedor mantiene el perfil cargado durante la petición (inference_profile, con el cerrojo exclusivo):
+    # un solo llama-server y nunca un segundo modelo en la GPU.
+    @contextmanager
+    def profile(name):
+        calls.append(("perfil", name))
+        yield c
+
+    monkeypatch.setattr(eolas_v2, "inference_profile", profile)
+    monkeypatch.setattr(eolas_v2, "start", lambda *a, **k: calls.append(("start", a)))
+    monkeypatch.setattr(eolas_v2, "switch", lambda *a, **k: calls.append(("switch", a)))
     sent = {}
 
     def fake_post(url, body, headers, timeout):
-        sent.update(url=url, body=body)
+        sent.update(url=url, body=body, headers=headers)
         return {"choices": [{"finish_reason": "stop", "message": {"content": '{"ok": true}'}}],
                 "usage": {"prompt_tokens": 5, "completion_tokens": 3}}
 
@@ -78,4 +88,5 @@ def test_proveedor_eolas_v2_usa_perfil_activo_sin_cargar_modelo_doble(monkeypatc
     assert sent["url"] == "http://127.0.0.1:8090/v1/chat/completions"
     assert sent["body"]["model"] == "mistral-test"
     assert sent["body"]["max_tokens"] == 4096
-    assert calls == [("start", "mistral")]
+    assert calls == [("perfil", "mistral")]
+    assert sent["headers"] == eolas_v2.auth_headers()              # Eolas V2 exige su clave de API

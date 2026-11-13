@@ -33,13 +33,13 @@ SERVER_CANDIDATES = [
     Path(r"D:\EOLAS-BASE\llama\llama-server.exe"),
 ]
 GEMMA_CANDIDATES = [
-    Path(r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q5_K_M.gguf"),
+    Path(r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q4_K_M.gguf"),
 ]
 
 DEFAULTS: dict[str, Any] = {
     "server": "",
     "model": "",
-    "alias": "gemma-4-12b-it:latest",
+    "alias": "gemma-4-12b-it-q4_k_m:latest",
     "port": 8090,
     "ctx": 32768,
     "gpu_layers": 99,
