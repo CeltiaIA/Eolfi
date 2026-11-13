@@ -48,7 +48,9 @@ def test_cuenta_trabajos_en_marcha_y_en_cola():
         assert server._active_jobs(srv.server_address[1]) == 2
     finally:
         srv.shutdown()
-    assert server._active_jobs(9) == 0                              # sin servidor no hay nada que proteger
+    # 13/11/2026: «sin respuesta» NO es «cero trabajos» (una respuesta lenta durante la carga de un motor se tomó
+    # como 0 y la recarga mató una ronda de horas): es None y el vigilante sigue esperando.
+    assert server._active_jobs(9) is None
 
 
 def test_el_vigilante_espera_a_que_terminen_los_trabajos(tmp_path, monkeypatch):
@@ -82,4 +84,5 @@ def test_el_vigilante_espera_a_que_terminen_los_trabajos(tmp_path, monkeypatch):
         pass
     consultas = [e for e in events if e[0] == "consulta"]
     assert consultas and all(port == 8799 for _, port in consultas)
-    assert events[-1][0] == "terminate" and len(consultas) == 4     # solo se reinicia cuando ya no hay trabajos
+    # Solo se reinicia cuando ya no hay trabajos: dos lecturas SEGUIDAS de 0 (13/11/2026), 1+1+1+0+0 = 5 consultas.
+    assert events[-1][0] == "terminate" and len(consultas) == 5
