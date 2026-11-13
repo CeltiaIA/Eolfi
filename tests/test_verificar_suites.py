@@ -42,3 +42,17 @@ def test_no_se_cae_con_caracteres_que_la_consola_no_admite(monkeypatch):
     assert vs.main([]) == 0
     console.flush()
     assert "GUARDIA: las suites" in raw.getvalue().decode("utf-8")
+
+
+def test_las_suites_no_heredan_las_variables_git_del_gancho(monkeypatch, tmp_path):
+    """13/11/2026: dentro del pre-push, GIT_DIR apuntaba al repositorio de Eolfi y una prueba que hace «git init» y
+    «update-ref HEAD» sobre un repositorio temporal escribió en el de verdad (bare = true y commits en las ramas)."""
+    import sys
+
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "no-tocar.git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "index"))
+    monkeypatch.setenv("EOLFI_OTRA", "se conserva")
+    env = vs.clean_env()
+    assert not any(k.upper().startswith("GIT_") for k in env) and env["EOLFI_OTRA"] == "se conserva"
+    ok, info = vs.run("eco", [sys.executable, "-c", "import os; print(os.environ.get('GIT_DIR', 'sin GIT_DIR'))"], tmp_path)
+    assert ok and "sin GIT_DIR" in info
