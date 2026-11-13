@@ -1,5 +1,6 @@
 """Herramientas compuestas sobre REA: revisar modelo, explicar binario y reimplementar función (13/11/2026)."""
 import json
+import os
 
 import pytest
 
@@ -232,6 +233,8 @@ def test_rutas_de_windows_vistas_desde_wsl():
     assert wsl_path("C:/x/y.js") == "/mnt/c/x/y.js"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="puente Windows → WSL: solo tiene sentido con un anfitrión Windows "
+                                            "(las rutas temporales de Linux no son rutas de unidad)")
 def test_recuperar_fuentes_crea_en_ubuntu_copia_a_windows_y_limpia(tmp_path):
     import subprocess
 

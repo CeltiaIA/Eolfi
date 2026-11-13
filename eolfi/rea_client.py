@@ -258,8 +258,12 @@ WSL_BASE = "~/.local/eolfi-rea"   # tools/instalar-rea-wsl.sh: Node, rea-agents 
 
 
 def wsl_path(path: str | Path) -> str:
-    r"""D:\carpeta\x.js → /mnt/d/carpeta/x.js (rutas de Windows vistas desde WSL)."""
-    p = str(Path(path).resolve())
+    r"""D:\carpeta\x.js → /mnt/d/carpeta/x.js (rutas de Windows vistas desde WSL).
+
+    Una ruta que ya es de unidad se traduce tal cual: fuera de Windows, Path("D:\…") no es absoluta y resolve() la
+    pegaba al directorio actual. Las demás (relativas) se resuelven primero."""
+    raw = str(path)
+    p = raw if re.match(r"^[A-Za-z]:[\\/]", raw) else str(Path(raw).resolve())
     m = re.match(r"^([A-Za-z]):[\\/](.*)$", p)
     if not m:
         raise ValueError(f"solo se traducen rutas de unidad de Windows: {p}")
