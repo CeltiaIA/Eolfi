@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS } = require('../local-model');
+require('./aislar-eolas');   // nunca el estado real de Eolas V2 del equipo
 
 const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
 

@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 process.env.EOLFI_RATE_WAIT_SCALE = '0';
+require('./aislar-eolas');   // nunca el estado real de Eolas V2 del equipo
 const { makeChatHandler } = require('../chat');
 const { makeLocalModel } = require('../local-model');
 
