@@ -371,3 +371,61 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeEnv:
+    """REA: resumen del HAR, vista de cobertura del entorno y exportación (formas reales del 14/11/2026)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        if name == "inspect_web_network_capture":
+            assert args["format"] == "har" and args["detail"] == "summary"
+            r = {"parent_evidence_id": "ev_padre", "artifact": {"sha256": "ab" * 32},
+                 "summary": {"total_records": 6, "format": "har"}}
+        elif name == "inspect_analysis_view":
+            assert args["source"] == {"kind": "retained-evidence", "evidence_id": "ev_padre"}
+            assert args["view"]["kind"] == "environment-coverage"
+            r = {"origin": "https://tienda.example", "name": "tienda-example",
+                 "reads": {"state": 2, "recorded": 0, "recorded_reasons": {}},
+                 "writes": {"served": [{"tool": "post_items", "effect": "create"}], "withheld": []},
+                 "unknowns": [{"kind": "authorization-model", "statement": "sin modelo de autorización"}]}
+        else:
+            assert name == "export_environment_bundle"
+            r = {"status": "planned" if args["dry_run"] else "written", "directory": args["output_directory"],
+                 "name": args.get("name", "tienda-example"), "tool_count": 3, "warnings": [],
+                 "package_source": {"kind": "registry", "specifier": "rea-agents@6.8.0"},
+                 "files": [{"path": "README.md", "bytes": 3224}]}
+        return json.dumps({"normalized_result": r}), True
+
+
+def test_entorno_agente_es_un_ensayo_por_defecto(tmp_path):
+    har = tmp_path / "t.har"
+    har.write_text("{}", encoding="utf-8")
+    fake = FakeEnv()
+    out = rc.entorno_agente(fake, str(har), str(tmp_path / "paquete"))
+    export = [a for n, a in fake.calls if n == "export_environment_bundle"][0]
+    assert export["dry_run"] is True and "name" not in export
+    assert out["estado"].startswith("ensayo") and out["estado_rea"] == "planned" and out["herramientas"] == 3
+    assert out["escrituras_servidas"] == [{"tool": "post_items", "effect": "create"}] and out["registros"] == 6
+    assert out["incognitas"] == ["sin modelo de autorización"] and "datos personales" in out["aviso"]
+    out = rc.entorno_agente(fake, str(har), str(tmp_path / "paquete"), "mi-tienda", escribir=True)
+    export = [a for n, a in fake.calls if n == "export_environment_bundle"][-1]
+    assert export["dry_run"] is False and export["name"] == "mi-tienda" and out["estado"] == "escrito"
+
+
+def test_entorno_agente_rechaza_entradas_malas_sin_llamar_a_rea(tmp_path):
+    har = tmp_path / "t.har"
+    har.write_text("{}", encoding="utf-8")
+    (tmp_path / "ya").mkdir()
+    fake = FakeEnv()
+    for captura, destino, texto in [(str(tmp_path / "t.pcap"), str(tmp_path / "p"), "HAR"),
+                                    (str(tmp_path / "no.har"), str(tmp_path / "p"), "no existe"),
+                                    (str(har), "relativa", "absoluta"),
+                                    (str(har), str(tmp_path / "ya"), "ya existe"),
+                                    (str(har), str(tmp_path / "x" / "y"), "no existe la carpeta")]:
+        with pytest.raises(ValueError, match=texto):
+            rc.entorno_agente(fake, captura, destino)
+    assert fake.calls == []

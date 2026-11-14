@@ -880,3 +880,53 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+def entorno_agente(client: Any, captura: str, destino: str, nombre: str | None = None, *,
+                   escribir: bool = False) -> dict[str, Any]:
+    """De una captura web (HAR) a un entorno para agentes de REA (AgentEnv, plan REA, punto 11). No ejecuta nada.
+
+    REA lee el HAR sin contactar las URL grabadas, deduce qué lecturas puede responder desde el estado observado y
+    qué escrituras confirman las lecturas posteriores (las demás quedan retenidas, con una pista de qué grabar), y
+    escribe un paquete (README, manifiesto, evidencias, Dockerfile, verificador y tarea de humo). Por defecto es un
+    ensayo (`escribir=False`): informa de lo que contendría sin escribir. El paquete copia las respuestas grabadas
+    byte a byte: si la captura tiene datos personales, el paquete también."""
+    src, dest = Path(captura), Path(destino)
+    if src.suffix.lower() != ".har":
+        raise ValueError(f"el entorno de agente necesita una captura HAR (.har): {captura}")
+    if not src.is_file():
+        raise ValueError(f"no existe la captura: {captura}")
+    if not dest.is_absolute():
+        raise ValueError(f"el destino tiene que ser una ruta absoluta: {destino}")
+    if dest.exists():
+        raise ValueError(f"el destino ya existe; REA solo escribe en una carpeta nueva: {destino}")
+    if not dest.parent.is_dir():
+        raise ValueError(f"no existe la carpeta que contendría el destino: {dest.parent}")
+    resumen = _call(client, "inspect_web_network_capture", {"capture_path": str(src), "format": "har",
+                                                             "detail": "summary"})
+    parent = resumen.get("parent_evidence_id")
+    if not parent:
+        raise RuntimeError("REA no devolvió la evidencia de la captura (parent_evidence_id)")
+    source = {"kind": "retained-evidence", "evidence_id": parent}
+    rules = ["after-uid-literal", "opaque-token", "sibling-variance", "prefix-variance"]
+    cov = _call(client, "inspect_analysis_view", {"source": source,
+                                                  "view": {"kind": "environment-coverage", "template_rules": rules}})
+    args: dict[str, Any] = {"source": source, "output_directory": str(dest), "dry_run": not escribir}
+    if nombre:
+        args["name"] = nombre
+    out = _call(client, "export_environment_bundle", args)
+    info = (resumen.get("summary") or {})
+    writes = cov.get("writes") or {}
+    return {
+        "captura": str(src), "sha256": (resumen.get("artifact") or {}).get("sha256"),
+        "registros": info.get("total_records"), "origen": cov.get("origin"), "nombre": out.get("name"),
+        "estado": "escrito" if escribir else "ensayo (no se ha escrito nada)", "estado_rea": out.get("status"),
+        "destino": out.get("directory"), "herramientas": out.get("tool_count"),
+        "lecturas": cov.get("reads"), "escrituras_servidas": writes.get("served") or [],
+        "escrituras_retenidas": writes.get("withheld") or [],
+        "archivos": [f"{f.get('path')} ({f.get('bytes')} B)" for f in out.get("files") or []],
+        "paquete_rea": out.get("package_source"), "avisos_rea": out.get("warnings") or [],
+        "incognitas": [u.get("statement") for u in cov.get("unknowns") or [] if isinstance(u, dict)],
+        "aviso": ("El paquete copia byte a byte las respuestas grabadas: revisa que la captura no tenga datos "
+                  "personales ni secretos antes de compartirlo. REA excluye las cabeceras de autenticación y las "
+                  "cookies conocidas, pero no los datos de los cuerpos. Las plantillas y el estado son inferencias.")}
