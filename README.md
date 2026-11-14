@@ -698,6 +698,21 @@ sin copiar la biblioteca entera. Se omiten carpetas locales de respaldo/salidas 
 son referencias del corpus, no evidencias del objetivo analizado. Configura `EOLFI_LIBRARY` o pasa `--library`
 para elegir otra biblioteca.
 
+### Conjunto de datos para entrenar modelos
+
+```bash
+python -m eolfi dataset --dry-run    # recuentos y exclusiones, sin escribir
+python -m eolfi dataset              # escribe <biblioteca>/datasets/llm-eolfi/
+```
+
+A partir de lo que el índice de Alejandría ya aceptó genera, en los formatos habituales de entrenamiento:
+`sft-chat.jsonl` (chat `messages` user/assistant con las respuestas de motores que **pasaron su verificación**),
+`pretrain-codigo.jsonl` y `pretrain-texto.jsonl` (`text` + `metadata`), `manifest.json` y una ficha `README.md`.
+Cada entrada coincide con el SHA-256 del índice, es UTF-8 y de tamaño razonable, no viene de temporales, pruebas,
+copias de seguridad ni proyectos generados, y no es un duplicado ni un casi-duplicado. Se aplica el redactado de
+privacidad de Eolfi y las rutas y la cuenta de usuario se cambian por `<usuario>`. El conjunto se sustituye de golpe:
+nunca queda a medias.
+
 ## Estado
 
 v0.8.0. Hecho: análisis de binarios de **todos los sistemas** (PE de Windows,

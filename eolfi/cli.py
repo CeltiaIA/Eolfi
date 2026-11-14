@@ -417,6 +417,11 @@ def _parser() -> argparse.ArgumentParser:
     co.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
                     help="Carpeta de la biblioteca (EOLFI_LIBRARY, o Alejandria en la carpeta personal o en D:)")
     co.add_argument("--dry-run", action="store_true", help="Muestra qué se importaría sin copiar nada")
+    ds = sub.add_parser("dataset", help="Conjunto de datos para entrenar modelos (SFT en chat y preentrenamiento) a "
+                                        "partir del corpus de Alejandría: verificado, sin duplicados y con privacidad")
+    ds.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
+                    help="Carpeta de la biblioteca (EOLFI_LIBRARY, o Alejandria en la carpeta personal o en D:)")
+    ds.add_argument("--dry-run", action="store_true", help="Muestra los recuentos sin escribir nada")
 
     # REA a través de Eolfi (plan PLAN_REA.md): mismas herramientas compuestas que usa el chat de Eolas V2.
     rp = sub.add_parser("rea", help="Ingeniería inversa con REA a través de Eolfi (estático: nunca ejecuta el objetivo)")
@@ -1502,6 +1507,11 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi.corpus import run_corpus
 
         return run_corpus(args.library, dry_run=args.dry_run)
+    if args.cmd == "dataset":
+        from eolfi.dataset_llm import build
+
+        _print(build(args.library, dry_run=args.dry_run))
+        return 0
     if args.cmd == "rea":
         from eolfi import rea_client, rea_compuestas as rc
 

@@ -1361,6 +1361,9 @@ PYTHON_TOOL = {"type": "function", "function": {
     "parameters": {"type": "object", "properties": {"codigo": {"type": "string", "description": "Código Python"}},
                    "required": ["codigo"], "additionalProperties": False}}}
 ROUND_MCP_TOOLS = ("eolfi_triage", "eolfi_biblioteca_buscar", "eolfi_biblioteca_leer")
+# Tareas que se corrigen con una regla propia (no con pruebas ni con una salida esperada): su criterio queda en
+# el ejemplo de entrenamiento para poder comprobarlo después (14/11/2026).
+ROUND_CRITERIA = {"buscar_definicion": "la ruta de la respuesta termina en eolfi/library.py"}
 TOOL_EVALUATION_CASES = (
     {"id": "identificar_binario", "label": "Herramientas · identificar un binario", "requires": ["eolfi_triage"],
      "prompt": "Identifica el archivo {wasm} con las herramientas de Eolfi: ¿qué formato tiene y cuál es su SHA-256? "
@@ -1718,7 +1721,11 @@ def _training_writer() -> Callable[[dict[str, Any]], Path | None]:
                                 {"role": "assistant", "content": record["respuesta"]["texto"]}],
                    "herramientas_usadas": [c.get("name") for c in record["respuesta"].get("llamadas_herramientas") or []],
                    "verificacion": {"pruebas": exam.get("pruebas"), "esperado": exam.get("esperado"),
-                                    "salida": fix.get("salida_pruebas")},
+                                    "salida": fix.get("salida_pruebas"),
+                                    # 14/11/2026: las tareas con regla propia la dejan escrita (sin ella, el
+                                    # conjunto de datos no tenía cómo comprobar que la respuesta era buena).
+                                    **({"criterio": ROUND_CRITERIA[exam["caso"]]} if exam.get("caso") in ROUND_CRITERIA
+                                       else {})},
                    "motor": {"perfil": motor["perfil"], "gguf": motor["gguf"], "sha256": motor["sha256"],
                              "cuantizacion": motor["cuantizacion"]},
                    "procedencia": record["procedencia"]}
