@@ -294,6 +294,37 @@ def wsl_rea_command() -> list[str] | None:
             f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
 
 
+WSL_JDK = "jdk21/usr/lib/jvm/java-21-openjdk-amd64"   # tools/instalar-java-wsl.sh
+
+
+def wsl_rea_ghidra_command(ghidra_dir: str | None = None) -> list[str] | None:
+    """Orden del REA de WSL con Ghidra, para lo que el Ghidra de Windows no abre (Mach-O, ELF): el REA de Windows
+    solo acepta PE. Usa la misma instalación de Ghidra 12.1 que Windows (GHIDRA_INSTALL_DIR, que trae el
+    descompilador de Linux) vista desde /mnt, con el Java 21 de tools/instalar-java-wsl.sh. None si falta algo."""
+    base_cmd = wsl_rea_command()
+    ghidra = ghidra_dir or os.environ.get("GHIDRA_INSTALL_DIR")
+    if not base_cmd or not ghidra:
+        return None
+    try:
+        ghidra_wsl = wsl_path(ghidra)
+    except ValueError:
+        return None
+    script = (f'J="$HOME/.local/eolfi-rea/{WSL_JDK}"; G="{ghidra_wsl}"; '
+              'test -x "$J/bin/java" -a -x "$G/support/analyzeHeadless" '
+              '-a -x "$G/Ghidra/Features/Decompiler/os/linux_x86_64/decompile" && echo "$J"')
+    try:
+        out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    java_home = out.splitlines()[-1] if out else ""
+    if not java_home.startswith("/") or not java_home.endswith(WSL_JDK):
+        return None
+    i = base_cmd.index("env") + 1
+    return [*base_cmd[:i], f"GHIDRA_INSTALL_DIR={ghidra_wsl}", f"JAVA_HOME={java_home}",
+            f"PATH={java_home}/bin:/usr/bin:/bin", *base_cmd[i:]]
+
+
 def wsl_has_tshark() -> bool:
     """¿Hay tshark en WSL? (análisis de campos de capturas: REA lo exige en Linux con prlimit)."""
     if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe"):

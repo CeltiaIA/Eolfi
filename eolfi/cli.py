@@ -447,6 +447,10 @@ def _parser() -> argparse.ArgumentParser:
     r16 = rps.add_parser("apple", help="Mapa de una app de Apple (.app, .zip, .ipa o .dmg): bundles, ejecutables e Info.plist, sin ejecutarla")
     r16.add_argument("ruta")
     r16.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r17 = rps.add_parser("swift", help="Tipos Swift y clases Objective-C de una app de Apple (Ghidra en el REA de WSL), sin macOS")
+    r17.add_argument("ruta", help=".app, .zip, .ipa o ejecutable Mach-O")
+    r17.add_argument("--arquitectura", help="porción del ejecutable universal (arm64 por defecto)")
+    r17.add_argument("--limite", type=int, default=60, help="máximo de elementos por lista (60)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1537,6 +1541,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.rea_action == "recuperar-js" and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
+        if args.rea_action == "swift":
+            cmd = rea_client.wsl_rea_ghidra_command()
+            if not cmd:
+                print("Ghidra en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh), "
+                      "Java 21 (tools/instalar-java-wsl.sh) y GHIDRA_INSTALL_DIR con Ghidra 12.1", file=sys.stderr)
+                return 2
         client = rea_client.ReaClient(cmd, timeout=900)
         try:
             if args.rea_action == "recuperar-js":
@@ -1550,6 +1560,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "apple":
                 op, params = "mapa_app_apple", {"ruta": args.ruta}
                 result = rc.mapa_app_apple(client, args.ruta, args.limite)
+            elif args.rea_action == "swift":
+                op, params = "tipos_swift_apple", {"ruta": args.ruta, "arquitectura": args.arquitectura}
+                result = rc.tipos_swift_apple(client, args.ruta, arquitectura=args.arquitectura, limite=args.limite,
+                                              ruta_rea=rea_client.wsl_path)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

@@ -168,3 +168,22 @@ NO VERIFICADO:
 - `.ipa` y `.dmg` (en un `.dmg` el Info.plist no se lee: necesita montarse).
 - La validez de las firmas (solo se ve que existen).
 - Los tipos Swift y el detalle Mach-O: necesitan macOS, o Ghidra sobre el ejecutable extraído.
+
+## Tipos Swift de apps de Apple (14/11/2026)
+
+`eolfi rea swift <.app|.zip|.ipa|Mach-O> [--arquitectura A]` (compuesta `tipos_swift_apple`). No necesita macOS.
+- **Eolfi** saca el ejecutable principal (`CFBundleExecutable` del Info.plist), lee las arquitecturas de la cabecera universal y separa la porción elegida (arm64 por defecto) en un temporal que borra al acabar.
+- **REA con Ghidra en WSL**: el Ghidra del REA de Windows solo abre PE, así que se usa el REA de WSL con la misma instalación de Ghidra 12.1.4 vista desde `/mnt` (trae el descompilador de Linux) y Java 21 en el espacio del usuario (`tools/instalar-java-wsl.sh`, sin sudo). `wsl_rea_ghidra_command` comprueba Java, `analyzeHeadless` y el descompilador.
+- Pide `analyze_swift_types`, `get_objc_classes` y las secciones de `binary_overview`. REA devuelve nombres de procedimientos, no tipos: Eolfi lee el contexto nominal del mangling (moderno `$s…` y antiguo `_TtC…`; solo identificadores literales) y agrupa por módulo y tipo. La sección decide el origen: `__text` es código del ejecutable (la app y los paquetes enlazados estáticamente) y `__stubs`, llamadas a frameworks del sistema; los protocolos de otros módulos en `__text` son conformidades de la app.
+
+Verificado en vivo con Maccy 2.8.0 (porción arm64, SHA-256 `d2fa9a71…dfef`), unos 4 minutos:
+- tipos de la app: `About`, `AppDelegate`, `Clipboard`, `LargeTextView.Coordinator` y `LargeTextView.EditorState` (los que ve Objective-C: el binario no lleva símbolos y el resto de su código no tiene nombre);
+- paquetes incluidos: Settings (5 tipos), KeyboardShortcuts, Defaults y Sauce;
+- protocolos implementados: 8 de SwiftUI (`View`, `PreferenceKey`, `NSViewRepresentable`…) y `PersistentlyIdentifiable` de AppIntents;
+- frameworks Swift usados: SwiftUI (139 tipos), Foundation, AppIntents, SwiftData y Combine; clases Objective-C importadas de AppKit, Foundation, Vision, UserNotifications, Sparkle…;
+- 1065 nombres Swift: 1028 con tipo, 37 globales (funciones y variables de módulo) y 0 sin resolver; Eolfi decodifica sustituciones estándar (`SS`, `Sc…`), módulos `s`/`So`, palabras comprimidas (`0A…`), extensiones y nombres privados (`P33_…`), con lo que salen también `DragSourceView` y `MouseMovedViewModifier.Coordinator`.
+
+NO VERIFICADO:
+- `demangle_swift`, `list_architectures` e `inspect_macho` de REA: necesitan macOS.
+- Nombres en punycode y la firma completa de cada función (solo se lee el contexto del tipo).
+- Apps con símbolos completos (con ellas saldrían muchos más tipos propios) y `.ipa` reales.

@@ -68,3 +68,31 @@ def test_sin_rea_instalado_el_chat_sigue(monkeypatch):
     assert rea_client.rea_command() is None
     assert rea_client.blocked("capture_process_scenario") and rea_client.blocked("install_adb_package")
     assert not rea_client.blocked("decompile_all") and not rea_client.blocked("inspect_adb_client")
+
+
+def test_wsl_rea_ghidra_command_anade_ghidra_y_java_o_none(monkeypatch):
+    import subprocess
+
+    base = ["wsl.exe", "-e", "env", "REA_WAKARU_COMMAND=/h/w", "/h/node", "/h/rea.mjs", "mcp"]
+    jdk = "/home/u/.local/eolfi-rea/jdk21/usr/lib/jvm/java-21-openjdk-amd64"
+    scripts = []
+
+    def run(argv, **kw):
+        scripts.append(argv[-1])
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: list(base))
+    monkeypatch.setattr(rea_client.subprocess, "run", run)
+    out = jdk + "\n"
+    cmd = rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra_12.1.4_PUBLIC")
+    assert cmd[:6] == ["wsl.exe", "-e", "env", "GHIDRA_INSTALL_DIR=/mnt/d/tools/ghidra_12.1.4_PUBLIC",
+                       f"JAVA_HOME={jdk}", f"PATH={jdk}/bin:/usr/bin:/bin"]
+    assert cmd[6:] == base[3:] and "linux_x86_64/decompile" in scripts[-1]
+    out = ""   # falta Java o Ghidra en WSL
+    assert rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra") is None
+    out = "/tmp/otro-java\n"
+    assert rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra") is None
+    monkeypatch.delenv("GHIDRA_INSTALL_DIR", raising=False)
+    assert rea_client.wsl_rea_ghidra_command() is None
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: None)
+    assert rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra") is None

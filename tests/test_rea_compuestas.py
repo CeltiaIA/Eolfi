@@ -1,6 +1,7 @@
 """Herramientas compuestas sobre REA: revisar modelo, explicar binario y reimplementar función (13/11/2026)."""
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -437,3 +438,154 @@ def test_mapa_app_apple_desde_carpeta_app_y_rutas_invalidas(tmp_path):
     assert r["bundles"][0]["info_plist"]["canal_actualizaciones"] == "https://x.test/appcast.xml"
     with pytest.raises(ValueError):
         rc.mapa_app_apple(FakeApple(), str(tmp_path / "otra.exe"))
+
+
+def _thin(cpu, size=64):
+    import struct
+    return b"\xcf\xfa\xed\xfe" + struct.pack("<i", cpu) + b"\0" * (size - 8)
+
+
+def _fat(*pieces):
+    import struct
+    head, off = struct.pack(">II", 0xCAFEBABE, len(pieces)), 4096
+    blobs = []
+    for cpu, blob in pieces:
+        head += struct.pack(">iiIII", cpu, 0, off, len(blob), 12)
+        blobs.append((off, blob))
+        off += 4096
+    out = bytearray(head.ljust(4096, b"\0"))
+    for o, blob in blobs:
+        out[o:o + len(blob)] = blob
+        out.extend(b"\0" * (o + 4096 - len(out)))
+    return bytes(out)
+
+
+def test_macho_slices_universal_fino_y_class_de_java():
+    arm, x86 = 0x0100000C, 0x01000007
+    fat = _fat((x86, _thin(x86)), (arm, _thin(arm)))
+    assert [s["arquitectura"] for s in rc.macho_slices(fat)] == ["x86_64", "arm64"]
+    assert rc.macho_slices(fat)[1]["desplazamiento"] == 8192
+    assert rc.macho_slices(_thin(arm)) == [{"arquitectura": "arm64", "desplazamiento": 0, "bytes": 64}]
+    with pytest.raises(ValueError, match="Java"):
+        rc.macho_slices(b"\xca\xfe\xba\xbe\x00\x00\x00\x37" + b"\0" * 40)   # .class: versión 55 como «número»
+    with pytest.raises(ValueError, match="Mach-O"):
+        rc.macho_slices(b"MZ" + b"\0" * 62)
+
+
+def test_swift_nominal_moderno_antiguo_y_no_literal():
+    assert rc.swift_nominal("_$s5Maccy13LargeTextViewV11EditorStateC4initACycfc") == (
+        "Maccy", "LargeTextView.EditorState", "clase")
+    assert rc.swift_nominal("_TtCV5Maccy13LargeTextView11EditorState::init") == (
+        "Maccy", "LargeTextView.EditorState", "clase")
+    assert rc.swift_nominal("_$s10AppIntents12IntentDialogVMa") == ("AppIntents", "IntentDialog", "estructura")
+    assert rc.swift_nominal("_$s7Combine16ObservableObjectPA2A0bC9PublisherC") == (
+        "Combine", "ObservableObject", "protocolo")
+    assert rc.swift_nominal("_$s4Demo4ModeO8allCasesSayACGvgZ") == ("Demo", "Mode", "enumeracion")
+    for raw in ("_$s5Maccy", "FUN_100001234", "_TtC5Maccy", "_$s00punycode3AppC", "_$s0B3AppC"):
+        assert rc.swift_nominal(raw) is None
+
+
+def test_swift_contexto_sustituciones_palabras_extensiones_y_privados():
+    cases = {
+        "_$sScP13userInitiatedScPvgZ": ("Swift", "TaskPriority", "estructura"),
+        "_$sSS9UTF16ViewV5index_8offsetBySS5IndexVAF_SitF": ("Swift", "String.UTF16View", "estructura"),
+        "_$ss6HasherV8_combineyys6UInt32VF": ("Swift", "Hasher", "estructura"),
+        "_$sS2Dyxq_GycfC": ("Swift", "Dictionary", "estructura"),
+        "_$sSo7NSEventC6AppKitE10SpecialKeyV3f20AEvgZ": ("(Objective-C/C)", "NSEvent.SpecialKey", "estructura"),
+        "_$s8Dispatch0A8WorkItemCMa": ("Dispatch", "DispatchWorkItem", "clase"),
+        "_$s10AppIntents0A6IntentPAAE04openA7WhenRunSbvgZ": ("AppIntents", "AppIntent", "protocolo"),
+        "_TtCV5Maccy22MouseMovedViewModifierP33_91A000BA8386CF59E70CA8865D68EE4211Coordinator::init":
+            ("Maccy", "MouseMovedViewModifier.Coordinator", "clase"),
+    }
+    for raw, want in cases.items():
+        assert rc.swift_nominal(raw) == want, raw
+    # Nivel de módulo (funciones y variables globales): se lee el módulo, sin tipo.
+    assert rc.swift_context("_$ss9_typeName_9qualifiedSSypXp_SbtF") == ("Swift", "", None)
+    assert rc.swift_context("_$s2os0A4_log_3dso0B0__ySo0a1_B7_type_ta_SVSo03OS_a1_B0Cs12StaticStringVF")[:2] == (
+        "os", "")
+
+
+class FakeSwift:
+    """REA simulado (Ghidra): secciones, nombres Swift de la app, de un paquete incluido y de un framework, y clases
+    Objective-C importadas."""
+
+    def __init__(self):
+        self.calls, self.opened = [], None
+
+    def call(self, name, args, limit=None):
+        self.calls.append(name)
+        if name == "open_binary":
+            self.opened = args["path"]
+            assert Path(self.opened).read_bytes()[:4] == b"\xcf\xfa\xed\xfe"   # la porción, no el universal
+            return json.dumps({"result": {"format": "mach-o", "architecture": "arm64"}}), True
+        if name == "close_binary":
+            return json.dumps({"result": None}), True
+        if name == "binary_overview":
+            return json.dumps({"normalized_result": {"procedure_count": 900, "segments": [
+                {"name": "__text", "start": "0x100001000", "end": "0x100100000"},
+                {"name": "__stubs", "start": "0x100100000", "end": "0x100101000"}]}}), True
+        if name == "analyze_swift_types":
+            row = lambda a, n: {"address": a, "name": n, "mangled_names": [n]}  # noqa: E731
+            cats = {"classes": [row("0x100002000", "_TtC1X11AppDelegate::init"),
+                                row("0x100002100", "_$s1X11AppDelegateC5applyyyF"),
+                                row("0x100002200", "_$s8Settings4PaneC4bodyQrvg"),
+                                row("0x100002300", "_$s7SwiftUI4ViewP1XE4bodyQrvg")],
+                    "structs": [row("0x100100010", "_$s7SwiftUI4TextVMa"),
+                                row("0x100100020", "_$s7SwiftUI4TextV7verbatimACSS_tcfC")],
+                    "other": [row("0x100100030", "_$sScP13userInitiatedScPvgZ"),
+                              row("0x100100040", "_$ss9_typeName_9qualifiedSSypXp_SbtF"),
+                              row("0x100100050", "_$s00punycode3AppC")]}
+            out = {"total": 6, "categories": {k: {"count": len(v), "items": v} for k, v in cats.items()},
+                   "unclassified": cats["other"]}
+            return json.dumps({"normalized_result": out}), True
+        assert name == "get_objc_classes"
+        lib = "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit::"
+        return json.dumps({"normalized_result": {"classes": [
+            {"address": "EXTERNAL:0x1", "name": lib + "_OBJC_CLASS_$_NSAlert"},
+            {"address": "0x100200000", "name": "_OBJC_CLASS_$_NSAlert"},
+            {"address": "EXTERNAL:0x2", "name": "/usr/lib/libobjc.A.dylib::_OBJC_CLASS_$_NSObject"}]}}), True
+
+
+def _swift_app_zip(tmp_path):
+    import plistlib
+    import zipfile
+    arm, x86 = 0x0100000C, 0x01000007
+    z = tmp_path / "X.app.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("X.app/Contents/Info.plist", plistlib.dumps({"CFBundleExecutable": "X"}))
+        f.writestr("X.app/Contents/MacOS/X", _fat((x86, _thin(x86)), (arm, _thin(arm))))
+    return z
+
+
+def test_tipos_swift_apple_separa_app_incluidos_y_frameworks(tmp_path):
+    fake = FakeSwift()
+    r = rc.tipos_swift_apple(fake, str(_swift_app_zip(tmp_path)), ruta_rea=lambda p: p)
+    assert fake.calls == ["open_binary", "binary_overview", "analyze_swift_types", "get_objc_classes", "close_binary"]
+    assert not Path(fake.opened).exists()   # la porción temporal se borra
+    assert r["ejecutable"] == "X.app/Contents/MacOS/X" and r["arquitecturas"] == ["x86_64", "arm64"]
+    assert r["arquitectura_analizada"] == "arm64" and r["modulo_de_la_app"] == "X"
+    assert r["tipos_de_la_app"] == [{"tipo": "AppDelegate", "clase": "clase"}]
+    assert r["modulos_incluidos"] == {"Settings": {"tipos": 1, "muestra": ["Pane"]}}
+    assert r["protocolos_implementados"] == ["SwiftUI.View"]
+    assert r["frameworks_swift_usados"] == {
+        "SwiftUI": {"tipos": 1, "por_clase": {"estructura": 1}, "muestra": ["Text"]},
+        "Swift": {"tipos": 1, "por_clase": {"estructura": 1}, "muestra": ["TaskPriority"]}}
+    assert r["clases_objc_importadas"] == {"AppKit": ["NSAlert"], "libobjc.A.dylib": ["NSObject"]}
+    assert r["nombres_swift"] == 9 and r["nombres_globales"] == 1 and r["nombres_sin_resolver"] == 1
+    assert r["procedimientos"] == 900
+
+
+def test_tipos_swift_apple_arquitectura_pedida_y_errores(tmp_path):
+    fake = FakeSwift()
+    z = _swift_app_zip(tmp_path)
+    with pytest.raises(ValueError, match="arm64e"):
+        rc.tipos_swift_apple(fake, str(z), arquitectura="arm64e")
+    assert fake.calls == []
+    with pytest.raises(ValueError, match="no existe"):
+        rc.tipos_swift_apple(fake, str(tmp_path / "nada.app"))
+    app = tmp_path / "Y.app" / "Contents" / "MacOS"
+    app.mkdir(parents=True)
+    (app.parent / "Info.plist").write_bytes(__import__("plistlib").dumps({"CFBundleExecutable": "Y"}))
+    (app / "Y").write_bytes(_thin(0x01000007))
+    r = rc.tipos_swift_apple(FakeSwift(), str(tmp_path / "Y.app"), ruta_rea=lambda p: p)
+    assert r["ejecutable"] == "Y.app/Contents/MacOS/Y" and r["arquitectura_analizada"] == "x86_64"

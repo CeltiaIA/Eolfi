@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import struct
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -989,3 +990,347 @@ def mapa_app_apple(client: Any, path: str, limite: int = 40) -> dict[str, Any]:
         "aviso": ("Análisis estático: no se ejecutó la app. Los papeles salen de convenciones de ruta y los permisos "
                   "son declaraciones del Info.plist; la firma no se ha verificado (solo se ve que existe). "
                   "Mach-O, Swift y plist con REA necesitan macOS.")}
+
+
+MACHO_CPU = {7: "x86", 0x01000007: "x86_64", 12: "arm", 0x0100000C: "arm64", 0x0200000C: "arm64_32", 18: "ppc"}
+MACHO_THIN = (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce")
+
+
+def macho_slices(data: bytes) -> list[dict[str, Any]]:
+    """Arquitecturas de un Mach-O: las de la cabecera universal (FAT/FAT64) o la única de uno fino. Análisis puro;
+    devuelve desplazamiento y tamaño de cada una dentro de `data`."""
+    magic = data[:4]
+    if magic in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+        wide = magic == b"\xca\xfe\xba\xbf"
+        (count,) = struct.unpack(">I", data[4:8])
+        if count > 32:  # 0xcafebabe también es la cabecera de los .class de Java
+            raise ValueError("cabecera universal no válida (¿un .class de Java?)")
+        out, pos = [], 8
+        for _ in range(count):
+            if wide:
+                cpu, sub, off, size, align, _r = struct.unpack(">iiQQII", data[pos:pos + 32])
+                pos += 32
+            else:
+                cpu, sub, off, size, align = struct.unpack(">iiIII", data[pos:pos + 20])
+                pos += 20
+            if off + size > len(data) or data[off:off + 4] not in MACHO_THIN:
+                raise ValueError(f"porción {MACHO_CPU.get(cpu, cpu)} fuera del archivo o sin cabecera Mach-O")
+            out.append({"arquitectura": MACHO_CPU.get(cpu, f"cpu {cpu}"), "desplazamiento": off, "bytes": size})
+        return out
+    if magic in MACHO_THIN:
+        order = "<" if magic[:1] in (b"\xcf", b"\xce") else ">"
+        (cpu,) = struct.unpack(order + "i", data[4:8])
+        return [{"arquitectura": MACHO_CPU.get(cpu, f"cpu {cpu}"), "desplazamiento": 0, "bytes": len(data)}]
+    raise ValueError("no es un ejecutable Mach-O")
+
+
+SWIFT_KINDS = {"C": "clase", "V": "estructura", "O": "enumeracion", "P": "protocolo"}
+# Sustituciones estándar de la biblioteca de Swift (StandardTypesMangling.def): «S» + letra y, en Concurrency, «Sc» + letra.
+_V, _O, _P, _C = "estructura", "enumeracion", "protocolo", "clase"
+SWIFT_STD = {
+    "A": ("AutoreleasingUnsafeMutablePointer", _V), "a": ("Array", _V), "b": ("Bool", _V), "D": ("Dictionary", _V),
+    "d": ("Double", _V), "f": ("Float", _V), "h": ("Set", _V), "I": ("DefaultIndices", _V), "i": ("Int", _V),
+    "J": ("Character", _V), "N": ("ClosedRange", _V), "n": ("Range", _V), "O": ("ObjectIdentifier", _V),
+    "P": ("UnsafePointer", _V), "p": ("UnsafeMutablePointer", _V), "R": ("UnsafeBufferPointer", _V),
+    "r": ("UnsafeMutableBufferPointer", _V), "S": ("String", _V), "s": ("Substring", _V), "u": ("UInt", _V),
+    "V": ("UnsafeRawPointer", _V), "v": ("UnsafeMutableRawPointer", _V), "W": ("UnsafeRawBufferPointer", _V),
+    "w": ("UnsafeMutableRawBufferPointer", _V), "q": ("Optional", _O),
+    "B": ("BinaryFloatingPoint", _P), "E": ("Encodable", _P), "e": ("Decodable", _P), "F": ("FloatingPoint", _P),
+    "G": ("RandomNumberGenerator", _P), "H": ("Hashable", _P), "j": ("Numeric", _P),
+    "K": ("BidirectionalCollection", _P), "k": ("RandomAccessCollection", _P), "L": ("Comparable", _P),
+    "l": ("Collection", _P), "M": ("MutableCollection", _P), "m": ("RangeReplaceableCollection", _P),
+    "Q": ("Equatable", _P), "T": ("Sequence", _P), "t": ("IteratorProtocol", _P), "U": ("UnsignedInteger", _P),
+    "X": ("RangeExpression", _P), "x": ("Strideable", _P), "Y": ("RawRepresentable", _P), "y": ("StringProtocol", _P),
+    "Z": ("SignedInteger", _P), "z": ("BinaryInteger", _P)}
+SWIFT_STD_CONCURRENCY = {
+    "A": ("Actor", _P), "C": ("CheckedContinuation", _V), "c": ("UnsafeContinuation", _V),
+    "E": ("CancellationError", _V), "e": ("UnownedSerialExecutor", _V), "F": ("Executor", _P),
+    "f": ("SerialExecutor", _P), "G": ("TaskGroup", _V), "g": ("ThrowingTaskGroup", _V),
+    "I": ("AsyncIteratorProtocol", _P), "i": ("AsyncSequence", _P), "J": ("UnownedJob", _V), "M": ("MainActor", _C),
+    "P": ("TaskPriority", _V), "S": ("AsyncStream", _V), "s": ("AsyncThrowingStream", _V), "T": ("Task", _V),
+    "t": ("UnsafeCurrentTask", _V)}
+SWIFT_OBJC_MODULE = "(Objective-C/C)"   # «So» y «SC»: tipos importados de cabeceras de Objective-C o C
+
+
+class _SwiftNames:
+    """Lector de identificadores del mangling de Swift con su lista de palabras (para «0…»), como el demangler."""
+
+    def __init__(self, s: str, i: int):
+        self.s, self.i, self.words = s, i, []
+
+    def peek(self, n: int = 1) -> str:
+        return self.s[self.i:self.i + n]
+
+    def _add_words(self, text: str) -> None:
+        start = -1
+        for k in range(len(text) + 1):
+            c = text[k] if k < len(text) else ""
+            if start >= 0 and (c in ("_", "") or (not text[k - 1].isupper() and c.isupper())):
+                if k - start >= 2 and len(self.words) < 26:
+                    self.words.append(text[start:k])
+                start = -1
+            if start < 0 and c and not c.isdigit() and c != "_":
+                start = k
+
+    def ident(self) -> str | None:
+        """Identificador en la posición actual (literal «<n>texto» o con palabras «0…»); None si no hay."""
+        s, i = self.s, self.i
+        if i >= len(s) or not s[i].isdigit():
+            return None
+        subst = compressed = False
+        if s[i] == "0":
+            if s[i + 1:i + 2] == "0":   # punycode: no se decodifica
+                return None
+            subst = compressed = True
+            i += 1
+        out = ""
+        while True:
+            while subst and i < len(s) and s[i].isalpha():
+                c = s[i]
+                idx = ord(c.lower()) - ord("a")
+                if idx >= len(self.words):
+                    return None
+                out += self.words[idx]
+                i += 1
+                if c.isupper():
+                    subst = False
+            if compressed and s[i:i + 1] == "0":
+                i += 1
+                break
+            m = re.match(r"[1-9]\d*", s[i:])
+            if not m:
+                if out and not subst:
+                    break
+                return None
+            n, j = int(m.group(0)), i + m.end()
+            if j + n > len(s):
+                return None
+            piece = s[j:j + n]
+            out, i = out + piece, j + n
+            self._add_words(piece)
+            if not subst:
+                break
+        self.i = i
+        return out
+
+
+def swift_context(name: str) -> tuple[str, str, str | None] | None:
+    """(módulo, tipo «A.B» o «», clase…) del contexto de un nombre Swift codificado, moderno («$s…») o antiguo de
+    Objective-C («_TtC…»). Entiende las sustituciones estándar (SS = Swift.String, Sc… de Concurrency), los módulos
+    «s» (Swift) y «So»/«SC» (importados de Objective-C/C), las palabras comprimidas («0A…»), las extensiones («E») y
+    los nombres privados («P33_…»). Tipo vacío: símbolo de nivel de módulo (función o variable global). None si no se
+    puede leer."""
+    s = name.split("::", 1)[0].lstrip("_")
+    if s.startswith("Tt"):  # antiguo: letras de tipo (la primera es la del más interno), módulo y nombres
+        k = re.match(r"[CVOP]+", s[2:])
+        if not k:
+            return None
+        r = _SwiftNames(s, 2 + k.end())
+        names: list[str] = []
+        while len(names) <= len(k.group(0)):
+            if r.peek() == "P" and r.s[r.i + 1:r.i + 2].isdigit():   # nombre privado: P<n>_<discriminador><nombre>
+                r.i += 1
+                if r.ident() is None:
+                    return None
+            got = r.ident()
+            if got is None:
+                return None
+            names.append(got)
+        return names[0], ".".join(names[1:]), SWIFT_KINDS[k.group(0)[0]]
+    if not s.startswith(("$s", "$S")):
+        return None
+    r = _SwiftNames(s, 2)
+    chain: list[str] = []
+    kind: str | None = None
+    if r.peek(2) in ("So", "SC"):
+        module = SWIFT_OBJC_MODULE
+        r.i += 2
+    elif r.peek(2) == "Sc" and r.peek(3)[2:] in SWIFT_STD_CONCURRENCY:
+        module, (t, kind) = "Swift", SWIFT_STD_CONCURRENCY[r.peek(3)[2]]
+        chain.append(t)
+        r.i += 3
+    elif (m := re.match(r"S(\d*)([A-Za-z])", r.s[r.i:])) and m.group(2) in SWIFT_STD:   # «S2D»: sustitución repetida
+        module, (t, kind) = "Swift", SWIFT_STD[m.group(2)]
+        chain.append(t)
+        r.i += m.end()
+    elif r.peek() == "s":
+        module = "Swift"
+        r.i += 1
+    else:
+        got = r.ident()
+        if got is None:
+            return None
+        module = got
+    while True:
+        save = r.i
+        got = r.ident()
+        if got is None:
+            break
+        nxt = r.peek()
+        if nxt in SWIFT_KINDS:
+            chain.append(got)
+            kind = SWIFT_KINDS[nxt]
+            r.i += 1
+        elif nxt == "E" and chain:   # extensión del tipo anterior declarada en el módulo «got»
+            r.i += 1
+        else:
+            r.i = save
+            break
+    return module, ".".join(chain), kind if chain else None
+
+
+def swift_nominal(name: str) -> tuple[str, str, str] | None:
+    """(módulo, tipo, clase/estructura/enumeracion/protocolo) del contexto nominal; None si no lo hay."""
+    got = swift_context(name)
+    return (got[0], got[1], got[2]) if got and got[1] and got[2] else None
+
+
+MAX_MACHO = 512 * 1024 * 1024  # un ejecutable de app mayor no se lee entero en memoria
+
+
+def _macho_executable(src: Path) -> tuple[str, bytes]:
+    """(ruta interna, bytes) del ejecutable principal: el CFBundleExecutable del Info.plist de una .app/.zip/.ipa, o
+    el propio archivo si ya es un Mach-O."""
+    import zipfile
+
+    if src.is_file() and src.suffix.lower() not in (".zip", ".ipa"):
+        if src.stat().st_size > MAX_MACHO:
+            raise ValueError(f"ejecutable mayor de {MAX_MACHO // 2**20} MiB: {src}")
+        return src.name, src.read_bytes()
+    if src.is_dir():
+        for inner in ("Contents/Info.plist", "Info.plist"):
+            plist = _read_plist(src, f"{src.name}/{inner}")
+            if plist and plist.get("CFBundleExecutable"):
+                base = "Contents/MacOS/" if inner.startswith("Contents") else ""
+                f = src / f"{base}{plist['CFBundleExecutable']}"
+                if f.is_file() and f.stat().st_size <= MAX_MACHO:
+                    return f"{src.name}/{base}{f.name}", f.read_bytes()
+        raise ValueError(f"no se encontró el ejecutable de la app en {src}")
+    with zipfile.ZipFile(src) as z:
+        names = z.namelist()
+        for n in sorted(names, key=len):
+            m = re.fullmatch(r"((?:Payload/)?[^/]+\.app)/(Contents/)?Info\.plist", n)
+            if not m:
+                continue
+            plist = _read_plist(src, n)
+            exe = f"{m.group(1)}/{'Contents/MacOS/' if m.group(2) else ''}{(plist or {}).get('CFBundleExecutable')}"
+            if plist and plist.get("CFBundleExecutable") and exe in names:
+                info = z.getinfo(exe)
+                if info.file_size > MAX_MACHO:
+                    raise ValueError(f"ejecutable mayor de {MAX_MACHO // 2**20} MiB: {exe}")
+                return exe, z.read(info)
+    raise ValueError(f"no se encontró el ejecutable de la app en {src}")
+
+
+def _segment_of(segments: list[tuple[int, int, str]], address: Any) -> str | None:
+    try:
+        a = int(str(address), 16)
+    except ValueError:
+        return None
+    return next((name for start, end, name in segments if start <= a < end), None)
+
+
+def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None, limite: int = 60,
+                      ruta_rea: Any = None) -> dict[str, Any]:
+    """Tipos Swift y clases Objective-C de una app de Apple (plan REA, punto 9: Apple) sin macOS ni ejecutarla.
+
+    - Eolfi: saca el ejecutable principal (.app, .zip, .ipa o un Mach-O suelto), lee sus arquitecturas de la cabecera
+      universal y separa la elegida (arm64 por defecto) en un archivo temporal.
+    - REA con Ghidra (en WSL: el REA de Windows solo abre PE): `analyze_swift_types`, `get_objc_classes` y las
+      secciones de `binary_overview`.
+    - Eolfi agrupa los nombres por tipo y módulo leyendo el contexto nominal del mangling, y separa lo que está en
+      `__text` (código del ejecutable: la app y los paquetes que lleva dentro) de lo que está en `__stubs` (llamadas
+      a frameworks del sistema). `ruta_rea` traduce la ruta para el REA que se use (p. ej. wsl_path)."""
+    import hashlib
+    import shutil
+    import tempfile
+
+    src = Path(path)
+    if not src.exists():
+        raise ValueError(f"no existe: {path}")
+    limite = max(1, min(int(limite or 60), 1000))
+    inner, data = _macho_executable(src)
+    slices = macho_slices(data)
+    archs = [s["arquitectura"] for s in slices]
+    want = arquitectura or ("arm64" if "arm64" in archs else archs[0])
+    chosen = next((s for s in slices if s["arquitectura"] == want), None)
+    if chosen is None:
+        raise ValueError(f"el ejecutable no tiene la arquitectura {want}; tiene: {', '.join(archs)}")
+    piece = data[chosen["desplazamiento"]:chosen["desplazamiento"] + chosen["bytes"]]
+    del data
+    tmp = Path(tempfile.mkdtemp(prefix="eolfi-macho-"))
+    try:
+        target = tmp / f"{Path(inner).name}-{want}"
+        target.write_bytes(piece)
+        _session(client, (ruta_rea or str)(str(target)))
+        try:
+            overview = _call(client, "binary_overview", {})
+            swift = _call(client, "analyze_swift_types", {})
+            objc = _call(client, "get_objc_classes", {})
+        finally:
+            _close(client)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    segments = []
+    for s in (overview.get("segments") or []) if isinstance(overview, dict) else []:
+        try:
+            segments.append((int(s["start"], 16), int(s["end"], 16), str(s.get("name"))))
+        except (KeyError, TypeError, ValueError):
+            continue
+    own: dict[str, dict[str, str]] = {}
+    used: dict[str, dict[str, str]] = {}
+    unresolved = module_level = 0
+    rows = [x for c in ((swift.get("categories") or {}).values() if isinstance(swift, dict) else [])
+            if isinstance(c, dict) for x in c.get("items") or [] if isinstance(x, dict)]
+    seen_rows: set[tuple[Any, Any]] = set()
+    for x in rows:
+        if (x.get("address"), x.get("name")) in seen_rows:
+            continue
+        seen_rows.add((x.get("address"), x.get("name")))
+        found = next((r for m in [x.get("name"), *(x.get("mangled_names") or [])] if m
+                      for r in [swift_context(str(m))] if r), None)
+        if not found:
+            unresolved += 1
+            continue
+        module, type_name, kind = found
+        if not type_name or not kind:   # función o variable global del módulo, sin tipo
+            module_level += 1
+            continue
+        bucket = used if _segment_of(segments, x.get("address")) == "__stubs" else own
+        bucket.setdefault(module, {}).setdefault(type_name, kind)
+    frameworks: dict[str, set[str]] = {}
+    for c in (objc.get("classes") or []) if isinstance(objc, dict) else []:
+        name = str(c.get("name") or "")
+        lib, _, cls = name.rpartition("::")
+        if lib:
+            fw = re.search(r"([^/]+)\.framework/", lib)
+            frameworks.setdefault(fw.group(1) if fw else lib.rsplit("/", 1)[-1], set()).add(
+                cls.removeprefix("_OBJC_CLASS_$_"))
+    app_module = Path(inner).name
+    return {
+        "archivo": str(src), "ejecutable": inner,
+        "arquitecturas": archs, "arquitectura_analizada": want,
+        "sha256_porcion": hashlib.sha256(piece).hexdigest(),
+        "procedimientos": overview.get("procedure_count") if isinstance(overview, dict) else None,
+        "modulo_de_la_app": app_module,
+        "tipos_de_la_app": [{"tipo": t, "clase": k} for t, k in sorted((own.get(app_module) or {}).items())][:limite],
+        # En __text, un protocolo de otro módulo es uno que la app implementa (View de SwiftUI…), no código de él.
+        "protocolos_implementados": sorted(f"{m}.{t}" for m, ts in own.items() if m != app_module
+                                           for t, k in ts.items() if k == "protocolo")[:limite],
+        "modulos_incluidos": {m: {"tipos": len(nonproto), "muestra": nonproto[:10]}
+                              for m, ts in sorted(own.items(), key=lambda kv: -len(kv[1])) if m != app_module
+                              for nonproto in [sorted(t for t, k in ts.items() if k != "protocolo")] if nonproto},
+        "frameworks_swift_usados": {m: {"tipos": len(t), "por_clase": dict(Counter(t.values())),
+                                        "muestra": sorted(t)[:10]}
+                                    for m, t in sorted(used.items(), key=lambda kv: -len(kv[1]))},
+        "clases_objc_importadas": {fw: sorted(c)[:limite] for fw, c in sorted(frameworks.items(),
+                                                                                key=lambda kv: -len(kv[1]))},
+        "nombres_swift": len(seen_rows), "nombres_globales": module_level, "nombres_sin_resolver": unresolved,
+        "aviso": ("Análisis estático con Ghidra de una sola arquitectura; no se ejecutó la app. Salen los tipos cuyos "
+                  "nombres conserva el binario: en una app sin símbolos, los de la propia app son pocos (los que "
+                  "Objective-C necesita ver) y el resto de su código no tiene nombre. «Incluidos» son tipos con código "
+                  "dentro del ejecutable (paquetes enlazados estáticamente); «protocolos implementados», protocolos "
+                  "de otros módulos con conformidades en él; «usados», llamadas a frameworks del sistema. "
+                  "Eolfi lee el contexto del mangling (sustituciones estándar, palabras comprimidas, extensiones y "
+                  "nombres privados), no la firma completa; «sin resolver» son los que no sabe leer (p. ej. "
+                  "punycode). demangle_swift necesita macOS.")}
