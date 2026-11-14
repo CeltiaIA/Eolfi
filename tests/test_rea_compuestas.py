@@ -371,3 +371,159 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeDotnet:
+    """REA gestionado simulado: artefacto, miembros (completos o parciales), frontera nativa y vistas paginadas."""
+
+    # Por tipo: (métodos, cadenas #US). «global» la cargan dos tipos: debe contarse una sola vez.
+    PER = {"<Module>": (1, [{"token": "0x70000001", "value": "global"}]),
+           "App.Main": (4, [{"token": "0x70000001", "value": "global"},
+                            {"token": "0x70000010", "value": "https://api.example.test/v1"}]),
+           "App.Net": (1, [{"token": "0x70000020", "value": "hola"}])}
+
+    def __init__(self, parcial=False, gestionado=True, modulo_nativo=False):
+        self.calls, self.parcial, self.gestionado, self.modulo_nativo = [], parcial, gestionado, modulo_nativo
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        if name == "inspect_managed_artifact":
+            assert args["path"].startswith("/mnt/")
+            status = "managed" if self.gestionado else "native"
+            out = {"parent_evidence_id": "ev_art", "summary": {
+                "artifact": {"sha256": "ab" * 32}, "classification": {"status": status},
+                "pe": {"cli": {"runtime_version": "v4.0.30319"}}, "module": {"mvid": "m-1", "name": "App.dll"},
+                "assembly": {"name": "App", "version": "1.2.0.0", "public_key": {"token": "0011"}},
+                "reported_counts": {"references": 3, "resources": 1}}}
+        elif name == "inspect_managed_members" and "type_names" in args:
+            # Partición: más de 2 tipos o App.Big (que no cabe ni solo) superan el presupuesto.
+            sel = args["type_names"]
+            if len(sel) > 2 or "App.Big" in sel:
+                out = {"parent_evidence_id": "ev_x", "summary": {
+                    "reported_counts": {"types": len(sel), "methods": 0, "user_strings": None},
+                    "coverage": {"state": "partial", "issues": [{"code": "resource-limit", "detail": "budget"}]}}}
+            else:
+                strs = {s["token"]: s for t in sel for s in self.PER[t][1]}
+                counts = {"types": len(sel), "methods": sum(self.PER[t][0] for t in sel), "fields": len(sel),
+                          "member_refs": 7, "exported_types": 0, "user_strings": len(strs)}
+                state = "partial" if "<Module>" in sel else "complete"
+                out = {"parent_evidence_id": "ev_mem:" + "|".join(sel), "summary": {
+                    "reported_counts": counts, "coverage": {"state": state, "issues": []}}}
+        elif name == "inspect_managed_members":
+            counts = {"types": 4 if self.parcial else 3, "methods": 5, "user_strings": None if self.parcial else 2}
+            cov = ({"state": "partial", "issues": [{"code": "resource-limit", "detail": "budget"}]} if self.parcial
+                   else {"state": "complete", "issues": []})
+            out = {"parent_evidence_id": "ev_mem", "summary": {"reported_counts": counts, "coverage": cov}}
+        elif name == "inspect_managed_native_boundaries":
+            out = {"cli_native": {"il_only": False, "strong_name_signed": True, "ready_to_run_signature": False},
+                   "module_refs": [{"name": "user32.dll"}],
+                   "pinvoke_imports": [{"import_scope_name": "user32.dll", "import_name": "", "member_name": "MessageBoxW",
+                                        "call_convention": "winapi"}],
+                   "native_implementations": [{}, {}],
+                   "summary": {"pinvoke_import_count": 1, "mixed_mode_or_native_header": False}}
+        elif name == "inspect_analysis_view":
+            view = args["view"]
+            parent = args["source"]["evidence_id"]
+            if parent.startswith("ev_mem:"):
+                sel = parent[len("ev_mem:"):].split("|")
+                data = ([s for t in sel for s in self.PER[t][1]] if view["collection"] == "user_strings" else
+                        [{"declaring_type": t, "name": f"m{i}", "token": f"{t}#{i}", "rva": 16,
+                          "body": {"status": "present"}} for t in sel for i in range(self.PER[t][0])])
+                if self.modulo_nativo and sel == ["<Module>"] and view["collection"] == "methods":
+                    # Como System.Data: cuerpos nativos de C++/CLI y un P/Invoke sin cuerpo (RVA 0).
+                    data = [{"name": "n", "rva": 32, "body": {"status": "partial", "issue": "CIL decoding is "
+                             "unavailable for native, runtime, unmanaged, or P/Invoke implementations"}},
+                            {"name": "DecodePointer", "rva": 0, "body": {"status": "absent", "issue": None}}]
+            else:
+                types = [{"full_name": "<Module>"}, {"full_name": "App.Main", "method_list": {"count": 4}},
+                         {"full_name": "App.Net", "method_list": {"count": 1}}]
+                data = {"references": [{"name": f"Ref{i}", "version": "4.0.0.0"} for i in range(3)],
+                        "resources": [{"name": "App.resources"}],
+                        "types": types + ([{"full_name": "App.Big"}] if self.parcial else []),
+                        "user_strings": [{"value": "https://api.example.test/v1"}, {"value": "hola"}]
+                        }[view["collection"]]
+            o, n = view["offset"], view["limit"]
+            nxt = o + n if o + n < len(data) else None
+            cov = {"total": len(data), "next_offset": nxt}
+            if view["kind"] == "managed":
+                out = {"item": data[o:o + n], "coverage": cov}
+            else:
+                out = {"page": {"rows": data[o:o + n]}, "coverage": cov}
+        else:
+            raise AssertionError(name)
+        return json.dumps({"normalized_result": out}), True
+
+
+def test_ensamblado_dotnet_resume_identidad_tipos_cadenas_y_pinvoke(tmp_path):
+    f = tmp_path / "App.dll"
+    f.write_bytes(b"MZ")
+    fake = FakeDotnet()
+    r = rc.ensamblado_dotnet(fake, str(f), limite=2)
+    assert r["gestionado"] and r["ensamblado"]["nombre"] == "App" and r["ensamblado"]["token_clave_publica"] == "0011"
+    assert r["runtime_metadatos"] == "v4.0.30319" and r["cli"]["firma_nombre_seguro"] is True
+    # Paginación: el límite corta la lista pero el total es el de REA.
+    assert r["referencias"] == ["Ref0 4.0.0.0", "Ref1 4.0.0.0"] and r["referencias_total"] == 3
+    assert [t["tipo"] for t in r["tipos"]] == ["App.Main", "App.Net"] and r["tipos_total"] == 2
+    assert r["cadenas"][0] == "https://api.example.test/v1" and r["cadenas_total"] == 2
+    assert r["nativo"]["pinvoke"] == [{"dll": "user32.dll", "funcion": "MessageBoxW", "metodo": "MessageBoxW",
+                                       "convencion": "winapi"}]
+    assert r["nativo"]["implementaciones_nativas"] == 2 and r["cobertura_miembros"]["estado"] == "complete"
+    vistas = [a["view"]["collection"] for n, a in fake.calls if n == "inspect_analysis_view"]
+    assert vistas.count("references") == 1 and "user_strings" in vistas
+
+
+def test_ensamblado_dotnet_grande_se_particiona_por_tipos_y_recupera_todo(tmp_path):
+    f = tmp_path / "Big.dll"
+    f.write_bytes(b"MZ")
+    fake = FakeDotnet(parcial=True)
+    r = rc.ensamblado_dotnet(fake, str(f))
+    lotes = [a["type_names"] for n, a in fake.calls if n == "inspect_managed_members" and "type_names" in a]
+    # <Module> va solo; el lote de 3 se pasa y se parte en mitades; App.Big no cabe ni solo.
+    assert lotes == [["<Module>"], ["App.Main", "App.Net", "App.Big"], ["App.Main"], ["App.Net", "App.Big"],
+                     ["App.Net"], ["App.Big"]]
+    assert r["recuentos"]["methods"] == 6 and r["recuentos"]["fields"] == 3 and r["recuentos"]["member_refs"] == 7
+    # «global» la cargan <Module> y App.Main: una sola vez.
+    assert r["cadenas_total"] == 3 and sorted(r["cadenas"]) == ["global", "hola", "https://api.example.test/v1"]
+    cob = r["cobertura_miembros"]
+    assert cob["estado"] == "partial" and cob["particionado"] and cob["inspecciones"] == 6
+    assert cob["tipos_sin_examinar"] == ["App.Big"] and cob["motivos"] == ["sin particionar: budget"]
+    assert [p["desde"] for p in cob["lotes_parciales"]] == ["<Module>"]
+    # Nunca se pide una colección que REA no examinó (la evidencia sin particionar no tiene cadenas).
+    assert all(a["source"]["evidence_id"] != "ev_mem" or a["view"]["collection"] == "types"
+               for n, a in fake.calls if n == "inspect_analysis_view" and a["view"]["kind"] == "managed-members")
+
+
+def test_ensamblado_dotnet_volcado_completo_y_no_sobrescribe(tmp_path):
+    f = tmp_path / "Big.dll"
+    f.write_bytes(b"MZ")
+    out = tmp_path / "todo.json"
+    r = rc.ensamblado_dotnet(FakeDotnet(parcial=True), str(f), limite=1, salida=str(out))
+    d = json.loads(out.read_text(encoding="utf-8"))
+    assert len(r["cadenas"]) == 1 and len(d["cadenas"]) == 3 and len(d["metodos"]) == 6
+    assert {m["tipo"] for m in d["metodos"]} == {"<Module>", "App.Main", "App.Net"}
+    assert [t["tipo"] for t in d["tipos"]] == ["App.Main", "App.Net", "App.Big"] and len(d["referencias"]) == 3
+    assert r["volcado"]["metodos"] == 6 and d["pinvoke"][0]["dll"] == "user32.dll"
+    with pytest.raises(ValueError):
+        rc.ensamblado_dotnet(FakeDotnet(parcial=True), str(f), salida=str(out))
+    with pytest.raises(ValueError):
+        rc.ensamblado_dotnet(FakeDotnet(), str(f), salida=str(tmp_path / "todo.txt"))
+
+
+def test_ensamblado_dotnet_no_gestionado_o_inexistente(tmp_path):
+    f = tmp_path / "nativo.exe"
+    f.write_bytes(b"MZ")
+    fake = FakeDotnet(gestionado=False)
+    r = rc.ensamblado_dotnet(fake, str(f))
+    assert r["gestionado"] is False and [n for n, _ in fake.calls] == ["inspect_managed_artifact"]
+    with pytest.raises(ValueError):
+        rc.ensamblado_dotnet(FakeDotnet(), str(tmp_path / "no.dll"))
+
+
+def test_ensamblado_dotnet_module_parcial_solo_por_codigo_nativo_cuenta_como_completo(tmp_path):
+    f = tmp_path / "Mixto.dll"
+    f.write_bytes(b"MZ")
+    r = rc.ensamblado_dotnet(FakeDotnet(parcial=True, modulo_nativo=True), str(f))
+    cob = r["cobertura_miembros"]
+    # <Module> ya no es un lote parcial: lo que falta es código nativo o P/Invoke, que no tiene CIL.
+    assert cob["lotes_parciales"] == [] and cob["metodos_sin_cil"] == {"codigo_nativo": 1, "sin_cuerpo": 1}
+    assert cob["tipos_sin_examinar"] == ["App.Big"] and cob["estado"] == "partial"  # App.Big sigue sin caber
