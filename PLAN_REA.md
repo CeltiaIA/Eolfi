@@ -152,3 +152,15 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Clases y métodos Android con JADX (14/11/2026)
+
+Punto 9, parte JADX: `eolfi rea clase <apk> <consulta> [--metodo M] [--sobrecarga N]` (compuesto `clase_android`; REA de Windows, que tiene JADX configurado). Funciona sin instalar ni ejecutar la app:
+- Si la consulta coincide con varias clases, las lista.
+- Si coincide con una sola, o una coincide exacta, da sus métodos (firma y prototipo DEX), campos (tipo y valor estático) y clases internas.
+- Con `--metodo`, descompila ese método e indica si REA recurrió a smali, sus marcas y si la fuente salió recortada (12.000 caracteres).
+- Si el método tiene varias sobrecargas, las lista y pide `--sobrecarga`.
+
+Verificado en vivo con ApiDemos 6.0.18 (SHA-256 `6e5eacf5…ff75`, 2.876 clases, JADX headless 0.7.1), unos 10 s por llamada, en cinco casos: varias coincidencias, clase única, `onCreate` de `ReversingAnimation`, `getData` de `ApiDemos` y una consulta sin resultados.
+
+NO VERIFICADO: APK ofuscados (R8/ProGuard), métodos que fallan en JADX y caen a smali, y paquetes .aab/.xapk.

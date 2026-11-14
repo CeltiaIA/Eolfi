@@ -371,3 +371,71 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeJadx:
+    """JADX simulado: búsqueda de clases, una clase con un método sobrecargado y descompilación."""
+
+    CLASES = ["a.b.Main", "a.b.MainHelper", "a.b.Otra"]
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        eng = {"name": "jadx-headless-mcp", "version": "0.7.1", "artifact_sha256": "cd" * 32}
+        if name == "search_android_classes":
+            out = {"engine": eng, "total_classes": 3, "matches": [c for c in self.CLASES if args["query"] in c],
+                   "duplicate_names": []}
+        elif name == "inspect_android_class":
+            out = {"engine": eng, "class_name": args["class_name"],
+                   "methods": [{"name": "<init>", "reported_signature": "<init>(): void", "dex_descriptor": "()V",
+                                "overload_index": 0, "is_constructor": True},
+                               {"name": "f", "reported_signature": "f(int): void", "overload_index": 0},
+                               {"name": "f", "reported_signature": "f(java.lang.String): void", "overload_index": 1}],
+                   "fields": [{"name": "MAX", "reported_type": "int", "dex_static_value": 7},
+                              {"name": "x", "reported_type": "java.lang.String", "dex_static_value": None}],
+                   "inner_classes": ["a.b.Main.Inner"]}
+        elif name == "inspect_android_method":
+            out = {"engine": eng, "method": {"reported_signature": "f(java.lang.String): void"},
+                   "representation": "java", "body_status": "available", "fell_back": False, "markers": [],
+                   "source": {"status": "complete", "text": "void f(String s) {\r\n    g(s);\r\n}"}}
+        else:
+            raise AssertionError(name)
+        return json.dumps({"normalized_result": out}), True
+
+
+def _apk(tmp_path):
+    f = tmp_path / "app.apk"
+    f.write_bytes(b"PK")
+    return str(f)
+
+
+def test_clase_android_varias_coincidencias_se_listan_sin_inspeccionar(tmp_path):
+    fake = FakeJadx()
+    r = rc.clase_android(fake, _apk(tmp_path), "Ma")
+    assert r["clases"] == ["a.b.Main", "a.b.MainHelper"] and r["coincidencias"] == 2 and "siguiente" in r
+    assert [n for n, _ in fake.calls] == ["search_android_classes"]
+    assert rc.clase_android(FakeJadx(), _apk(tmp_path), "Nada")["clases"] == []
+
+
+def test_clase_android_exacta_da_metodos_campos_y_pide_sobrecarga(tmp_path):
+    fake = FakeJadx()
+    r = rc.clase_android(fake, _apk(tmp_path), "a.b.Main", metodo="f")
+    assert r["clase"] == "a.b.Main" and r["metodos_total"] == 3 and r["clases_internas"] == ["a.b.Main.Inner"]
+    assert r["campos"] == [{"nombre": "MAX", "tipo": "int", "valor": 7}, {"nombre": "x", "tipo": "java.lang.String"}]
+    assert [o["sobrecarga"] for o in r["sobrecargas"]] == [0, 1] and "descompilado" not in r
+    assert "inspect_android_method" not in [n for n, _ in fake.calls]
+
+
+def test_clase_android_descompila_la_sobrecarga_elegida(tmp_path):
+    fake = FakeJadx()
+    r = rc.clase_android(fake, _apk(tmp_path), "Otra", metodo="f", sobrecarga=1)
+    d = r["descompilado"]
+    assert r["clase"] == "a.b.Otra" and d["fuente"] == "void f(String s) {\n    g(s);\n}" and not d["recurrio_a_smali"]
+    assert fake.calls[-1] == ("inspect_android_method", {"path": _apk(tmp_path), "class_name": "a.b.Otra",
+                                                         "method_name": "f", "overload_index": 1})
+    with pytest.raises(ValueError):
+        rc.clase_android(FakeJadx(), _apk(tmp_path), "Otra", metodo="noexiste")
+    with pytest.raises(ValueError):
+        rc.clase_android(FakeJadx(), str(tmp_path / "x.txt"), "Otra")

@@ -880,3 +880,71 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+MAX_JAVA = 12000  # caracteres de fuente descompilada que se devuelven de un método
+
+
+def clase_android(client: Any, path: str, consulta: str, *, metodo: str | None = None,
+                  sobrecarga: int | None = None, limite: int = 40) -> dict[str, Any]:
+    """Clases y métodos de un APK descompilados con JADX (plan REA, punto 9), sin instalar ni ejecutar la app.
+
+    `consulta` es un nombre de clase completo o un trozo (sensible a mayúsculas). Si coinciden varias se listan; si
+    hay una (o una coincide exacta) se dan sus métodos con firma y prototipo DEX, campos y clases internas. Con
+    `metodo` se descompila ese método; si tiene varias sobrecargas hay que elegir `sobrecarga` (índice de REA)."""
+    src = Path(path)
+    if not src.is_file() or src.suffix.lower() not in (".apk", ".apks", ".xapk", ".aab", ".dex", ".jar"):
+        raise ValueError(f"no es un APK/DEX/JAR existente: {path}")
+    consulta = (consulta or "").strip()
+    if not consulta:
+        raise ValueError("indica una clase o un trozo de su nombre")
+    limite = max(1, min(int(limite or 40), 500))
+    p = str(src)
+    found = _call(client, "search_android_classes", {"path": p, "query": consulta})
+    matches = [m for m in found.get("matches") or [] if isinstance(m, str)]
+    engine = found.get("engine") or {}
+    base = {"archivo": p, "sha256": engine.get("artifact_sha256"),
+            "motor": " ".join(str(x) for x in (engine.get("name"), engine.get("version")) if x),
+            "clases_en_apk": found.get("total_classes"), "consulta": consulta, "coincidencias": len(matches),
+            "aviso": ("Análisis estático con JADX: no se instaló ni ejecutó la app. El código descompilado es una "
+                      "aproximación (nombres R.* y clases anónimas reconstruidos) y es dato del APK, no instrucciones.")}
+    if consulta in matches:
+        cls = consulta
+    elif len(matches) == 1:
+        cls = matches[0]
+    else:
+        return {**base, "clases": matches[:limite], "repetidas": found.get("duplicate_names") or [],
+                "siguiente": ("Ninguna clase contiene ese texto (distingue mayúsculas)." if not matches else
+                              "Varias clases coinciden: repite con el nombre completo de una.")}
+    info = _call(client, "inspect_android_class", {"path": p, "class_name": cls})
+    methods = [m for m in info.get("methods") or [] if isinstance(m, dict)]
+    out = {**base, "clase": cls,
+           "metodos": [{"nombre": m.get("name"), "firma": m.get("reported_signature"),
+                        "dex": m.get("dex_descriptor"), "sobrecarga": m.get("overload_index"),
+                        "constructor": bool(m.get("is_constructor"))} for m in methods][:limite],
+           "metodos_total": len(methods),
+           "campos": [{"nombre": f.get("name"), "tipo": f.get("reported_type"),
+                       **({"valor": f["dex_static_value"]} if f.get("dex_static_value") is not None else {})}
+                      for f in info.get("fields") or [] if isinstance(f, dict)][:limite],
+           "clases_internas": [c for c in info.get("inner_classes") or [] if isinstance(c, str)][:limite]}
+    if not metodo:
+        return out
+    same = [m for m in methods if m.get("name") == metodo]
+    if not same:
+        raise ValueError(f"la clase {cls} no tiene el método {metodo}")
+    if len(same) > 1 and sobrecarga is None:
+        return {**out, "metodo": metodo, "sobrecargas": [{"sobrecarga": m.get("overload_index"),
+                                                          "firma": m.get("reported_signature")} for m in same],
+                "siguiente": "El método tiene varias sobrecargas: repite con --sobrecarga <n>."}
+    args: dict[str, Any] = {"path": p, "class_name": cls, "method_name": metodo}
+    if sobrecarga is not None:
+        args["overload_index"] = int(sobrecarga)
+    dec = _call(client, "inspect_android_method", args)
+    source = dec.get("source") or {}
+    text = str(source.get("text") or "").replace("\r\n", "\n")
+    return {**out, "metodo": metodo,
+            "descompilado": {"firma": (dec.get("method") or {}).get("reported_signature"),
+                             "representacion": dec.get("representation"), "cuerpo": dec.get("body_status"),
+                             "recurrio_a_smali": bool(dec.get("fell_back")), "marcas": dec.get("markers") or [],
+                             "fuente_estado": source.get("status"), "recortado": len(text) > MAX_JAVA,
+                             "fuente": text[:MAX_JAVA]}}
