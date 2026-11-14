@@ -888,7 +888,12 @@ def _rea_ruta(src: str | Path) -> str:
     recibe la ruta POSIX tal cual (wsl_path solo traduce rutas de unidad de Windows y fallaba en la CI de Ubuntu)."""
     from eolfi import rea_client
 
-    return rea_client.wsl_path(src) if os.name == "nt" else str(Path(src).resolve())
+    return str(Path(src).resolve()) if _rea_local() else rea_client.wsl_path(src)
+
+
+def _rea_local() -> bool:
+    """REA corre en esta misma máquina (Linux o macOS). En Windows Eolfi usa el REA de WSL."""
+    return os.name != "nt"
 
 
 def firmware_regiones(client: Any, path: str) -> dict[str, Any]:
@@ -1135,15 +1140,21 @@ def extraer_firmware(client: Any, path: str, destino: str, *, profundidad: int |
         raise ValueError(f"no existe la imagen de firmware: {path}")
     if src.stat().st_size > 128 * 1024 * 1024:
         raise ValueError("REA analiza imágenes de firmware de hasta 128 MiB")
-    if destino.startswith("/"):
-        out_dir, windows_dest = destino, None  # ruta de Ubuntu: la valida REA
+    nueva = "el destino debe ser una carpeta nueva (ruta absoluta) dentro de una carpeta existente"
+    if _rea_local():  # Linux o macOS: REA es local y publica directamente en el destino, sin copia
+        d = Path(destino)
+        if not d.is_absolute() or d.exists() or not d.parent.is_dir():
+            raise ValueError(nueva)
+        out_dir, windows_dest, local_dest = destino, None, destino
+    elif destino.startswith("/"):
+        out_dir, windows_dest, local_dest = destino, None, None  # ruta de Ubuntu: la valida REA
     else:
         d = Path(destino)
         if not re.match(r"^[A-Za-z]:[\\/]", destino) or d.exists() or not d.parent.is_dir():
-            raise ValueError("el destino debe ser una carpeta nueva (ruta absoluta) dentro de una carpeta existente")
-        out_dir, windows_dest = rea_client.wsl_staging_dir("firmware"), destino
+            raise ValueError(nueva)
+        out_dir, windows_dest, local_dest = rea_client.wsl_staging_dir("firmware"), destino, destino
     limite = max(1, min(int(limite or 30), 500))
-    args: dict[str, Any] = {"path": rea_client.wsl_path(src), "output_directory": out_dir,
+    args: dict[str, Any] = {"path": _rea_ruta(src), "output_directory": out_dir,
                             "analysis_timeout_ms": FIRMWARE_TIMEOUT_MS, "publication_timeout_ms": FIRMWARE_PUBLISH_MS}
     if profundidad:
         args["max_depth"] = max(1, int(profundidad))
@@ -1193,7 +1204,7 @@ def extraer_firmware(client: Any, path: str, destino: str, *, profundidad: int |
             row["detalle"] = extra
         fallos.append(row)
     por_tipo = Counter(f"{f['etapa']}:{f['tipo']}" for f in fallos)
-    rootfs = revisar_rootfs(windows_dest, limite) if windows_dest and Path(windows_dest).is_dir() else None
+    rootfs = revisar_rootfs(local_dest, limite) if local_dest and Path(local_dest).is_dir() else None
     return {
         "archivo": str(src), "sha256": (n.get("selection") or {}).get("sha256"),
         "motor": " ".join(str(x) for x in ((n.get("engine") or {}).get("name"), (n.get("engine") or {}).get("version"))

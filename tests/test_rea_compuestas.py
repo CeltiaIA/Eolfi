@@ -477,6 +477,7 @@ class FakeUnblob:
         return json.dumps({"normalized_result": out}), True
 
 
+@pytest.mark.skipif(os.name != "nt", reason="copia WSL→Windows: solo existe con el REA de WSL en Windows")
 def test_extraer_firmware_resume_lo_extraido_y_lo_que_falta(tmp_path, wsl_falso):
     fw = tmp_path / "fw.bin"
     fw.write_bytes(b"\0" * 64)
@@ -504,6 +505,7 @@ def test_extraer_firmware_resume_lo_extraido_y_lo_que_falta(tmp_path, wsl_falso)
     assert r["fallos_por_tipo"] == {"lzma:ExtractCommandFailedReport": 1, "tar:ExtractionProblem": 1}
 
 
+@pytest.mark.skipif(os.name != "nt", reason="copia WSL→Windows: solo existe con el REA de WSL en Windows")
 def test_extraer_firmware_conserva_la_temporal_si_la_copia_falla(tmp_path, wsl_falso, monkeypatch):
     from eolfi import rea_client
 
@@ -528,9 +530,34 @@ def test_extraer_firmware_valida_antes_de_llamar_a_rea(tmp_path, wsl_falso):
     with pytest.raises(ValueError):
         rc.extraer_firmware(fake, str(tmp_path / "nada.bin"), str(tmp_path / "s"))
     assert fake.calls == []
-    r = rc.extraer_firmware(fake, str(fw), "/home/u/salida")  # ruta de Ubuntu: la valida REA, sin copia
-    assert fake.calls[0][1]["output_directory"] == "/home/u/salida" and r["destino"] == "/home/u/salida"
-    assert r["copia_a_windows"] is None and wsl_falso["orders"] == []
+    if os.name == "nt":  # en Windows, una ruta de Ubuntu la valida el REA de WSL, sin copia
+        r = rc.extraer_firmware(fake, str(fw), "/home/u/salida")
+        assert fake.calls[0][1]["output_directory"] == "/home/u/salida" and r["destino"] == "/home/u/salida"
+        assert r["copia_a_windows"] is None and wsl_falso["orders"] == []
+
+
+def test_extraer_firmware_con_rea_local_publica_en_el_destino_sin_copia(tmp_path, wsl_falso, monkeypatch):
+    """Linux o macOS (simulado en cualquier sistema): REA es local, recibe rutas locales y escribe en el destino."""
+    from pathlib import Path
+
+    monkeypatch.setattr(rc, "_rea_local", lambda: True)
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\0")
+    dest = tmp_path / "salida"
+
+    class Crea(FakeUnblob):
+        def call(self, name, args, limit=None):
+            _rootfs(Path(args["output_directory"]))
+            return super().call(name, args, limit)
+
+    fake = Crea()
+    r = rc.extraer_firmware(fake, str(fw), str(dest))
+    args = fake.calls[0][1]
+    assert args["path"] == str(fw.resolve()) and args["output_directory"] == str(dest)
+    assert r["copia_a_windows"] is None and wsl_falso["orders"] == [] and r["destino"] == str(dest)
+    assert r["rootfs"]["sistemas_de_archivos"][0]["distribucion"]["DISTRIB_ID"] == "OpenWrt"
+    with pytest.raises(ValueError):
+        rc.extraer_firmware(fake, str(fw), "relativa")
 
 
 def _rootfs(base):
@@ -567,6 +594,7 @@ def test_revisar_rootfs_distribucion_cuentas_servicios_y_claves(tmp_path):
         rc.revisar_rootfs(tmp_path / "no")
 
 
+@pytest.mark.skipif(os.name != "nt", reason="copia WSL→Windows: solo existe con el REA de WSL en Windows")
 def test_extraer_firmware_incluye_la_revision_del_rootfs_si_el_destino_existe(tmp_path, wsl_falso):
     fw = tmp_path / "fw.bin"
     fw.write_bytes(b"\0")
