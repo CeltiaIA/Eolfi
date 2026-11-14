@@ -120,7 +120,7 @@ def backup_folder(folder: Path) -> Path:
 def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str = "nuevo-proyecto",
                    target: str = "auto", do_verify: bool = True, force: bool = False,
                    reanalyze: bool = False, workdir: str = "samples/repos", ai_brief: str | None = None,
-                   ai_client=None, ai_provider: str = "claude", ai_model: str | None = None,
+                   ai_client=None, ai_provider: str = "eolas-v2", ai_model: str | None = None,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
                    progress: Callable[[str], None] | None = None, case_id: str | None = None,
                    provenance: str = "") -> dict[str, Any]:
@@ -305,7 +305,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
     return result
 
 
-def run_assist(store: EvidenceStore, project: str | Path, brief: str, *, client=None, provider: str = "claude",
+def run_assist(store: EvidenceStore, project: str | Path, brief: str, *, client=None, provider: str = "eolas-v2",
                model: str | None = None, base_url: str | None = None,
                progress: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Pide a Claude la lógica de negocio sobre un proyecto generado y lo registra como evidencia."""

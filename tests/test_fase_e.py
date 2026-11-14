@@ -162,9 +162,12 @@ def test_bridge_compare_and_selftest_validation(tmp_path):
 def test_new_web_chat_presets():
     from eolfi.generador.llm import PRESETS, choose_web_site
 
-    assert {"chatgpt-web", "copilot-web", "lechat-web"} <= set(PRESETS)
-    st = {"chatgpt": {"ok": True, "signedIn": True}, "gemini": {"ok": False}}
-    assert choose_web_site(st) == "chatgpt"
+    # 14/11/2026: ChatGPT, Copilot y Le Chat retirados; el proveedor automático «web» nunca los elige, aunque
+    # tengan sesión y EOLFI_WEB_ORDER los nombre.
+    assert not {"chatgpt-web", "copilot-web", "lechat-web"} & set(PRESETS)
+    st = {"chatgpt": {"ok": True, "signedIn": True}, "lechat": {"ok": True, "signedIn": True},
+          "gemini": {"ok": True}}
+    assert choose_web_site(st) == "gemini"
 
 
 # -- Copilot por VS Code -----------------------------------------------------------------------------
@@ -209,22 +212,6 @@ def fake_vscode_bridge(tmp_path, monkeypatch):
     srv.server_close()
 
 
-def test_copilot_vscode_provider(fake_vscode_bridge, monkeypatch):
-    from eolfi.generador.llm import make_provider, probe
-
-    assert probe("copilot-vscode")["available"] is True
-    p = make_provider("copilot-vscode")
-    r = p.complete("Eres útil.", [{"role": "user", "content": "Haz X"}], {"type": "object"}, "high")
-    assert r.data["summary"] == "hecho" and p.model == "GPT X"
-    path, body, auth = fake_vscode_bridge[-1]
-    assert path == "/v1/chat" and auth == "Bearer " + "v" * 64
-    assert body["workspace_tools"] == "read" and body["messages"][0]["role"] == "system"
-    monkeypatch.setenv("EOLFI_COPILOT_WORKSPACE", "off")
-    p2 = make_provider("copilot-vscode")
-    p2.complete("s", [{"role": "user", "content": "x"}], {"type": "object"}, "high")
-    assert "workspace_tools" not in fake_vscode_bridge[-1][1]
-
-
 def test_vscode_action_client(fake_vscode_bridge):
     from eolfi.generador.llm import LLMError
     from eolfi.vscode_tools import vscode_action
@@ -245,31 +232,6 @@ def test_vscode_bridge_file_must_be_loopback(tmp_path, monkeypatch):
     monkeypatch.setenv("EOLFI_VSCODE_BRIDGE_FILE", str(f))
     with pytest.raises(LLMError):
         read_vscode_bridge()
-
-
-def test_copilot_auto_mode_journals_and_rollback(fake_vscode_bridge, monkeypatch):
-    """Modo «auto»: escribe sin preguntar archivo por archivo, guarda los diarios y deshace si no queda en verde."""
-    import json as _j
-
-    from eolfi.generador import llm
-
-    monkeypatch.setenv("EOLFI_COPILOT_WORKSPACE", "auto")
-    p = llm.make_provider("copilot-vscode")
-    assert p.workspace_tools is True and p.auto_approve is True
-
-    real_post = llm._post
-
-    def fake_post(url, body, headers, timeout, retries=llm.RETRIES, sleep=None):
-        r = real_post(url, body, headers, timeout, retries=retries, sleep=sleep)
-        if url.endswith("/v1/chat"):
-            r = {**r, "journal": "J9", "written": 2}
-        return r
-    monkeypatch.setattr(llm, "_post", fake_post)
-    p.complete("s", [{"role": "user", "content": "x"}], {"type": "object"}, "high")
-    assert fake_vscode_bridge[-1][1]["auto_approve"] is True and p.journals == ["J9"]
-    p.rollback()
-    assert fake_vscode_bridge[-1][0] == "/v1/workspace/undo" and fake_vscode_bridge[-1][1] == {"journal": "J9"}
-    assert p.journals == []
 
 
 def test_assist_rolls_back_provider_when_not_green(tmp_path):
