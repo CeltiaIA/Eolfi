@@ -247,7 +247,8 @@ def _run_python(code: str) -> tuple[str, bool]:
     from eolfi import eolas_v2
 
     run = eolas_v2._run_code_case(code, "")
-    return run["output"].replace("EOLFI-OK", "").strip() or "(sin salida)", bool(run.get("executed"))
+    # «Se ejecutó» no es «funcionó»: un código que acaba en error se muestra como «con error» (13/11/2026).
+    return run["output"].replace("EOLFI-OK", "").strip() or "(sin salida)", bool(run.get("passed"))
 
 
 def safe_tool_calls(tool_calls: list[dict[str, Any]], turn: int) -> list[dict[str, Any]]:

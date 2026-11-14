@@ -1183,3 +1183,64 @@ def test_repesca_conserva_lo_aprobado_y_repite_lo_fallado(tmp_path, monkeypatch)
     assert [r["case"] for r in kept] == [first]                     # lo aprobado no se repite
     assert len(asked) == 2                                           # solo las dos falladas
     assert again["summary"]["gemma_q4"]["codigo_primera_pct"] == 100
+
+
+def test_ronda_guarda_tokens_y_el_texto_de_las_respuestas_truncadas(tmp_path, monkeypatch):
+    """13/11/2026: los tokens iban a None y una respuesta cortada se perdía (no se sabía si el motor divagaba)."""
+    from eolfi import eolas_v2, mcp_server
+
+    cfg_path = tmp_path / "eolas.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(cfg_path))
+    cfg_path.write_text(json.dumps(_config(tmp_path, active="gemma_q4")), encoding="utf-8")
+    monkeypatch.setattr(eolas_v2, "sandbox_ready", lambda: (True, ""))
+    monkeypatch.setattr(eolas_v2, "_start_locked", lambda *a, **k: {"started": True})
+    monkeypatch.setattr(eolas_v2, "_stop_locked", lambda *a, **k: False)
+
+    class FakeMCP:
+        def __init__(self, *a, **k):
+            self.tools = {}
+
+    monkeypatch.setattr(mcp_server, "EolfiMCP", FakeMCP)
+    monkeypatch.setattr(eolas_v2, "CODE_EVALUATION_CASES", eolas_v2.CODE_EVALUATION_CASES[:2])
+    monkeypatch.setattr(eolas_v2, "CODE_VALIDATION_CASES", ())
+    monkeypatch.setattr(eolas_v2, "CODE_UNSEEN_CASES", ())
+    monkeypatch.setattr(eolas_v2, "TOOL_EVALUATION_CASES", ())
+    second = eolas_v2.CODE_EVALUATION_CASES[1]["prompt"]
+
+    def request(c, msgs, max_tokens=160, *, allow_truncation=False):
+        usage = {"prompt_tokens": 10, "completion_tokens": 5}
+        if max_tokens == 700 and second in msgs[-1]["content"]:
+            raise eolas_v2.TruncatedAnswer("def f():\n    while True:  # divaga", {"prompt_tokens": 20, "completion_tokens": 700})
+        return {"content": "```python\nx = 1\n```", "usage": usage, "finish": "stop"}
+
+    monkeypatch.setattr(eolas_v2, "_evaluation_request", request)
+    monkeypatch.setattr(eolas_v2, "_run_code_case", lambda *a, **k: {"passed": True, "executed": True, "output": "EOLFI-OK"})
+    report = eolas_v2.run_full_evaluation(profiles=["gemma_q4"], battery="completa")
+    lines = [json.loads(l) for l in Path(report["examenes"]).read_text(encoding="utf-8").splitlines()]
+    ok, cut = lines[0], lines[1]
+    assert ok["respuesta"]["tokens"] == {"entrada": 20, "salida": 10} and ok["respuesta"]["truncada"] is False
+    assert cut["respuesta"]["truncada"] is True and "divaga" in cut["respuesta"]["texto"]
+    assert cut["respuesta"]["tokens"] == {"entrada": 30, "salida": 705}            # análisis + la respuesta cortada
+    assert cut["correccion"]["aprobado"] is False and "truncó" in cut["correccion"]["error"]
+
+
+def test_ejecutar_python_que_termina_en_error_es_llamada_erronea(monkeypatch):
+    """13/11/2026: se contaba como «correcta» por haberse ejecutado, aunque acabara en error (ruta de Windows en el
+    contenedor), y no sumaba al límite de llamadas erróneas."""
+    from eolfi import eolas_v2
+
+    class FakeMCP:
+        tools = {}
+
+    replies = iter([
+        {"tool_calls": [{"id": "x", "function": {"name": "ejecutar_python", "arguments": json.dumps({"codigo": "open('C:/x')"})}}]},
+        {"tool_calls": [{"id": "y", "function": {"name": "ejecutar_python", "arguments": json.dumps({"codigo": "print(1)"})}}]},
+        {"content": '{"resultado": 1}'},
+    ])
+    monkeypatch.setattr(eolas_v2, "_chat_tools", lambda *a, **k: next(replies))
+    runs = iter([{"passed": False, "executed": True, "output": "FileNotFoundError"},
+                 {"passed": True, "executed": True, "output": "1\nEOLFI-OK abc"}])
+    monkeypatch.setattr(eolas_v2, "_run_code_case", lambda *a, **k: next(runs))
+    final, calls = eolas_v2._tool_session({"alias": "m", "url": "http://127.0.0.1:1"}, "calcula", FakeMCP(), lambda m: None, "m")
+    assert final == '{"resultado": 1}'
+    assert [c["ok"] for c in calls] == [False, True]

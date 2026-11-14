@@ -1034,6 +1034,16 @@ def available_evaluation_profiles(cfg: dict[str, Any] | None = None) -> list[str
     return available
 
 
+class TruncatedAnswer(RuntimeError):
+    """Respuesta cortada por el límite de salida. Lleva el texto parcial para poder revisarlo (13/11/2026: antes se
+    perdía y no había forma de saber si el motor divagaba o el límite era corto)."""
+
+    def __init__(self, partial: str, usage: dict[str, Any] | None = None):
+        super().__init__("La evaluación se truncó por límite de salida; no se puntúa como respuesta válida")
+        self.partial = partial
+        self.usage = usage or {}
+
+
 def _evaluation_request(c: dict[str, Any], messages: list[dict[str, str]], max_tokens: int = 160,
                         *, allow_truncation: bool = False) -> dict[str, Any]:
     payload = {"model": str(c["alias"]), "temperature": 0, "max_tokens": max_tokens,
@@ -1049,7 +1059,7 @@ def _evaluation_request(c: dict[str, Any], messages: list[dict[str, str]], max_t
     result = {"content": str((choice.get("message") or {}).get("content") or "").strip(),
               "usage": data.get("usage") or {}, "finish": str(choice.get("finish_reason") or "")}
     if result["finish"] == "length" and not allow_truncation:
-        raise RuntimeError("La evaluación se truncó por límite de salida; no se puntúa como respuesta válida")
+        raise TruncatedAnswer(result["content"], result["usage"])
     return result
 
 
@@ -1478,7 +1488,9 @@ def _tool_session(c: dict[str, Any], prompt: str, mcp: Any, announce: Callable[[
                 if run.get("sandbox_error"):
                     raise SandboxUnavailable(run["output"])
                 out = run["output"].replace("EOLFI-OK", "").strip() or "(sin salida)"
-                ok = run.get("executed", False)
+                # 13/11/2026: «se ejecutó» no es «funcionó». Un código que acaba en error (p. ej. abrir una ruta de
+                # Windows dentro del contenedor) cuenta como llamada errónea y suma al límite de MAX_TOOL_ERRORS.
+                ok = bool(run.get("passed"))
             elif tname in ROUND_MCP_TOOLS:
                 res = mcp.call_tool(tname, args)
                 out = "\n".join(str(x.get("text") or "") for x in res.get("content") or [])
@@ -1635,7 +1647,8 @@ def _exam_record(round_id: str, row: dict[str, Any], case: dict[str, Any], c: di
               "procedencia": {"ronda": round_id, "fecha": datetime.now(timezone.utc).isoformat(),
                               "maquina": platform.node(), "eolfi": __version__},
               "examen": exam, "motor": motor,
-              "respuesta": {"texto": answer, "segundos": row.get("seconds"), "tokens": None,
+              "respuesta": {"texto": answer, "segundos": row.get("seconds"), "tokens": row.get("tokens") or None,
+                            "truncada": bool(row.get("truncado")),
                             "llamadas_herramientas": row.get("tool_calls")},
               "correccion": {"aprobado": bool(row.get("passed")), "a_la_primera": bool(row.get("first_try")),
                              "corregido_tras_error": bool(row.get("repaired")),
@@ -1851,14 +1864,23 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                                 save_contribution(name, c["alias"], case, _code_from_answer(final), True)
                         else:
                             lessons = active_lessons(name) if use_lessons else []
-                            analysis = _evaluation_request(c, [{"role": "system", "content": CODE_ANALYSIS_PROTOCOL},
+                            spent = {"entrada": 0, "salida": 0}
+
+                            def count(reply: dict[str, Any]) -> dict[str, Any]:
+                                usage = reply.get("usage") or {}
+                                spent["entrada"] += int(usage.get("prompt_tokens") or 0)
+                                spent["salida"] += int(usage.get("completion_tokens") or 0)
+                                row["tokens"] = dict(spent)
+                                return reply
+
+                            analysis = count(_evaluation_request(c, [{"role": "system", "content": CODE_ANALYSIS_PROTOCOL},
                                                                {"role": "user", "content": case["prompt"]}],
-                                                           max_tokens=384, allow_truncation=True)
+                                                           max_tokens=384, allow_truncation=True))
                             rules = CODE_WRITING_RULES + ("\n\nLecciones de tus errores anteriores (no los repitas):\n- "
                                                           + "\n- ".join(lessons) if lessons else "")
-                            answer = _evaluation_request(c, [{"role": "system", "content": rules},
+                            answer = count(_evaluation_request(c, [{"role": "system", "content": rules},
                                 {"role": "user", "content": f"Pregunta:\n{case['prompt']}\n\nAnálisis previo:\n{analysis['content']}\n\nRespuesta final:"}],
-                                max_tokens=700)
+                                max_tokens=700))
                             final = answer["content"].strip()
                             execution = _run_code_case(_code_from_answer(final), case["tests"])
                             if execution.get("sandbox_error"):
@@ -1871,12 +1893,12 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                                 if kind == "codigo":
                                     failures.append(execution["output"])
                                 row["first_output"] = execution["output"]
-                                fix = _evaluation_request(c, [
+                                fix = count(_evaluation_request(c, [
                                     {"role": "system", "content": "Corrige el código. Devuelve SOLO el código Python completo y "
                                                                   "ejecutable en un bloque ```python```, sin explicaciones."},
                                     {"role": "user", "content": f"Tarea:\n{case['prompt']}\n\nTu código:\n```python\n"
                                      f"{_code_from_answer(final)}\n```\n\nAl ejecutarlo con las pruebas falló así:\n"
-                                     f"{execution['output'][-1200:]}\n\nCorrige el código."}], max_tokens=700)
+                                     f"{execution['output'][-1200:]}\n\nCorrige el código."}], max_tokens=700))
                                 final = fix["content"].strip()
                                 execution = _run_code_case(_code_from_answer(final), case["tests"])
                                 if execution.get("sandbox_error"):
@@ -1898,6 +1920,13 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                         raise RuntimeError(f"La ronda se detuvo: el contenedor dejó de estar disponible. {exc}") from exc
                     except Exception as exc:
                         row.update(passed=False, first_try=False, error=str(exc), seconds=round(time.monotonic() - started, 2))
+                        if isinstance(exc, TruncatedAnswer):
+                            # El texto cortado se conserva para revisar si el motor divagaba o el límite era corto.
+                            usage = exc.usage or {}
+                            spent = row.get("tokens") or {"entrada": 0, "salida": 0}
+                            row.update(answer=exc.partial, truncado=True, tokens={
+                                "entrada": int(spent.get("entrada", 0)) + int(usage.get("prompt_tokens") or 0),
+                                "salida": int(spent.get("salida", 0)) + int(usage.get("completion_tokens") or 0)})
                         tally[kind]["casos"] += 1
                         announce(f"{name}: error en la tarea — {exc}")
                     rows.append(row)
