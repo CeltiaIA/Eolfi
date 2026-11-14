@@ -300,7 +300,7 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
     for sp in (cr,):
-        sp.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
+        sp.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "nemo-moe", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
         sp.add_argument("--model", default=None, help="Modelo del proveedor (por defecto, el de su preajuste)")
         sp.add_argument("--base-url", default=None, help="URL del servidor (p. ej. Eolas en otro puerto)")
 
@@ -308,7 +308,7 @@ def _parser() -> argparse.ArgumentParser:
     asg.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
     asg.add_argument("--brief", required=True, help="Qué quieres que implemente")
     asg.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
-    asg.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
+    asg.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "nemo-moe", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
     asg.add_argument("--model", default=None)
     asg.add_argument("--base-url", default=None)
 
@@ -355,14 +355,22 @@ def _parser() -> argparse.ArgumentParser:
     eos = eo.add_subparsers(dest="eolas_action", required=True)
     eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
     eos_start = eos.add_parser("start", help="Arranca el perfil activo (o el indicado)")
-    eos_start.add_argument("--profile", choices=["gemma", "mistral", "moe"], default=None)
+    eos_start.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], default=None)
     eos_switch = eos.add_parser("switch", help="Detiene el perfil activo y arranca el otro")
-    eos_switch.add_argument("profile", choices=["gemma", "mistral", "moe"])
+    eos_switch.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
     eos.add_parser("stop", help="Detiene solo el llama-server que inició Eolas")
+    eos_review = eos.add_parser("revisar", help="Revisa la cabecera del GGUF de un perfil (o una ruta) con REA")
+    eos_review.add_argument("objetivo", help="perfil Eolas V2 o ruta a un .gguf/.safetensors")
+    eos_retire = eos.add_parser("retire", help="Retira un perfil que no aprueba (conserva su GGUF)")
+    eos_retire.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_uninstall = eos.add_parser("uninstall", help="Desinstala un motor: retira el perfil y borra su GGUF y sus lecciones")
+    eos_uninstall.add_argument("profile")
+    eos_restore = eos.add_parser("restore", help="Vuelve a ofrecer un perfil retirado")
+    eos_restore.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
     eos_consent = eos.add_parser("feedback-consent", help="Activa o desactiva el almacenamiento local de feedback")
     eos_consent.add_argument("state", choices=["on", "off"])
     eos_feedback = eos.add_parser("feedback-add", help="Guarda una valoración explícita localmente")
-    eos_feedback.add_argument("--profile", choices=["gemma", "mistral", "moe"], required=True)
+    eos_feedback.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], required=True)
     eos_feedback.add_argument("--task", required=True, help="Dominio/tarea, p. ej. 'python' o 'resumen'")
     eos_feedback.add_argument("--rating", type=int, choices=range(1, 6), required=True)
     eos_feedback.add_argument("--prompt", default=None)
@@ -409,6 +417,31 @@ def _parser() -> argparse.ArgumentParser:
     co.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
                     help="Carpeta de la biblioteca (EOLFI_LIBRARY, o Alejandria en la carpeta personal o en D:)")
     co.add_argument("--dry-run", action="store_true", help="Muestra qué se importaría sin copiar nada")
+
+    # REA a través de Eolfi (plan PLAN_REA.md): mismas herramientas compuestas que usa el chat de Eolas V2.
+    rp = sub.add_parser("rea", help="Ingeniería inversa con REA a través de Eolfi (estático: nunca ejecuta el objetivo)")
+    rp.add_argument("--caso", default=None, help="Registra el resultado en este caso (artefacto, evidencia e incógnitas)")
+    rps = rp.add_subparsers(dest="rea_action", required=True)
+    r1 = rps.add_parser("revisar-modelo", help="Cabecera de un GGUF/safetensors y si la cuantización coincide")
+    r1.add_argument("ruta")
+    r2 = rps.add_parser("explicar", help="Explica un ejecutable: importaciones, cadenas y funciones clave (Ghidra)")
+    r2.add_argument("ruta")
+    r2.add_argument("--funciones", type=int, default=5)
+    r3 = rps.add_parser("reimplementar", help="Pseudocódigo, firma y llamadas de una función para reimplementarla")
+    r3.add_argument("ruta")
+    r3.add_argument("funcion", help="nombre o dirección (p. ej. entry o 0x140001010)")
+    r5 = rps.add_parser("inventario", help="Librerías, firmas, recursos y dependencias Go/Rust de un binario")
+    r5.add_argument("ruta")
+    r6 = rps.add_parser("app-js", help="Analiza una app JavaScript, Electron o web (carpeta o .asar) sin ejecutarla")
+    r6.add_argument("ruta")
+    r7 = rps.add_parser("recuperar-js", help="Reconstruye fuentes legibles de un JavaScript minificado (Wakaru en WSL2)")
+    r7.add_argument("ruta")
+    r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
+    r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
+    r8.add_argument("ruta")
+    r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
+    r4.add_argument("original")
+    r4.add_argument("nueva")
 
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
@@ -1376,6 +1409,21 @@ def main(argv: list[str] | None = None) -> int:
                 _print(eolas_v2.switch(args.profile))
             elif args.eolas_action == "stop":
                 _print(eolas_v2.stop())
+            elif args.eolas_action == "revisar":
+                from eolfi import rea_client, rea_compuestas
+                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.DEFAULT_PROFILES
+                          else args.objetivo)
+                client = rea_client.ReaClient()
+                try:
+                    _print(rea_compuestas.revisar_modelo(client, target))
+                finally:
+                    client.close()
+            elif args.eolas_action == "retire":
+                _print({"retirados": eolas_v2.retire_profile(args.profile)})
+            elif args.eolas_action == "uninstall":
+                _print(eolas_v2.uninstall_profile(args.profile))
+            elif args.eolas_action == "restore":
+                _print({"retirados": eolas_v2.restore_profile(args.profile)})
             elif args.eolas_action == "feedback-consent":
                 _print(eolas_v2.set_feedback_consent(args.state == "on"))
             elif args.eolas_action == "feedback-add":
@@ -1454,6 +1502,52 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi.corpus import run_corpus
 
         return run_corpus(args.library, dry_run=args.dry_run)
+    if args.cmd == "rea":
+        from eolfi import rea_client, rea_compuestas as rc
+
+        cmd = rea_client.wsl_rea_command() if args.rea_action == "recuperar-js" else None
+        if args.rea_action == "recuperar-js" and not cmd:
+            print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
+            return 2
+        client = rea_client.ReaClient(cmd, timeout=900)
+        try:
+            if args.rea_action == "recuperar-js":
+                op, params = "recuperar_fuentes_js", {"ruta": args.ruta, "destino": args.destino}
+                result = rc.recuperar_fuentes_js(client, args.ruta, args.destino)
+            elif args.rea_action == "api":
+                from eolfi.server import EolfiApp
+
+                op, params = "api_desde_captura", {"ruta": args.ruta}
+                result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "revisar-modelo":
+                op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
+            elif args.rea_action == "explicar":
+                op, params = "explicar_binario", {"ruta": args.ruta, "funciones": args.funciones}
+                result = rc.explicar_binario(client, args.ruta, args.funciones)
+            elif args.rea_action == "inventario":
+                op, params, result = "inventario_dependencias", {"ruta": args.ruta}, rc.inventario_dependencias(client, args.ruta)
+            elif args.rea_action == "app-js":
+                op, params, result = "analizar_app_js", {"ruta": args.ruta}, rc.analizar_app_js(client, args.ruta)
+            elif args.rea_action == "reimplementar":
+                op, params = "reimplementar_funcion", {"ruta": args.ruta, "funcion": args.funcion}
+                result = rc.reimplementar_funcion(client, args.ruta, args.funcion)
+            else:
+                op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
+                result = rc.comparar_versiones(client, args.original, args.nueva)
+        finally:
+            client.close()
+        if args.caso:   # plan REA, punto 6: lo analizado queda en el caso
+            # Alias: un «import EvidenceStore» aquí lo haría local a TODA la función y rompería las demás órdenes.
+            from eolfi import rea_caso
+            from eolfi.core.evidence import EvidenceStore as _EvidenceStore
+
+            store = _EvidenceStore(args.db)
+            try:
+                result["caso"] = rea_caso.registrar(store, args.caso, op, params, result)
+            finally:
+                store.close()
+        _print(result)
+        return 0
     if args.cmd == "mcp":
         from eolfi import mcp_server
 

@@ -26,7 +26,7 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from eolfi import __version__
@@ -37,7 +37,7 @@ WEB_DIR = Path(__file__).with_name("web")
 MAX_UPLOAD = 256 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
 _STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
-           "/projects.js": "projects.js",
+           "/projects.js": "projects.js", "/eolas-chat.js": "eolas-chat.js",
            "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/style.css": "style.css",
            "/favicon.svg": "favicon.svg",
            "/favicon.ico": "favicon.svg"}
@@ -77,6 +77,19 @@ def _decode_rows(rows: list[dict[str, Any]], fields: tuple[str, ...]) -> list[di
     return rows
 
 
+class _WslPaths:
+    """Traduce las rutas de Windows de los argumentos a /mnt/… para el REA de WSL."""
+
+    def __init__(self, client: Any):
+        self.client = client
+
+    def call(self, name: str, args: dict[str, Any], limit: Any = None) -> tuple[str, bool]:
+        from eolfi.rea_client import wsl_path
+
+        args = {k: (wsl_path(v) if k == "path" and isinstance(v, str) else v) for k, v in args.items()}
+        return self.client.call(name, args, limit=limit)
+
+
 class EolfiApp:
     """Lógica de la API, separada del transporte HTTP (fácil de probar)."""
 
@@ -97,6 +110,7 @@ class EolfiApp:
         # Actividad del agente: conserva progreso redactado sin prompts ni respuestas.
         self._vscode_activity_lock = threading.Lock()
         self._tl = threading.local()
+        self._mark_interrupted()
         # Como mucho MAX_RUNNING trabajos a la vez; el resto espera «en cola» (PLAN_MEJORAS M2).
         self._slots = threading.BoundedSemaphore(self.MAX_RUNNING)
         self._providers_cache: tuple[float, dict[str, Any]] | None = None
@@ -113,7 +127,7 @@ class EolfiApp:
     # -- trabajos en segundo plano (análisis largos, crear y verificar) ---------------
     # POST /api/jobs {"kind": "create"|"web"|"repo"|"triage", "body": {...}} -> {"job_id"}
     # GET  /api/jobs?id=…&since=N -> {"status": running|done|error, "log": [...], "next": N, "result"|"error"}
-    JOB_KINDS = ("create", "web", "repo", "triage", "project")
+    JOB_KINDS = ("create", "web", "repo", "triage", "project", "eolas-e2e", "chat")
     MAX_JOBS = 50
     MAX_RUNNING = 3
 
@@ -127,6 +141,11 @@ class EolfiApp:
 
                 job["log"].append({"t": round(time.time() - job["started"], 1), "msg": redact(str(message)[:500])[0]})
                 del job["log"][:-2000]
+                snapshot = time.time() - job.get("_saved", 0) > 60
+                if snapshot:
+                    job["_saved"] = time.time()
+            if snapshot:   # el registro se guarda como mucho cada minuto, fuera del cerrojo
+                self._save_job(job)
 
     def start_job(self, body: dict[str, Any]) -> dict[str, Any]:
         import secrets
@@ -135,10 +154,13 @@ class EolfiApp:
         if kind not in self.JOB_KINDS or not isinstance(payload, dict):
             raise ApiError(400, f"kind debe ser uno de {', '.join(self.JOB_KINDS)} y body un objeto")
         fn = {"create": self.create, "web": lambda b: self.learn("web", b), "project": self.project_run,
-              "repo": lambda b: self.learn("repo", b), "triage": self.triage_path}[kind]
+              "repo": lambda b: self.learn("repo", b), "triage": self.triage_path,
+              "eolas-e2e": self.eolas_e2e, "chat": self.chat}[kind]
         job = {"id": secrets.token_hex(8), "kind": kind, "status": "queued", "log": [], "started": time.time(),
                "label": str(payload.get("name") or payload.get("source") or payload.get("path")
-                            or ", ".join(map(str, payload.get("sources") or [])))[:160],
+                            or ", ".join(map(str, payload.get("sources") or []))
+                            or (f"Banco · {payload.get('battery') or ('json' if payload.get('suite') else 'pregunta')} · "
+                                f"{', '.join(map(str, payload.get('profiles') or []))}" if kind == "eolas-e2e" else ""))[:160],
                "body": payload, **({"case_id": cid} if (cid := self._case_id(payload)) else {})}
 
         def run() -> None:
@@ -151,10 +173,22 @@ class EolfiApp:
                     if not job["log"]:
                         self._progress(f"en cola: ya hay {self.MAX_RUNNING} trabajos en marcha")
                 job["status"] = "running"
+                job["_saved"] = time.time()
+                self._save_job(job)
                 job["result"] = fn(payload)
                 if isinstance(job["result"], dict) and isinstance(job["result"].get("subject"), str):
                     job["subject"] = job["result"]["subject"]
                 final: dict[str, Any] = {"status": "done"}
+                result = job["result"]
+                if kind == "create" and isinstance(result, dict):
+                    assistance = result.get("assist") or {}
+                    verification = result.get("verification") or {}
+                    if assistance.get("ok") is False:
+                        final = {"status": "error", "code": 422,
+                                 "error": "Creación fallida: la IA no superó las pruebas; archivos originales restaurados"}
+                    elif verification.get("ok") is False:
+                        final = {"status": "error", "code": 422,
+                                 "error": "Creación fallida: la verificación del proyecto no se superó"}
             except JobCancelled:
                 final = {"status": "cancelled", "error": "Cancelado por el usuario", "code": 499}
             except ApiError as exc:
@@ -179,6 +213,23 @@ class EolfiApp:
         threading.Thread(target=run, name=f"job-{kind}", daemon=True).start()
         return {"job_id": job["id"], "kind": kind}
 
+    def eolas_e2e(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Banco local de motores: progreso visible y un único llama-server."""
+        from eolfi import eolas_v2
+
+        raw_profiles = body.get("profiles")
+        profiles = [str(p) for p in raw_profiles] if isinstance(raw_profiles, list) else None
+        if body.get("suite") is True:
+            battery = body.get("battery") if body.get("battery") in ("codigo", "codigo_nuevo", "completa") else "json"
+            return eolas_v2.run_full_evaluation(profiles=profiles, progress=self._progress, battery=battery,
+                                                use_lessons=body.get("lessons", True) is not False,
+                                                learn=battery == "codigo", retire_failed=body.get("retire_failed") is True,
+                                                repesca=(str(eolas_v2.exams_dir() / Path(str(body["repesca"])).name)
+                                                         if body.get("repesca") else None))
+        return eolas_v2.run_fair_evaluation(prompt=str(body.get("prompt") or ""),
+                                             expected=str(body.get("expected") or ""), profiles=profiles,
+                                             progress=self._progress)
+
     # -- historial persistente (pestaña «Trabajos») ------------------------------
     _JOB_FIELDS = ("id", "kind", "status", "label", "started", "finished", "error", "subject")
     MAX_STORED_RESULT = 4_000_000
@@ -191,14 +242,44 @@ class EolfiApp:
         # Resultado y registro del trabajo terminado: antes se perdían si el servidor se reiniciaba (12/11/2026,
         # una batería de una hora quedó sin resultados tras un --reload).
         s.conn.execute("CREATE TABLE IF NOT EXISTS job_results (id TEXT PRIMARY KEY, result TEXT, log TEXT)")
+        # Trabajos en marcha y el proceso que los ejecuta: si ese proceso ya no existe, el trabajo se cortó.
+        s.conn.execute("CREATE TABLE IF NOT EXISTS job_live (id TEXT PRIMARY KEY, pid INTEGER)")
         return s
 
-    def _save_job(self, job: dict[str, Any]) -> None:
-        """Al terminar, cada trabajo queda en eolfi.db (sobrevive a reinicios y a --reload)."""
+    INTERRUPTED = ("El servidor se reinició o se cerró con el trabajo en marcha; el registro llega hasta el último "
+                   "guardado. Puedes repetirlo.")
+
+    def _mark_interrupted(self) -> None:
+        """12/11/2026: un trabajo cortado por un reinicio desaparecía sin rastro (dos pruebas de horas perdidas).
+        Ahora queda en el historial como «interrumpido», con su registro hasta el último guardado."""
+        from eolfi.eolas_v2 import _pid_alive
+
         try:
             s = self._history()
             try:
                 with s.conn:
+                    for row in s.conn.execute("SELECT id, pid FROM job_live").fetchall():
+                        if _pid_alive(int(row["pid"] or 0)):
+                            continue
+                        s.conn.execute("UPDATE job_history SET status='interrupted', error=?, "
+                                       "finished=COALESCE(finished, ?) WHERE id=?",
+                                       (self.INTERRUPTED, time.time(), row["id"]))
+                        s.conn.execute("DELETE FROM job_live WHERE id=?", (row["id"],))
+            finally:
+                s.close()
+        except Exception:  # noqa: BLE001 — el historial nunca impide arrancar
+            traceback.print_exc()
+
+    def _save_job(self, job: dict[str, Any]) -> None:
+        """Cada trabajo queda en eolfi.db al empezar, cada minuto mientras corre y al terminar (sobrevive a reinicios)."""
+        try:
+            s = self._history()
+            try:
+                with s.conn:
+                    if job["status"] in ("queued", "running"):
+                        s.conn.execute("INSERT OR REPLACE INTO job_live VALUES (?,?)", (job["id"], os.getpid()))
+                    else:
+                        s.conn.execute("DELETE FROM job_live WHERE id=?", (job["id"],))
                     s.conn.execute("INSERT OR REPLACE INTO job_history VALUES (?,?,?,?,?,?,?,?,?)", (
                         job["id"], job["kind"], job["status"], job.get("label"), job["started"], job.get("finished"),
                         (job.get("error") or "")[:2000] or None, job.get("subject"),
@@ -296,6 +377,267 @@ class EolfiApp:
             conn.execute("CREATE TABLE IF NOT EXISTS vscode_activity "
                          "(run_id TEXT PRIMARY KEY, updated REAL NOT NULL, payload TEXT NOT NULL)")
             yield conn
+
+    def chat_status(self, _q=None) -> dict[str, Any]:
+        """Motor del chat: el perfil activo de Eolas V2 (llama-server de Eolfi)."""
+        from eolfi import chat, eolas_v2
+
+        try:
+            remote = chat.remote_engine()
+        except RuntimeError as exc:
+            return {"available": False, "detail": str(exc), "busy": None}
+        if remote:
+            return {"available": True, "detail": remote["label"], "model": remote["alias"], "remote": True,
+                    "loaded": True, "busy": None}
+        try:
+            st = eolas_v2.status()
+        except Exception as exc:  # noqa: BLE001 — configuración ausente o inválida
+            return {"available": False, "detail": f"Eolas V2 no está configurado: {exc}", "busy": self._gpu_busy()}
+        available = Path(str(st["model"])).is_file()
+        detail = (f"{st['active_profile']} ({st['alias']}) " + ("cargado" if st["running"] else "se cargará al primer mensaje")
+                  if available else f"falta el GGUF del perfil {st['active_profile']}")
+        names = [n for n in eolas_v2.available_evaluation_profiles() if n != eolas_v2.NEMO_MOE_PROFILE]
+        return {"available": available, "detail": detail, "profile": st["active_profile"], "model": st["alias"],
+                "loaded": bool(st["running"]), "busy": self._gpu_busy(),
+                "profiles": [{"name": n, "alias": eolas_v2.profile_config(n)["alias"]} for n in names]}
+
+    def chat_set_profile(self, body: dict[str, Any]) -> dict[str, Any]:
+        """El motor elegido en Eolfi pasa a ser el perfil activo de Eolas V2."""
+        from eolfi import eolas_v2
+
+        try:
+            eolas_v2.set_active_profile(str(body.get("profile") or ""))
+        except (ValueError, FileNotFoundError) as exc:
+            raise ApiError(400, str(exc)) from exc
+        return self.chat_status()
+
+    def _gpu_busy(self) -> str | None:
+        """El banco de motores tiene la GPU: el chat no carga otro modelo encima."""
+        for job in list(self.jobs.values()):
+            if job.get("kind") == "eolas-e2e" and job.get("status") in ("queued", "running"):
+                return "El banco de motores está usando la GPU; el chat estará disponible cuando termine."
+        return None
+
+    def chat(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Chat del panel: el modelo de Eolas V2 decide qué herramientas de Eolfi usar y responde con sus resultados."""
+        from eolfi import chat, eolas_v2
+        from eolfi.mcp_server import EolfiMCP
+
+        try:
+            messages = chat.validate_messages(body.get("messages"))
+        except ValueError as exc:
+            raise ApiError(400, str(exc)) from exc
+        raw = body.get("attachments") or []
+        if not isinstance(raw, list) or len(raw) > chat.MAX_ATTACHMENTS:
+            raise ApiError(400, f"attachments: hasta {chat.MAX_ATTACHMENTS} archivos")
+        attachments = []
+        for att in raw:
+            up = att.get("upload") if isinstance(att, dict) else None
+            if not isinstance(up, str) or not re.fullmatch(r"[0-9a-f]{64}", up):
+                raise ApiError(400, "adjunto inválido")
+            path = self.samples / f"{up}.bin"
+            if not path.is_file():
+                raise ApiError(404, "adjunto no encontrado: vuelve a adjuntarlo")
+            attachments.append({"name": str(att.get("name") or "adjunto")[:200], "path": str(path),
+                                "kind": "binario" if att.get("kind") == "binario" else "archivo"})
+        analyze = body.get("analyze") or None
+        if analyze is not None:
+            kind, target = analyze.get("kind") if isinstance(analyze, dict) else None, str((analyze or {}).get("target") or "").strip()
+            if kind not in chat.ANALYSIS_KINDS or not target:
+                raise ApiError(400, f"analyze.kind debe ser uno de {', '.join(chat.ANALYSIS_KINDS)} con su destino")
+            analyze = {"kind": kind, "target": target}
+        try:
+            remote = chat.remote_engine()
+        except RuntimeError as exc:
+            raise ApiError(503, str(exc)) from exc
+        busy = None if remote else self._gpu_busy()
+        if busy:
+            raise ApiError(409, busy)
+        # Mismas carpetas permitidas que el resto del panel; los adjuntos viven en samples/.
+        roots = [str(r) for r in self.roots] + [str(self.samples)] if self.roots else None
+        rea = self._chat_rea(self._case_id(body))
+        mcp = chat.Toolbox(EolfiMCP(db=self.db, roots=roots), {
+            "eolfi_proponer_proyecto": self._chat_propose_project,
+            "eolfi_objetivos": self._chat_subjects,
+            "eolfi_casos": lambda _a: {"casos": [{k: c.get(k) for k in ("case_id", "name", "status", "updated_at")}
+                                                 for c in self.cases_list({})["cases"][:30]]},
+            **(self._chat_rea_composites(rea, self._case_id(body)) if rea is not None else {}),
+        }, rea=rea)
+        context = chat.with_context(messages, attachments, analyze)
+        try:
+            return self._chat_answer(context, remote, mcp)
+        finally:
+            if rea is not None:
+                rea.client.close()
+
+    def _chat_rea_composites(self, rea: Any, case_id: str | None = None) -> dict[str, Any]:
+        """Herramientas compuestas sobre REA. Con un caso activo, cada resultado queda en él (plan REA, punto 6)."""
+        from eolfi import rea_caso, rea_compuestas as rc
+
+        def ruta(a: dict[str, Any]) -> str:
+            path = str(a.get("ruta") or "").strip()
+            if not path:
+                raise ValueError("falta la ruta")
+            self._check_root(path, "ruta")
+            return path
+
+        def checked_scenario(sc: Any) -> dict[str, Any]:
+            if not isinstance(sc, dict):
+                raise ValueError("escenario inválido")
+            for key in ("ejecutable", "carpeta"):
+                value = str(sc.get(key) or "")
+                if value and (":" in value[:3] or value.startswith(("/", "\\", "."))):
+                    self._check_root(value, "ruta")
+            return sc
+
+        def step(msg: str, fn: Any) -> Any:
+            self._progress(msg)
+            return fn()
+
+        def in_case(operation: str, fn: Any) -> Any:
+            def run(a: dict[str, Any]) -> Any:
+                result = fn(a)
+                if case_id and isinstance(result, dict) and not result.get("autorizacion_pendiente"):
+                    s = self.store()
+                    try:
+                        result["caso"] = rea_caso.registrar(s, case_id, operation, a, result)
+                    finally:
+                        s.close()
+                return result
+            return run
+
+        tools = {
+            "eolfi_revisar_modelo": lambda a: rc.revisar_modelo(rea.client, ruta(a)),
+            "eolfi_explicar_binario": lambda a: step("REA analiza el binario con Ghidra (estático, ~1 min)…",
+                                                     lambda: rc.explicar_binario(rea.client, ruta(a), a.get("funciones") or 5)),
+            "eolfi_reimplementar_funcion": lambda a: step("REA descompila la función…",
+                                                          lambda: rc.reimplementar_funcion(rea.client, ruta(a), str(a.get("funcion") or ""))),
+            "eolfi_inventario_dependencias": lambda a: rc.inventario_dependencias(rea.client, ruta(a)),
+            "eolfi_api_desde_captura": lambda a: step("REA lee la captura de red…",
+                                                      lambda: self._api_from_capture(rea.client, ruta(a))),
+            "eolfi_recuperar_fuentes_js": lambda a: step("REA (WSL2) reconstruye las fuentes con Wakaru…",
+                                                         lambda: self._recover_js(ruta(a), a.get("destino"))),
+            "eolfi_analizar_app_js": lambda a: step("REA analiza la aplicación JavaScript (estático)…",
+                                                    lambda: rc.analizar_app_js(rea.client, ruta(a))),
+            "eolfi_verificar_comportamiento": lambda a: rc.verificar_comportamiento(
+                rea.client, rea.authorizer, checked_scenario(a.get("original")), checked_scenario(a.get("reconstruccion"))),
+            "eolfi_comparar_versiones": lambda a: step("REA compara las dos versiones (estático, ~1-2 min)…",
+                                                       lambda: rc.comparar_versiones(rea.client, ruta({"ruta": a.get("original")}),
+                                                                                     ruta({"ruta": a.get("nueva")}))),
+        }
+        names = {"eolfi_revisar_modelo": "revisar_modelo", "eolfi_explicar_binario": "explicar_binario",
+                 "eolfi_reimplementar_funcion": "reimplementar_funcion", "eolfi_comparar_versiones": "comparar_versiones",
+                 "eolfi_inventario_dependencias": "inventario_dependencias",
+                 "eolfi_verificar_comportamiento": "verificar_comportamiento", "eolfi_analizar_app_js": "analizar_app_js",
+                 "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura"}
+        return {name: in_case(names[name], fn) for name, fn in tools.items()}
+
+    def _api_from_capture(self, client: Any, path: str) -> dict[str, Any]:
+        """Nivel completo si hay tshark en WSL (REA de Linux); si no, el básico con el REA de Windows."""
+        from eolfi import rea_client, rea_compuestas as rc
+
+        cmd = rea_client.wsl_rea_command() if rea_client.wsl_has_tshark() else None
+        if not cmd:
+            return rc.api_desde_captura(client, path)
+        fields = rea_client.ReaClient(cmd, timeout=600)
+        try:
+            return rc.api_desde_captura(client, path, fields_client=_WslPaths(fields))
+        finally:
+            fields.close()
+
+    def _recover_js(self, path: str, destino: Any = None) -> dict[str, Any]:
+        """Recuperar fuentes JavaScript con el REA de WSL2 (Wakaru solo funciona en Linux x64)."""
+        from eolfi import rea_client, rea_compuestas as rc
+
+        cmd = rea_client.wsl_rea_command()
+        if not cmd:
+            raise RuntimeError("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu")
+        if destino:
+            dest = str(destino)
+            self._check_root(dest, "carpeta destino")
+        else:
+            dest = str(self.samples / "recuperado" / f"{Path(path).stem}-{time.strftime('%Y%m%d-%H%M%S')}")
+        client = rea_client.ReaClient(cmd, timeout=600)
+        try:
+            return rc.recuperar_fuentes_js(client, path, dest)
+        finally:
+            client.close()
+
+    def _rea_db(self) -> Any:
+        """Conexión a eolfi.db para las autorizaciones de REA (quien la pide la cierra)."""
+        return self.store().conn
+
+    def _chat_rea(self, case_id: str | None = None) -> Any:
+        """REA para Eolas V2: catálogo completo; lo que ejecuta solo con permiso del titular para el caso activo
+        (plan punto 2); rutas dentro de las carpetas permitidas."""
+        from eolfi import rea_autorizacion, rea_client
+
+        if not rea_client.rea_command():
+            return None
+        try:
+            self._progress("Conectando REA…")
+            return rea_client.ReaTools(rea_client.ReaClient(), check_path=lambda p: self._check_root(p, "ruta"),
+                                       authorizer=rea_autorizacion.Authorizer(self._rea_db, case_id))
+        except Exception as exc:  # noqa: BLE001 — sin REA el chat sigue con las herramientas de Eolfi
+            self._progress(f"REA no disponible: {exc}")
+            return None
+
+    # -- autorizaciones de REA: SOLO el titular, desde el panel ------------------------------------------------
+    def rea_authorizations(self, q: dict[str, str]) -> dict[str, Any]:
+        from eolfi import rea_autorizacion
+
+        return rea_autorizacion.overview(self._rea_db, q.get("caso") or None)
+
+    def rea_decide(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        from eolfi import rea_autorizacion
+
+        try:
+            return rea_autorizacion.decide(self._rea_db, request_id, str(body.get("decision") or ""))
+        except KeyError as exc:
+            raise ApiError(404, str(exc).strip("'")) from exc
+        except ValueError as exc:
+            raise ApiError(400, str(exc)) from exc
+
+    def rea_revoke(self, grant_id: str) -> dict[str, Any]:
+        from eolfi import rea_autorizacion
+
+        try:
+            return rea_autorizacion.revoke(self._rea_db, grant_id)
+        except KeyError as exc:
+            raise ApiError(404, str(exc).strip("'")) from exc
+
+    def _chat_answer(self, context: list[dict[str, str]], remote: Any, mcp: Any) -> dict[str, Any]:
+        from eolfi import chat, eolas_v2
+
+        try:
+            if remote:
+                self._progress(f"Consultando {remote['label']}…")
+                return {**chat.agent_turn(context, remote, mcp, self._progress), "model": remote["label"]}
+            profile = str(eolas_v2.load_config()["active_profile"])
+            self._progress(f"Cargando el motor Eolas V2 ({profile})…")
+            with eolas_v2.inference_profile(profile) as c:
+                engine = chat.local_engine(c)
+                self._progress(f"Eolas ({c['alias']}) está pensando…")
+                return {**chat.agent_turn(context, engine, mcp, self._progress), "model": engine["label"]}
+        except RuntimeError as exc:
+            raise ApiError(502, str(exc)) from exc
+
+    def _chat_propose_project(self, a: dict[str, Any]) -> dict[str, Any]:
+        """Herramienta del chat: propone el plan (caso + evaluación). No ejecuta: el usuario lo aprueba en el panel."""
+        fuentes = a.get("fuentes") or []
+        if not isinstance(fuentes, list) or not all(isinstance(x, str) for x in fuentes):
+            raise ValueError("fuentes debe ser una lista de textos")
+        state = self.project_plan({"name": str(a.get("nombre") or "").strip(), "description": str(a.get("descripcion") or ""),
+                                   "sources": fuentes, "mode": "guided" if a.get("modo") == "guiado" else "auto"})
+        return {"case_id": state.get("case_id"), "estado": state.get("status"), "plan": state.get("plan"),
+                "aviso": "El plan NO se ejecuta hasta que el usuario lo revise y lo apruebe en el panel."}
+
+    def _chat_subjects(self, a: dict[str, Any]) -> dict[str, Any]:
+        wanted = str(a.get("buscar") or "").casefold()
+        rows = [r for r in self.subjects({})["subjects"]
+                if not wanted or wanted in " ".join([*(r.get("names") or []), str(r.get("format") or ""), r["subject"]]).casefold()]
+        return {"objetivos": [{k: r.get(k) for k in ("subject", "names", "kind", "format", "evidence", "open_incognitas")}
+                              for r in rows[:30]], "total": len(rows)}
 
     def local_chat_workspace(self, _q=None):
         from eolfi.vscode_tools import vscode_action
@@ -459,11 +801,17 @@ class EolfiApp:
             ia_rows = list(pool.map(ia, PRESETS))
             local_rows = list(pool.map(local, ALL_PROVIDERS))
         out = {"providers": ia_rows + local_rows}
-        # `eolfi up` fija la IA de arranque (Eolas); el panel la aplica una vez por arranque y luego respeta
-        # lo que elija el usuario.
-        if os.environ.get("EOLFI_DEFAULT_AI"):
-            out["default_ai"] = os.environ["EOLFI_DEFAULT_AI"]
-            out["boot"] = os.environ.get("EOLFI_BOOT_ID", "")
+        # El motor V1 de CeltIA vive en 11435 y puede no estar instalado. Si no
+        # se ha pedido expresamente otro, el panel prefiere Eolas V2, que gestiona
+        # un único llama-server y el perfil local activo (Gemma Q4 por defecto).
+        selected_ai = os.environ.get("EOLFI_DEFAULT_AI")
+        if not selected_ai and any(row["name"] == "ia:eolas-v2" and row["available"] for row in ia_rows):
+            selected_ai = "eolas-v2"
+        # La elección se aplica una vez por versión de arranque; después el panel
+        # respeta el selector que el usuario haya guardado en este navegador.
+        if selected_ai:
+            out["default_ai"] = selected_ai
+            out["boot"] = os.environ.get("EOLFI_BOOT_ID", "eolas-v2-q4")
         self._providers_cache = (time.time(), out)
         return out
 
@@ -1412,7 +1760,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/subjects": app.subjects, "/api/evidence": app.evidence,
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
                         "/api/vscode/activity": app.vscode_activity,
-                        "/api/local-chat/workspace": app.local_chat_workspace,
+                        "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
+                        "/api/rea/autorizaciones": app.rea_authorizations,
+                        "/api/eolas/perfiles": lambda _q: {"perfiles": __import__("eolfi.eolas_v2", fromlist=["x"]).available_evaluation_profiles()},
+                        "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
                     if path in routes:
                         return self._json(200, routes[path](q))
@@ -1470,6 +1821,13 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         return self._json(200, app.learn(path.rsplit("/", 1)[1], self._obj()))
                     if path == "/api/jobs":
                         return self._json(202, app.start_job(self._obj()))
+                    if path == "/api/eolas/lecciones":
+                        from eolfi import eolas_v2 as _ev2
+
+                        body = self._obj()
+                        return self._json(200, _ev2.set_lesson_active(str(body.get("profile") or ""),
+                                                                      str(body.get("categoria") or ""),
+                                                                      bool(body.get("activa"))))
                     if path == "/api/create":
                         return self._json(200, app.create(self._obj()))
                     if path == "/api/bridge/input":
@@ -1496,6 +1854,14 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     if m and _CASE_ID.fullmatch(m.group(1)):
                         fn = app.case_associate if m.group(2) == "artifacts" else app.case_record
                         return self._json(200, fn(m.group(1), self._obj()))
+                    m = re.fullmatch(r"/api/rea/autorizaciones/(aut_[0-9a-f]{16})", path)
+                    if m:
+                        return self._json(200, app.rea_decide(m.group(1), self._obj()))
+                    m = re.fullmatch(r"/api/rea/permisos/(perm_[0-9a-f]{16})/revocar", path)
+                    if m:
+                        return self._json(200, app.rea_revoke(m.group(1)))
+                    if path == "/api/chat/motor":
+                        return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":
                         return self._json(201, app.project_plan(self._obj()))
                     if path == "/api/projects/upload":
@@ -1637,16 +2003,34 @@ def _snapshot(root: Path) -> dict[str, float]:
     return out
 
 
-def _active_jobs(port: int) -> int:
-    """Trabajos en marcha o en cola en el servidor hijo (0 si no responde)."""
+def _active_jobs(port: int) -> int | None:
+    """Trabajos en marcha o en cola en el servidor hijo; None si no responde (NO significa que no haya ninguno)."""
     import urllib.request
 
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/jobs", timeout=3) as r:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/jobs", timeout=10) as r:
             jobs = json.loads(r.read().decode("utf-8")).get("jobs", [])
         return sum(1 for j in jobs if j.get("status") in ("running", "queued"))
-    except Exception:  # noqa: BLE001 — sin respuesta no hay nada que proteger
-        return 0
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _wait_jobs_idle(proc: Any, port: int, *, pause: float = 2.0, sleep: Callable[[float], None] | None = None,
+                    active: Callable[[int], int | None] | None = None) -> None:
+    """Espera a que no quede ningún trabajo antes de recargar. 12/11/2026: una respuesta lenta del servidor durante
+    la carga de un motor se tomaba como «0 trabajos» y la recarga mató una ronda de horas y dejó un llama-server
+    huérfano. Ahora «sin respuesta» se trata como «ocupado» y hacen falta dos lecturas seguidas de 0."""
+    active = active or _active_jobs
+    sleep = sleep or time.sleep
+    told, idle = False, 0
+    while proc.poll() is None and idle < 2:
+        n = active(port)
+        idle = idle + 1 if n == 0 else 0
+        if n != 0 and not told:
+            print("eolfi: cambio detectado; hay trabajos en marcha: recargaré al terminar…", flush=True)
+            told = True
+        if idle < 2:
+            sleep(pause)
 
 
 def serve_with_reload(child_argv: list[str], interval: float = 0.7) -> int:
@@ -1669,10 +2053,7 @@ def serve_with_reload(child_argv: list[str], interval: float = 0.7) -> int:
                     # No se corta un trabajo en curso (una batería de motores puede durar una hora): se espera a
                     # que termine y entonces se recarga.
                     port = int(child_argv[child_argv.index("--port") + 1]) if "--port" in child_argv else 8777
-                    if _active_jobs(port):
-                        print("eolfi: cambio detectado; hay trabajos en marcha: recargaré al terminar…", flush=True)
-                        while proc.poll() is None and _active_jobs(port):
-                            time.sleep(2)
+                    _wait_jobs_idle(proc, port)
                     print("eolfi: cambio detectado, reiniciando…", flush=True)
                     proc.terminate()
                     try:

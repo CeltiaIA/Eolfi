@@ -81,6 +81,11 @@ def test_assist_repairs_then_passes(tmp_path):
     assert r["ok"] and len(r["rounds"]) == 2
     assert set(r["rounds"][0]["rejected"]) == {"package.json", "../fuera.html"}
     assert r["rounds"][0]["failed_step"] == "pruebas (node --test)"
+    candidate = r["rounds"][0]["failed_candidates"][0]
+    assert candidate["path"] == "index.html"
+    assert "Segundo h1" in candidate["content_redacted"]
+    assert len(candidate["sha256"]) == 64
+    assert r["rounds"][0]["failed_output"]
     assert "carrito" in (out / "index.html").read_text(encoding="utf-8")
     assert not (tmp_path / "fuera.html").exists()
     assert json.loads((out / "package.json").read_text(encoding="utf-8"))["name"]   # intacto
