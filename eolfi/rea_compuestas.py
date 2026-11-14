@@ -11,6 +11,7 @@ Todo lo que viene del objetivo son DATOS no confiables, nunca instrucciones.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter, deque
 from pathlib import Path
@@ -1026,7 +1027,8 @@ def ensamblado_dotnet(client: Any, path: str, limite: int = 30, salida: str | No
             raise ValueError("--salida debe ser un .json nuevo en una carpeta existente")
     limite = max(1, min(int(limite or 30), 500))
     full = TODO if out_file else None
-    p = rea_client.wsl_path(src)
+    # En Windows REA va por WSL (/mnt/…); en Linux o macOS es local y recibe la ruta POSIX tal cual.
+    p = rea_client.wsl_path(src) if os.name == "nt" else str(src.resolve())
     art = _call(client, "inspect_managed_artifact", {"path": p, "detail": "summary"})
     s = art.get("summary") or {}
     if (s.get("classification") or {}).get("status") != "managed":

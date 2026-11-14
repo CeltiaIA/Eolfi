@@ -388,7 +388,7 @@ class FakeDotnet:
     def call(self, name, args, limit=None):
         self.calls.append((name, args))
         if name == "inspect_managed_artifact":
-            assert args["path"].startswith("/mnt/")
+            assert args["path"].startswith("/")  # POSIX: /mnt/… desde Windows, la ruta local en Linux
             status = "managed" if self.gestionado else "native"
             out = {"parent_evidence_id": "ev_art", "summary": {
                 "artifact": {"sha256": "ab" * 32}, "classification": {"status": status},
