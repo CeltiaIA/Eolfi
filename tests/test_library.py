@@ -94,3 +94,20 @@ def test_search_prefiere_la_definicion_a_un_archivo_que_repite_el_contexto(tmp_p
     (code / "library.py").write_text("import json\n\nMAX_READ_CHARS = 30_000\n\nchunk = MAX_READ_CHARS\n", encoding="utf-8")
     first = AlexandriaLibrary(root).search("MAX_READ_CHARS eolfi")["resultados"][0]
     assert first["ruta"].endswith("library.py") and "MAX_READ_CHARS = 30_000" in first["fragmento"]
+
+
+def test_la_definicion_gana_al_enunciado_entre_comillas_y_a_los_comentarios(tmp_path):
+    """14/11/2026: «definición de la clase AlexandriaLibrary» devolvía el archivo del EXAMEN (la frase literal dentro de
+    un texto entre comillas) y un comentario con la frase exacta impedía contar la definición del propio archivo."""
+    code = tmp_path / "Alejandria" / "corpus" / "codigo" / "Eolfi" / "eolfi"
+    root = _library(tmp_path, [{"path": f"corpus/codigo/Eolfi/eolfi/{n}"} for n in ("examen.py", "biblioteca.py")])
+    code.mkdir(parents=True, exist_ok=True)
+    (code / "examen.py").write_text(
+        'CASOS = [{"prompt": "Encuentra la '
+        'definición de la clase Biblioteca y "\n'
+        '           "definición de la clase Biblioteca otra vez"}]\n' * 20, encoding="utf-8")
+    (code / "biblioteca.py").write_text(
+        "# Aquí está la definición de la clase Biblioteca (comentario con la frase exacta)\n"
+        "import os\n\n\nclass Biblioteca:\n    pass\n", encoding="utf-8")
+    first = AlexandriaLibrary(root).search("definición de la clase Biblioteca")["resultados"][0]
+    assert first["ruta"].endswith("biblioteca.py")

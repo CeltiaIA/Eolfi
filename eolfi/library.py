@@ -24,6 +24,15 @@ _DEFINITION = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:(?:class|def|functi
                          r"[A-Z][A-Z0-9_]*\s*(?::[^=]*)?=(?!=))")
 
 
+_CODE_SUFFIXES = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".ps1", ".psm1")
+
+
+def _inside_string(line: str, pos: int) -> bool:
+    """¿La posición cae dentro de un texto entre comillas de esta línea? (número impar de comillas antes). Una línea de
+    continuación que empieza por comillas («    "texto…"») también cuenta."""
+    before = line[:pos]
+    return before.count('"') % 2 == 1 or before.count("'") % 2 == 1
+
 # Nombre que define una línea («class X», «def f», «const y», «MAX = …»): la bonificación por definición solo cuenta
 # si lo DEFINIDO es lo buscado (13/11/2026: «PROMPT = '… MAX_READ_CHARS'» no define MAX_READ_CHARS).
 _DEFINED_NAME = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:(?:class|def|function|interface|type|const|let|var)\s+"
@@ -58,17 +67,28 @@ def _rank(terms: list[str], phrase: str, norm_lines: list[str], lines: list[str]
         name = _defined_name(lines[i])
         return bool(name) and name in key
 
+    # 14/11/2026: en el código, una línea que es solo un texto entre comillas (p. ej. la continuación del enunciado de
+    # un examen) no da la bonificación de frase exacta: «definición de la clase AlexandriaLibrary» devolvía el archivo
+    # del examen, que contiene esa frase literal, antes que el que define la clase.
+    code = norm_path.endswith(_CODE_SUFFIXES)
+
+    def phrase_in(i: int) -> bool:
+        hits = list(exact.finditer(norm_lines[i]))
+        if not code:
+            return bool(hits)
+        return any(not _inside_string(norm_lines[i], m.start()) for m in hits)
+
     def line_score(i: int) -> float:
         line = norm_lines[i]
         full = [t for t in terms if words[t].search(line)]
         part = [t for t in terms if t in line and t not in full]
         return (sum(wt[t] for t in full) * 3 + sum(wt[t] for t in part)
-                + (12 if len(terms) > 1 and exact.search(line) else 0) + (10 if defines(i) else 0))
+                + (12 if len(terms) > 1 and phrase_in(i) else 0) + (10 if defines(i) else 0))
 
     scored = sorted(matched, key=lambda i: (-line_score(i), i))
     best = scored[0]
-    score = (sum(wt[t] for t in present) * 20 + sum(wt[t] for t in whole) * 20 + (30 if defines(best) else 0)
-             + (25 if len(terms) > 1 and any(exact.search(norm_lines[i]) for i in matched) else 0)
+    score = (sum(wt[t] for t in present) * 20 + sum(wt[t] for t in whole) * 20 + (60 if any(defines(i) for i in matched) else 0)
+             + (25 if len(terms) > 1 and any(phrase_in(i) for i in matched) else 0)
              + line_score(best) * 2 + min(len(matched), 10)
              + sum(5 * wt[t] for t in terms if t in norm_path))
     excerpt = "\n".join(f"{i + 1}: {lines[i][:300]}" for i in sorted(scored[:3]))
