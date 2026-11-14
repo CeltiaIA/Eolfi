@@ -147,9 +147,10 @@ def chat_tools_from(catalog: dict[str, dict[str, Any]]) -> dict[str, dict[str, A
     return out
 
 
-# Lo que EJECUTA, instrumenta o abre algo vivo (procesos, páginas web, dispositivos, órdenes libres) queda bloqueado
-# en el chat: AGENTS.md exige autorización expresa y el chat aún no tiene cómo pedirla. Todo lo demás (leer,
-# descompilar, extraer, recuperar fuentes, exportar, anotar) está permitido con las rutas validadas.
+# Lo que EJECUTA, instrumenta o abre algo vivo (procesos, páginas web, dispositivos, órdenes libres) no se ejecuta sin
+# permiso: AGENTS.md exige autorización expresa y el chat la pide al usuario (rea_autorizacion: una vez, para el caso o
+# denegar). Todo lo demás (leer, descompilar, extraer, recuperar fuentes, exportar, anotar) está permitido con las rutas
+# validadas.
 EXECUTION = re.compile(
     r"^(capture_|observe_|instrument_|start_|stop_|resume_|load_frida|unload_frida|close_frida|list_frida|frida_)"
     r"|adb_(?!client$)|^(gdb_console|rizin_debug_command|execute_rizin_command|cutter_command|list_cutter_sessions"
@@ -165,8 +166,11 @@ META_TOOLS = {
     "rea_ayuda": {"description": "Devuelve la descripción completa y el esquema de argumentos de una herramienta de REA.",
                   "inputSchema": {"type": "object", "properties": {"nombre": {"type": "string"}},
                                   "required": ["nombre"], "additionalProperties": False}},
-    "rea_usar": {"description": "Ejecuta cualquier herramienta de REA permitida (lectura o escritura: descompilar, "
-                                "extraer, recuperar fuentes, exportar, anotar). Pide antes su esquema con rea_ayuda.",
+    "rea_usar": {"description": "Ejecuta cualquier herramienta de REA (lectura o escritura: descompilar, extraer, "
+                                "recuperar fuentes, exportar, anotar). Pide antes su esquema con rea_ayuda. Las que "
+                                "ejecutan o abren algo vivo (capturas de webs o de pantalla, Frida, ADB, depuradores) "
+                                "también se piden aquí: Eolfi no las ejecuta sin permiso, pide autorización al usuario "
+                                "y te lo indica.",
                  "inputSchema": {"type": "object", "properties": {"nombre": {"type": "string"},
                                                                  "argumentos": {"type": "object"}},
                                  "required": ["nombre", "argumentos"], "additionalProperties": False}},

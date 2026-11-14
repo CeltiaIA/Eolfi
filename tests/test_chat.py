@@ -261,3 +261,13 @@ def test_ids_de_llamada_validos_para_la_plantilla_de_mistral():
             assert re.fullmatch(r"[A-Za-z0-9]{9}", tc["id"]) and tc["id"] not in seen
             seen.add(tc["id"])
         assert calls[0]["function"] == {"name": "a"}
+
+
+def test_el_chat_sabe_que_lo_que_ejecuta_se_pide_con_permiso():
+    """14/11/2026: gemma dijo que capture_web_screenshot «no existe» sin buscarla: rea_usar decía «herramienta
+    permitida» y el modelo entendía que las de ejecución le estaban vetadas. Se piden con rea_usar y Eolfi pide permiso."""
+    from eolfi import chat, rea_client
+
+    assert "rea_buscar" in chat.SYSTEM_PROMPT and "pide autorización" in chat.SYSTEM_PROMPT
+    usar = rea_client.META_TOOLS["rea_usar"]["description"]
+    assert "permitida" not in usar and "autorización" in usar
