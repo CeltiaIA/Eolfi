@@ -1456,11 +1456,12 @@ def _chat_tools(c: dict[str, Any], messages: list[dict[str, Any]], tools: list[d
         raise RuntimeError(f"la petición local a {c['alias']} falló: {exc} {detail}".strip()) from exc
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise RuntimeError(f"la petición local a {c['alias']} falló: {exc}") from exc
-    return (data.get("choices") or [{}])[0].get("message") or {}
+    # El consumo de tokens viaja con el mensaje (clave interna «_usage»): la sesión lo suma (14/11/2026).
+    return {**((data.get("choices") or [{}])[0].get("message") or {}), "_usage": data.get("usage") or {}}
 
 
 def _tool_session(c: dict[str, Any], prompt: str, mcp: Any, announce: Callable[[str], None], name: str,
-                  max_rounds: int = 6) -> tuple[str, list[dict[str, Any]]]:
+                  max_rounds: int = 6, usage: dict[str, int] | None = None) -> tuple[str, list[dict[str, Any]]]:
     """El motor resuelve la tarea llamando a herramientas REALES de Eolfi. Devuelve la respuesta y las llamadas."""
     from eolfi.chat import safe_tool_calls, template_safe
 
@@ -1472,6 +1473,10 @@ def _tool_session(c: dict[str, Any], prompt: str, mcp: Any, announce: Callable[[
     calls: list[dict[str, Any]] = []
     for turn in range(max_rounds):
         msg = _chat_tools(c, messages, tools)
+        if usage is not None:   # tokens de TODAS las vueltas de la sesión (14/11/2026: antes null)
+            spent = msg.get("_usage") or {}
+            usage["entrada"] = usage.get("entrada", 0) + int(spent.get("prompt_tokens") or 0)
+            usage["salida"] = usage.get("salida", 0) + int(spent.get("completion_tokens") or 0)
         tool_calls = safe_tool_calls(msg.get("tool_calls") or [], turn)
         if not tool_calls:
             return str(msg.get("content") or "").strip(), calls
@@ -1843,7 +1848,9 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                            "kind": kind, "question": case["prompt"], "load_seconds": load_s}
                     try:
                         if kind == "herramientas":
-                            final, calls = _tool_session(c, case["prompt"], mcp, announce, name)
+                            used_tokens: dict[str, int] = {"entrada": 0, "salida": 0}
+                            row["tokens"] = used_tokens
+                            final, calls = _tool_session(c, case["prompt"], mcp, announce, name, usage=used_tokens)
                             used = {x["name"] for x in calls}
                             if "tests" in case:
                                 execution = _run_code_case(_code_from_answer(final), case["tests"])

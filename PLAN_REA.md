@@ -45,8 +45,33 @@ autorización.
 | Orden `eolfi rea` (revisar-modelo, explicar, reimplementar, comparar) y las cuatro en el chat | `eolfi/cli.py`, `eolfi/chat.py`, `eolfi/server.py` | Suite completa: 536 en verde |
 | Herramientas instaladas para REA: Apktool 3.0.3, Wireshark 4.6.9 (tshark, capinfos); Frida viene integrado | `~/.eolfi/tools/apktool`, variables `REA_*` | `inspect-apktool-client`, `inspect-pcap-client`, `list-frida-devices` |
 
-**Pendiente de verificar en vivo:** un turno de chat con un modelo real usando REA y las tres herramientas compuestas
-(la GPU estaba ocupada por la ronda de motores).
+**Verificado en vivo (14/11/2026):**
+
+- **Chat con REA (gemma, Eolas V2):** inspeccionó `eolas-chat.js` con REA (rea_buscar → rea_ayuda → rea_usar
+  `inspect_byte_entropy`); tamaño y SHA-256 iguales a los reales. Ante una herramienta que ejecuta algo
+  (`capture_process_scenario`) creó la petición de autorización sin ejecutar nada; aprobada «una vez» en la tarjeta del
+  chat, se ejecutó una sola vez y quedó en el registro (REA no soporta esa captura en Windows: «sin PTY»). Corregido
+  por el camino: la instrucción y `rea_usar` decían «permitida» y el modelo descartaba sin buscarlas las que ejecutan.
+- **`eolfi rea inventario`** sobre `whoami.exe` (5 s): 11 librerías, recuentos e imphash iguales a `objdump`.
+- **`eolfi rea --caso <id> explicar`** (49 s, Ghidra): punto de entrada `0x140001cb0` igual al de la cabecera PE;
+  registrado en el caso (artefacto y evidencia). Sus importaciones (121, símbolos externos de Ghidra) difieren de la
+  tabla PE (127): ahora el informe lo dice en `fuente_cifras`. Corregido: `--caso` se comprueba antes del análisis.
+
+- **`eolfi rea revisar-modelo`** (4–6 s, solo cabecera): Gemma 4 Q5 y Q4 aprobados, con la cuantización dominante
+  (Q5_K, Q4_K) igual al `general.file_type` leído con un lector GGUF propio (17 y 15). Con el mismo Q4 enlazado con el
+  nombre `…-Q8_0.gguf`, **no aprueba**: «la cuantización real coincide con el nombre (Q8_0)» falso, dominante Q4_K. Un
+  GGUF recortado se rechaza: REA comprueba que los tensores quepan en el archivo.
+- **`eolfi rea reimplementar whoami.exe entry`** (53 s): 18 bytes y llamadas a `0x1400021b4` y `0x140001af0` (esta
+  como salto de cola), iguales al desensamblado de `objdump`.
+
+- **`eolfi rea comparar`** con dos versiones reales de `whoami.exe` sacadas de WinSxS (10.0.26100.1 y .1882, 85 s):
+  REA dice «changed», mismas importaciones y funciones con nombre, igual que `objdump`. Como REA no decía DÓNDE, Eolfi
+  añade `bytes_cambiados`: 424 de 98 304 (277 en `.rsrc`, 76 de cabecera, 68 en `.rdata`, 2 en `.data`, 1 en `.text`),
+  igual que `cmp`, con la dirección del byte de código (`0x1400073ba`): el desplazamiento de un `lea` a un dato que se
+  movió 8 bytes, no lógica nueva.
+
+**Pendiente de verificar en vivo:** la verificación de comportamiento (requiere aprobar la ejecución en los dos
+lados).
 
 ## Lo que crearemos, por orden
 

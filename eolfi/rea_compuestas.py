@@ -118,6 +118,13 @@ def explicar_binario(client: Any, path: str, funciones: int = 5) -> dict[str, An
                 "sha256": head.get("sha256"),
                 "segmentos": [s.get("name") for s in (overview.get("segments") or [])] if isinstance(overview, dict) else [],
                 "funciones_propias": len(own), "importaciones": len(imports), "importaciones_muestra": imports[:40],
+                # 14/11/2026: con whoami.exe, 121 importaciones aquí frente a 127 en la tabla del PE; las dos son
+                # correctas pero miden cosas distintas, así que se dice de dónde sale cada una.
+                "fuente_cifras": {
+                    "funciones_propias": "procedimientos que Ghidra encuentra en el propio binario",
+                    "importaciones": "funciones externas que Ghidra resuelve; puede diferir de la tabla de importaciones "
+                                     "del ejecutable (nombres repetidos, importaciones por ordinal). La tabla exacta: "
+                                     "eolfi rea inventario"},
                 "cadenas_muestra": strings, "funciones_relevantes": detail,
                 "aviso": "Análisis estático (Ghidra vía REA): el programa no se ejecutó. Los nombres FUN_* son "
                          "automáticos; el pseudocódigo es una reconstrucción y puede tener errores."}
@@ -160,6 +167,72 @@ def _inventory(client: Any, path: str) -> tuple[dict[str, Any], dict[str, Any], 
     except RuntimeError:
         procs = []   # p. ej. un artefacto que no es ejecutable: se compara solo su inventario
     return head, json.loads(text), procs if isinstance(procs, list) else []
+
+
+def _pe_layout(data: bytes) -> tuple[int, list[tuple[str, int, int, int, bool]]] | None:
+    """Base de la imagen y tabla de secciones de un PE: (nombre, desplazamiento y tamaño en el archivo, dirección
+    virtual relativa, ¿es código?). None si no es un PE legible. Sin dependencias: cabecera COFF, el campo ImageBase
+    de la cabecera opcional (PE32 o PE32+) y la tabla de secciones."""
+    import struct
+
+    try:
+        if data[:2] != b"MZ":
+            return None
+        pe = struct.unpack_from("<I", data, 0x3C)[0]
+        if data[pe:pe + 4] != b"PE\0\0":
+            return None
+        count, = struct.unpack_from("<H", data, pe + 6)
+        opt_size, = struct.unpack_from("<H", data, pe + 20)
+        magic, = struct.unpack_from("<H", data, pe + 24)
+        base = (struct.unpack_from("<Q", data, pe + 48)[0] if magic == 0x20B
+                else struct.unpack_from("<I", data, pe + 52)[0])
+        table = pe + 24 + opt_size
+        out = []
+        for i in range(count):
+            off = table + 40 * i
+            name = data[off:off + 8].rstrip(b"\0").decode("ascii", "replace")
+            rva, = struct.unpack_from("<I", data, off + 12)
+            raw_size, raw_ptr = struct.unpack_from("<II", data, off + 16)
+            chars, = struct.unpack_from("<I", data, off + 36)
+            out.append((name, raw_ptr, raw_size, rva, bool(chars & 0x20 or chars & 0x20000000)))
+        return base, out
+    except (struct.error, IndexError):
+        return None
+
+
+def pe_section_diff(original: str, nueva: str) -> dict[str, Any] | None:
+    """Cuántos bytes cambian y en qué secciones (14/11/2026). REA dice «changed: content» pero no dónde: no es lo
+    mismo un número de versión en los recursos que código nuevo. None si alguno no es un PE."""
+    try:
+        a, b = Path(original).read_bytes(), Path(nueva).read_bytes()
+    except OSError:
+        return None          # REA pudo leerlos por otra vía (p. ej. WSL); el reparto es un añadido, no una condición
+    layout_a, layout_b = _pe_layout(a), _pe_layout(b)
+    if layout_a is None or layout_b is None:
+        return None
+    base, sec = layout_a
+    per: dict[str, int] = {}
+    code_addresses: list[int] = []
+    for i in range(min(len(a), len(b))):
+        if a[i] == b[i]:
+            continue
+        hit = next(((n, rva + i - start, is_code) for n, start, size, rva, is_code in sec if start <= i < start + size),
+                   ("cabecera", 0, False))
+        per[hit[0]] = per.get(hit[0], 0) + 1
+        if hit[2]:
+            code_addresses.append(base + hit[1])
+    total = sum(per.values()) + abs(len(a) - len(b))
+    code = len(code_addresses)
+    if total == 0:
+        reading = "los dos archivos son idénticos byte a byte"
+    elif code == 0:
+        reading = "ningún byte de código cambia: solo datos, recursos o la cabecera (versión, fecha, firma…)"
+    else:
+        reading = (f"cambia{'' if code == 1 else 'n'} {code} byte{'' if code == 1 else 's'} de código: hay un cambio "
+                   f"de comportamiento posible; mira la función de {hex(code_addresses[0])} con eolfi rea reimplementar")
+    return {"total": total, "de": max(len(a), len(b)), "por_seccion": dict(sorted(per.items(), key=lambda kv: -kv[1])),
+            "codigo": code, "direcciones_codigo": [hex(x) for x in code_addresses[:20]],
+            "misma_estructura": layout_a == layout_b, "lectura": reading}
 
 
 def comparar_versiones(client: Any, original: str, nueva: str) -> dict[str, Any]:
@@ -208,6 +281,7 @@ def comparar_versiones(client: Any, original: str, nueva: str) -> dict[str, Any]
             "importaciones_anadidas": sorted(imp_b - imp_a)[:50], "importaciones_quitadas": sorted(imp_a - imp_b)[:50],
             "funciones_con_nombre_anadidas": sorted(fn_b - fn_a)[:50],
             "funciones_con_nombre_quitadas": sorted(fn_a - fn_b)[:50],
+            "bytes_cambiados": pe_section_diff(original, nueva),
             "aviso": "Comparación estructural y estática (no se ejecutó nada). Las funciones sin nombre (FUN_*) no se "
                      "emparejan entre versiones; «unknown» en REA significa sin evidencia suficiente, no igualdad."}
 
