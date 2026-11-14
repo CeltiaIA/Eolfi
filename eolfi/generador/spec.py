@@ -88,7 +88,7 @@ def contrast(a: str, b: str) -> float:
 
 def _mix(c: str, toward: tuple[int, int, int], t: float) -> str:
     r, g, b = _hex_to_rgb(c) or (0, 0, 0)
-    return "#{:02x}{:02x}{:02x}".format(*(round(x + (y - x) * t) for x, y in zip((r, g, b), toward)))
+    return "#{:02x}{:02x}{:02x}".format(*(round(x + (y - x) * t) for x, y in zip((r, g, b), toward, strict=True)))
 
 
 def ensure_contrast(color: str, against: str, minimum: float) -> str:

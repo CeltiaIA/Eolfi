@@ -1098,7 +1098,7 @@ def _structured_match(answer: str, expected: Any) -> bool:
         if isinstance(left, dict):
             return left.keys() == right.keys() and all(same(left[key], right[key]) for key in left)
         if isinstance(left, list):
-            return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right))
+            return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right, strict=True))
         return left == right
     return same(norm(actual), norm(expected))
 
@@ -1882,9 +1882,9 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
 
                             def count(reply: dict[str, Any]) -> dict[str, Any]:
                                 usage = reply.get("usage") or {}
-                                spent["entrada"] += int(usage.get("prompt_tokens") or 0)
-                                spent["salida"] += int(usage.get("completion_tokens") or 0)
-                                row["tokens"] = dict(spent)
+                                spent["entrada"] += int(usage.get("prompt_tokens") or 0)  # noqa: B023 — se llama dentro de esta misma vuelta
+                                spent["salida"] += int(usage.get("completion_tokens") or 0)  # noqa: B023 — se llama dentro de esta misma vuelta
+                                row["tokens"] = dict(spent)  # noqa: B023 — se llama dentro de esta misma vuelta
                                 return reply
 
                             analysis = count(_evaluation_request(c, [{"role": "system", "content": CODE_ANALYSIS_PROTOCOL},
@@ -1960,7 +1960,6 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                         announce(f"{name}: descartado — {reason}; salto el resto del código y paso a herramientas")
                 if failures and learn:
                     record_lessons(name, failures)
-                code_cases = sum(tally[k]["casos"] for k in ("codigo", "codigo_nuevo", "inedito"))
                 code_first = sum(tally[k]["primera"] for k in ("codigo", "codigo_nuevo", "inedito"))
                 tools_first = tally["herramientas"]["primera"]
                 # Siempre sobre el TOTAL de tareas: un motor descartado pronto no parece mejor de lo que es.
