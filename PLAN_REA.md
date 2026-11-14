@@ -152,3 +152,20 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Devicetree (14/11/2026)
+
+Punto 10, parte devicetree: `eolfi rea devicetree <.dtb> [--filtro texto]` (compuesto `devicetree_hw`, REA de Windows). Es análisis puro del archivo, sin herramientas externas. Primero comprueba la cabecera FDT; después REA da el árbol completo y Eolfi resume:
+- la placa (modelo, compatible, bootargs y consola), los alias, las CPU y la memoria;
+- la memoria reservada y los dispositivos (nodos con `compatible`) con dirección y estado activo/desactivado;
+- el recuento por fabricante y las referencias resueltas.
+
+REA no decodifica algunas cadenas, como `device_type`; Eolfi las saca del hex cuando son texto imprimible terminado en NUL.
+
+Verificado en vivo con `bcm2711-rpi-4-b.dtb`: 56.431 bytes, SHA-256 `9b572c00…d8fb`, descargado de `raspberrypi/firmware` (rama `master`) con el hash de blob de git igual al del repositorio. Resultado:
+- Raspberry Pi 4 Model B, FDT v17, 325 nodos y 1.753 propiedades.
+- 4 Cortex-A72.
+- 119 dispositivos: 63 activos y 56 desactivados.
+- La memoria va a 0, porque la fija el cargador al arrancar, y el resultado lo indica.
+
+NO VERIFICADO: overlays (`.dtbo`), devicetrees dentro de una imagen de firmware (hace falta extraerlos; `extract_firmware` necesita Unblob, que no está instalado) y referencias específicas de cada binding.

@@ -880,3 +880,96 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+MAX_DTB = 16 * 1024 * 1024  # límite de REA para inspect_devicetree
+
+
+def _dt_props(node: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(p.get("name")): p for p in node.get("properties") or [] if isinstance(p, dict)}
+
+
+def _dt_strings(prop: dict[str, Any] | None) -> list[str]:
+    """Cadenas de una propiedad: las que deriva REA o, si no (p. ej. device_type), las del hex terminadas en NUL."""
+    if not prop:
+        return []
+    derived = (prop.get("derived") or {}).get("strings")
+    if derived:
+        return [str(x) for x in derived]
+    try:
+        raw = bytes.fromhex(str(prop.get("hex") or ""))
+    except ValueError:
+        return []
+    if not raw.endswith(b"\0") or prop.get("truncated"):
+        return []
+    parts = raw[:-1].split(b"\0")
+    if not all(x and x.isascii() and x.decode().isprintable() for x in parts):
+        return []
+    return [x.decode("ascii") for x in parts]
+
+
+def devicetree_hw(client: Any, path: str, limite: int = 40, filtro: str | None = None) -> dict[str, Any]:
+    """Mapa del hardware que describe un devicetree (.dtb, FDT v16/v17; plan REA, punto 10), sin ejecutar nada.
+
+    REA (`inspect_devicetree`, análisis puro) da el árbol completo; Eolfi resume: placa (modelo, compatible,
+    bootargs, consola), CPU, memoria y memoria reservada, y los dispositivos (nodos con `compatible`) con su
+    dirección (`reg`) y estado (`status`; sin él, el devicetree lo da por activo). `filtro` (texto en la ruta o en
+    `compatible`) acota la lista de dispositivos. Describe lo declarado, no el hardware presente ni sus drivers."""
+    src = Path(path)
+    if not src.is_file():
+        raise ValueError(f"no existe el devicetree: {path}")
+    if src.stat().st_size > MAX_DTB:
+        raise ValueError("devicetree mayor de 16 MiB: REA no lo admite")
+    with src.open("rb") as f:
+        if f.read(4) != b"\xd0\x0d\xfe\xed":
+            raise ValueError("no es un devicetree aplanado (falta la cabecera FDT d00dfeed)")
+    limite = max(1, min(int(limite or 40), 1000))
+    dt = _call(client, "inspect_devicetree", {"path": str(src), "detail": "complete"})
+    s = dt.get("summary") or {}
+    nodes = [n for n in dt.get("nodes") or [] if isinstance(n, dict)]
+    devices, cpus, memory, reserved = [], [], [], []
+    for n in nodes:
+        props = _dt_props(n)
+        npath = str(n.get("path"))
+        comp = _dt_strings(props.get("compatible"))
+        reg = ((props.get("reg") or {}).get("derived") or {}).get("reg") or []
+        dtype = (_dt_strings(props.get("device_type")) or [None])[0]
+        status = (_dt_strings(props.get("status")) or ["okay"])[0]
+        if dtype == "cpu":
+            cpus.append({"ruta": npath, "compatible": comp[:1]})
+        elif dtype == "memory":
+            memory += [{"direccion": r.get("address"), "tamano": r.get("size")} for r in reg if isinstance(r, dict)]
+        elif n.get("parent") == "/reserved-memory":
+            reserved.append({"ruta": npath, "reg": reg[:2], "compatible": comp[:1]})
+        if comp:
+            devices.append({"ruta": npath, "compatible": comp, "activo": status in ("okay", "ok"),
+                            **({"estado": status} if status not in ("okay", "ok") else {}),
+                            **({"direccion": reg[0].get("address"), "tamano": reg[0].get("size")}
+                               if reg and isinstance(reg[0], dict) else {})})
+    vendors = Counter(str(d["compatible"][0]).split(",", 1)[0] for d in devices if "," in str(d["compatible"][0]))
+    shown = devices
+    if filtro:
+        f = filtro.lower()
+        shown = [d for d in devices if f in d["ruta"].lower() or any(f in str(c).lower() for c in d["compatible"])]
+    head = dt.get("header") or {}
+    return {
+        "archivo": str(src), "sha256": (dt.get("artifact") or {}).get("sha256"),
+        "fdt_version": head.get("version"),
+        "placa": {"modelo": s.get("model"), "compatible": s.get("compatible") or [], "bootargs": s.get("bootargs"),
+                  "consola": s.get("stdout_path")},
+        "alias": {a.get("name"): a.get("path") for a in s.get("aliases") or [] if isinstance(a, dict)},
+        "cpus": {"total": len(cpus), "modelos": sorted({c for x in cpus for c in x["compatible"]})},
+        "memoria": memory, "memoria_reservada": reserved[:limite],
+        # Tamaño 0: lo rellena el cargador de arranque al iniciar (habitual en los .dtb de Raspberry Pi y otros).
+        "memoria_la_fija_el_arranque": bool(memory) and all(m.get("tamano") in ("0x0", None) for m in memory),
+        "reservas_fdt": dt.get("reservations") or [],
+        "dispositivos_total": len(devices), "activos": sum(1 for d in devices if d["activo"]),
+        "desactivados": sum(1 for d in devices if not d["activo"]),
+        "fabricantes": dict(vendors.most_common(limite)),
+        "filtro": filtro, "dispositivos": shown[:limite], "dispositivos_mostrados_de": len(shown),
+        "referencias": [{"desde": r.get("source"), "propiedad": r.get("property"), "hacia": r.get("target")}
+                        for r in dt.get("references") or [] if isinstance(r, dict)][:limite],
+        "cobertura": dt.get("coverage") or {},
+        "aviso": ("Análisis puro del .dtb: describe el hardware declarado, no el presente ni sus drivers. «activo» "
+                  "es el status del nodo (sin status, el devicetree lo da por activo); los overlays y las "
+                  "referencias específicas de cada binding no se resuelven.")}

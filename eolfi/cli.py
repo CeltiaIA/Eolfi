@@ -444,6 +444,10 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r17 = rps.add_parser("devicetree", help="Mapa del hardware de un devicetree (.dtb): placa, CPU, memoria y dispositivos")
+    r17.add_argument("ruta")
+    r17.add_argument("--filtro", help="texto en la ruta o en compatible para acotar los dispositivos")
+    r17.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1544,6 +1548,9 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "devicetree":
+                op, params = "devicetree_hw", {"ruta": args.ruta, "filtro": args.filtro}
+                result = rc.devicetree_hw(client, args.ruta, args.limite, args.filtro)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
