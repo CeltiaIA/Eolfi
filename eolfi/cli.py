@@ -444,6 +444,7 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r8.add_argument("--cliente", metavar="ARCHIVO.py", help="genera además un cliente Python (solo biblioteca estándar) con las operaciones observadas; no sobrescribe")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1544,6 +1545,14 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+                if args.cliente:   # plan REA, punto 7: cliente de lo observado
+                    from eolfi import cliente_api
+
+                    params["cliente"] = args.cliente
+                    try:
+                        result["cliente"] = cliente_api.escribir_cliente(result, args.cliente)
+                    except (ValueError, OSError) as exc:   # BorradorIncompleto es ValueError
+                        result["cliente_error"] = str(exc)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
