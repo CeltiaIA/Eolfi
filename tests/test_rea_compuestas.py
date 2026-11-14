@@ -371,3 +371,76 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+def _prop(name, text=None, strings=None, reg=None):
+    raw = (text.encode() + b"\0").hex() if text is not None else "00000001"
+    return {"name": name, "hex": raw, "truncated": False,
+            "derived": {"strings": strings, "cells": None, "reg": reg}}
+
+
+class FakeDevicetree:
+    """REA simulado: árbol completo de un devicetree con CPU, memoria, memoria reservada y dos dispositivos."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        assert name == "inspect_devicetree" and args["detail"] == "complete"
+        nodes = [
+            {"path": "/", "parent": None, "properties": [_prop("compatible", strings=["acme,board"])]},
+            {"path": "/cpus/cpu@0", "parent": "/cpus", "properties": [
+                _prop("device_type", "cpu"), _prop("compatible", strings=["arm,cortex-a53"])]},
+            {"path": "/cpus/cpu@1", "parent": "/cpus", "properties": [
+                _prop("device_type", "cpu"), _prop("compatible", strings=["arm,cortex-a53"])]},
+            {"path": "/memory@0", "parent": "/", "properties": [
+                _prop("device_type", "memory"), _prop("reg", reg=[{"address": "0x0", "size": "0x40000000"}])]},
+            {"path": "/reserved-memory/fw@0", "parent": "/reserved-memory", "properties": [
+                _prop("reg", reg=[{"address": "0x1000", "size": "0x100"}])]},
+            {"path": "/soc/serial@100", "parent": "/soc", "properties": [
+                _prop("compatible", strings=["acme,uart"]), _prop("reg", reg=[{"address": "0x100", "size": "0x40"}])]},
+            {"path": "/soc/i2c@200", "parent": "/soc", "properties": [
+                _prop("compatible", strings=["acme,i2c"]), _prop("status", "disabled")]},
+        ]
+        out = {"artifact": {"sha256": "dd" * 32}, "header": {"version": 17}, "reservations": [], "nodes": nodes,
+               "references": [{"source": "/", "property": "interrupt-parent", "target": "/soc/gic"}],
+               "summary": {"model": "Acme", "compatible": ["acme,board"], "stdout_path": "serial0:115200n8",
+                           "aliases": [{"name": "serial0", "path": "/soc/serial@100"}]},
+               "coverage": {"status": "complete"}}
+        return json.dumps({"normalized_result": out}), True
+
+
+def _dtb(tmp_path, magic=b"\xd0\x0d\xfe\xed"):
+    f = tmp_path / "placa.dtb"
+    f.write_bytes(magic + b"\0" * 36)
+    return str(f)
+
+
+def test_devicetree_resume_placa_cpu_memoria_y_dispositivos(tmp_path):
+    r = rc.devicetree_hw(FakeDevicetree(), _dtb(tmp_path))
+    assert r["placa"]["modelo"] == "Acme" and r["alias"] == {"serial0": "/soc/serial@100"}
+    assert r["cpus"] == {"total": 2, "modelos": ["arm,cortex-a53"]}  # device_type decodificado del hex
+    assert r["memoria"] == [{"direccion": "0x0", "tamano": "0x40000000"}] and not r["memoria_la_fija_el_arranque"]
+    assert [m["ruta"] for m in r["memoria_reservada"]] == ["/reserved-memory/fw@0"]
+    assert r["dispositivos_total"] == 5 and r["activos"] == 4 and r["desactivados"] == 1  # las CPU cuentan
+    i2c = next(d for d in r["dispositivos"] if d["ruta"] == "/soc/i2c@200")
+    assert i2c == {"ruta": "/soc/i2c@200", "compatible": ["acme,i2c"], "activo": False, "estado": "disabled"}
+    assert r["fabricantes"] == {"acme": 3, "arm": 2}
+
+
+def test_devicetree_filtro_y_entradas_invalidas(tmp_path):
+    r = rc.devicetree_hw(FakeDevicetree(), _dtb(tmp_path), filtro="UART")
+    assert [d["ruta"] for d in r["dispositivos"]] == ["/soc/serial@100"] and r["dispositivos_mostrados_de"] == 1
+    assert r["dispositivos"][0]["direccion"] == "0x100"
+    with pytest.raises(ValueError):
+        rc.devicetree_hw(FakeDevicetree(), _dtb(tmp_path, magic=b"MZ\0\0"))
+    with pytest.raises(ValueError):
+        rc.devicetree_hw(FakeDevicetree(), str(tmp_path / "no.dtb"))
+
+
+def test_dt_strings_solo_texto_imprimible_terminado_en_nul():
+    assert rc._dt_strings(_prop("x", "okay")) == ["okay"]
+    assert rc._dt_strings({"hex": "6f6b"}) == []  # sin NUL final
+    assert rc._dt_strings({"hex": "0102ff00"}) == []  # binario
+    assert rc._dt_strings({"hex": "61006200"}) == ["a", "b"]
