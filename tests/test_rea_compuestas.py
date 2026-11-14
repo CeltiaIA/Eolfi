@@ -371,3 +371,242 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeBinwalk:
+    """REA de WSL con Binwalk 3.1.0: forma real de inspect_firmware_regions (14/11/2026)."""
+
+    def __init__(self, regions):
+        self.regions, self.paths = regions, []
+
+    def call(self, name, args, limit=None):
+        assert name == "inspect_firmware_regions"
+        self.paths.append(args["path"])
+        return json.dumps({"normalized_result": {"engine": {"name": "binwalk", "version": "3.1.0",
+                                                            "executable_sha256": "cd" * 32},
+                                                 "regions": self.regions, "coverage": "signature_scan"}}), True
+
+
+def test_firmware_regiones_ordena_y_clasifica_los_huecos(tmp_path):
+    img = tmp_path / "fw.bin"
+    img.write_bytes(b"\xff" * 16 + b"GZ" + b"\x00" * 6 + b"\x00" * 8 + b"zz" * 4 + b"\xff" * 8)  # 48 bytes
+    fake = FakeBinwalk([{"offset": 26, "reported_size": 4, "signature": "png", "description": "PNG",
+                         "reported_confidence": 250},
+                        {"offset": 16, "reported_size": 8, "signature": "gzip", "description": "gzip",
+                         "reported_confidence": 250}])
+    out = rc.firmware_regiones(fake, str(img))
+    assert fake.paths[0].startswith("/mnt/") and out["motor"] == "binwalk 3.1.0" and out["bytes"] == 48
+    assert [r["firma"] for r in out["regiones"]] == ["gzip", "png"] and out["regiones"][0]["hex"] == "0x10"
+    assert out["huecos"] == [
+        {"desde": 0, "hasta": 16, "bytes": 16, "contenido": "relleno 0xFF"},
+        {"desde": 24, "hasta": 26, "bytes": 2, "contenido": "ceros"},
+        {"desde": 30, "hasta": 48, "bytes": 18, "contenido": "datos sin firma"}]
+    assert out["bytes_sin_firma"] == 18 and "Unblob" in out["siguientes_pasos"][-1]
+
+
+def test_firmware_regiones_sugiere_devicetree_y_rechaza_lo_que_no_existe(tmp_path):
+    img = tmp_path / "fw.bin"
+    img.write_bytes(b"\x00" * 64)
+    fake = FakeBinwalk([{"offset": 8, "reported_size": None, "signature": "fdt",
+                         "description": "Device tree blob (DTB)", "reported_confidence": 250}])
+    out = rc.firmware_regiones(fake, str(img))
+    assert out["siguientes_pasos"][0] == "inspect_devicetree sobre la región en 0x8"
+    assert out["huecos"][-1] == {"desde": 9, "hasta": 64, "bytes": 55, "contenido": "ceros"}
+    with pytest.raises(ValueError, match="no existe"):
+        rc.firmware_regiones(fake, str(tmp_path / "no.bin"))
+
+
+@pytest.fixture
+def wsl_falso(monkeypatch, tmp_path):
+    """WSL simulado: la carpeta temporal de Ubuntu es una carpeta local y cp/rm se registran (y cp copia)."""
+    import shutil
+    from pathlib import Path
+
+    from eolfi import rea_client
+
+    staging = tmp_path / "ubuntu-salidas" / "firmware-x"
+    orders = []
+
+    def run(argv, timeout=900):
+        orders.append(argv)
+        if argv[0] == "cp":  # cp -r … <temporal de Ubuntu> /mnt/<unidad>/<destino>
+            drive, rest = argv[-1][len("/mnt/"):].split("/", 1)
+            shutil.copytree(staging, Path(f"{drive.upper()}:/{rest}"))
+        return 0, ""
+
+    monkeypatch.setattr(rea_client, "wsl_staging_dir", lambda prefix: str(staging))
+    monkeypatch.setattr(rea_client, "wsl_run", run)
+    return {"staging": staging, "orders": orders}
+
+
+class FakeUnblob:
+    """REA simulado: extract_firmware de una imagen con núcleo LZMA (falla su extractor) y un squashfs."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        assert name == "extract_firmware"
+        root = "fw.bin_extract/100-900.squashfs_v4_le_extract"
+        files = [{"relative_path": "fw.bin_extract/0-100.unknown", "size": 100, "mime_type": None},
+                 {"relative_path": f"{root}/bin/busybox", "size": 400, "sha256": "b1", "mime_type": "application/x-sharedlib"},
+                 {"relative_path": f"{root}/usr/sbin/uhttpd", "size": 50, "sha256": "u1",
+                  "mime_type": "application/x-pie-executable; charset=binary"},
+                 {"relative_path": f"{root}/etc/config/network", "size": 10, "mime_type": "text/plain"}]
+        out = {"engine": {"name": "unblob", "version": "26.6.4"}, "selection": {"sha256": "aa" * 32},
+               "output_directory": args["output_directory"], "coverage": "partial", "files": files,
+               "published_bytes": 560,
+               "chunks": [{"input_path": f"$output/{root}/bin/busybox", "handler": "elf32"},
+                          {"input_path": f"$output/{root}/usr/sbin/uhttpd", "handler": "elf32"},
+                          {"input_path": "$input", "handler": "squashfs_v4_le"}],
+               "unpublished_entries": [{"relative_path": f"{root}/bin/sh", "kind": "symlink"},
+                                       {"relative_path": f"{root}/bin/ls", "kind": "symlink"}],
+               "extraction_gaps": [{"kind": "unknown-chunk-handler", "input_path": "$input",
+                                    "root_file_range": {"offset": 0, "length": 100}, "dependencies": []},
+                                   {"kind": "missing-dependency", "input_path": "$input", "range": {"offset": 5, "length": 1},
+                                    "dependencies": ["sasquatch"]},
+                                   {"kind": "unpublished-entry", "input_path": f"$output/{root}/bin/sh"}],
+               "diagnostics": [{"input_path": "$input", "stage": "lzma",
+                                "report": {"command": "7z x -y k.lzma -so", "exit_code": 127, "severity": "WARNING",
+                                           "stderr": "N3o6IG5vdCBmb3VuZAo=", "__typename__": "ExtractCommandFailedReport"}},
+                               {"input_path": "$output/a.tar", "stage": "tar",
+                                "report": {"severity": "WARNING", "path": "../fuera", "reason": "path traversal",
+                                           "__typename__": "ExtractionProblem"}}],
+               "depth_limited_paths": [], "extraction_continuations": [{"id": "c1", "instruction": "Usa un rango menor"}]}
+        return json.dumps({"normalized_result": out}), True
+
+
+def test_extraer_firmware_resume_lo_extraido_y_lo_que_falta(tmp_path, wsl_falso):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\0" * 64)
+    dest = tmp_path / "salida"
+    wsl_falso["staging"].mkdir(parents=True)  # lo que REA publicaría en Ubuntu
+    fake = FakeUnblob()
+    r = rc.extraer_firmware(fake, str(fw), str(dest), profundidad=4)
+    args = fake.calls[0][1]
+    # Unblob escribe en Ubuntu (en /mnt no puede ser dueño del destino) y Eolfi copia a Windows y limpia.
+    assert args["output_directory"] == str(wsl_falso["staging"]) and args["max_depth"] == 4
+    assert [o[0] for o in wsl_falso["orders"]] == ["cp", "rm"] and r["copia_a_windows"]["correcta"]
+    assert wsl_falso["orders"][0][-1].startswith("/mnt/") and dest.is_dir()
+    assert args["publication_timeout_ms"] == rc.FIRMWARE_PUBLISH_MS and args["path"].startswith("/mnt/")
+    assert r["destino"] == str(dest) and r["motor"] == "unblob 26.6.4" and r["archivos"] == 4
+    assert [p["pieza"] for p in r["piezas"]] == ["0-100.unknown", "100-900.squashfs_v4_le_extract"]
+    assert r["piezas"][1] == {"pieza": "100-900.squashfs_v4_le_extract", "archivos": 3, "bytes": 460}
+    assert r["binarios_elf"] == 2 and r["elf_mayores"][0]["ruta"].endswith("bin/busybox")
+    assert r["tipos"]["application/x-pie-executable"] == 1 and r["tipos"]["desconocido"] == 1
+    assert r["no_publicadas"] == {"symlink": 2} and r["extractores_que_faltan"] == ["sasquatch"]
+    assert r["huecos_por_tipo"] == {"unknown-chunk-handler": 1, "missing-dependency": 1, "unpublished-entry": 1}
+    assert [h["tipo"] for h in r["huecos"]] == ["unknown-chunk-handler", "missing-dependency"]
+    assert r["fallos_de_extractor"][0]["codigo"] == 127 and r["fallos_de_extractor"][0]["error"] == "7z: not found"
+    tar = r["fallos_de_extractor"][1]
+    assert "orden" not in tar and tar["detalle"] == {"path": "../fuera", "reason": "path traversal"}
+    assert r["fallos_por_tipo"] == {"lzma:ExtractCommandFailedReport": 1, "tar:ExtractionProblem": 1}
+
+
+def test_extraer_firmware_conserva_la_temporal_si_la_copia_falla(tmp_path, wsl_falso, monkeypatch):
+    from eolfi import rea_client
+
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\0")
+    orders = []
+    monkeypatch.setattr(rea_client, "wsl_run", lambda argv, timeout=900: (orders.append(argv), (1, "cp: nombre inválido"))[1])
+    r = rc.extraer_firmware(FakeUnblob(), str(fw), str(tmp_path / "salida"))
+    assert [o[0] for o in orders] == ["cp"]  # sin rm: la extracción sigue en Ubuntu
+    assert r["copia_a_windows"] == {"desde_wsl": str(wsl_falso["staging"]), "correcta": False,
+                                    "errores": "cp: nombre inválido"} and r["rootfs"] is None
+
+
+def test_extraer_firmware_valida_antes_de_llamar_a_rea(tmp_path, wsl_falso):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"x")
+    (tmp_path / "ya").mkdir()
+    fake = FakeUnblob()
+    for dest in (str(tmp_path / "ya"), "relativa", str(tmp_path / "no" / "existe")):
+        with pytest.raises(ValueError):
+            rc.extraer_firmware(fake, str(fw), dest)
+    with pytest.raises(ValueError):
+        rc.extraer_firmware(fake, str(tmp_path / "nada.bin"), str(tmp_path / "s"))
+    assert fake.calls == []
+    r = rc.extraer_firmware(fake, str(fw), "/home/u/salida")  # ruta de Ubuntu: la valida REA, sin copia
+    assert fake.calls[0][1]["output_directory"] == "/home/u/salida" and r["destino"] == "/home/u/salida"
+    assert r["copia_a_windows"] is None and wsl_falso["orders"] == []
+
+
+def _rootfs(base):
+    root = base / "fw.bin_extract" / "100-900.squashfs_v4_le_extract"
+    for d in ("etc/init.d", "bin", "usr/sbin", "etc/ssl"):
+        (root / d).mkdir(parents=True)
+    (root / "etc" / "openwrt_release").write_text("DISTRIB_ID='OpenWrt'\nDISTRIB_RELEASE='25.12.6'\n"
+                                                  "DISTRIB_TARGET='ath79/generic'\n# comentario\n")
+    (root / "etc" / "passwd").write_text("root:x:0:0:root:/root:/bin/ash\ndaemon:*:1:1:daemon:/var:/bin/false\n"
+                                         "ftp:*:55:55:ftp:/home/ftp:/bin/false\n")
+    (root / "etc" / "shadow").write_text("root::0:0:99999:7:::\ndaemon:*:0:0:99999:7:::\n")
+    for s in ("dropbear", "uhttpd"):
+        (root / "etc" / "init.d" / s).write_text("#!/bin/sh /etc/rc.common\n")
+    # ELF de 32 bits big-endian MIPS (e_machine 8) y ELF de 64 bits little-endian aarch64 (183).
+    (root / "bin" / "busybox").write_bytes(b"\x7fELF\x01\x02\x01" + b"\0" * 11 + (8).to_bytes(2, "big") + b"\0" * 40)
+    (root / "usr" / "sbin" / "x").write_bytes(b"\x7fELF\x02\x01\x01" + b"\0" * 11 + (183).to_bytes(2, "little"))
+    (root / "etc" / "ssl" / "server.key").write_text("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n")
+    return root
+
+
+def test_revisar_rootfs_distribucion_cuentas_servicios_y_claves(tmp_path):
+    _rootfs(tmp_path)
+    r = rc.revisar_rootfs(tmp_path)
+    (fs,) = r["sistemas_de_archivos"]
+    assert fs["raiz"] == "fw.bin_extract/100-900.squashfs_v4_le_extract"
+    assert fs["distribucion"] == {"DISTRIB_ID": "OpenWrt", "DISTRIB_RELEASE": "25.12.6", "DISTRIB_TARGET": "ath79/generic"}
+    assert fs["cuentas_con_shell"] == [{"usuario": "root", "uid": "0", "shell": "/bin/ash"}] and fs["uid_0"] == ["root"]
+    assert fs["contrasena_vacia"] == ["root"] and fs["bloqueadas"] == ["daemon"]
+    assert fs["servicios"] == ["dropbear", "uhttpd"] and fs["servicios_total"] == 2
+    assert fs["elf_por_arquitectura"] == {"mips 32 bits BE": 1, "aarch64 64 bits LE": 1}
+    assert fs["claves_privadas"] == ["etc/ssl/server.key"]
+    assert "AAAA" not in json.dumps(r)  # el contenido de la clave no sale
+    with pytest.raises(ValueError):
+        rc.revisar_rootfs(tmp_path / "no")
+
+
+def test_extraer_firmware_incluye_la_revision_del_rootfs_si_el_destino_existe(tmp_path, wsl_falso):
+    fw = tmp_path / "fw.bin"
+    fw.write_bytes(b"\0")
+    dest = tmp_path / "salida"
+
+    class Crea(FakeUnblob):  # REA publica en la carpeta temporal de Ubuntu; Eolfi la copia al destino
+        def call(self, name, args, limit=None):
+            _rootfs(wsl_falso["staging"])
+            return super().call(name, args, limit)
+
+    r = rc.extraer_firmware(Crea(), str(fw), str(dest))
+    assert r["rootfs"]["sistemas_de_archivos"][0]["distribucion"]["DISTRIB_ID"] == "OpenWrt"
+
+
+def test_uci_oculta_secretos_pero_no_las_opciones_de_autenticacion():
+    secs = rc._uci("config wifi-iface 'w0'\n\toption key 'secreto123'\n\toption ssid 'Casa'\n"
+                   "\toption sae_password 'x'\n\toption PasswordAuth 'on'\n\tlist network 'lan'\n"
+                   "# comentario\nconfig defaults\n\toption input 'REJECT'\n")
+    assert secs[0] == {"_tipo": "wifi-iface", "_nombre": "w0", "key": "<oculto>", "ssid": "Casa",
+                       "sae_password": "<oculto>", "PasswordAuth": "on", "network": ["lan"]}
+    assert secs[1] == {"_tipo": "defaults", "_nombre": None, "input": "REJECT"}
+
+
+def test_red_openwrt_web_ssh_cortafuegos_y_wifi(tmp_path):
+    conf = tmp_path / "etc" / "config"
+    conf.mkdir(parents=True)
+    (conf / "uhttpd").write_text("config uhttpd 'main'\n\tlist listen_http '0.0.0.0:80'\n"
+                                 "\tlist listen_https '0.0.0.0:443'\n\toption redirect_https '1'\n")
+    (conf / "dropbear").write_text("config dropbear\n\toption PasswordAuth 'off'\n\toption Port '2222'\n")
+    (conf / "firewall").write_text("config defaults\n\toption input 'REJECT'\nconfig zone\n\toption name 'wan'\n"
+                                   "\toption input 'REJECT'\n\toption masq '1'\n\tlist network 'wan'\n"
+                                   "config rule\n\toption name 'Allow-Ping'\nconfig redirect\n\toption dest_port '22'\n")
+    (conf / "wireless").write_text("config wifi-iface 'default_radio0'\n\toption ssid 'OpenWrt'\n"
+                                   "\toption encryption 'psk2'\n\toption key 'clave-secreta'\n")
+    r = rc._red_openwrt(tmp_path / "etc")
+    assert r["web"] == [{"instancia": "main", "http": ["0.0.0.0:80"], "https": ["0.0.0.0:443"], "redirige_a_https": True}]
+    assert r["ssh"] == [{"puerto": "2222", "interfaz": "todas", "contrasena": False, "root_con_contrasena": True}]
+    assert r["cortafuegos"] == {"entrada_por_defecto": "REJECT", "reglas": 1, "redirecciones": 1,
+                                "zonas": [{"zona": "wan", "entrada": "REJECT", "reenvio": None, "nat": True,
+                                           "redes": ["wan"]}]}
+    assert r["wifi"] == [{"ssid": "OpenWrt", "cifrado": "psk2", "modo": None, "desactivada": False}]
+    assert r["generada_al_arrancar"] == ["network"] and "clave-secreta" not in json.dumps(r)
+    assert rc._red_openwrt(tmp_path / "otro") is None

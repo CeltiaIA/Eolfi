@@ -275,12 +275,15 @@ def wsl_path(path: str | Path) -> str:
 
 
 def wsl_rea_command() -> list[str] | None:
-    """Orden para arrancar el REA de WSL con Wakaru, si está instalado (EOLFI_NO_REA lo desactiva en pruebas)."""
+    """Orden para arrancar el REA de WSL con Wakaru, si está instalado (EOLFI_NO_REA lo desactiva en pruebas). Si está
+    Binwalk 3.1.0 (tools/instalar-binwalk-wsl.sh), se le pasa en REA_BINWALK_COMMAND para el análisis de firmware, y si
+    está Unblob 26.6.4 (tools/instalar-unblob-wsl.sh), su lanzador en REA_UNBLOB_COMMAND para la extracción."""
     if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe"):
         return None
     script = ("B=$HOME/.local/eolfi-rea; N=$(ls -d $B/node-*-linux-x64 2>/dev/null | tail -1); "
               "test -x \"$N/bin/node\" -a -x $B/wakaru/wakaru -a -f $B/npm/node_modules/rea-agents/scripts/rea.mjs "
-              "&& echo \"$N|$HOME\"")
+              "&& echo \"$N|$HOME|$(test -x $B/binwalk-3.1.0/bin/binwalk && echo $B/binwalk-3.1.0/bin/binwalk)"
+              "|$(test -x $B/unblob-26.6.4/eolfi-unblob && echo $B/unblob-26.6.4/eolfi-unblob)\"")
     try:
         out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
@@ -288,10 +291,34 @@ def wsl_rea_command() -> list[str] | None:
         return None
     if "|" not in out:
         return None
-    node_dir, home = out.splitlines()[-1].split("|", 1)
+    node_dir, home, *rest = out.splitlines()[-1].split("|")
     base = f"{home}/.local/eolfi-rea"
-    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", f"{node_dir}/bin/node",
+    binwalk = [f"REA_BINWALK_COMMAND={rest[0]}"] if rest and rest[0].startswith(base + "/") else []
+    unblob = [f"REA_UNBLOB_COMMAND={rest[1]}"] if len(rest) > 1 and rest[1].startswith(base + "/") else []
+    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", *binwalk, *unblob, f"{node_dir}/bin/node",
             f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
+
+
+def wsl_run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
+    """Ejecuta una orden dentro de Ubuntu (WSL) sin shell y devuelve (código, salida+error recortada)."""
+    try:
+        r = subprocess.run(["wsl.exe", "-e", *argv], capture_output=True, text=True, timeout=timeout,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, str(e)[:2000]
+    return r.returncode, ((r.stdout or "") + (r.stderr or ""))[-4000:]
+
+
+def wsl_staging_dir(prefix: str) -> str:
+    """Carpeta nueva (aún sin crear) en ~/.local/eolfi-rea/salidas de Ubuntu, para herramientas que no pueden
+    escribir en /mnt (p. ej. Unblob, que exige ser dueño del destino)."""
+    import uuid
+
+    code, out = wsl_run(["sh", "-c", 'mkdir -p "$HOME/.local/eolfi-rea/salidas" && echo "$HOME"'], timeout=60)
+    home = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
+    if not home.startswith("/"):
+        raise RuntimeError(f"no se pudo preparar la carpeta temporal en WSL: {out[:300]}")
+    return f"{home}/.local/eolfi-rea/salidas/{prefix}-{uuid.uuid4().hex[:12]}"
 
 
 def wsl_has_tshark() -> bool:

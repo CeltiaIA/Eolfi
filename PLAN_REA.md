@@ -122,7 +122,7 @@ autorización.
 | 7 | **De captura de red a API** | `inspect_pcap_capture`, `inspect_packet_fields` y Eolas | Especificación de API (estilo OpenAPI) y un cliente generado por Eolfi | Pendiente |
 | 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Pendiente |
 | 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
-| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
+| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Hecho el desglose (14/11/2026, `firmware_regiones`, `eolfi rea firmware <imagen>`): firmas de Binwalk 3.1.0 (REA de WSL) con desplazamiento, tamaño declarado y confianza, más los huecos sin firma (relleno 0xFF, ceros o datos) que calcula Eolfi y la sugerencia de `inspect_devicetree` si aparece un DTB. En vivo con una imagen sintética: gzip, ZIP y PNG en sus desplazamientos exactos. Binwalk se compila desde el commit auditado con `tools/instalar-binwalk-wsl.sh` (sin sudo). Falta: extracción (`extract_firmware` necesita Unblob 26.6.x) y una imagen real |
 | 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
 
 ## Lo que se aprendió de REA al construir
@@ -152,3 +152,49 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Extracción de firmware con Unblob (14/11/2026)
+
+Punto 10, extracción: `eolfi rea firmware <imagen> --extraer <carpeta nueva> [--profundidad N]` (compuesto `extraer_firmware`, REA de WSL con Unblob 26.6.4). No monta nada ni ejecuta lo extraído: REA publica solo archivos regulares, sin permiso de ejecución.
+
+Instalación: `tools/instalar-unblob-wsl.sh` (autorizada por el titular), en el espacio del usuario y sin sudo.
+- Entorno virtual con `unblob==26.6.4` de PyPI.
+- Extractores sacados de los paquetes oficiales de Ubuntu con `apt-get download` + `dpkg -x`, sin instalarlos en el sistema, con las librerías que les faltan.
+- `sasquatch` del .deb de onekey-sec, verificado con el SHA-256 publicado.
+- Un lanzador, `eolfi-unblob`, que pone todo eso en PATH/LD_LIBRARY_PATH. `rea_client` lo pasa en `REA_UNBLOB_COMMAND`.
+
+Con todo ello Unblob ve sus 15 extractores. Se corrigió el `/usr/bin/7z` de Ubuntu, que llamaba por ruta absoluta a `/usr/lib/7zip/7z`.
+
+Unblob exige ser dueño del destino, y en `/mnt` (los discos de Windows) no puede: REA responde «Could not establish owner access to output directory». Con un destino de Windows, Eolfi:
+1. extrae en `~/.local/eolfi-rea/salidas` de Ubuntu;
+2. lo copia al destino;
+3. borra esa carpeta temporal solo si la copia sale bien. Si falla, la conserva y lo indica en `copia_a_windows`.
+
+Además, `revisar_rootfs` lee del sistema de archivos extraído la distribución, las cuentas (con shell, UID 0 y contraseña vacía en shadow, sin mostrar hashes), los servicios de `/etc/init.d`, la arquitectura de los ELF y las rutas de claves privadas (sin su contenido).
+
+Verificado en vivo con OpenWrt 25.12.6 para TP-Link Archer C7 v2 (`openwrt-25.12.6-ath79-generic-tplink_archer-c7-v2-squashfs-sysupgrade.bin`, 7.405.859 bytes, SHA-256 `fb5b9e9c…34ce`, igual al de `sha256sums` de downloads.openwrt.org). En 164 s:
+- **Extraído:** 1.193 archivos y 32 MB, entre ellos el núcleo LZMA (18 MB) y el squashfs (1.185 archivos).
+- **Binarios:** 162 ELF, todos MIPS de 32 bits BE.
+- **No extraído:** 214 enlaces simbólicos no publicados, 5 trozos sin manejador y una rama cortada por profundidad.
+- **Copia a Windows:** correcta.
+- **Revisión del rootfs:** OpenWrt r33311 `ath79/generic`; root con la contraseña vacía en la imagen, como es habitual en OpenWrt; 24 servicios (`dropbear`, `uhttpd`, `dnsmasq`…); ninguna clave privada.
+
+NO VERIFICADO:
+- Imágenes cifradas.
+- UBI, JFFS2 o EROFS reales (los extractores están, pero sin muestra).
+- Nombres que NTFS no admite al copiar.
+- El análisis de los ELF extraídos con Ghidra.
+
+Exposición de red en OpenWrt: `revisar_rootfs` lee la configuración UCI de la imagen (`/etc/config`):
+- `uhttpd`: direcciones de escucha HTTP/HTTPS y redirección a HTTPS;
+- `dropbear`: puerto, interfaz y si admite contraseña o root con contraseña;
+- `firewall`: política de entrada, zonas con NAT, reglas y redirecciones;
+- `network` y `wireless`: interfaces, SSID y cifrado.
+
+Los valores secretos (`key`, `password`, `psk`, `*_key`…) salen como `<oculto>`. En la imagen de OpenWrt 25.12.6:
+- web en `0.0.0.0:80/443` y `[::]:80/443` sin redirección a HTTPS;
+- SSH en el 22 con contraseña y root con contraseña;
+- WAN con entrada REJECT y NAT, LAN con ACCEPT, 9 reglas;
+- `network` y `wireless` no vienen en la imagen: los generan `/etc/board.d` y `uci-defaults` al arrancar, y el resultado lo indica en `generada_al_arrancar`.
+
+Los fallos de extractor ya dicen su tipo: en esta imagen, 7 entradas duplicadas en el `.tar` de scripts de paquetes, que Unblob resolvió quedándose con la más reciente.

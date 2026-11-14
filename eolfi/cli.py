@@ -444,6 +444,10 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r10 = rps.add_parser("firmware", help="Desglose de una imagen de firmware: firmas, regiones y huecos (Binwalk 3.1.0 en WSL2)")
+    r10.add_argument("ruta")
+    r10.add_argument("--extraer", metavar="DESTINO", help="extrae el contenido con Unblob 26.6.4 en esta carpeta nueva (sin montar ni ejecutar nada)")
+    r10.add_argument("--profundidad", type=int, help="profundidad máxima de extracción (con --extraer)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1530,9 +1534,15 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             finally:
                 check.close()
-        cmd = rea_client.wsl_rea_command() if args.rea_action == "recuperar-js" else None
-        if args.rea_action == "recuperar-js" and not cmd:
+        cmd = rea_client.wsl_rea_command() if args.rea_action in ("recuperar-js", "firmware") else None
+        if args.rea_action in ("recuperar-js", "firmware") and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
+            return 2
+        if args.rea_action == "firmware" and args.extraer and not any(c.startswith("REA_UNBLOB_COMMAND=") for c in cmd):
+            print("Unblob 26.6.4 no instalado en WSL2: ejecuta tools/instalar-unblob-wsl.sh dentro de Ubuntu", file=sys.stderr)
+            return 2
+        if args.rea_action == "firmware" and not args.extraer and not any(c.startswith("REA_BINWALK_COMMAND=") for c in cmd):
+            print("Binwalk 3.1.0 no instalado en WSL2: ejecuta tools/instalar-binwalk-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
         client = rea_client.ReaClient(cmd, timeout=900)
         try:
@@ -1544,6 +1554,12 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "firmware" and args.extraer:
+                op = "extraer_firmware"
+                params = {"ruta": args.ruta, "destino": args.extraer, "profundidad": args.profundidad}
+                result = rc.extraer_firmware(client, args.ruta, args.extraer, profundidad=args.profundidad)
+            elif args.rea_action == "firmware":
+                op, params, result = "firmware_regiones", {"ruta": args.ruta}, rc.firmware_regiones(client, args.ruta)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
