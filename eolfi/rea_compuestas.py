@@ -880,3 +880,112 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+MAX_PLIST = 4 * 1024 * 1024  # un Info.plist mayor no se lee (son de pocos KB)
+PLIST_KEYS = {"CFBundleIdentifier": "id", "CFBundleName": "nombre", "CFBundleShortVersionString": "version",
+              "CFBundleVersion": "compilacion", "CFBundleExecutable": "ejecutable",
+              "LSMinimumSystemVersion": "macos_minimo", "MinimumOSVersion": "ios_minimo",
+              "LSUIElement": "sin_icono_en_dock", "SUFeedURL": "canal_actualizaciones",
+              "NSPrincipalClass": "clase_principal"}
+
+
+def _read_plist(src: Path, inner: str) -> dict[str, Any] | None:
+    """Info.plist de un bundle, leído con plistlib (XML o binario) dentro del .zip/.ipa o de la carpeta .app, sin
+    extraer nada a disco. None si no se puede leer; el contenido es dato del artefacto."""
+    import plistlib
+    import zipfile
+
+    try:
+        if src.is_dir():
+            f = src.parent / inner if inner.split("/", 1)[0] == src.name else src / inner
+            raw = f.read_bytes() if f.is_file() and f.stat().st_size <= MAX_PLIST else None
+        else:
+            with zipfile.ZipFile(src) as z:
+                info = z.getinfo(inner)
+                raw = z.read(info) if info.file_size <= MAX_PLIST else None
+        data = plistlib.loads(raw) if raw else None
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile, plistlib.InvalidFileException):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _plist_facts(data: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {v: data[k] for k, v in PLIST_KEYS.items() if isinstance(data.get(k), str | bool | int)}
+    if "sin_icono_en_dock" in out:  # LSUIElement llega como booleano o como texto «1»/«YES»
+        out["sin_icono_en_dock"] = str(out["sin_icono_en_dock"]).strip().lower() in ("1", "true", "yes")
+    # Permisos de privacidad que declara (cámara, micrófono, accesibilidad…): la clave y el texto que verá el usuario.
+    perms = {k: str(v)[:200] for k, v in data.items() if k.startswith("NS") and k.endswith("UsageDescription")}
+    if perms:
+        out["permisos_privacidad"] = perms
+    schemes = sorted({str(s) for t in data.get("CFBundleURLTypes") or [] if isinstance(t, dict)
+                      for s in t.get("CFBundleURLSchemes") or []})
+    if schemes:
+        out["esquemas_url"] = schemes
+    ats = data.get("NSAppTransportSecurity")
+    if isinstance(ats, dict):
+        out["transporte"] = {"permite_http": bool(ats.get("NSAllowsArbitraryLoads")),
+                             "dominios_excepcion": sorted(str(d) for d in (ats.get("NSExceptionDomains") or {}))}
+    if isinstance(data.get("NSServices"), list):
+        out["servicios"] = len(data["NSServices"])
+    return out
+
+
+def mapa_app_apple(client: Any, path: str, limite: int = 40) -> dict[str, Any]:
+    """Mapa de una app de Apple (plan REA, punto 9: Apple) sin ejecutarla: .app (carpeta), .zip, .ipa o .dmg.
+
+    - REA (`inspect_artifact` + `project_apple_application_graph`): bundles con su papel por convención de ruta
+      (app, extensiones, servicios XPC, ayudantes privilegiados, frameworks), ejecutables Mach-O, firmas, plists de
+      launchd, familias de ejecución y posibles puentes entre lenguajes.
+    - Eolfi (plistlib, no REA): el Info.plist de cada bundle (identificador, versión, sistema mínimo, permisos de
+      privacidad, esquemas URL, excepciones de transporte, canal de actualizaciones). REA solo lo parsea en macOS.
+    Los papeles salen de rutas y los permisos son declaraciones: no prueban que la app los use."""
+    src = Path(path)
+    kinds = (".zip", ".ipa", ".dmg")
+    if not ((src.is_dir() and src.suffix.lower() == ".app") or (src.is_file() and src.suffix.lower() in kinds)):
+        raise ValueError(f"se necesita una carpeta .app o un .zip/.ipa/.dmg existente: {path}")
+    limite = max(1, min(int(limite or 40), 500))
+    _session(client, str(src))
+    try:
+        text, ok = (client.call("inspect_artifact", {}, limit=None) if _accepts_limit(client)
+                    else client.call("inspect_artifact", {}))
+        if not ok:
+            raise RuntimeError(f"REA inspect_artifact: {text[:300]}")
+        graph = _call(client, "project_apple_application_graph", {"inventory_evidence": [json.loads(text)]})
+    finally:
+        _close(client)
+    comps = graph.get("components") or {}
+    bundles = []
+    for b in graph.get("bundles") or []:
+        if not isinstance(b, dict):
+            continue
+        item = {"ruta": b.get("path"), "papel": b.get("role"),
+                "ejecutables": [str(e).rsplit("/", 1)[-1] for e in b.get("executable_candidates") or []],
+                "firmado": bool(b.get("signing_paths"))}
+        plist = _read_plist(src, b["info_plist_path"]) if b.get("info_plist_path") and src.suffix.lower() != ".dmg" \
+            else None
+        if plist is not None:
+            item["info_plist"] = _plist_facts(plist)
+        bundles.append(item)
+    executables = [e for e in comps.get("executables") or [] if isinstance(e, dict)]
+    perms = sorted({k for b in bundles for k in (b.get("info_plist") or {}).get("permisos_privacidad", {})})
+    return {
+        "archivo": str(src), "sha256": graph.get("root_sha256"), "formato": graph.get("root_format"),
+        "plataformas": graph.get("platforms") or [], "apps": graph.get("application_roots") or [],
+        "bundles": bundles[:limite], "bundles_total": len(bundles),
+        "papeles": dict(Counter(str(b["papel"]) for b in bundles)),
+        "ejecutables": [{"ruta": e.get("path"), "formato": e.get("format"), "sha256": e.get("sha256")}
+                        for e in executables][:limite],
+        "componentes": {k: len(v) for k, v in comps.items() if isinstance(v, list)},
+        "ayudantes_privilegiados": [e.get("path") for e in comps.get("privileged_helpers") or []
+                                    if isinstance(e, dict)][:limite],
+        "launchd": [e.get("path") for e in comps.get("launchd_plists") or [] if isinstance(e, dict)][:limite],
+        "permisos_privacidad": perms,
+        "enlaces_simbolicos": len(graph.get("symlinks") or []),
+        "familias": graph.get("runtime_families") or [], "puentes": (graph.get("bridge_candidates") or [])[:limite],
+        "cobertura": (graph.get("coverage") or {}).get("status"),
+        "info_plist_fuente": ("Eolfi (plistlib), leído del archivo sin extraer" if src.suffix.lower() != ".dmg"
+                              else "no leído: un .dmg necesita montarse"),
+        "aviso": ("Análisis estático: no se ejecutó la app. Los papeles salen de convenciones de ruta y los permisos "
+                  "son declaraciones del Info.plist; la firma no se ha verificado (solo se ve que existe). "
+                  "Mach-O, Swift y plist con REA necesitan macOS.")}

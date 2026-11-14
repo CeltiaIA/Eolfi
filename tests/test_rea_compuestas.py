@@ -371,3 +371,69 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeApple:
+    """REA simulado: inventario y proyección de una app de Apple con un bundle principal y un servicio XPC."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append(name)
+        if name == "open_binary":
+            return json.dumps({"result": {"format": "zip"}}), True
+        if name == "close_binary":
+            return json.dumps({"result": None}), True
+        if name == "inspect_artifact":
+            return json.dumps({"inspection_id": "ai_1"}), True
+        assert name == "project_apple_application_graph" and args["inventory_evidence"] == [{"inspection_id": "ai_1"}]
+        out = {"root_sha256": "ee" * 32, "root_format": "zip", "platforms": ["macos"], "application_roots": ["X.app"],
+               "bundles": [{"path": "X.app", "role": "application", "info_plist_path": "X.app/Contents/Info.plist",
+                            "executable_candidates": ["X.app/Contents/MacOS/X"], "signing_paths": ["s"]},
+                           {"path": "X.app/Contents/XPCServices/H.xpc", "role": "xpc-service",
+                            "info_plist_path": "X.app/Contents/XPCServices/H.xpc/Contents/Info.plist",
+                            "executable_candidates": [], "signing_paths": []}],
+               "components": {"executables": [{"path": "X.app/Contents/MacOS/X", "format": "mach-o-universal"}],
+                              "privileged_helpers": [], "launchd_plists": [{"path": "X.app/Contents/L.plist"}]},
+               "symlinks": ["a"], "runtime_families": ["native"], "bridge_candidates": [],
+               "coverage": {"status": "complete-within-inventory"}}
+        return json.dumps({"normalized_result": out}), True
+
+
+def _info_plist():
+    import plistlib
+
+    return plistlib.dumps({"CFBundleIdentifier": "org.x", "CFBundleShortVersionString": "1.0", "LSUIElement": "1",
+                           "NSCameraUsageDescription": "Para escanear", "SUFeedURL": "https://x.test/appcast.xml",
+                           "CFBundleURLTypes": [{"CFBundleURLSchemes": ["xapp"]}],
+                           "NSAppTransportSecurity": {"NSAllowsArbitraryLoads": True,
+                                                      "NSExceptionDomains": {"b.test": {}}}})
+
+
+def test_mapa_app_apple_desde_zip_lee_info_plist_sin_extraer(tmp_path):
+    import zipfile
+
+    z = tmp_path / "X.app.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("X.app/Contents/Info.plist", _info_plist())
+    fake = FakeApple()
+    r = rc.mapa_app_apple(fake, str(z))
+    main, xpc = r["bundles"]
+    assert main["info_plist"]["id"] == "org.x" and main["info_plist"]["sin_icono_en_dock"] is True
+    assert main["info_plist"]["esquemas_url"] == ["xapp"] and main["firmado"] and main["ejecutables"] == ["X"]
+    assert main["info_plist"]["transporte"] == {"permite_http": True, "dominios_excepcion": ["b.test"]}
+    assert "info_plist" not in xpc  # su Info.plist no está en el zip: no se inventa
+    assert r["permisos_privacidad"] == ["NSCameraUsageDescription"] and r["launchd"] == ["X.app/Contents/L.plist"]
+    assert r["papeles"] == {"application": 1, "xpc-service": 1} and fake.calls[-1] == "close_binary"
+    assert not list(tmp_path.glob("X.app"))  # nada extraído a disco
+
+
+def test_mapa_app_apple_desde_carpeta_app_y_rutas_invalidas(tmp_path):
+    app = tmp_path / "X.app"
+    (app / "Contents").mkdir(parents=True)
+    (app / "Contents" / "Info.plist").write_bytes(_info_plist())
+    r = rc.mapa_app_apple(FakeApple(), str(app))
+    assert r["bundles"][0]["info_plist"]["canal_actualizaciones"] == "https://x.test/appcast.xml"
+    with pytest.raises(ValueError):
+        rc.mapa_app_apple(FakeApple(), str(tmp_path / "otra.exe"))
