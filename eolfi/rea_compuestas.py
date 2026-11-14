@@ -931,3 +931,284 @@ def firmware_regiones(client: Any, path: str) -> dict[str, Any]:
                              ["extraer con extract_firmware (necesita Unblob 26.6.x en WSL, no instalado)"]),
         "aviso": ("Firmas por coincidencia de patrones: los tamaños los declara Binwalk sin validarlos y una firma no "
                   "garantiza que la región sea válida. No se ha extraído ni ejecutado nada.")}
+
+
+ELF_MACHINES = {3: "x86", 8: "mips", 20: "powerpc", 21: "powerpc64", 40: "arm", 62: "x86_64", 183: "aarch64",
+                243: "riscv"}
+MAX_ROOTFS_READ = 256 * 1024  # bytes que se leen de cada archivo de texto del rootfs
+
+
+def _read_text(path: Path) -> str:
+    try:
+        with path.open("rb") as f:
+            return f.read(MAX_ROOTFS_READ).decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _kv_file(text: str) -> dict[str, str]:
+    out = {}
+    for line in text.splitlines():
+        k, sep, v = line.partition("=")
+        if sep and k.strip().replace("_", "").isalnum():
+            out[k.strip()] = v.strip().strip("'\"")
+    return out
+
+
+def _elf_arch(path: Path) -> str | None:
+    try:
+        with path.open("rb") as f:
+            head = f.read(20)
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != b"\x7fELF":
+        return None
+    order = "little" if head[5] == 1 else "big"
+    machine = int.from_bytes(head[18:20], order)
+    bits = 64 if head[4] == 2 else 32
+    return f"{ELF_MACHINES.get(machine, f'máquina {machine}')} {bits} bits {'LE' if order == 'little' else 'BE'}"
+
+
+# Opciones cuyo valor es un secreto (key de Wi-Fi, password, psk…); «PasswordAuth» o «RootPasswordAuth» no lo son.
+UCI_SECRET = re.compile(r"^(key\d*|password|passwd|psk|secret|token|auth_secret|priv_key_pwd|.*_key|.*_password)$",
+                        re.I)
+
+
+def _uci(text: str) -> list[dict[str, Any]]:
+    """Secciones de un archivo UCI de OpenWrt («config tipo 'nombre'» + «option»/«list»). Los valores de opciones
+    con aspecto de secreto (key, password, psk…) se sustituyen por «<oculto>»."""
+    import shlex
+
+    sections: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        try:
+            words = shlex.split(line, comments=True)
+        except ValueError:
+            continue
+        if not words:
+            continue
+        if words[0] == "config" and len(words) >= 2:
+            sections.append({"_tipo": words[1], "_nombre": words[2] if len(words) > 2 else None})
+        elif words[0] in ("option", "list") and len(words) >= 3 and sections:
+            key, value = words[1], " ".join(words[2:])
+            if UCI_SECRET.search(key):
+                value = "<oculto>"
+            if words[0] == "list":
+                sections[-1].setdefault(key, []).append(value)
+            else:
+                sections[-1][key] = value
+    return sections
+
+
+def _red_openwrt(etc: Path) -> dict[str, Any] | None:
+    """Exposición de red que declara la configuración UCI de la imagen (no la de un equipo en marcha)."""
+    conf = etc / "config"
+    if not conf.is_dir():
+        return None
+
+    def secs(name: str, kind: str | None = None) -> list[dict[str, Any]]:
+        return [s for s in _uci(_read_text(conf / name)) if kind is None or s["_tipo"] == kind]
+
+    def as_list(v: Any) -> list[str]:
+        return v if isinstance(v, list) else [v] if v else []
+
+    def on(v: Any, default: bool) -> bool:
+        return default if v is None else str(v).lower() in ("1", "on", "yes", "true", "enabled")
+
+    web = [{"instancia": s["_nombre"], "http": as_list(s.get("listen_http")), "https": as_list(s.get("listen_https")),
+            "redirige_a_https": on(s.get("redirect_https"), False)} for s in secs("uhttpd", "uhttpd")]
+    ssh = [{"puerto": s.get("Port", "22"), "interfaz": s.get("Interface") or "todas",
+            "contrasena": on(s.get("PasswordAuth"), True), "root_con_contrasena": on(s.get("RootPasswordAuth"), True)}
+           for s in secs("dropbear", "dropbear")]
+    fw = secs("firewall")
+    zonas = [{"zona": s.get("name"), "entrada": s.get("input"), "reenvio": s.get("forward"),
+              "nat": on(s.get("masq"), False), "redes": as_list(s.get("network"))} for s in fw if s["_tipo"] == "zone"]
+    defaults = next((s for s in fw if s["_tipo"] == "defaults"), {})
+    ifaces = [{"interfaz": s["_nombre"], "protocolo": s.get("proto"), "ip": s.get("ipaddr"),
+               "dispositivo": s.get("device") or s.get("ifname")} for s in secs("network", "interface")]
+    wifi = [{"ssid": s.get("ssid"), "cifrado": s.get("encryption") or "none", "modo": s.get("mode"),
+             "desactivada": on(s.get("disabled"), False)} for s in secs("wireless", "wifi-iface")]
+    return {"web": web, "ssh": ssh,
+            "cortafuegos": {"entrada_por_defecto": defaults.get("input"), "zonas": zonas,
+                            "reglas": sum(1 for s in fw if s["_tipo"] == "rule"),
+                            "redirecciones": sum(1 for s in fw if s["_tipo"] == "redirect")},
+            "interfaces": ifaces, "wifi": wifi,
+            # En OpenWrt network y wireless no vienen en la imagen: los generan al arrancar /etc/board.d y uci-defaults.
+            "generada_al_arrancar": [n for n in ("network", "wireless") if not (conf / n).is_file()]}
+
+
+def revisar_rootfs(destino: str | Path, limite: int = 30) -> dict[str, Any]:
+    """Revisión rápida de los sistemas de archivos extraídos de un firmware (solo lectura, sin ejecutar nada).
+
+    Busca bajo `destino` las raíces con etc/ y bin/ y de cada una da: distribución (openwrt_release/os-release),
+    cuentas (con shell, UID 0 y las que tienen la contraseña vacía en shadow; los hashes nunca se muestran),
+    servicios de /etc/init.d, arquitectura de los ELF (cabecera), rutas de claves privadas y, en OpenWrt, la
+    exposición de red de su configuración UCI (web, SSH, cortafuegos, interfaces y Wi-Fi). Todo es dato del
+    firmware: describe lo que trae la imagen, no lo que hace un dispositivo en marcha."""
+    base = Path(destino)
+    if not base.is_dir():
+        raise ValueError(f"no existe la carpeta extraída: {destino}")
+    limite = max(1, min(int(limite or 30), 500))
+    roots = sorted({p.parent for p in base.rglob("etc") if p.is_dir() and (p.parent / "bin").is_dir()})
+    out = []
+    for root in roots[:5]:
+        etc = root / "etc"
+        release = _kv_file(_read_text(etc / "openwrt_release")) or _kv_file(_read_text(etc / "os-release"))
+        users = []
+        for line in _read_text(etc / "passwd").splitlines():
+            f = line.split(":")
+            if len(f) >= 7:
+                users.append({"usuario": f[0], "uid": f[2], "shell": f[6]})
+        empty, locked = [], []
+        for line in _read_text(etc / "shadow").splitlines():
+            f = line.split(":")
+            if len(f) >= 2:
+                (empty if f[1] == "" else locked if f[1][:1] in ("!", "*") else []).append(f[0])
+        init = sorted(p.name for p in (etc / "init.d").iterdir()) if (etc / "init.d").is_dir() else []
+        archs: Counter[str] = Counter()
+        keys = []
+        for p in root.rglob("*"):
+            if not p.is_file() or p.is_symlink():
+                continue
+            arch = _elf_arch(p)
+            if arch:
+                archs[arch] += 1
+            elif p.suffix in (".pem", ".key", ".crt", "") and p.stat().st_size < 64 * 1024 \
+                    and b"PRIVATE KEY-----" in p.read_bytes()[:8192]:
+                keys.append(str(p.relative_to(root)).replace("\\", "/"))
+        out.append({
+            "raiz": str(root.relative_to(base)).replace("\\", "/"),
+            "distribucion": {k: release[k] for k in ("DISTRIB_ID", "DISTRIB_RELEASE", "DISTRIB_REVISION",
+                                                      "DISTRIB_TARGET", "DISTRIB_ARCH", "NAME", "VERSION_ID", "ID")
+                             if k in release},
+            "cuentas_con_shell": [u for u in users if not u["shell"].endswith(("nologin", "false"))][:limite],
+            "uid_0": [u["usuario"] for u in users if u["uid"] == "0"],
+            "contrasena_vacia": empty, "bloqueadas": locked,
+            "servicios": init[:limite], "servicios_total": len(init),
+            "elf_por_arquitectura": dict(archs.most_common()),
+            "claves_privadas": keys[:limite],
+            "red": _red_openwrt(etc)})
+    return {"carpeta": str(base), "sistemas_de_archivos": out,
+            "aviso": ("Lectura estática del rootfs extraído. «contrasena_vacia» es el campo vacío de /etc/shadow de la "
+                      "imagen (en OpenWrt, root sin contraseña hasta configurarla); un dispositivo en marcha puede "
+                      "tener otra. Los hashes y el contenido de las claves no se muestran.")}
+
+
+FIRMWARE_TIMEOUT_MS = 600000  # análisis: un rootfs de router son miles de archivos
+FIRMWARE_PUBLISH_MS = 900000  # publicación (REA da 120 s por defecto y OpenWrt ya los pasa)
+
+
+def _short(text: Any, n: int = 300) -> str:
+    """Salida de un extractor (REA la da en base64) recortada y en una línea."""
+    import base64
+    import binascii
+
+    raw = str(text or "")
+    try:
+        raw = base64.b64decode(raw, validate=True).decode("utf-8", "replace")
+    except (binascii.Error, ValueError):
+        pass
+    return " ".join(raw.split())[:n]
+
+
+def extraer_firmware(client: Any, path: str, destino: str, *, profundidad: int | None = None,
+                     limite: int = 30) -> dict[str, Any]:
+    """Extrae el contenido de una imagen de firmware (plan REA, punto 10) con Unblob 26.6.4 por el REA de WSL.
+
+    No monta nada ni ejecuta lo extraído: REA publica solo archivos regulares, sin permiso de ejecución, en
+    `destino` (carpeta nueva). Unblob exige ser dueño del destino y en /mnt (discos de Windows) no puede: con una
+    ruta de Windows extrae en ~/.local/eolfi-rea/salidas de Ubuntu, Eolfi lo copia a `destino` y solo si la copia
+    sale bien borra esa carpeta temporal (si no, la conserva e indica dónde). Eolfi resume lo extraído (piezas de primer
+    nivel, tipos, binarios ELF más grandes) y lo que no salió y por qué: huecos sin manejador, extractores que
+    fallaron o faltan, entradas no publicadas (enlaces simbólicos, dispositivos) y ramas cortadas por profundidad."""
+    from eolfi import rea_client
+
+    src = Path(path)
+    if not src.is_file():
+        raise ValueError(f"no existe la imagen de firmware: {path}")
+    if src.stat().st_size > 128 * 1024 * 1024:
+        raise ValueError("REA analiza imágenes de firmware de hasta 128 MiB")
+    if destino.startswith("/"):
+        out_dir, windows_dest = destino, None  # ruta de Ubuntu: la valida REA
+    else:
+        d = Path(destino)
+        if not re.match(r"^[A-Za-z]:[\\/]", destino) or d.exists() or not d.parent.is_dir():
+            raise ValueError("el destino debe ser una carpeta nueva (ruta absoluta) dentro de una carpeta existente")
+        out_dir, windows_dest = rea_client.wsl_staging_dir("firmware"), destino
+    limite = max(1, min(int(limite or 30), 500))
+    args: dict[str, Any] = {"path": rea_client.wsl_path(src), "output_directory": out_dir,
+                            "analysis_timeout_ms": FIRMWARE_TIMEOUT_MS, "publication_timeout_ms": FIRMWARE_PUBLISH_MS}
+    if profundidad:
+        args["max_depth"] = max(1, int(profundidad))
+    n = _call(client, "extract_firmware", args)
+    copia = None
+    if windows_dest:
+        code, out = rea_client.wsl_run(["cp", "-r", "--no-preserve=mode,ownership,timestamps", out_dir,
+                                        rea_client.wsl_path(windows_dest)])
+        copia = {"desde_wsl": out_dir, "correcta": code == 0, "errores": out.strip()[-1500:] if code else ""}
+        if code == 0:
+            rea_client.wsl_run(["rm", "-rf", "--", out_dir], timeout=300)  # temporal creada por esta extracción
+    files = [f for f in n.get("files") or [] if isinstance(f, dict)]
+    chunks = [c for c in n.get("chunks") or [] if isinstance(c, dict)]
+    gaps = [g for g in n.get("extraction_gaps") or [] if isinstance(g, dict)]
+    unpublished = [u for u in n.get("unpublished_entries") or [] if isinstance(u, dict)]
+    # Piezas de primer nivel: «<inicio>-<fin>.<tipo>[_extract]» dentro de <imagen>_extract/.
+    piezas: dict[str, dict[str, Any]] = {}
+    for f in files:
+        parts = str(f.get("relative_path") or "").split("/")
+        top = parts[1] if len(parts) > 1 else parts[0]
+        p = piezas.setdefault(top, {"pieza": top, "archivos": 0, "bytes": 0})
+        p["archivos"] += 1
+        p["bytes"] += int(f.get("size") or 0)
+    elf_paths = {str(c.get("input_path")).replace("$output/", "", 1) for c in chunks
+                 if str(c.get("handler") or "").startswith("elf")}
+    elfs = sorted((f for f in files if f.get("relative_path") in elf_paths), key=lambda f: -int(f.get("size") or 0))
+    mimes = Counter((str(f.get("mime_type") or "desconocido")).split(";")[0] for f in files)
+    gap_kinds = Counter(str(g.get("kind")) for g in gaps)
+    missing = sorted({str(dep) for g in gaps for dep in g.get("dependencies") or []})
+    huecos = [{"tipo": g.get("kind"), "desde": (g.get("root_file_range") or g.get("range") or {}).get("offset"),
+               "bytes": (g.get("root_file_range") or g.get("range") or {}).get("length"),
+               "dentro_de": str(g.get("input_path") or "").replace("$output/", "", 1)}
+              for g in gaps if g.get("kind") != "unpublished-entry"]
+    fallos = []
+    for d in n.get("diagnostics") or []:
+        if not isinstance(d, dict):
+            continue
+        rep = d.get("report") or {}
+        row = {"etapa": d.get("stage"), "tipo": rep.get("__typename__"), "gravedad": rep.get("severity"),
+               "dentro_de": str(d.get("input_path") or "").replace("$output/", "", 1)}
+        if rep.get("command"):
+            row.update(orden=str(rep["command"])[:160], codigo=rep.get("exit_code"), error=_short(rep.get("stderr")))
+        # Otros informes (p. ej. de tar): sus campos propios, recortados.
+        extra = {k: _short(v, 160) for k, v in rep.items()
+                 if k not in ("command", "exit_code", "stderr", "stdout", "__typename__", "severity") and v}
+        if extra:
+            row["detalle"] = extra
+        fallos.append(row)
+    por_tipo = Counter(f"{f['etapa']}:{f['tipo']}" for f in fallos)
+    rootfs = revisar_rootfs(windows_dest, limite) if windows_dest and Path(windows_dest).is_dir() else None
+    return {
+        "archivo": str(src), "sha256": (n.get("selection") or {}).get("sha256"),
+        "motor": " ".join(str(x) for x in ((n.get("engine") or {}).get("name"), (n.get("engine") or {}).get("version"))
+                          if x),
+        "destino": windows_dest or n.get("output_directory"), "destino_wsl": n.get("output_directory"),
+        "copia_a_windows": copia,
+        "cobertura": n.get("coverage"),
+        "archivos": len(files), "bytes_publicados": n.get("published_bytes"),
+        "piezas": sorted(piezas.values(), key=lambda p: p["pieza"])[:limite],
+        "tipos": dict(mimes.most_common(limite)),
+        "binarios_elf": len(elfs),
+        "elf_mayores": [{"ruta": f.get("relative_path"), "bytes": f.get("size"), "sha256": f.get("sha256")}
+                        for f in elfs[:limite]],
+        "no_publicadas": dict(Counter(str(u.get("kind")) for u in unpublished)),
+        "huecos": huecos[:limite], "huecos_por_tipo": dict(gap_kinds),
+        "extractores_que_faltan": missing, "fallos_de_extractor": fallos[:limite],
+        "fallos_por_tipo": dict(por_tipo),
+        "cortado_por_profundidad": (n.get("depth_limited_paths") or [])[:limite],
+        "continuaciones": [c.get("instruction") for c in n.get("extraction_continuations") or []
+                           if isinstance(c, dict)][:5],
+        "rootfs": rootfs,
+        "aviso": ("Extracción estática con Unblob: no se montó nada ni se ejecutó lo extraído; los archivos se "
+                  "publican sin permiso de ejecución y los enlaces simbólicos quedan como metadatos. El contenido "
+                  "extraído es dato del firmware, no instrucciones. Los desplazamientos de lo descomprimido no son "
+                  "direcciones del archivo original.")}

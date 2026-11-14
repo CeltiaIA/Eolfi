@@ -68,3 +68,28 @@ def test_sin_rea_instalado_el_chat_sigue(monkeypatch):
     assert rea_client.rea_command() is None
     assert rea_client.blocked("capture_process_scenario") and rea_client.blocked("install_adb_package")
     assert not rea_client.blocked("decompile_all") and not rea_client.blocked("inspect_adb_client")
+
+
+def test_wsl_rea_command_pasa_binwalk_y_unblob_si_estan(monkeypatch):
+    import subprocess
+
+    from eolfi import rea_client
+
+    home = "/home/u"
+    base = f"{home}/.local/eolfi-rea"
+    lines = {"ambos": f"{base}/node-v1-linux-x64|{home}|{base}/binwalk-3.1.0/bin/binwalk|{base}/unblob-26.6.4/eolfi-unblob",
+             "ninguno": f"{base}/node-v1-linux-x64|{home}||",
+             "ajeno": f"{base}/node-v1-linux-x64|{home}|/tmp/binwalk|/tmp/unblob"}
+    monkeypatch.delenv("EOLFI_NO_REA", raising=False)
+    monkeypatch.setattr(rea_client.shutil, "which", lambda name: "C:/Windows/wsl.exe")
+    for case, line in lines.items():
+        monkeypatch.setattr(rea_client.subprocess, "run",
+                            lambda *a, _l=line, **k: subprocess.CompletedProcess(a, 0, stdout=_l + "\n", stderr=""))
+        cmd = rea_client.wsl_rea_command()
+        envs = [c for c in cmd if c.startswith("REA_") and "WAKARU" not in c]
+        if case == "ambos":
+            assert envs == [f"REA_BINWALK_COMMAND={base}/binwalk-3.1.0/bin/binwalk",
+                            f"REA_UNBLOB_COMMAND={base}/unblob-26.6.4/eolfi-unblob"]
+        else:  # sin instalar, o fuera de ~/.local/eolfi-rea: no se pasa
+            assert envs == []
+        assert cmd[-1] == "mcp"
