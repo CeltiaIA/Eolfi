@@ -88,14 +88,16 @@ APP_TOOLS = {
                        "additionalProperties": False}},
     "eolfi_verificar_comportamiento": {
         "description": "Compara el COMPORTAMIENTO de un programa original y su reconstrucción ejecutando ambos con el mismo "
-                       "escenario (REA): salida, código de salida y global. EJECUTA: pide permiso al usuario.",
+                       "escenario (REA): salida, código de salida y global. Con «modulo» (el archivo de código de la "
+                       "reconstrucción) genera además el libro de obligaciones de REA. EJECUTA: pide permiso al usuario.",
         "parameters": {"type": "object", "properties": {
             "original": {"type": "object", "properties": {"ejecutable": {"type": "string"},
                                                           "argumentos": {"type": "array", "items": {"type": "string"}},
                                                           "carpeta": {"type": "string"}}, "required": ["ejecutable"]},
             "reconstruccion": {"type": "object", "properties": {"ejecutable": {"type": "string"},
                                                                 "argumentos": {"type": "array", "items": {"type": "string"}},
-                                                                "carpeta": {"type": "string"}}, "required": ["ejecutable"]}},
+                                                                "carpeta": {"type": "string"},
+                                                                "modulo": {"type": "string"}}, "required": ["ejecutable"]}},
             "required": ["original", "reconstruccion"], "additionalProperties": False}},
     "eolfi_analizar_app_js": {
         "description": "Analiza con REA una aplicación JavaScript, Electron o web (carpeta o .asar) SIN ejecutarla: "
