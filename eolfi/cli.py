@@ -417,6 +417,11 @@ def _parser() -> argparse.ArgumentParser:
     co.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
                     help="Carpeta de la biblioteca (EOLFI_LIBRARY, o Alejandria en la carpeta personal o en D:)")
     co.add_argument("--dry-run", action="store_true", help="Muestra qué se importaría sin copiar nada")
+    ds = sub.add_parser("dataset", help="Conjunto de datos para entrenar modelos (SFT en chat y preentrenamiento) a "
+                                        "partir del corpus de Alejandría: verificado, sin duplicados y con privacidad")
+    ds.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
+                    help="Carpeta de la biblioteca (EOLFI_LIBRARY, o Alejandria en la carpeta personal o en D:)")
+    ds.add_argument("--dry-run", action="store_true", help="Muestra los recuentos sin escribir nada")
 
     # REA a través de Eolfi (plan PLAN_REA.md): mismas herramientas compuestas que usa el chat de Eolas V2.
     rp = sub.add_parser("rea", help="Ingeniería inversa con REA a través de Eolfi (estático: nunca ejecuta el objetivo)")
@@ -1502,9 +1507,29 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi.corpus import run_corpus
 
         return run_corpus(args.library, dry_run=args.dry_run)
+    if args.cmd == "dataset":
+        from eolfi.dataset_llm import build
+
+        _print(build(args.library, dry_run=args.dry_run))
+        return 0
     if args.cmd == "rea":
         from eolfi import rea_client, rea_compuestas as rc
 
+        if args.caso:
+            # 14/11/2026: el caso se comprobaba DESPUÉS del análisis, y un identificador mal escrito tiraba minutos de
+            # Ghidra sin mostrar nada. Ahora se comprueba antes de empezar.
+            from eolfi.core.cases import CaseStore
+            from eolfi.core.evidence import EvidenceStore as _EvidenceStore
+
+            check = _EvidenceStore(args.db)
+            try:
+                CaseStore(check).get(args.caso)
+            except ValueError:
+                print(f"caso no encontrado: {args.caso}. Usa el identificador de «eolfi case list» o crea uno con "
+                      "«eolfi case create <nombre>».", file=sys.stderr)
+                return 2
+            finally:
+                check.close()
         cmd = rea_client.wsl_rea_command() if args.rea_action == "recuperar-js" else None
         if args.rea_action == "recuperar-js" and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
@@ -1544,6 +1569,9 @@ def main(argv: list[str] | None = None) -> int:
             store = _EvidenceStore(args.db)
             try:
                 result["caso"] = rea_caso.registrar(store, args.caso, op, params, result)
+            except (ValueError, OSError) as exc:
+                # El análisis ya está hecho: se muestra igual, con el error del registro, en vez de perderlo.
+                result["caso_error"] = str(exc)
             finally:
                 store.close()
         _print(result)

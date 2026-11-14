@@ -86,3 +86,37 @@ def test_el_chat_registra_solo_con_caso_activo(tmp_path):
         assert len(CaseStore(s).get(case)["artifacts"]) == 1
     finally:
         s.close()
+
+
+def test_cli_comprueba_el_caso_antes_de_lanzar_rea(tmp_path, monkeypatch, capsys):
+    """14/11/2026: con un caso inexistente se perdían minutos de Ghidra: el error salía DESPUÉS del análisis."""
+    from eolfi import cli, rea_client
+
+    started = []
+    monkeypatch.setattr(rea_client, "ReaClient", lambda *a, **k: started.append(1) or pytest.fail("no debía arrancar"))
+    rc = cli.main(["--db", str(tmp_path / "x.db"), "rea", "--caso", "no-existe", "inventario", str(tmp_path / "a.exe")])
+    assert rc == 2 and not started
+    assert "caso no encontrado: no-existe" in capsys.readouterr().err
+
+
+def test_cli_muestra_el_resultado_aunque_falle_el_registro(tmp_path, monkeypatch, capsys):
+    from eolfi import cli, rea_client, rea_compuestas
+
+    db = str(tmp_path / "y.db")
+    s = EvidenceStore(db)
+    case = _case(s)
+    s.close()
+
+    class Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rea_client, "ReaClient", Fake)
+    monkeypatch.setattr(rea_compuestas, "inventario_dependencias", lambda client, ruta: {"archivo": ruta, "librerias": []})
+    monkeypatch.setattr(rea_caso, "registrar", lambda *a, **k: (_ for _ in ()).throw(ValueError("disco lleno")))
+    rc = cli.main(["--db", db, "rea", "--caso", case, "inventario", str(tmp_path / "a.exe")])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["librerias"] == [] and out["caso_error"] == "disco lleno"
