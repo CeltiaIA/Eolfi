@@ -444,6 +444,12 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r14 = rps.add_parser("clase", help="Clases y métodos de un APK descompilados con JADX, sin ejecutar la app")
+    r14.add_argument("ruta")
+    r14.add_argument("consulta", help="nombre completo de la clase o un trozo (distingue mayúsculas)")
+    r14.add_argument("--metodo", help="método que se descompila")
+    r14.add_argument("--sobrecarga", type=int, help="índice de la sobrecarga si el método tiene varias")
+    r14.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1544,6 +1550,12 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "clase":
+                op = "clase_android"
+                params = {"ruta": args.ruta, "consulta": args.consulta, "metodo": args.metodo,
+                          "sobrecarga": args.sobrecarga}
+                result = rc.clase_android(client, args.ruta, args.consulta, metodo=args.metodo,
+                                          sobrecarga=args.sobrecarga, limite=args.limite)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
