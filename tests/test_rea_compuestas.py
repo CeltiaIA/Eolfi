@@ -371,3 +371,46 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeBinwalk:
+    """REA de WSL con Binwalk 3.1.0: forma real de inspect_firmware_regions (14/11/2026)."""
+
+    def __init__(self, regions):
+        self.regions, self.paths = regions, []
+
+    def call(self, name, args, limit=None):
+        assert name == "inspect_firmware_regions"
+        self.paths.append(args["path"])
+        return json.dumps({"normalized_result": {"engine": {"name": "binwalk", "version": "3.1.0",
+                                                            "executable_sha256": "cd" * 32},
+                                                 "regions": self.regions, "coverage": "signature_scan"}}), True
+
+
+def test_firmware_regiones_ordena_y_clasifica_los_huecos(tmp_path):
+    img = tmp_path / "fw.bin"
+    img.write_bytes(b"\xff" * 16 + b"GZ" + b"\x00" * 6 + b"\x00" * 8 + b"zz" * 4 + b"\xff" * 8)  # 48 bytes
+    fake = FakeBinwalk([{"offset": 26, "reported_size": 4, "signature": "png", "description": "PNG",
+                         "reported_confidence": 250},
+                        {"offset": 16, "reported_size": 8, "signature": "gzip", "description": "gzip",
+                         "reported_confidence": 250}])
+    out = rc.firmware_regiones(fake, str(img))
+    assert fake.paths[0].startswith("/mnt/") and out["motor"] == "binwalk 3.1.0" and out["bytes"] == 48
+    assert [r["firma"] for r in out["regiones"]] == ["gzip", "png"] and out["regiones"][0]["hex"] == "0x10"
+    assert out["huecos"] == [
+        {"desde": 0, "hasta": 16, "bytes": 16, "contenido": "relleno 0xFF"},
+        {"desde": 24, "hasta": 26, "bytes": 2, "contenido": "ceros"},
+        {"desde": 30, "hasta": 48, "bytes": 18, "contenido": "datos sin firma"}]
+    assert out["bytes_sin_firma"] == 18 and "Unblob" in out["siguientes_pasos"][-1]
+
+
+def test_firmware_regiones_sugiere_devicetree_y_rechaza_lo_que_no_existe(tmp_path):
+    img = tmp_path / "fw.bin"
+    img.write_bytes(b"\x00" * 64)
+    fake = FakeBinwalk([{"offset": 8, "reported_size": None, "signature": "fdt",
+                         "description": "Device tree blob (DTB)", "reported_confidence": 250}])
+    out = rc.firmware_regiones(fake, str(img))
+    assert out["siguientes_pasos"][0] == "inspect_devicetree sobre la región en 0x8"
+    assert out["huecos"][-1] == {"desde": 9, "hasta": 64, "bytes": 55, "contenido": "ceros"}
+    with pytest.raises(ValueError, match="no existe"):
+        rc.firmware_regiones(fake, str(tmp_path / "no.bin"))

@@ -122,7 +122,7 @@ autorización.
 | 7 | **De captura de red a API** | `inspect_pcap_capture`, `inspect_packet_fields` y Eolas | Especificación de API (estilo OpenAPI) y un cliente generado por Eolfi | Pendiente |
 | 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Pendiente |
 | 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
-| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
+| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Hecho el desglose (14/11/2026, `firmware_regiones`, `eolfi rea firmware <imagen>`): firmas de Binwalk 3.1.0 (REA de WSL) con desplazamiento, tamaño declarado y confianza, más los huecos sin firma (relleno 0xFF, ceros o datos) que calcula Eolfi y la sugerencia de `inspect_devicetree` si aparece un DTB. En vivo con una imagen sintética: gzip, ZIP y PNG en sus desplazamientos exactos. Binwalk se compila desde el commit auditado con `tools/instalar-binwalk-wsl.sh` (sin sudo). Falta: extracción (`extract_firmware` necesita Unblob 26.6.x) y una imagen real |
 | 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
 
 ## Lo que se aprendió de REA al construir
