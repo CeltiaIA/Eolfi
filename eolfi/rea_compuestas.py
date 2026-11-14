@@ -880,3 +880,54 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+def firmware_regiones(client: Any, path: str) -> dict[str, Any]:
+    """Desglose de una imagen de firmware (plan REA, punto 10): qué hay y dónde, sin extraer ni ejecutar nada.
+
+    REA de WSL con Binwalk 3.1.0 (`inspect_firmware_regions`): firmas con su desplazamiento, tamaño declarado,
+    descripción y confianza. Eolfi añade los huecos que ninguna firma cubre y si son relleno de flash borrada
+    (0xFF) o ceros, leyendo el archivo local. Los tamaños los declara Binwalk sin validarlos, y la extracción
+    (`extract_firmware`, Unblob) no está instalada."""
+    import hashlib
+
+    from eolfi import rea_client
+
+    src = Path(path)
+    if not src.is_file():
+        raise ValueError(f"no existe la imagen de firmware: {path}")
+    data = src.read_bytes()
+    if len(data) > 128 * 1024 * 1024:
+        raise ValueError("REA analiza imágenes de firmware de hasta 128 MiB")
+    n = _call(client, "inspect_firmware_regions", {"path": rea_client.wsl_path(src)})
+    regions = sorted((r for r in n.get("regions") or [] if isinstance(r, dict)), key=lambda r: int(r.get("offset") or 0))
+    filas, huecos, cursor = [], [], 0
+
+    def hueco(start: int, end: int) -> None:
+        if end <= start:
+            return
+        chunk = data[start:end]
+        kind = ("relleno 0xFF" if chunk.count(0xFF) == len(chunk) else "ceros" if chunk.count(0) == len(chunk)
+                else "datos sin firma")
+        huecos.append({"desde": start, "hasta": end, "bytes": end - start, "contenido": kind})
+
+    for r in regions:
+        off, size = int(r.get("offset") or 0), r.get("reported_size")
+        hueco(cursor, off)
+        end = off + int(size) if isinstance(size, int) and size > 0 else None
+        filas.append({"desplazamiento": off, "hex": f"0x{off:x}", "tamano_declarado": size, "firma": r.get("signature"),
+                      "descripcion": r.get("description"), "confianza": r.get("reported_confidence")})
+        cursor = max(cursor, end if end is not None else off + 1)
+    hueco(cursor, len(data))
+    engine = n.get("engine") or {}
+    sin_firma = [h for h in huecos if h["contenido"] == "datos sin firma"]
+    devicetree = [f for f in filas if "device tree" in str(f["descripcion"]).lower() or f["firma"] in ("fdt", "dtb")]
+    return {
+        "archivo": str(src), "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
+        "motor": f"{engine.get('name')} {engine.get('version')}".strip(), "motor_sha256": engine.get("executable_sha256"),
+        "cobertura": n.get("coverage"), "regiones": filas, "huecos": huecos,
+        "bytes_sin_firma": sum(h["bytes"] for h in sin_firma),
+        "siguientes_pasos": ([f"inspect_devicetree sobre la región en {d['hex']}" for d in devicetree] +
+                             ["extraer con extract_firmware (necesita Unblob 26.6.x en WSL, no instalado)"]),
+        "aviso": ("Firmas por coincidencia de patrones: los tamaños los declara Binwalk sin validarlos y una firma no "
+                  "garantiza que la región sea válida. No se ha extraído ni ejecutado nada.")}
