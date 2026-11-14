@@ -207,7 +207,9 @@ def build(library: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
         if _JUNK.search(rel):
             why["temporal, prueba, copia de seguridad o generado"] += 1
             continue
-        f = lib / rel
+        # El índice de Alejandría guarda rutas de Windows («corpus\codigo\…»): fuera de Windows, «lib / rel» sería un
+        # solo nombre con barras dentro y todo quedaría como «falta en disco». Se parte por las dos barras.
+        f = lib.joinpath(*[p for p in re.split(r"[\\/]", rel) if p])
         if not f.is_file():
             why["falta en disco"] += 1
             continue
