@@ -121,3 +121,44 @@ def test_las_copias_de_seguridad_no_entran():
     assert _JUNK.search(r"corpus\texto\Eolfi\backups\antes-modo-agente\SESION.md")
     assert _JUNK.search("corpus/texto/Force/_backup-2026/notas.md")
     assert not _JUNK.search("corpus/texto/Eolfi/docs/copias-de-seguridad.md")
+
+
+def test_los_casos_ineditos_quedan_reservados_y_no_se_filtran_al_entrenamiento(tmp_path):
+    """14/11/2026: las respuestas y soluciones de los casos inéditos entraban en el entrenamiento; un motor entrenado
+    con ellas aprobaría de memoria la parte de la ronda que mide si generaliza."""
+    from eolfi import eolas_v2
+    from eolfi.dataset_llm import holdout_cases
+
+    held = holdout_cases()
+    assert held == {c["id"] for c in eolas_v2.CODE_UNSEEN_CASES} and "romano" in held
+    lib = _library(tmp_path)
+    index = json.loads((lib / "manifests" / "corpus.index.json").read_text(encoding="utf-8"))
+
+    def add(rel, content, tipo, lenguaje):
+        f = lib / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(content, encoding="utf-8")
+        index["entries"].append({"sha256": _normalized_sha(content), "tipo": tipo, "lenguaje": lenguaje,
+                                 "path": rel.replace("/", "\\"), "bytes": f.stat().st_size})
+
+    add("corpus/codigo/Eolfi-aportes/romano/gemma-1.py", "def romano(n):\n    return 'I' * n  # solución aprobada\n",
+        "codigo", "py")
+    add("corpus/codigo/Eolfi/tests/referencias_ineditos.py", "REFERENCIAS = {'romano': 'def romano(n): ...'}\n" * 2,
+        "codigo", "py")
+    ex = {"esquema": "eolfi.ejemplo-entrenamiento/1", "id": "r", "tipo": "inedito", "caso": "romano",
+          "calidad": "a-la-primera", "mensajes": [{"role": "user", "content": "Escribe romano(n)."},
+                                                  {"role": "assistant", "content": "def romano(n): ..."}],
+          "verificacion": {"salida": "EOLFI-OK\n"}, "motor": {"perfil": "gemma"}}
+    add("corpus/datos/Eolfi-aportes/corpus-entrenamiento/inedito/a-la-primera/romano.jsonl",
+        json.dumps(ex, ensure_ascii=False) + "\n", "datos", "jsonl")
+    (lib / "manifests" / "corpus.index.json").write_text(json.dumps(index), encoding="utf-8")
+    out = Path(build(lib)["salida"])
+    training = "".join((out / n).read_text(encoding="utf-8")
+                       for n in ("sft-chat.jsonl", "pretrain-codigo.jsonl", "pretrain-texto.jsonl"))
+    assert "romano" not in training                                            # ninguna fuga al entrenamiento
+    reserved = _rows(out / "reservado-evaluacion.jsonl")
+    assert [r["metadata"]["caso"] for r in reserved] == ["romano"]
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["excluidos"]["solución de referencia de un caso reservado"] == 1
+    assert manifest["excluidos"]["respuesta a un caso reservado (Eolfi-aportes)"] == 1
+    assert "NO es para entrenar" in (out / "README.md").read_text(encoding="utf-8")

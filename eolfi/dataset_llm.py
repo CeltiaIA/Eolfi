@@ -10,6 +10,8 @@ escribe en <biblioteca>/datasets/llm-eolfi/ en los formatos habituales de entren
                          contenedor o salida esperada), sacadas del corpus de entrenamiento de las rondas.
 - pretrain-codigo.jsonl  {"text": "…", "metadata": {…}}  código del corpus.
 - pretrain-texto.jsonl   {"text": "…", "metadata": {…}}  documentación .md/.txt.
+- reservado-evaluacion.jsonl  NO es para entrenar: los casos inéditos de la ronda (y sus soluciones fuera del
+                         preentrenamiento), para que un motor entrenado no los apruebe de memoria.
 - manifest.json          recuentos, exclusiones por motivo y SHA-256 de cada archivo.
 - README.md              ficha del conjunto (formato, verificación, privacidad, límites).
 
@@ -158,6 +160,30 @@ def _sft_examples(path: Path, why: Counter) -> list[dict[str, Any]]:
     return out
 
 
+def holdout_cases() -> set[str]:
+    """Casos INÉDITOS de la ronda de motores: miden si un motor generaliza a lo que nunca vio. Si entrasen en el
+    entrenamiento, un motor los aprobaría de memoria y la ronda dejaría de medir (14/11/2026). Se leen de la propia
+    ronda para no desincronizarse."""
+    from eolfi import eolas_v2
+
+    return {str(c["id"]) for c in eolas_v2.CODE_UNSEEN_CASES}
+
+
+# Archivos con las soluciones de referencia de los casos inéditos.
+_REFERENCE_SOLUTIONS = ("tests/referencias_ineditos.py",)
+
+
+def _holdout_leak(rel: str, held: set[str]) -> str | None:
+    """¿Este archivo filtraría un caso reservado al entrenamiento? Devuelve el motivo o None."""
+    parts = rel.replace("\\", "/").split("/")
+    inner = "/".join(parts[3:])          # ruta dentro de la fuente (sin corpus/<tipo>/<fuente>)
+    if inner in _REFERENCE_SOLUTIONS:
+        return "solución de referencia de un caso reservado"
+    if len(parts) > 3 and parts[2] == "Eolfi-aportes" and parts[3] in held:
+        return "respuesta a un caso reservado (Eolfi-aportes)"
+    return None
+
+
 def build(library: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
     lib = Path(library)
     index_path = lib / "manifests" / "corpus.index.json"
@@ -171,6 +197,8 @@ def build(library: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
     sft_seen: set[str] = set()
     code: list[dict[str, Any]] = []
     text: list[dict[str, Any]] = []
+    reserved: list[dict[str, Any]] = []
+    held = holdout_cases()
     redacted = 0
 
     for e in sorted(entries, key=lambda x: str(x.get("path") or "")):
@@ -205,10 +233,18 @@ def build(library: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
                     why["sft: duplicado"] += 1
                     continue
                 sft_seen.add(key)
+                if ex["metadata"].get("caso") in held or ex["metadata"].get("tipo") == "inedito":
+                    reserved.append(ex)           # nunca al entrenamiento: sirve para medir si generaliza
+                    why["sft: reservado para evaluación (caso inédito)"] += 1
+                    continue
                 sft.append(ex)
             continue
         if kind not in ("codigo", "texto"):
             why[f"tipo no usado ({kind})"] += 1
+            continue
+        leak = _holdout_leak(rel, held)
+        if leak:
+            why[leak] += 1
             continue
         if len(re.sub(r"\s+", "", content)) < MIN_CHARS:
             why[f"menos de {MIN_CHARS} caracteres"] += 1
@@ -227,7 +263,8 @@ def build(library: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
             "validacion": "sintaxis validada por Alejandría" if kind == "codigo" else "texto"}}
         (code if kind == "codigo" else text).append(record)
 
-    files = {"sft-chat.jsonl": sft, "pretrain-codigo.jsonl": code, "pretrain-texto.jsonl": text}
+    files = {"sft-chat.jsonl": sft, "pretrain-codigo.jsonl": code, "pretrain-texto.jsonl": text,
+             "reservado-evaluacion.jsonl": reserved}
     manifest: dict[str, Any] = {
         "esquema": SCHEMA, "generado": datetime.now(timezone.utc).isoformat(),
         "indice": {"ruta": str(index_path.relative_to(lib)), "entradas": len(entries),
@@ -285,6 +322,9 @@ Generado el {m['generado']} con `python -m eolfi dataset` a partir de `{m['indic
   sus pruebas ejecutadas en un contenedor aislado (o dieron la salida esperada).
 - `pretrain-codigo.jsonl` y `pretrain-texto.jsonl`: preentrenamiento o continuación (`text`), con `metadata`
   (fuente, ruta, lenguaje, SHA-256, bytes, si se redactó).
+- `reservado-evaluacion.jsonl`: **NO es para entrenar.** Respuestas verificadas a los casos INÉDITOS de la ronda
+  de motores, que miden si un motor generaliza a lo que nunca vio. Sus soluciones (respuestas aprobadas y de
+  referencia) también quedan fuera del preentrenamiento: un motor entrenado con ellas los aprobaría de memoria.
 
 ## Verificación y exclusiones
 
