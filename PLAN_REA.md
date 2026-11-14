@@ -152,3 +152,19 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Apps de Apple (14/11/2026)
+
+Punto 9, parte Apple: `eolfi rea apple <.app|.zip|.ipa|.dmg>` (compuesto `mapa_app_apple`, REA de Windows). Funciona sin ejecutar la app.
+- **REA** (inventario + `project_apple_application_graph`) da los bundles con su papel según la ruta (app, framework, app anidada, servicio XPC, ayudante privilegiado), los ejecutables Mach-O con su hash, las firmas presentes, los plists de launchd, las familias de ejecución y los puentes.
+- **Eolfi** lee con `plistlib` el Info.plist de cada bundle directamente del .zip/.ipa o de la carpeta .app, sin extraer nada. Da identificador, versión, sistema mínimo, permisos de privacidad (`NS…UsageDescription`), esquemas URL, excepciones de transporte (ATS) y canal de actualizaciones (Sparkle). REA solo parsea plist y Mach-O en macOS: lo dice el propio error, «Native macOS utilities require macOS».
+
+Verificado en vivo con Maccy 2.8.0 (`Maccy.app.zip` de la release oficial `p0deje/Maccy`, SHA-256 `e684e1ce…27e0`, igual al publicado). Resultado:
+- 8 bundles: la app, Sparkle 2.10.0 con su `Updater.app`, 2 servicios XPC y 3 de recursos.
+- 6 ejecutables Mach-O universales.
+- macOS mínimo 14.0, sin icono en el Dock y feed de actualizaciones en GitHub.
+
+NO VERIFICADO:
+- `.ipa` y `.dmg` (en un `.dmg` el Info.plist no se lee: necesita montarse).
+- La validez de las firmas (solo se ve que existen).
+- Los tipos Swift y el detalle Mach-O: necesitan macOS, o Ghidra sobre el ejecutable extraído.
