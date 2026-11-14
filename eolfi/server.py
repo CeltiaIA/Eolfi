@@ -1191,7 +1191,7 @@ class EolfiApp:
                                      target=str(body.get("target") or "auto"), do_verify=True,
                                      force=bool(body.get("force")), workdir=str(self.samples / "repos"),
                                      ai_brief=(str(body["ai_brief"])[:4000] if body.get("ai_brief") else None),
-                                     ai_provider=str(body.get("ai_provider") or "claude"),
+                                     ai_provider=str(body.get("ai_provider") or "eolas-v2"),
                                      ai_model=(str(body["ai_model"]) if body.get("ai_model") else None),
                                      ai_base_url=(str(body["ai_base_url"])[:300] if body.get("ai_base_url") else None),
                                      reanalyze=bool(body.get("reanalyze")),
@@ -1459,8 +1459,9 @@ class EolfiApp:
         return render_case_html(build_case_report(self._cases(lambda c, _s: c.get(case_id))))
 
     # -- puente de chats web (DeepSeek / Gemini / Meta AI) ----------------
-    # El token del puente se queda en el servidor: el navegador nunca lo ve.
-    BRIDGE_SITES = ("deepseek", "gemini", "meta", "chatgpt", "copilot", "lechat")
+    # El token del puente se queda en el servidor: el navegador nunca lo ve. 14/11/2026: ChatGPT, Copilot y Le Chat
+    # retirados por decisión del titular (sus adaptadores del puente siguen en eolfi/bridge: ver REGISTRO_LIMPIEZA).
+    BRIDGE_SITES = ("deepseek", "gemini", "meta")
 
     def _bridge(self, path: str, body: dict[str, Any] | None = None, timeout: float = 20.0, raw: bool = False):
         import urllib.error

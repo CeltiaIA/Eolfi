@@ -260,18 +260,18 @@ en ella.
 ### Modo asistido por IA (lógica de negocio)
 
 ```bash
-pip install "eolfi[ai]"          # SDK oficial de Anthropic; credenciales: ANTHROPIC_API_KEY o `ant auth login`
+python -m eolfi eolas-v2 status  # el motor local Eolas V2 (proveedor por defecto)
 python -m eolfi create --from https://una-web.com/ --out D:/p/tienda \
     --ai "Catálogo de bicis con filtro por precio y carrito con total"
 python -m eolfi assist D:/p/tienda --brief "Añade búsqueda en el catálogo"
 ```
 
-Claude (Opus 5.5, salida JSON estructurada) recibe la especificación, la
+El modelo (por defecto, el motor activo de Eolas V2) recibe la especificación, la
 petición y los archivos editables, y devuelve archivos completos. Eolfi:
 
 - solo acepta rutas de código de la app y pruebas (nunca `package.json`,
   configuración de build, CI ni nada fuera del proyecto);
-- compila y prueba; si falla, devuelve el error a Claude (hasta 2 reparaciones);
+- compila y prueba; si falla, devuelve el error al modelo (hasta 2 reparaciones);
 - si no consigue un estado verde, **restaura todos los archivos**;
 - registra el resultado (resumen, archivos, rondas, tokens) como evidencia.
 
@@ -279,13 +279,14 @@ Proveedores (`--provider`, también en el panel):
 
 | Proveedor | Qué usa | Requisito |
 |---|---|---|
-| `claude` (defecto) | Claude Opus 5.5, salida estructurada | `pip install "eolfi[ai]"` + `ANTHROPIC_API_KEY` o `ant auth login` |
+| `eolas-v2` (defecto) | el motor local Eolas V2 de Eolfi (llama-server con clave de API), con el perfil activo | `python -m eolfi eolas-v2 start` (o se arranca solo al usarlo) |
+| `celtia-v2` | dos perfiles de Eolas V2: uno redacta (gemma) y otro revisa (gemma_q4) | los dos GGUF instalados y sin retirar |
 | `eolas` | Eolas V1 local (CeltIA), API Ollama en `127.0.0.1:11435` | arrancar Eolas (`launch-eolas.ps1`); `--base-url`/`--model` para cambiarlo |
-| `deepseek` | API oficial de DeepSeek | `DEEPSEEK_API_KEY` |
-| `gemini` | API oficial de Gemini (endpoint compatible OpenAI) | `GEMINI_API_KEY` |
-| `openai` | cualquier servidor compatible OpenAI | `--base-url`, `--model`, `OPENAI_API_KEY` |
 
-| `deepseek-web` · `gemini-web` · `meta-web` | las webs de chat con tu sesión, vía el puente Electron | `python -m eolfi bridge` e iniciar sesión en sus ventanas |
+| `deepseek-web` · `gemini-web` · `meta-web` · `web` | las webs de chat con tu sesión, vía el puente Electron (`web` elige la primera lista) | `python -m eolfi bridge` e iniciar sesión en sus ventanas |
+
+Retirados el 14/11/2026 (decisión del titular): `claude`, `openai`, `gemini`, `deepseek` (API), `gemma`,
+`nemo-moe`, `copilot-vscode`, `copilot-web`, `chatgpt-web` y `lechat-web`.
 
 `python -m eolfi doctor` indica cuáles están disponibles. Las claves se leen de variables de entorno o
 del archivo **`.env`** de la carpeta del proyecto (copia `.env.example`; también vale `~/.eolfi/.env` o
@@ -348,12 +349,11 @@ Pon tu token en `GITHUB_TOKEN` del `.env` (token classic con permiso `repo`, o f
 read»). Eolfi lo usa solo al clonar `https://github.com/…`: va en el entorno del proceso de git (no en la
 línea de comandos ni en el `.git/config` del clon), sin redirecciones y nunca aparece en los errores.
 
-### IA y herramientas de VS Code (`copilot-vscode`)
+### Herramientas de VS Code
 
 ```bash
 python -m eolfi vscode D:/mi-proyecto       # abre VS Code con la extensión puente (no instala nada)
 python -m eolfi vscode --install            # o instálala (VSIX) en tu VS Code: sale en «Extensiones»
-python -m eolfi assist D:/mi-proyecto --provider copilot-vscode --brief "Añade validación"
 python -m eolfi vscode-do find --text "def main"
 python -m eolfi vscode-do open --path src/app.py --line 40
 ```
@@ -485,14 +485,16 @@ python -m eolfi assist D:/p/tienda --provider meta-web --brief "Añade ofertas"
 - **Streaming**: mientras el chat escribe, el panel muestra el texto parcial. El plazo es de INACTIVIDAD: una
   respuesta que sigue creciendo no caduca (tope total de 30 min, `EOLFI_BRIDGE_MAX_REPLY_MS`). Una respuesta solo
   se da por terminada si su texto no cambia entre dos lecturas seguidas.
-- **Más chats (adaptador declarativo)**: ChatGPT (`chatgpt-web`), Microsoft Copilot (`copilot-web`) y Le Chat de
-  Mistral (`lechat-web`), descritos con selectores en `eolfi/bridge/adapters/sites.json`. ChatGPT y Le Chat están
+- **Más chats (adaptador declarativo)**: ChatGPT, Microsoft Copilot y Le Chat de Mistral, descritos con selectores en
+  `eolfi/bridge/adapters/sites.json`. **Retirados como proveedores de Eolfi el 14/11/2026** (ya no están en el
+  desplegable de IA ni en el proveedor automático `web`); sus adaptadores siguen en el puente (REGISTRO_LIMPIEZA,
+  LIM-014). ChatGPT y Le Chat están
   **calibrados** con mensajes reales (2026-11-05); Copilot no (pide iniciar sesión). El botón **Autodiagnóstico** comprueba
   qué partes de la página encuentra, sin escribir nada, y se recalibran copiando selectores corregidos en
   `~/.eolfi/bridge-sites.json` (solo selectores: no se pueden cambiar orígenes ni añadir sitios). Por defecto se
   abren DeepSeek, Gemini, Meta y **Le Chat** (también en el desplegable de IA de «Crear» y en el
   proveedor automático `web`); `EOLFI_BRIDGE_CHATS=deepseek,chatgpt,lechat` elige otros.
-  Claude.ai no se incluye: Eolfi ya usa la API oficial de Claude (`--provider claude`).
+  Claude.ai no se incluye.
 - **Comparativa**: el mismo mensaje a 2–6 chats a la vez con **una sola aprobación** y las respuestas lado a lado
   (en el panel, «Comparar varios chats»; API `POST /v1/compare` del puente o `POST /api/bridge/compare`).
 - Si el paquete está instalado en una carpeta sin permiso de escritura (site-packages), el puente se

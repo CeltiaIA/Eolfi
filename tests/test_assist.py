@@ -1,49 +1,37 @@
 """Modo IA con un cliente simulado (sin red ni credenciales)."""
 import json
 import shutil
-from types import SimpleNamespace
 
 import pytest
 
 from eolfi.core.evidence import EvidenceStore
 from eolfi.flows.create_flow import create_project
 from eolfi.generador.assist import EDITABLE, AssistError, _allowed, assist
+from eolfi.generador.llm import LLMError, Provider, Reply
 from tests.fixtures import build_site
 
 pytestmark = pytest.mark.skipif(not shutil.which("node"), reason="requiere Node.js")
 
 
-class FakeStream:
-    def __init__(self, msg):
-        self.msg = msg
+class FakeClient(Provider):
+    """Proveedor simulado (14/11/2026: antes imitaba el SDK de Claude, retirado): devuelve respuestas fijas, guarda
+    las peticiones y puede simular un rechazo. Se pasa como provider=, así ninguna prueba toca un motor real."""
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def get_final_message(self):
-        return self.msg
-
-
-class FakeClient:
-    """Imita client.beta.messages.stream(...) y guarda las peticiones."""
+    name = "simulado"
 
     def __init__(self, replies, stop_reason="end_turn"):
         self.replies = list(replies)
         self.calls = []
         self.stop_reason = stop_reason
-        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
+        self.model = "simulado"
 
-    def _stream(self, **kw):
-        self.calls.append(kw)
+    def complete(self, system, messages, schema, effort):
+        self.calls.append({"system": system, "messages": [dict(m) for m in messages], "schema": schema,
+                           "effort": effort})
+        if self.stop_reason == "refusal":
+            raise LLMError("La IA rechazó la petición (categoría cyber)")
         data = self.replies.pop(0)
-        msg = SimpleNamespace(
-            stop_reason=self.stop_reason, stop_details=SimpleNamespace(category="cyber"),
-            content=[SimpleNamespace(type="text", text=json.dumps(data))],
-            usage=SimpleNamespace(input_tokens=1000, output_tokens=200))
-        return FakeStream(msg)
+        return Reply(data, json.dumps(data), {"input_tokens": 1000, "output_tokens": 200}, self.model)
 
 
 def _project(tmp_path):
@@ -77,7 +65,7 @@ def test_assist_repairs_then_passes(tmp_path):
         {"summary": "Carrito corregido", "notes": ["un solo h1"], "files": [
             {"path": "./index.html", "content": fixed}]},
     ])
-    r = assist(out, "Añade una sección de carrito", client=client)
+    r = assist(out, "Añade una sección de carrito", provider=client)
     assert r["ok"] and len(r["rounds"]) == 2
     assert set(r["rounds"][0]["rejected"]) == {"package.json", "../fuera.html"}
     assert r["rounds"][0]["failed_step"] == "pruebas (node --test)"
@@ -92,9 +80,7 @@ def test_assist_repairs_then_passes(tmp_path):
     # La reparación reenvía la respuesta anterior y el error.
     second = client.calls[1]["messages"]
     assert second[-2]["role"] == "assistant" and "<error>" in second[-1]["content"]
-    assert client.calls[0]["model"] == "claude-opus-5-5" and r["provider"] == "claude"
-    assert client.calls[0]["output_config"]["format"]["type"] == "json_schema"
-    assert client.calls[0]["fallbacks"] == "default"
+    assert r["provider"] == "simulado" and client.calls[0]["schema"]["type"] == "object"
     assert r["usage"] == {"input_tokens": 2000, "output_tokens": 400}
 
 
@@ -104,7 +90,7 @@ def test_assist_restores_when_never_green(tmp_path):
     bad = original.replace("</main>", "<h1>otro</h1></main>")
     client = FakeClient([{"summary": "x", "notes": [], "files": [
         {"path": "index.html", "content": bad}, {"path": "nueva.html", "content": "<p>x</p>"}]}] * 3)
-    r = assist(out, "algo", client=client)
+    r = assist(out, "algo", provider=client)
     assert not r["ok"] and r["restored"] and len(r["rounds"]) == 3
     assert (out / "index.html").read_text(encoding="utf-8") == original
     assert not (out / "nueva.html").exists()
@@ -114,19 +100,19 @@ def test_assist_refusal(tmp_path):
     out = _project(tmp_path)
     client = FakeClient([{"summary": "", "notes": [], "files": []}], stop_reason="refusal")
     with pytest.raises(AssistError, match="rechazó"):
-        assist(out, "algo", client=client)
+        assist(out, "algo", provider=client)
 
 
 def test_assist_requires_eolfi_project(tmp_path):
     with pytest.raises(AssistError, match="eolfi.spec.json"):
-        assist(tmp_path, "algo", client=FakeClient([]))
+        assist(tmp_path, "algo", provider=FakeClient([]))
 
 
 # -- Proveedores HTTP (Eolas / compatibles OpenAI) con servidores locales falsos --
 import http.server
 import threading
 
-from eolfi.generador.llm import LLMError, make_provider, parse_json_text
+from eolfi.generador.llm import make_provider, parse_json_text
 
 
 def _fake_server(handler_fn):
@@ -176,25 +162,18 @@ def test_eolas_provider_end_to_end(tmp_path):
     assert 'id="rutas"' in (out / "index.html").read_text(encoding="utf-8")
 
 
-def test_openai_compat_needs_key_and_sends_bearer(tmp_path, monkeypatch):
-    out = _project(tmp_path)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    with pytest.raises(AssistError, match="DEEPSEEK_API_KEY"):
-        assist(out, "x", provider="deepseek", base_url="http://127.0.0.1:9")
-    got = {}
+def test_proveedores_retirados_dan_error_claro_sin_tocar_la_red(tmp_path):
+    """14/11/2026, decisión del titular: retirados 10 proveedores; eolas-v2 es el de por defecto."""
+    from eolfi.generador import llm
 
-    def handler(path, body, headers):
-        got.update(path=path, auth=headers.get("Authorization"), fmt=body["response_format"])
-        return 200, {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(
-            {"summary": "nada", "notes": [], "files": []})}}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}
-    srv, url = _fake_server(handler)
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "clave-de-prueba")
-    try:
-        r = assist(out, "x", provider="deepseek", base_url=url)
-    finally:
-        srv.shutdown()
-    assert r["ok"] and got["path"] == "/chat/completions" and got["auth"] == "Bearer clave-de-prueba"
-    assert got["fmt"] == {"type": "json_object"}          # DeepSeek: modo JSON
+    out = _project(tmp_path)
+    for name in ("claude", "openai", "gemini", "deepseek", "gemma", "nemo-moe", "copilot-vscode", "copilot-web",
+                 "chatgpt-web", "lechat-web"):
+        assert name not in llm.PRESETS
+        with pytest.raises(AssistError, match="proveedor desconocido"):
+            assist(out, "x", provider=name, base_url="http://127.0.0.1:9")
+    assert llm.DEFAULT_PROVIDER == "eolas-v2" and llm.make_provider().name == "eolas-v2"
+    assert set(llm.PRESETS) == {"eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"}
 
 
 def test_provider_http_error_restores(tmp_path):

@@ -259,9 +259,10 @@ def test_cli_eolas_y_provider_nuevo_sin_romper_alias_legacy():
     assert provider.profile == "mistral"
     composed = make_provider("celtia-v2")
     assert composed.name == "celtia-v2"
-    nemo_moe = make_provider("nemo-moe")
-    assert nemo_moe.name == "nemo-moe"
-    assert _parser().parse_args(["create", "--from", "x", "--out", "y", "--provider", "nemo-moe"]).provider == "nemo-moe"
+    # 14/11/2026: nemo-moe retirado; eolas-v2 es el proveedor por defecto de create.
+    assert _parser().parse_args(["create", "--from", "x", "--out", "y"]).provider == "eolas-v2"
+    with pytest.raises(SystemExit):
+        _parser().parse_args(["create", "--from", "x", "--out", "y", "--provider", "nemo-moe"])
     legacy = make_provider("eolas")
     assert legacy.name == "eolas"
 
@@ -303,47 +304,6 @@ def test_celtia_v2_compone_redactor_y_revisor_secuencial(monkeypatch):
     # Configurable en eolas-v2.json.
     assert llm.celtia_v2_roles({"celtia_v2_redactor": "msmall_q5"}) == ("msmall_q5", "gemma_q4")
     assert "gemma borrador → gemma_q4 revisión final" in result.model
-
-
-def test_nemo_moe_usa_tres_pases_del_mismo_perfil_en_secuencia(monkeypatch):
-    from eolfi.generador import llm
-    from contextlib import nullcontext
-    from eolfi import eolas_v2
-
-    calls = []
-    schemas, options = [], []
-
-    class FakeEngine:
-        def __init__(self, profile, **kwargs):
-            assert profile == "nemo_q4"
-            options.append(kwargs)
-            self.last_reasoning = ""
-
-        def complete(self, system, messages, schema, effort):
-            schemas.append(schema)
-            calls.append((system, messages))
-            number = len(calls)
-            return llm.Reply({"resultado": number}, str(number),
-                             {"input_tokens": number, "output_tokens": number}, "nemo")
-
-    monkeypatch.setattr(llm, "EolasEngineProvider", FakeEngine)
-    monkeypatch.setattr(eolas_v2, "inference_profile", lambda _: nullcontext({}))
-    provider = llm.NemoMoEReasoningProvider()
-    result = provider.complete("reglas", [{"role": "user", "content": "Calcula 17*3-8"}],
-                               {"type": "object"}, "high")
-
-    assert len(calls) == 3
-    assert "review" in schemas[0]["properties"]
-    assert schemas[0] == schemas[1]
-    assert schemas[2] == {"type": "object"}
-    assert "max_tokens_override" not in options[2]
-    assert "EXPERTO DE CÁLCULO" in calls[0][1][-1]["content"]
-    assert "17*3-8 = 43" in calls[0][0]
-    assert "VERIFICADOR INDEPENDIENTE" in calls[1][1][-1]["content"]
-    assert calls[0][0] == calls[1][0]
-    assert "COMPOSITOR FINAL" in calls[2][0]
-    assert result.data == {"resultado": 3}
-    assert result.usage == {"input_tokens": 6, "output_tokens": 6}
 
 
 def test_banco_moe_exige_candidatos_compactos(monkeypatch):
@@ -418,20 +378,6 @@ def test_validador_acepta_json_envuelto_pero_no_cambia_su_contenido():
     assert not _structured_match('{"resultado": true}', {"resultado": 1})
     assert _answer_match('{"answer": 43}', '43')
     assert _expected_match('{"resultado": 43}', '{"resultado": 43}')
-
-
-def test_sonda_nemo_moe_exige_el_gguf_de_nemo(tmp_path, monkeypatch):
-    from eolfi import eolas_v2
-    from eolfi.generador.llm import probe
-
-    cfg = _config(tmp_path)
-    nemo = tmp_path / "nemo.gguf"
-    nemo.touch()
-    cfg["profiles"]["nemo_q4"] = {**eolas_v2.DEFAULT_PROFILES["nemo_q4"], "model": str(nemo)}
-    monkeypatch.setattr(eolas_v2, "load_config", lambda **kwargs: cfg)
-    assert probe("nemo-moe")["available"] is True
-    nemo.unlink()
-    assert probe("nemo-moe")["available"] is False
 
 
 def test_sonda_celtia_v2_exige_ambos_gguf_sin_arrancarlos(tmp_path, monkeypatch):

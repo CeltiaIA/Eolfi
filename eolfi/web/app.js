@@ -1075,9 +1075,11 @@ function renderProvidersView() {
   const all = state.providers || [];
   // IA
   const ias = all.filter((p) => p.mode === "ia");
-  // Sin elección guardada: la primera IA disponible (no una que no está instalada).
-  const current = localStorage.getItem(STORE.ai)
-    || (ias.find((p) => p.available) || ias.find((p) => p.name === "ia:claude") || { name: "ia:claude" }).name.slice(3);
+  // Sin elección guardada: la primera IA disponible (no una que no está instalada). 14/11/2026: una elección guardada
+  // de un proveedor retirado (claude, deepseek…) ya no vale; se pasa a la disponible o a eolas-v2, el de por defecto.
+  const saved = localStorage.getItem(STORE.ai);
+  const current = (saved && ias.some((p) => p.name === `ia:${saved}`) ? saved : null)
+    || (ias.find((p) => p.available) || ias.find((p) => p.name === "ia:eolas-v2") || { name: "ia:eolas-v2" }).name.slice(3);
   $("#ai-choice").replaceChildren(...ias.map((p) => {
     const name = p.name.slice(3);
     const input = el("input", { type: "radio", name: "ai", value: name });

@@ -10,9 +10,9 @@ Flujo:
 4. Se compila y prueba. Si falla, el error vuelve a Claude para que lo
    arregle (rondas limitadas). Si sigue fallando, se restaura todo.
 
-Proveedores (eolfi.generador.llm): claude (por defecto, SDK oficial: pip install
-eolfi[ai]), eolas (motor local CeltIA), deepseek y gemini (APIs oficiales)
-y cualquier servidor compatible OpenAI.
+Proveedores (eolfi.generador.llm): eolas-v2 (por defecto, motor local de Eolfi con clave de API),
+celtia-v2 (dos perfiles de Eolas V2: uno redacta y otro revisa), eolas (motor local CeltIA) y los chats
+web por el puente (deepseek-web, gemini-web, meta-web, web).
 """
 from __future__ import annotations
 
@@ -236,7 +236,7 @@ def _restore(root: Path, backup: dict[str, str | None]) -> None:
 
 
 def assist(project: str | Path, brief: str, *, client=None, effort: str = "high",
-           provider: str | Provider = "claude", model: str | None = None, base_url: str | None = None,
+           provider: str | Provider = "eolas-v2", model: str | None = None, base_url: str | None = None,
            progress: Callable[[str], None] | None = None,
            token_budget: int = DEFAULT_TOKEN_BUDGET) -> dict[str, Any]:
     log = progress or (lambda _m: None)
@@ -349,17 +349,6 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
             ]
         if ver["ok"]:
             return True, summary, notes
-        # Nemo local: reconstruir el estado actual evita reenviar cada versión
-        # completa obsoleta del proyecto en todas las rondas y especialistas.
-        if llm.name == "nemo-moe":
-            original_request = re.search(r"<request>(.*?)</request>", messages[0]["content"], re.S)
-            if original_request:
-                tree, current_files = collect_context(root, target, llm.context_bytes)
-                spec = json.loads((root / "eolfi.spec.json").read_text(encoding="utf-8"))
-                messages[:] = [{"role": "user", "content": _user_prompt(
-                    spec, original_request.group(1).strip(), tree, current_files)}]
-                content = json.dumps({"summary": summary, "notes": notes, "files": []}, ensure_ascii=False)
-                log("reparación Nemo: contexto actualizado; se omiten versiones antiguas de archivos")
         # Mantener el resultado de la ronda y el error como nuevos turnos.
         messages.append({"role": "assistant", "content": content})
         messages.append({"role": "user", "content": (

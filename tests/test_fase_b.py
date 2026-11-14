@@ -131,13 +131,13 @@ def test_ai_reply_is_validated_and_files_restored_on_interrupt(tmp_path, monkeyp
     out = _project(tmp_path)
     original = (out / "index.html").read_text(encoding="utf-8")
     with pytest.raises(A.AssistError, match="formato inválido"):
-        A.assist(out, "x", client=FakeClient([{"summary": "s", "files": [{"path": 3}], "notes": []}]))
+        A.assist(out, "x", provider=FakeClient([{"summary": "s", "files": [{"path": 3}], "notes": []}]))
 
     def boom(*_a, **_k):
         raise KeyboardInterrupt
     monkeypatch.setattr(V, "verify", boom)
     with pytest.raises(KeyboardInterrupt):
-        A.assist(out, "x", client=FakeClient([{"summary": "s", "notes": [],
+        A.assist(out, "x", provider=FakeClient([{"summary": "s", "notes": [],
                                                "files": [{"path": "index.html", "content": "<p>roto</p>"}]}]))
     assert (out / "index.html").read_text(encoding="utf-8") == original
 

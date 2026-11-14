@@ -300,7 +300,7 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
     for sp in (cr,):
-        sp.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "nemo-moe", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
+        sp.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
         sp.add_argument("--model", default=None, help="Modelo del proveedor (por defecto, el de su preajuste)")
         sp.add_argument("--base-url", default=None, help="URL del servidor (p. ej. Eolas en otro puerto)")
 
@@ -308,7 +308,7 @@ def _parser() -> argparse.ArgumentParser:
     asg.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
     asg.add_argument("--brief", required=True, help="Qué quieres que implemente")
     asg.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
-    asg.add_argument("--provider", default="claude", choices=["claude", "eolas", "eolas-v2", "celtia-v2", "nemo-moe", "deepseek", "gemini", "openai", "deepseek-web", "gemini-web", "meta-web", "chatgpt-web", "copilot-web", "lechat-web", "copilot-vscode", "gemma", "web"])
+    asg.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
     asg.add_argument("--model", default=None)
     asg.add_argument("--base-url", default=None)
 
@@ -406,7 +406,7 @@ def _parser() -> argparse.ArgumentParser:
     lm = sub.add_parser("llama", help="Servidor llama.cpp antiguo de Eolfi: estado y parada (arrancar está retirado: usa Eolas o eolas-v2)")
     lm.add_argument("accion", nargs="?", default="status", choices=["status", "start", "stop", "config"])
 
-    vs = sub.add_parser("vscode", help="Abre VS Code con la extensión de Eolfi (IA de VS Code: --provider copilot-vscode)")
+    vs = sub.add_parser("vscode", help="Abre VS Code con la extensión de Eolfi (agente @eolfi, herramientas y auditoría)")
     vs.add_argument("folder", nargs="?", default=None, help="Carpeta que abrir en VS Code (opcional)")
     vs.add_argument("--login", action="store_true",
                     help="vincula VS Code con tu Eolfi sin mostrar ningún código (abre un enlace vscode://)")
@@ -1333,7 +1333,7 @@ def _run_vscode(folder: str | None, install: bool, login: bool = False) -> int:
         return rc
     cmd = [code, "--new-window", f"--extensionDevelopmentPath={ext}"] + ([str(Path(folder).resolve())] if folder else [])
     _progress("Abriendo VS Code con el puente de Eolfi. La primera petición mostrará un aviso de VS Code para "
-              "permitir que la extensión use los modelos de IA: acéptalo. Después: --provider copilot-vscode")
+              "permitir que la extensión use los modelos de IA: acéptalo.")
     return subprocess.call(cmd)
 
 

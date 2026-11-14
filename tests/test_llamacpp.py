@@ -25,31 +25,6 @@ def test_config_por_defecto_y_argumentos(tmp_path, monkeypatch):
                                              "chat_template_kwargs": {"enable_thinking": False}}
 
 
-def test_proveedor_gemma_usa_eolas_sin_arrancar_llama_cpp(monkeypatch):
-    from eolfi import llamacpp
-    from eolfi.generador import llm
-
-    monkeypatch.setenv("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435")
-    monkeypatch.setenv("EOLAS_MODEL", "gemma-4-12b-it:latest")
-    monkeypatch.setattr(llamacpp, "start", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no debe arrancar llama.cpp")))
-    sent = {}
-
-    def fake_post(url, body, headers, timeout):
-        sent.update(url=url, body=body)
-        return {"message": {"content": '{"ok": true}'}, "prompt_eval_count": 5, "eval_count": 3}
-
-    monkeypatch.setattr(llm, "_post", fake_post)
-    p = llm.make_provider("gemma")
-    r = p.complete("sistema", [{"role": "user", "content": "hola"}], {"type": "object"}, "high")
-    assert r.data["ok"] is True and r.model == "gemma-4-12b-it:latest"
-    assert r.usage == {"input_tokens": 5, "output_tokens": 3}
-    assert sent["url"] == "http://127.0.0.1:11435/api/chat"
-    assert sent["body"]["model"] == "gemma-4-12b-it:latest"
-    assert sent["body"]["messages"] == [{"role": "system", "content": "sistema"},
-                                         {"role": "user", "content": "hola"}]
-    assert sent["body"]["format"] == {"type": "object"} and sent["body"]["think"] is False
-
-
 def test_proveedor_eolas_v2_usa_perfil_activo_sin_cargar_modelo_doble(monkeypatch):
     from contextlib import contextmanager
 
