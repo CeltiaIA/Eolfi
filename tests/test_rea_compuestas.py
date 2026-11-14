@@ -327,3 +327,47 @@ def test_api_desde_captura_completo_da_un_borrador_openapi():
     post = spec["paths"]["/v1/items"]["post"]
     assert post["requestBody"]["content"]["application/json"]["schema"]["properties"]["name"] == {"type": "string"}
     assert "201" in post["responses"] and {p["name"] for p in post["parameters"]} == {"page", "limit"}
+
+
+def _mini_pe(code_byte: int, rsrc_byte: int) -> bytes:
+    """PE32+ mínimo: .text (código) en 0x200 y .rsrc en 0x300, base de imagen 0x140000000."""
+    import struct
+
+    data = bytearray(0x400)
+    data[:2] = b"MZ"
+    struct.pack_into("<I", data, 0x3C, 0x40)
+    data[0x40:0x44] = b"PE\0\0"
+    struct.pack_into("<HH", data, 0x44, 0x8664, 2)                      # máquina, número de secciones
+    struct.pack_into("<H", data, 0x54, 0xF0)                            # tamaño de la cabecera opcional
+    struct.pack_into("<H", data, 0x58, 0x20B)                           # PE32+
+    struct.pack_into("<Q", data, 0x58 + 24, 0x140000000)                # ImageBase
+    table = 0x58 + 0xF0
+    for i, (name, rva, ptr, chars) in enumerate(((b".text", 0x1000, 0x200, 0x60000020),
+                                                  (b".rsrc", 0x2000, 0x300, 0x40000040))):
+        off = table + 40 * i
+        data[off:off + 8] = name.ljust(8, b"\0")
+        struct.pack_into("<IIII", data, off + 8, 0x100, rva, 0x100, ptr)
+        struct.pack_into("<I", data, off + 36, chars)
+    data[0x210] = code_byte
+    data[0x305] = rsrc_byte
+    return bytes(data)
+
+
+def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
+    """14/11/2026: REA decía «changed: content» sin decir dónde. Con dos versiones reales de whoami.exe: 424 bytes
+    (277 en .rsrc, 76 de cabecera, 68 en .rdata, 2 en .data y 1 en .text), igual que cmp + objdump."""
+    from eolfi.rea_compuestas import pe_section_diff
+
+    a, b, c = tmp_path / "a.exe", tmp_path / "b.exe", tmp_path / "c.exe"
+    a.write_bytes(_mini_pe(0x90, 0x01))
+    b.write_bytes(_mini_pe(0xCC, 0x02))          # cambia código y recursos
+    c.write_bytes(_mini_pe(0x90, 0x07))          # solo recursos
+    d = pe_section_diff(str(a), str(b))
+    assert d["total"] == 2 and d["por_seccion"] == {".text": 1, ".rsrc": 1}
+    assert d["codigo"] == 1 and d["direcciones_codigo"] == ["0x140001010"] and "0x140001010" in d["lectura"]
+    only_data = pe_section_diff(str(a), str(c))
+    assert only_data["codigo"] == 0 and "ningún byte de código" in only_data["lectura"]
+    assert pe_section_diff(str(a), str(a))["lectura"].startswith("los dos archivos son idénticos")
+    txt = tmp_path / "x.txt"
+    txt.write_text("no es un PE")
+    assert pe_section_diff(str(a), str(txt)) is None

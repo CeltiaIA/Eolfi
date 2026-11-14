@@ -64,8 +64,14 @@ autorización.
 - **`eolfi rea reimplementar whoami.exe entry`** (53 s): 18 bytes y llamadas a `0x1400021b4` y `0x140001af0` (esta
   como salto de cola), iguales al desensamblado de `objdump`.
 
-**Pendiente de verificar en vivo:** `comparar` (necesita dos versiones de un mismo programa) y la verificación de
-comportamiento (requiere aprobar la ejecución en los dos lados).
+- **`eolfi rea comparar`** con dos versiones reales de `whoami.exe` sacadas de WinSxS (10.0.26100.1 y .1882, 85 s):
+  REA dice «changed», mismas importaciones y funciones con nombre, igual que `objdump`. Como REA no decía DÓNDE, Eolfi
+  añade `bytes_cambiados`: 424 de 98 304 (277 en `.rsrc`, 76 de cabecera, 68 en `.rdata`, 2 en `.data`, 1 en `.text`),
+  igual que `cmp`, con la dirección del byte de código (`0x1400073ba`): el desplazamiento de un `lea` a un dato que se
+  movió 8 bytes, no lógica nueva.
+
+**Pendiente de verificar en vivo:** la verificación de comportamiento (requiere aprobar la ejecución en los dos
+lados).
 
 ## Lo que crearemos, por orden
 
