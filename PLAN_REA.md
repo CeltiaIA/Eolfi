@@ -70,14 +70,50 @@ autorización.
   igual que `cmp`, con la dirección del byte de código (`0x1400073ba`): el desplazamiento de un `lea` a un dato que se
   movió 8 bytes, no lógica nueva.
 
-**Pendiente de verificar en vivo:** la verificación de comportamiento (requiere aprobar la ejecución en los dos
-lados).
+- **Verificación de comportamiento** (aprobada por el titular, cada ejecución con su permiso «una vez» y registrada;
+  REA de WSL, porque el de Windows no tiene PTY): original `/usr/bin/whoami` frente a una reconstrucción en Python
+  (`pwd.getpwuid(os.geteuid())`) y un control que imprime otro nombre. Se encontraron dos fallos de medida:
+  1. REA comparaba los milisegundos de cada fragmento del terminal: «mejil\r\n» a los 30 y a los 60 ms salía
+     «changed». Corregido en Eolfi: el escenario pide `normalization.time_bucket_ms = 1000`.
+  2. REA mete en `exit` el tiempo de cierre (`settlement.elapsed_ms`, de 79 a 93 ms), que no se normaliza: con el
+     mismo código 0, `exit` sale «changed» unas veces y otras no (4 de 6 sin corregir). Es de REA. Eolfi añade
+     `comprobacion_eolfi`: código, señal y motivo de salida y texto del terminal, sin tiempos.
+  Resultado tras corregir (6 ejecuciones): Eolfi da «igual/igual» en las 5 iguales y «terminal distinto» en el
+  control; REA sigue dando `exit` «fail» en 4 de 5 iguales y `terminal` «unknown» (incógnitas residuales de archivos
+  y procesos, que no se observaron). NO VERIFICADO: archivos, procesos hijos, red y entorno; programas interactivos.
+- **Programas de Windows** (14/11/2026): en el chat la verificación siempre fallaba, porque usaba el REA de Windows,
+  que no tiene PTY. Ahora, en Windows, va por el REA de WSL: las rutas `X:\…` pasan a `/mnt/x/…` (los argumentos solo
+  cuando el programa es de Linux) y los `.exe` corren por la interoperabilidad. ConPTY pregunta al arrancar la
+  posición del cursor (`ESC[6n`) y, sin respuesta, `whoami.exe` se quedaba colgado hasta el tiempo límite; Eolfi le
+  responde «1;1» a los 300 ms y termina con código 0. Los permisos se piden sobre el escenario traducido (lo que de
+  verdad se ejecuta) y el REA de WSL solo arranca si ya están concedidos. `comprobacion_eolfi` quita las secuencias
+  de control del terminal: con ConPTY, REA marca el terminal «fail» porque el título de la ventana lleva la ruta del
+  programa. En vivo: `whoami.exe` frente a un script en el Python de Windows (`GetUserNameExW`) → Eolfi «igual/igual»
+  (`celtia\mejil`); el control → «terminal distinto».
+- **Libro de obligaciones** (14/11/2026): con `modulo` en la reconstrucción, Eolfi exporta el paquete de evidencias de
+  la sesión (`export_evidence_bundle`), declara la obligación «se comporta como el original en este escenario» con su
+  caso del original, el fixture y el verificador, y la ata a su propietario (archivo y SHA-256) con
+  `build_reconstruction_obligation_ledger`. En vivo: libro `failed` (el verificador de REA falla por el título de
+  ConPTY), cobertura `complete`, obligación «implemented» y 2 obligaciones que REA genera por cada captura, sin
+  propietario. **Límite de REA:** como prueba de fixture y verificador solo admite un registro
+  `rea.reconstruction-proof` (operación `verify_reconstruction_obligations`, confianza `observed`) que no genera
+  ninguna de sus herramientas públicas. Eolfi no fabrica registros de evidencia, así que la obligación no pasa de
+  «implemented».
+- **Cobertura por frontera** (14/11/2026, `evaluate_reconstruction_coverage`, con el mismo paquete de evidencias):
+  una superficie (la salida en el escenario), su propietario, una afirmación y un contrato de verificador por
+  dimensión (terminal, exit) con el estado de `verify_reconstruction`. El resumen del contrato es el SHA-256 del JSON
+  canónico RFC 8785 sin `contract_sha256` (sin espacios; con los separadores por defecto de Python REA lo rechaza).
+  REA solo cuenta como comparable la evidencia `controlled-replay` con confianza `observed`, así que se citan las dos
+  capturas además de la comparación y la verificación. Lo no demostrado se declara `unknown` (si el módulo se
+  distribuye y si llama al original) y la frontera exige la prueba de independencia, que Eolfi aún no genera: no
+  puede salir «ready». En vivo con `whoami.exe`: «failed» (el verificador de REA falla) con 5 razones y sus
+  siguientes pruebas.
 
 ## Lo que crearemos, por orden
 
 | # | Pieza | Qué combina | Qué da | Estado |
 |---|---|---|---|---|
-| 1 | **Cobertura de reconstrucción** | `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction` | Qué parte del original cubre el proyecto que generó Eolfi y qué falta, con evidencias (fase 4) | Estructural hecha (con el punto 3). Comportamiento hecho: `verificar_comportamiento` ejecuta original y reconstrucción con el mismo escenario (`capture_process_scenario`), compara (`compare_process_captures`) y verifica afirmaciones `behavioral` (overall, terminal, exit), siempre con permiso del titular. Falta: probarlo en vivo (requiere tu aprobación en el chat) y el libro de obligaciones completo (`evaluate_reconstruction_coverage`) |
+| 1 | **Cobertura de reconstrucción** | `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction` | Qué parte del original cubre el proyecto que generó Eolfi y qué falta, con evidencias (fase 4) | Estructural hecha (con el punto 3). Comportamiento hecho: `verificar_comportamiento` ejecuta original y reconstrucción con el mismo escenario (`capture_process_scenario`), compara (`compare_process_captures`) y verifica afirmaciones `behavioral` (overall, terminal, exit), siempre con permiso del titular. Probado en vivo el 14/11 (ver arriba), también con programas de Windows vía el REA de WSL. Libro de obligaciones hecho (`build_reconstruction_obligation_ledger`, con propietario), limitado a «implemented» por REA. Cobertura por frontera hecha (`evaluate_reconstruction_coverage`). Falta: la prueba de independencia (que la reconstrucción no llama al original) |
 | 2 | **Autorización por caso en el chat** (hecho) | Petición del modelo y decisión del titular («una vez», «en este caso», «rechazar»), con registro y revocación | Habilita el análisis dinámico (Frida, gdb, capturas, `observe_*`) solo con permiso expreso | Hecho; falta probarlo en vivo con un modelo |
 | 3 | **Diferencias entre versiones** (hecho) | `compare_artifacts`, `compare_functions`, `find_changed_behavior`, `compare_application_versions`, `compare_wasm_interfaces` | Informe «qué cambió entre A y B» | Pendiente |
 | 4 | **Inventario de dependencias** (hecho) | `inspect_pe_imports`, `inspect_native_exports`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_pe_certificates` | Librerías, versiones, firmas y certificados | Pendiente |

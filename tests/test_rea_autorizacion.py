@@ -142,3 +142,175 @@ def test_verificar_comportamiento_no_ejecuta_nada_sin_los_dos_permisos(connect):
     assert len(ra.overview(connect, "caso-1")["ejecuciones"]) == 2                          # las dos quedan registradas
     with pytest.raises(RuntimeError):
         rc.verificar_comportamiento(rea, None, orig, rec)                                   # sin autorizador, nunca
+
+
+def _cap(data, code=0, elapsed=80, truncated=False):
+    return {"normalized_result": {"frames": [{"sequence": 0, "at_ms": elapsed // 2, "data": data}],
+                                  "exit": {"code": code, "signal": 0, "reason": "exited"},
+                                  "settlement": {"elapsed_ms": elapsed}, "truncated": truncated}}
+
+
+def test_escenario_normaliza_los_tiempos():
+    from eolfi import rea_compuestas as rc
+
+    sc = rc._scenario({"ejecutable": "/usr/bin/whoami"})
+    assert sc["normalization"] == {"time_bucket_ms": rc.BEHAVIOR_TIME_BUCKET_MS}
+
+
+def test_comprobacion_propia_ignora_tiempos_y_ve_diferencias():
+    from eolfi import rea_compuestas as rc
+
+    # Caso real (14/11/2026): misma salida y código, distinto tiempo de cierre → REA «changed», Eolfi «igual».
+    same = rc._own_check(_cap("mejil\r\n", elapsed=93), _cap("mejil\r\n", elapsed=79))
+    assert (same["salida"], same["terminal"]) == ("igual", "igual")
+    other = rc._own_check(_cap("mejil\r\n"), _cap("otro-usuario\r\n", code=1))
+    assert (other["salida"], other["terminal"]) == ("distinto", "distinto")
+    unknown = rc._own_check(_cap("mejil\r\n"), _cap("mejil\r\n", truncated=True))
+    assert unknown["terminal"] == "desconocido" and unknown["salida"] == "igual"
+    assert rc._own_check({}, _cap("x"))["salida"] == "desconocido"
+
+
+def test_escenario_wsl_traduce_rutas_y_responde_al_cursor_de_conpty():
+    from eolfi import rea_compuestas as rc
+
+    win = rc._scenario({"ejecutable": r"C:\Windows\System32\whoami.exe", "argumentos": [r"D:\x\y.txt"],
+                        "carpeta": r"D:\x"}, wsl=True)
+    assert win["executable"] == "/mnt/c/Windows/System32/whoami.exe"
+    assert win["arguments"] == [r"D:\x\y.txt"]                      # un .exe recibe rutas de Windows
+    assert win["working_directory"] == "/mnt/d/x" and win["events"] == [rc.CURSOR_REPLY]
+    lin = rc._scenario({"ejecutable": "/usr/bin/python3", "argumentos": [r"D:\rec\app.py", "--v"]}, wsl=True)
+    assert lin["arguments"] == ["/mnt/d/rec/app.py", "--v"] and "events" not in lin
+    assert rc._scenario({"ejecutable": r"C:\a.exe"})["executable"] == r"C:\a.exe"   # sin WSL, tal cual
+
+
+def test_comprobacion_propia_quita_secuencias_de_control():
+    from eolfi import rea_compuestas as rc
+
+    conpty = ("\x1b[6n\x1b[?9001h\x1b[m\x1b]0;C:\\Windows\\System32\\whoami.exe\x07\x1b[?25h\x1b[?9001l"
+              "celtia\\mejil\r\n")
+    out = rc._own_check(_cap(conpty), _cap("celtia\\mejil\r\n"))
+    assert out["terminal"] == "igual" and out["original"]["terminal"] == "celtia\\mejil\r\n"
+
+
+def test_servidor_no_arranca_rea_de_wsl_si_falta_el_permiso(connect, monkeypatch):
+    from eolfi import rea_client, server
+
+    started = []
+    monkeypatch.setattr(server.os, "name", "nt")
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: ["wsl.exe", "x"])
+    class Closable(FakeBehavior):
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rea_client, "ReaClient", lambda *a, **k: started.append(a) or Closable())
+
+    class Rea:
+        client = None
+        authorizer = ra.Authorizer(connect, "caso-w")
+
+    app = server.EolfiApp.__new__(server.EolfiApp)
+    app._progress = lambda msg: None
+    orig, rec = {"ejecutable": r"C:\Windows\System32\whoami.exe"}, {"ejecutable": "/usr/bin/python3", "argumentos": [r"D:\r\w.py"]}
+    out = server.EolfiApp._verify_behavior(app, Rea, orig, rec)
+    assert out["autorizacion_pendiente"] and started == []
+    pend = ra.overview(connect, "caso-w")["pendientes"]
+    assert {p["args"]["executable"] for p in pend} == {"/mnt/c/Windows/System32/whoami.exe", "/usr/bin/python3"}
+    for p in pend:
+        ra.decide(connect, p["id"], "once")
+    out = server.EolfiApp._verify_behavior(app, Rea, orig, rec)
+    assert out["comparacion"] == "equivalent" and len(started) == 1
+
+
+class FakeLedger(FakeBehavior):
+    """REA simulado que además exporta el paquete y construye el libro."""
+
+    def __init__(self):
+        super().__init__()
+        self.ledger_args = None
+        self.coverage_args = None
+
+    def call(self, name, args, limit=None):
+        if name == "capture_process_scenario":
+            text, ok = super().call(name, args, limit)
+            data = json.loads(text)
+            data["normalized_result"] = {"manifest": {"executable_sha256": "a" * 64, "normalization_sha256": "b" * 64}}
+            data["environment"] = {"id": "linux-x64"}
+            return json.dumps(data), ok
+        if name == "evaluate_reconstruction_coverage":
+            self.calls.append(name)
+            self.coverage_args = args
+            return json.dumps({"normalized_result": {
+                "boundary_id": args["boundary_id"], "status": "partial",
+                "summary": {"required_surfaces": 1, "required_claims": 2, "reasons": 1},
+                "reasons": [{"code": "package-proof-missing", "subject_id": "authority-independence", "detail": "x"}],
+                "recommended_probes": [{"operation": "verify_reconstruction_package",
+                                        "subject_id": "authority-independence", "rationale": "x"}],
+                "evidence_ids": []}}), True
+        if name == "verify_reconstruction":
+            text, ok = super().call(name, args, limit)
+            data = json.loads(text)
+            data["evidence_id"] = "ev_" + "v" * 8
+            return json.dumps(data), ok
+        if name == "export_evidence_bundle":
+            self.calls.append(name)
+            Path(args["path"]).write_text(json.dumps({"records": [1, 2]}), encoding="utf-8")
+            return json.dumps({"normalized_result": {"result": {"records": 2}}}), True
+        if name == "build_reconstruction_obligation_ledger":
+            self.calls.append(name)
+            self.ledger_args = args
+            ob = args["reviewed_obligations"][0]["obligation_id"]
+            return json.dumps({"normalized_result": {"status": "unknown", "coverage": {"status": "complete"},
+                                                     "ledger_id": "rol_x", "closure_digest": "d", "limitations": [],
+                                                     "obligations": [{"obligation_id": ob, "status": "implemented",
+                                                                      "diagnostics": [{"code": "verifier-unavailable",
+                                                                                       "detail": "x"}]},
+                                                                     {"obligation_id": "obl_otra", "status": "unknown"}]}}), True
+        return super().call(name, args, limit)
+
+
+def test_libro_de_obligaciones_ata_la_obligacion_al_modulo(connect, tmp_path):
+    import hashlib
+
+    from eolfi import rea_compuestas as rc
+
+    mod = tmp_path / "rec.py"
+    mod.write_text("print('x')\n", encoding="utf-8")
+    a = ra.Authorizer(connect, "caso-l")
+    orig = {"ejecutable": "/usr/bin/whoami"}
+    rec = {"ejecutable": "python3", "argumentos": [str(mod)], "modulo": str(mod)}
+    rea = FakeLedger()
+    rc.verificar_comportamiento(rea, a, orig, rec)
+    for p in ra.overview(connect, "caso-l")["pendientes"]:
+        ra.decide(connect, p["id"], "once")
+    out = rc.verificar_comportamiento(rea, a, orig, rec)
+    libro = out["libro_obligaciones"]
+    assert libro["estado"] == "unknown" and libro["obligacion"]["estado"] == "implemented"
+    assert libro["obligacion"]["propietario_sha256"] == hashlib.sha256(mod.read_bytes()).hexdigest()
+    assert libro["generadas_por_rea"]["total"] == 1 and "no fabrica" in libro["aviso"]
+    binding = rea.ledger_args["manifest"]["bindings"][0]
+    assert binding["original_cases"][0]["evidence_id"] == "ev_cap1"
+    assert binding["fixtures"][0]["evidence_ids"] == ["ev_cap2"]
+    assert binding["verifier"]["result_evidence_id"] == "ev_vvvvvvvv" and binding["verifier"]["status"] == "pass"
+    assert rea.ledger_args["evidence_bundle"] == {"records": [1, 2]}
+    assert rea.calls.count("export_evidence_bundle") == 1                    # un solo paquete para libro y cobertura
+    # Cobertura: un contrato por dimensión, con su resumen canónico, y lo no demostrado como «unknown».
+    cob = out["cobertura"]
+    assert cob["estado"] == "partial" and cob["razones"] and cob["siguientes_pruebas"]
+    cov = rea.coverage_args["coverage"]
+    for contract in cov["verifier_contracts"]:
+        base = {k: v for k, v in contract.items() if k != "contract_sha256"}
+        assert contract["contract_sha256"] == hashlib.sha256(
+            json.dumps(base, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    assert [r["covered_dimensions"] for r in cov["verifier_results"]] == [["terminal"], ["exit"]]
+    assert all(r["status"] == "pass" and "ev_cap1" in r["evidence_ids"] for r in cov["verifier_results"])
+    own = cov["owners"][0]["ownership"]
+    assert own["owner_sha256"] == hashlib.sha256(mod.read_bytes()).hexdigest()
+    assert own["authority_route"] == "unknown" and own["package_state"] == "unknown"
+    assert cov["artifacts"][0]["artifact_sha256"] == "a" * 64
+    # Sin «modulo» no se intenta el libro y se dice por qué.
+    rec2 = dict(rec, argumentos=["otro"])
+    rec2.pop("modulo")
+    rc.verificar_comportamiento(rea, a, orig, rec2)
+    for p in ra.overview(connect, "caso-l")["pendientes"]:
+        ra.decide(connect, p["id"], "once")
+    assert "no generado" in rc.verificar_comportamiento(rea, a, orig, rec2)["libro_obligaciones"]

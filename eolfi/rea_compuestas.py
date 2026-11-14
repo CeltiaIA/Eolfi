@@ -362,24 +362,77 @@ def inventario_dependencias(client: Any, path: str) -> dict[str, Any]:
 
 
 BEHAVIOR_DIMENSIONS = ("overall", "terminal", "exit")
+# Probado en vivo (14/11/2026, REA de WSL): sin normalizar, dos salidas idénticas («mejil\r\n» a los 30 y a los 60 ms)
+# salen «changed» porque REA compara los milisegundos de cada fragmento. Con tramos de 1 s el terminal coincide.
+BEHAVIOR_TIME_BUCKET_MS = 1000
+# El REA de Windows no tiene PTY; el de WSL sí y ejecuta también los .exe por la interoperabilidad. ConPTY pregunta
+# al empezar la posición del cursor (ESC[6n) y espera la respuesta: sin ella whoami.exe se quedó colgado hasta el
+# tiempo límite (14/11/2026); respondiendo «fila 1, columna 1» termina con código 0.
+CURSOR_REPLY = {"at_ms": 300, "type": "input", "data": "\x1b[1;1R"}
+WINDOWS_PROGRAM = re.compile(r"\.(exe|com)$", re.IGNORECASE)
+DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
+# Secuencias de control del terminal (CSI, OSC como el título de la ventana, y escapes sueltos): no son la salida.
+ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
 
 
-def _scenario(spec: dict[str, Any]) -> dict[str, Any]:
+def _observed(capture: dict[str, Any]) -> dict[str, Any]:
+    """Lo que se vio al ejecutar: código/señal/motivo de salida y texto del terminal (sin tiempos)."""
+    nr = capture.get("normalized_result") if isinstance(capture, dict) else None
+    nr = nr if isinstance(nr, dict) else {}
+    ex = nr.get("exit") if isinstance(nr.get("exit"), dict) else None
+    frames = nr.get("frames") if isinstance(nr.get("frames"), list) else None
+    return {"salida": None if ex is None else {k: ex.get(k) for k in ("code", "signal", "reason")},
+            "terminal": None if frames is None or nr.get("truncated") else
+            ANSI.sub("", "".join(str(f.get("data") or "") for f in frames if isinstance(f, dict)))}
+
+
+def _own_check(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    """Comprobación propia de Eolfi: REA mete en «exit» el tiempo de cierre (settlement.elapsed_ms, 79–93 ms en
+    whoami), que no se normaliza, así que dos salidas con el mismo código salen «changed» una vez sí y otra no."""
+    a, b = _observed(left), _observed(right)
+
+    def same(key: str) -> str:
+        if a[key] is None or b[key] is None:
+            return "desconocido"
+        return "igual" if a[key] == b[key] else "distinto"
+
+    return {"salida": same("salida"), "terminal": same("terminal"),
+            "original": a, "reconstruccion": b,
+            "nota": "Compara solo el código, la señal y el motivo de salida y el texto del terminal (sin tiempos ni "
+                    "secuencias de control). "
+                    "No cubre archivos, procesos hijos, red ni variables de entorno. REA incluye en «exit» el tiempo "
+                    "de cierre, que varía entre ejecuciones: si REA dice «changed» y aquí sale «igual», es eso."}
+
+
+def _scenario(spec: dict[str, Any], *, wsl: bool = False) -> dict[str, Any]:
+    """Escenario de REA. Con `wsl`, las rutas de unidad (D:\\…) pasan a /mnt/d/…; los argumentos solo si el programa
+    es de Linux (un .exe recibe rutas de Windows), y a los .exe se les responde la consulta del cursor de ConPTY."""
+    from eolfi.rea_client import wsl_path
+
     exe = str(spec.get("ejecutable") or spec.get("executable") or "").strip()
     if not exe:
         raise ValueError("cada escenario necesita «ejecutable»")
     args = spec.get("argumentos") or spec.get("arguments") or []
     if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
         raise ValueError("«argumentos» debe ser una lista de textos")
-    out: dict[str, Any] = {"executable": exe, "arguments": args}
+    windows_program = bool(WINDOWS_PROGRAM.search(exe))
+    if wsl:
+        if DRIVE_PATH.match(exe):
+            exe = wsl_path(exe)
+        if not windows_program:
+            args = [wsl_path(a) if DRIVE_PATH.match(a) else a for a in args]
+    out: dict[str, Any] = {"executable": exe, "arguments": list(args),
+                           "normalization": {"time_bucket_ms": BEHAVIOR_TIME_BUCKET_MS}}
     cwd = spec.get("carpeta") or spec.get("working_directory")
     if cwd:
-        out["working_directory"] = str(cwd)
+        out["working_directory"] = wsl_path(str(cwd)) if wsl and DRIVE_PATH.match(str(cwd)) else str(cwd)
+    if wsl and windows_program:
+        out["events"] = [dict(CURSOR_REPLY)]
     return out
 
 
 def verificar_comportamiento(client: Any, authorizer: Any, original: dict[str, Any],
-                             reconstruccion: dict[str, Any]) -> dict[str, Any]:
+                             reconstruccion: dict[str, Any], *, wsl: bool = False) -> dict[str, Any]:
     """Cobertura de COMPORTAMIENTO (plan REA, punto 1): ejecuta el original y la reconstrucción con el mismo escenario,
     compara las capturas y verifica afirmaciones de comportamiento (salida, código de salida y global).
 
@@ -387,7 +440,7 @@ def verificar_comportamiento(client: Any, authorizer: Any, original: dict[str, A
     crean las peticiones y no se ejecuta nada. Aprobar cubre solo lo declarado, no la equivalencia global."""
     if authorizer is None:
         raise RuntimeError("verificar el comportamiento ejecuta programas: necesita la autorización por caso")
-    scenarios = {"original": _scenario(original), "reconstruccion": _scenario(reconstruccion)}
+    scenarios = {"original": _scenario(original, wsl=wsl), "reconstruccion": _scenario(reconstruccion, wsl=wsl)}
     # Primero se comprueba SIN consumir: si falta el permiso de un lado, no se gasta el «una vez» del otro.
     pending = {side: authorizer.request("capture_process_scenario", args)
                for side, args in scenarios.items() if not authorizer.peek("capture_process_scenario", args)}
@@ -419,16 +472,216 @@ def verificar_comportamiento(client: Any, authorizer: Any, original: dict[str, A
     spec = {"name": "Eolfi · comportamiento de la reconstrucción",
             "claims": [{"kind": "behavioral", "claim_id": f"comportamiento-{d}", "title": f"Mismo comportamiento ({d})",
                         "comparison_evidence_id": cmp.get("evidence_id"), "dimension": d} for d in BEHAVIOR_DIMENSIONS]}
-    verdict = _call(client, "verify_reconstruction", {"specification": spec})
+    v_text, ok = client.call("verify_reconstruction", {"specification": spec}, limit=None) if _accepts_limit(client) \
+        else client.call("verify_reconstruction", {"specification": spec})
+    if not ok:
+        raise RuntimeError(f"REA verify_reconstruction: {v_text[:300]}")
+    v_raw = json.loads(v_text)
+    verdict = v_raw.get("normalized_result", v_raw) if isinstance(v_raw, dict) else v_raw
     claims = (verdict.get("claims") or {}).get("items") or [] if isinstance(verdict, dict) else []
+    modulo = reconstruccion.get("modulo")
+    libro = cobertura = None
+    if modulo:
+        try:
+            bundle = _export_bundle(client, wsl=wsl)
+        except (OSError, RuntimeError, ValueError) as exc:
+            libro = cobertura = {"error": f"no se pudo exportar el paquete de evidencias: {str(exc)[:300]}"}
+        else:
+            try:
+                libro = libro_obligaciones(client, captures, v_raw, str(modulo), scenarios["original"], bundle=bundle)
+            except (OSError, RuntimeError, ValueError) as exc:
+                libro = {"error": str(exc)[:400]}
+            try:
+                cobertura = cobertura_reconstruccion(client, captures, cmp, v_raw, str(modulo), scenarios["original"],
+                                                     bundle=bundle)
+            except (OSError, RuntimeError, ValueError) as exc:
+                cobertura = {"error": str(exc)[:400]}
+    no_modulo = ("no generado: indica en la reconstrucción «modulo» (el archivo de código que la implementa) para "
+                 "atar la obligación a su propietario")
     return {"escenario": scenarios, "comparacion": (cmp.get("normalized_result") or {}).get("status"),
             "verificacion": {"estado": verdict.get("status") if isinstance(verdict, dict) else None,
                              "afirmaciones": [{k: c.get(k) for k in ("claim_id", "dimension", "status", "observed_status")}
                                               for c in claims],
                              "limites": sorted({l for c in claims for l in c.get("limitations") or []})[:8]},
+            "comprobacion_eolfi": _own_check(captures["original"], captures["reconstruccion"]),
+            "libro_obligaciones": libro if libro is not None else no_modulo,
+            "cobertura": cobertura if cobertura is not None else no_modulo,
             "permisos_usados": grants,
             "aviso": "Cubre solo este escenario y estas dimensiones; una coincidencia no demuestra equivalencia funcional "
                      "completa y «unknown» significa sin evidencia suficiente."}
+
+
+def _export_bundle(client: Any, *, wsl: bool = False) -> dict[str, Any]:
+    """Paquete de evidencias AUTENTICADO de la sesión de REA (export_evidence_bundle escribe un archivo; se lee y se
+    borra)."""
+    import shutil
+    import tempfile
+
+    from eolfi.rea_client import wsl_path
+
+    tmp = tempfile.mkdtemp(prefix="eolfi-evidencias-")
+    try:
+        path = str(Path(tmp) / "evidencias.json")
+        _call(client, "export_evidence_bundle", {"path": wsl_path(path) if wsl else path, "overwrite": True})
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _executable_sha(capture: dict[str, Any]) -> str | None:
+    """SHA-256 del ejecutable capturado: del sujeto si lo hay; si no, el que REA leyó antes de lanzarlo."""
+    subject = capture.get("subject") if isinstance(capture.get("subject"), dict) else {}
+    sha = (subject.get("digest") or {}).get("sha256")
+    manifest = (capture.get("normalized_result") or {}).get("manifest") or {}
+    return sha or manifest.get("executable_sha256")
+
+
+def _canonical_sha(value: Any) -> str:
+    """SHA-256 del JSON canónico (RFC 8785) como lo calcula REA. Vale para claves ASCII, textos, enteros y booleanos,
+    que es lo que lleva un contrato de verificador."""
+    import hashlib
+
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def cobertura_reconstruccion(client: Any, captures: dict[str, Any], cmp: dict[str, Any], verdict_raw: dict[str, Any],
+                             modulo: str, original: dict[str, Any], *, bundle: dict[str, Any]) -> dict[str, Any]:
+    """Cobertura de la reconstrucción en una frontera (evaluate_reconstruction_coverage, plan REA, punto 1).
+
+    Una superficie (la salida del programa en este escenario), su propietario (`modulo` y su SHA-256), una afirmación
+    y un contrato de verificador POR DIMENSIÓN (terminal, salida) con el estado que dio verify_reconstruction, citando
+    las capturas observadas. Lo que Eolfi no puede demostrar se declara «unknown», nunca bien: si el módulo se
+    distribuye y si la reconstrucción llama al original (independencia). La frontera exige esa prueba de
+    independencia, que Eolfi aún no genera, así que la cobertura no puede salir «ready»."""
+    import datetime
+    import hashlib
+
+    owner = Path(modulo)
+    owner_sha = hashlib.sha256(owner.read_bytes()).hexdigest()
+    left, right = captures["original"], captures["reconstruccion"]
+    ids = [left.get("evidence_id"), right.get("evidence_id"), cmp.get("evidence_id"),
+           verdict_raw.get("evidence_id") if isinstance(verdict_raw, dict) else None]
+    if not all(ids):
+        raise ValueError("faltan los identificadores de evidencia de las capturas, la comparación o la verificación")
+    orig_sha = _executable_sha(left)
+    norm_sha = ((left.get("normalized_result") or {}).get("manifest") or {}).get("normalization_sha256")
+    if not (orig_sha and norm_sha):
+        raise ValueError("la captura del original no trae el SHA-256 del ejecutable o de la normalización")
+    verdict = verdict_raw.get("normalized_result", verdict_raw)
+    by_dim = {c.get("dimension"): c.get("status") for c in (verdict.get("claims") or {}).get("items") or []}
+    dims = [d for d in BEHAVIOR_DIMENSIONS if d != "overall"]
+    surface = "eolfi.salida"
+    contracts, results = [], []
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    for d in dims:
+        contract = {"verifier_id": f"eolfi.comportamiento.{d}", "claim_ids": [f"comportamiento-{d}"], "dimensions": [d],
+                    "authority": "controlled-replay", "max_age_ms": 3_600_000, "minimum_repeats": 1,
+                    "normalization_sha256": norm_sha, "normalization_removes_dimensions": False}
+        contract["contract_sha256"] = _canonical_sha(contract)
+        contracts.append(contract)
+        status = by_dim.get(d)
+        results.append({"verifier_id": contract["verifier_id"], "contract_sha256": contract["contract_sha256"],
+                        "observed_at": now, "status": status if status in ("pass", "fail") else "unknown",
+                        "covered_claim_ids": contract["claim_ids"], "covered_dimensions": [d],
+                        "artifact_sha256s": [orig_sha], "owner_sha256s": [owner_sha],
+                        "normalization_sha256": norm_sha, "repeats": 1, "evidence_ids": ids})
+    exe = str(original.get("executable"))
+    boundary = "eolfi.escenario"
+    coverage = {
+        "evidence_bundle": bundle,
+        "artifacts": [{"artifact_id": "original", "artifact_sha256": orig_sha, "version": "observado",
+                       "environment_sha256": _canonical_sha(left.get("environment") or {}),
+                       "evidence_ids": [ids[0]]}],
+        "surfaces": [{"surface_id": surface, "family": "terminal", "artifact_id": "original", "occurrence_id": None,
+                      "location": exe, "authority": "observed", "dependency_surface_ids": [], "evidence_ids": [ids[0]]}],
+        "owners": [{"surface_id": surface, "ownership": {
+            "disposition": "implemented", "owner_path": str(owner), "owner_export": None, "owner_sha256": owner_sha,
+            "path_state": "present", "package_state": "unknown", "authority_route": "unknown"}}],
+        "claims": [{"claim_id": f"comportamiento-{d}", "title": f"Mismo comportamiento ({d})", "kind": "behavioral",
+                    "surface_ids": [surface], "required_dimensions": [d], "required_authority": "controlled-replay"}
+                   for d in dims],
+        "verifier_contracts": contracts, "verifier_results": results,
+        "residual_unknown_ids": [], "contradictions": [], "package_proofs": [],
+        "boundaries": [{"boundary_id": boundary, "title": f"{Path(exe).name} en este escenario",
+                        "required_surface_ids": [surface], "required_claim_ids": [f"comportamiento-{d}" for d in dims],
+                        "required_package_proof_kinds": ["authority-independence"], "allowed_dispositions": [],
+                        "allowed_unknown_ids": []}]}
+    out = _call(client, "evaluate_reconstruction_coverage", {"coverage": coverage, "boundary_id": boundary})
+    return {"frontera": boundary, "estado": out.get("status"), "resumen": out.get("summary"),
+            "razones": [f"{r.get('code')} ({r.get('subject_id')}): {r.get('detail')}" for r in out.get("reasons") or []],
+            "siguientes_pruebas": [f"{p.get('operation')} ({p.get('subject_id')})" for p in
+                                   out.get("recommended_probes") or []],
+            "aviso": "«ready» exigiría además demostrar que la reconstrucción no llama al original (independencia) y "
+                     "cómo se distribuye; Eolfi lo declara «unknown» porque no lo ha probado."}
+
+
+def libro_obligaciones(client: Any, captures: dict[str, Any], verdict_raw: dict[str, Any], modulo: str,
+                       original: dict[str, Any], *, bundle: dict[str, Any]) -> dict[str, Any]:
+    """Libro de obligaciones de REA (plan REA, punto 1) para UNA reconstrucción verificada por comportamiento.
+
+    Exporta el paquete de evidencias de la sesión de REA (autenticado), declara la obligación «se comporta como el
+    original en este escenario» con su caso del original, el fixture (la captura de la reconstrucción) y el
+    verificador (verify_reconstruction), y la ata a su propietario: `modulo` con su SHA-256. REA decide el estado.
+
+    Límite de REA (14/11/2026): solo acepta como prueba de fixture y verificador un registro «rea.reconstruction-proof»
+    que ninguna herramienta pública genera; Eolfi NO fabrica registros de evidencia, así que como mucho la obligación
+    queda «implemented» y no «verified»."""
+    import hashlib
+
+    owner = Path(modulo)
+    owner_sha = hashlib.sha256(owner.read_bytes()).hexdigest()
+    orig_ev, rec_ev = captures["original"].get("evidence_id"), captures["reconstruccion"].get("evidence_id")
+    verdict_ev = verdict_raw.get("evidence_id") if isinstance(verdict_raw, dict) else None
+    verdict = verdict_raw.get("normalized_result", verdict_raw) if isinstance(verdict_raw, dict) else {}
+    if not (orig_ev and rec_ev and verdict_ev):
+        raise ValueError("faltan los identificadores de evidencia de las capturas o de la verificación")
+    sha_orig = _executable_sha(captures["original"])
+    exe = str(original.get("executable"))
+    ob_id = "eolfi.comportamiento." + hashlib.sha256(
+        json.dumps(original, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    status = verdict.get("status") if isinstance(verdict, dict) else None
+    reviewed = [{"obligation_id": ob_id, "obligation_version": 1,
+                 "title": f"La reconstrucción se comporta como {Path(exe).name} en este escenario",
+                 "application_layer": "cli", "family": "terminal",
+                 "target": {"artifact_sha256": sha_orig, "application_node_id": None, "semantic_node_id": None,
+                            "location": exe},
+                 "required": True, "required_case_kinds": ["positive"], "required_original_authority": "process",
+                 "required_fixture_authority": "packaged-process", "required_verifier_authority": "packaged-process",
+                 "requires_parser_type": False, "dependency_obligation_ids": [], "residual_unknown_ids": [],
+                 "unavailable_authority": [], "required_next_evidence": [], "disposition": "active",
+                 "review_evidence_ids": [orig_ev]}]
+    manifest = {"bindings": [{
+        "obligation_id": ob_id,
+        "owner": {"module_path": owner.name, "symbol": "<module>", "owner_sha256": owner_sha},
+        "parser_type": None,
+        "original_cases": [{"kind": "positive", "evidence_id": orig_ev, "location": exe}],
+        "fixtures": [{"fixture_id": "eolfi.escenario", "case_kind": "positive", "authority": "packaged-process",
+                      "evidence_ids": [rec_ev]}],
+        "verifier": {"verifier_id": "eolfi.verificar-comportamiento", "claim_id": "comportamiento-overall",
+                     "command": "eolfi_verificar_comportamiento", "authority": "packaged-process",
+                     "status": status if status in ("pass", "fail", "unknown", "unsupported", "skipped") else "unknown",
+                     "result_evidence_id": verdict_ev, "enumerated_obligation_ids": [ob_id],
+                     "nondeterminism": {"mode": "total-order", "specification": "una ejecución por lado, sin entrada"}}}],
+        "contradictions": []}
+    ledger = _call(client, "build_reconstruction_obligation_ledger",
+                   {"evidence_bundle": bundle, "reviewed_obligations": reviewed, "manifest": manifest})
+    obligations = ledger.get("obligations") or []
+    mine = next((o for o in obligations if o.get("obligation_id") == ob_id), {})
+    others = [o for o in obligations if o.get("obligation_id") != ob_id]
+    return {"estado": ledger.get("status"), "cobertura": (ledger.get("coverage") or {}).get("status"),
+            "libro": ledger.get("ledger_id"), "resumen_digest": ledger.get("closure_digest"),
+            "obligacion": {"id": ob_id, "estado": mine.get("status"), "propietario": owner.name,
+                           "propietario_sha256": owner_sha,
+                           "diagnosticos": [f"{d.get('code')}: {d.get('detail')}" for d in mine.get("diagnostics") or []]},
+            "generadas_por_rea": {"total": len(others),
+                                  "por_estado": dict(Counter(str(o.get("status")) for o in others)),
+                                  "nota": "REA crea una obligación por cada captura de la sesión; quedan sin "
+                                          "propietario (no son de esta reconstrucción)."},
+            "limites": (ledger.get("limitations") or [])[:8],
+            "aviso": "Como mucho «implemented»: REA solo acepta como prueba de fixture y verificador un registro "
+                     "«rea.reconstruction-proof» que no genera ninguna de sus herramientas, y Eolfi no fabrica "
+                     "evidencias."}
 
 
 def analizar_app_js(client: Any, path: str) -> dict[str, Any]:

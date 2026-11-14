@@ -90,6 +90,22 @@ class _WslPaths:
         return self.client.call(name, args, limit=limit)
 
 
+class _LazyRea:
+    """Cliente de REA que solo arranca en la primera llamada (si falta un permiso, nunca arranca)."""
+
+    def __init__(self, start: Any):
+        self.start, self.client = start, None
+
+    def call(self, name: str, args: dict[str, Any], limit: Any = None) -> tuple[str, bool]:
+        if self.client is None:
+            self.client = self.start()
+        return self.client.call(name, args, limit=limit)
+
+    def close(self) -> None:
+        if self.client is not None:
+            self.client.close()
+
+
 class EolfiApp:
     """Lógica de la API, separada del transporte HTTP (fácil de probar)."""
 
@@ -484,7 +500,7 @@ class EolfiApp:
         def checked_scenario(sc: Any) -> dict[str, Any]:
             if not isinstance(sc, dict):
                 raise ValueError("escenario inválido")
-            for key in ("ejecutable", "carpeta"):
+            for key in ("ejecutable", "carpeta", "modulo"):
                 value = str(sc.get(key) or "")
                 if value and (":" in value[:3] or value.startswith(("/", "\\", "."))):
                     self._check_root(value, "ruta")
@@ -519,8 +535,8 @@ class EolfiApp:
                                                          lambda: self._recover_js(ruta(a), a.get("destino"))),
             "eolfi_analizar_app_js": lambda a: step("REA analiza la aplicación JavaScript (estático)…",
                                                     lambda: rc.analizar_app_js(rea.client, ruta(a))),
-            "eolfi_verificar_comportamiento": lambda a: rc.verificar_comportamiento(
-                rea.client, rea.authorizer, checked_scenario(a.get("original")), checked_scenario(a.get("reconstruccion"))),
+            "eolfi_verificar_comportamiento": lambda a: self._verify_behavior(
+                rea, checked_scenario(a.get("original")), checked_scenario(a.get("reconstruccion"))),
             "eolfi_comparar_versiones": lambda a: step("REA compara las dos versiones (estático, ~1-2 min)…",
                                                        lambda: rc.comparar_versiones(rea.client, ruta({"ruta": a.get("original")}),
                                                                                      ruta({"ruta": a.get("nueva")}))),
@@ -531,6 +547,22 @@ class EolfiApp:
                  "eolfi_verificar_comportamiento": "verificar_comportamiento", "eolfi_analizar_app_js": "analizar_app_js",
                  "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura"}
         return {name: in_case(names[name], fn) for name, fn in tools.items()}
+
+    def _verify_behavior(self, rea: Any, original: dict[str, Any], reconstruccion: dict[str, Any]) -> dict[str, Any]:
+        """En Windows, con el REA de WSL: el de Windows no tiene PTY y la captura de procesos siempre falla (14/11/2026).
+        Los permisos se piden y se consumen igual, sobre el escenario ya traducido (lo que de verdad se ejecuta)."""
+        from eolfi import rea_client, rea_compuestas as rc
+
+        cmd = rea_client.wsl_rea_command() if os.name == "nt" else None
+        if not cmd:
+            return rc.verificar_comportamiento(rea.client, rea.authorizer, original, reconstruccion)
+        # Perezoso: si falta un permiso no se llama a REA y el de WSL ni siquiera arranca.
+        client = _LazyRea(lambda: (self._progress("REA (WSL) ejecuta el original y la reconstrucción…"),
+                                   rea_client.ReaClient(cmd, timeout=600))[1])
+        try:
+            return rc.verificar_comportamiento(client, rea.authorizer, original, reconstruccion, wsl=True)
+        finally:
+            client.close()
 
     def _api_from_capture(self, client: Any, path: str) -> dict[str, Any]:
         """Nivel completo si hay tshark en WSL (REA de Linux); si no, el básico con el REA de Windows."""
