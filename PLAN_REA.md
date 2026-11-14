@@ -45,8 +45,20 @@ autorización.
 | Orden `eolfi rea` (revisar-modelo, explicar, reimplementar, comparar) y las cuatro en el chat | `eolfi/cli.py`, `eolfi/chat.py`, `eolfi/server.py` | Suite completa: 536 en verde |
 | Herramientas instaladas para REA: Apktool 3.0.3, Wireshark 4.6.9 (tshark, capinfos); Frida viene integrado | `~/.eolfi/tools/apktool`, variables `REA_*` | `inspect-apktool-client`, `inspect-pcap-client`, `list-frida-devices` |
 
-**Pendiente de verificar en vivo:** un turno de chat con un modelo real usando REA y las tres herramientas compuestas
-(la GPU estaba ocupada por la ronda de motores).
+**Verificado en vivo (14/11/2026):**
+
+- **Chat con REA (gemma, Eolas V2):** inspeccionó `eolas-chat.js` con REA (rea_buscar → rea_ayuda → rea_usar
+  `inspect_byte_entropy`); tamaño y SHA-256 iguales a los reales. Ante una herramienta que ejecuta algo
+  (`capture_process_scenario`) creó la petición de autorización sin ejecutar nada; aprobada «una vez» en la tarjeta del
+  chat, se ejecutó una sola vez y quedó en el registro (REA no soporta esa captura en Windows: «sin PTY»). Corregido
+  por el camino: la instrucción y `rea_usar` decían «permitida» y el modelo descartaba sin buscarlas las que ejecutan.
+- **`eolfi rea inventario`** sobre `whoami.exe` (5 s): 11 librerías, recuentos e imphash iguales a `objdump`.
+- **`eolfi rea --caso <id> explicar`** (49 s, Ghidra): punto de entrada `0x140001cb0` igual al de la cabecera PE;
+  registrado en el caso (artefacto y evidencia). Sus importaciones (121, símbolos externos de Ghidra) difieren de la
+  tabla PE (127): ahora el informe lo dice en `fuente_cifras`. Corregido: `--caso` se comprueba antes del análisis.
+
+**Pendiente de verificar en vivo:** `revisar-modelo` (GGUF de varios GB), `reimplementar`, `comparar` y la verificación
+de comportamiento (requiere aprobar la ejecución en los dos lados).
 
 ## Lo que crearemos, por orden
 
