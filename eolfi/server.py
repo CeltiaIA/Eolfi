@@ -436,7 +436,7 @@ class EolfiApp:
 
     def chat(self, body: dict[str, Any]) -> dict[str, Any]:
         """Chat del panel: el modelo de Eolas V2 decide qué herramientas de Eolfi usar y responde con sus resultados."""
-        from eolfi import chat, eolas_v2
+        from eolfi import chat
         from eolfi.mcp_server import EolfiMCP
 
         try:

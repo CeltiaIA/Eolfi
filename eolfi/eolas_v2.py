@@ -1960,7 +1960,6 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                         announce(f"{name}: descartado — {reason}; salto el resto del código y paso a herramientas")
                 if failures and learn:
                     record_lessons(name, failures)
-                code_cases = sum(tally[k]["casos"] for k in ("codigo", "codigo_nuevo", "inedito"))
                 code_first = sum(tally[k]["primera"] for k in ("codigo", "codigo_nuevo", "inedito"))
                 tools_first = tally["herramientas"]["primera"]
                 # Siempre sobre el TOTAL de tareas: un motor descartado pronto no parece mejor de lo que es.
