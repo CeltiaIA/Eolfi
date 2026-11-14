@@ -444,6 +444,12 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r12 = rps.add_parser("llamadas", help="Grafo de llamadas de una función (Ghidra), con nombres y en Mermaid")
+    r12.add_argument("ruta")
+    r12.add_argument("funcion", help="nombre (p. ej. entry) o dirección (0x140001cb0)")
+    r12.add_argument("--atras", action="store_true", help="quién la llama, en vez de a quién llama")
+    r12.add_argument("--profundidad", type=int, default=3, help="niveles (1-10, 3 por defecto)")
+    r12.add_argument("--max-nodos", type=int, default=60, help="máximo de nodos (2-300, 60 por defecto)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1544,6 +1550,12 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "llamadas":
+                hacia = "atras" if args.atras else "adelante"
+                op = "grafo_llamadas"
+                params = {"ruta": args.ruta, "funcion": args.funcion, "hacia": hacia, "profundidad": args.profundidad}
+                result = rc.grafo_llamadas(client, args.ruta, args.funcion, hacia=hacia, profundidad=args.profundidad,
+                                           max_nodos=args.max_nodos)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

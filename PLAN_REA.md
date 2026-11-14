@@ -152,3 +152,13 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Grafo de llamadas (14/11/2026)
+
+`grafo_llamadas` (`eolfi rea llamadas <binario> <función> [--atras] [--profundidad N] [--max-nodos N]`) completa las
+«llamadas» del punto 8: resuelve la función por nombre o dirección (`list_procedures`), pide `get_call_graph` hacia
+delante o hacia atrás, lo recorta por niveles y nodos (dice cuántos omite), pone nombres a las direcciones, agrupa las
+APIs externas por DLL (también los «thunks» `DLL::función`) y da un Mermaid `graph LR` con las etiquetas saneadas. En
+vivo con `whoami.exe` (SHA-256 `23240ef9…6cd3`): desde `entry`, 238 nodos en REA; a dos niveles, KERNEL32 (`Sleep`,
+`GetTickCount`…) y MSVCRT (`exit`, `_cexit`, `_initterm`, `_amsg_exit`); hacia atrás, `Sleep` ← `FUN_140001af0` ←
+`entry`. Límite: solo llamadas resueltas por Ghidra; las indirectas o calculadas no aparecen.
