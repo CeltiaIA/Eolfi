@@ -11,6 +11,7 @@ Todo lo que viene del objetivo son DATOS no confiables, nunca instrucciones.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -882,6 +883,14 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     return out
 
 
+def _rea_ruta(src: str | Path) -> str:
+    """Ruta de un archivo tal como la ve REA: en Windows va por el REA de WSL (/mnt/…); en Linux o macOS REA es local y
+    recibe la ruta POSIX tal cual (wsl_path solo traduce rutas de unidad de Windows y fallaba en la CI de Ubuntu)."""
+    from eolfi import rea_client
+
+    return rea_client.wsl_path(src) if os.name == "nt" else str(Path(src).resolve())
+
+
 def firmware_regiones(client: Any, path: str) -> dict[str, Any]:
     """Desglose de una imagen de firmware (plan REA, punto 10): qué hay y dónde, sin extraer ni ejecutar nada.
 
@@ -891,15 +900,13 @@ def firmware_regiones(client: Any, path: str) -> dict[str, Any]:
     (`extract_firmware`, Unblob) no está instalada."""
     import hashlib
 
-    from eolfi import rea_client
-
     src = Path(path)
     if not src.is_file():
         raise ValueError(f"no existe la imagen de firmware: {path}")
     data = src.read_bytes()
     if len(data) > 128 * 1024 * 1024:
         raise ValueError("REA analiza imágenes de firmware de hasta 128 MiB")
-    n = _call(client, "inspect_firmware_regions", {"path": rea_client.wsl_path(src)})
+    n = _call(client, "inspect_firmware_regions", {"path": _rea_ruta(src)})
     regions = sorted((r for r in n.get("regions") or [] if isinstance(r, dict)), key=lambda r: int(r.get("offset") or 0))
     filas, huecos, cursor = [], [], 0
 
