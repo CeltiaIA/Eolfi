@@ -395,7 +395,7 @@ def test_firmware_regiones_ordena_y_clasifica_los_huecos(tmp_path):
                         {"offset": 16, "reported_size": 8, "signature": "gzip", "description": "gzip",
                          "reported_confidence": 250}])
     out = rc.firmware_regiones(fake, str(img))
-    assert fake.paths[0].startswith("/mnt/") and out["motor"] == "binwalk 3.1.0" and out["bytes"] == 48
+    assert fake.paths[0] == rc._rea_ruta(img) and out["motor"] == "binwalk 3.1.0" and out["bytes"] == 48
     assert [r["firma"] for r in out["regiones"]] == ["gzip", "png"] and out["regiones"][0]["hex"] == "0x10"
     assert out["huecos"] == [
         {"desde": 0, "hasta": 16, "bytes": 16, "contenido": "relleno 0xFF"},
