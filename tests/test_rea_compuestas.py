@@ -371,3 +371,69 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeAndroid:
+    """REA: inspect_android_package (resumen de JADX), sesión, inventario y grafo, con las formas reales del 14/11."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append(name)
+        comps = [
+            {"kind": "activity", "name": "a.Main", "exported": True, "exported_default": True, "permission": None,
+             "actions": ["android.intent.action.MAIN"], "categories": ["android.intent.category.LAUNCHER"]},
+            {"kind": "activity", "name": "a.Interna", "exported": False, "exported_default": False, "permission": None},
+            {"kind": "provider", "name": "a.Datos", "exported": None, "exported_default": True, "permission": None,
+             "authorities": ["a.datos"]},
+            {"kind": "service", "name": "a.Sync", "exported": True, "exported_default": False,
+             "permission": "a.permission.SYNC"},
+            {"kind": "receiver", "name": "a.Boot", "exported": True, "exported_default": True, "permission": None,
+             "actions": ["android.intent.action.BOOT_COMPLETED"]},
+        ]
+        results = {
+            "inspect_android_package": {"summary": {
+                "engine": {"name": "jadx-headless-mcp", "version": "0.7.1"}, "package_name": "a", "version_name": "1.0",
+                "version_code": "1", "min_sdk": "26", "target_sdk": "33", "class_count": 10, "resource_count": 5,
+                "permissions": ["android.permission.CAMERA", "android.permission.INTERNET"],
+                "components": {"status": "complete", "items": comps}, "signature_verification": "not_performed"}},
+            "open_binary": {"result": {}},
+            "inspect_artifact": {"evidence_id": "ev_inv"},
+            "project_android_application_graph": {
+                "root_sha256": "ef" * 32, "runtime_families": ["dalvik-art", "native"], "bridge_candidates": [],
+                "components": {"dex": [{"path": "classes.dex"}], "native_libraries": [{"path": "lib/arm64-v8a/libx.so"}]},
+                "coverage": {"status": "complete-within-inventory"}},
+            "close_binary": {},
+        }
+        if name == "project_android_application_graph":
+            assert args["inventory_evidence"] == [{"evidence_id": "ev_inv"}]
+        return json.dumps({"normalized_result": results[name]} if name != "inspect_artifact" else results[name]), True
+
+
+def test_mapa_app_android_resume_la_superficie_exportada(tmp_path):
+    apk = tmp_path / "a.apk"
+    apk.write_bytes(b"PK")
+    fake = FakeAndroid()
+    out = rc.mapa_app_android(fake, str(apk))
+    assert fake.calls[-1] == "close_binary"
+    assert out["paquete"]["nombre"] == "a" and out["motor"] == "jadx-headless-mcp 0.7.1"
+    assert out["permisos_peligrosos"] == ["android.permission.CAMERA"] and out["lanzadores"] == ["a.Main"]
+    assert out["componentes"]["activity"] == {"total": 2, "exportados": 1, "exportados_sin_permiso": 1}
+    assert out["componentes"]["service"] == {"total": 1, "exportados": 1, "exportados_sin_permiso": 0}
+    # Proveedores primero; el exportado por defecto lo dice; el servicio con permiso no aparece.
+    assert [c["nombre"] for c in out["exportados_sin_permiso"]] == ["a.Datos", "a.Boot", "a.Main"]
+    assert out["exportados_sin_permiso"][0] == {"tipo": "provider", "nombre": "a.Datos", "permiso": None,
+                                                "exportado_por_defecto": True, "autoridades": ["a.datos"]}
+    assert out["bibliotecas_nativas"] == ["lib/arm64-v8a/libx.so"] and out["estructura"] == {"dex": 1, "native_libraries": 1}
+    out = rc.mapa_app_android(FakeAndroid(), str(apk), limite=1)
+    assert len(out["exportados_sin_permiso"]) == 1 and out["exportados_sin_permiso_omitidos"] == 2
+
+
+def test_mapa_app_android_rechaza_lo_que_no_es_un_apk(tmp_path):
+    fake = FakeAndroid()
+    (tmp_path / "x.zip").write_bytes(b"PK")
+    for ruta in (tmp_path / "x.zip", tmp_path / "no.apk"):
+        with pytest.raises(ValueError, match="apk"):
+            rc.mapa_app_android(fake, str(ruta))
+    assert fake.calls == []

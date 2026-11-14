@@ -880,3 +880,91 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+# Permisos que Android clasifica como «peligrosos» (protectionLevel dangerous): el usuario tiene que concederlos.
+ANDROID_DANGEROUS = {
+    "READ_CALENDAR", "WRITE_CALENDAR", "CAMERA", "READ_CONTACTS", "WRITE_CONTACTS", "GET_ACCOUNTS",
+    "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "RECORD_AUDIO",
+    "READ_PHONE_STATE", "READ_PHONE_NUMBERS", "CALL_PHONE", "ANSWER_PHONE_CALLS", "READ_CALL_LOG", "WRITE_CALL_LOG",
+    "ADD_VOICEMAIL", "USE_SIP", "PROCESS_OUTGOING_CALLS", "BODY_SENSORS", "BODY_SENSORS_BACKGROUND", "SEND_SMS",
+    "RECEIVE_SMS", "READ_SMS", "RECEIVE_WAP_PUSH", "RECEIVE_MMS", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE",
+    "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO", "ACCESS_MEDIA_LOCATION", "ACTIVITY_RECOGNITION",
+    "POST_NOTIFICATIONS", "NEARBY_WIFI_DEVICES", "BLUETOOTH_SCAN", "BLUETOOTH_CONNECT", "BLUETOOTH_ADVERTISE",
+    "UWB_RANGING", "READ_MEDIA_VISUAL_USER_SELECTED"}
+
+
+def mapa_app_android(client: Any, path: str, limite: int = 40) -> dict[str, Any]:
+    """Mapa de una app Android (plan REA, punto 8) sin ejecutarla ni instalarla.
+
+    - JADX (`inspect_android_package`): paquete, SDK, permisos y componentes del manifiesto (actividades, servicios,
+      receptores y proveedores), con cuáles se exportan y cuáles sin permiso: la superficie que otra app puede usar.
+    - Inventario del APK (`inspect_artifact` + `project_android_application_graph`): archivos DEX, bibliotecas
+      nativas por ABI, JavaScript y firma, familias de ejecución y posibles puentes entre lenguajes.
+    Todo es estático: «exportado» sale del manifiesto (o del valor por defecto de Android) y no prueba que el
+    componente sea alcanzable ni explotable."""
+    src = Path(path)
+    if not src.is_file() or src.suffix.lower() != ".apk":
+        raise ValueError(f"se necesita un archivo .apk existente: {path}")
+    limite = max(1, min(int(limite or 40), 500))
+    pkg = _call(client, "inspect_android_package", {"path": str(src), "detail": "summary"})
+    s = pkg.get("summary") or {}
+    items = [c for c in (s.get("components") or {}).get("items") or [] if isinstance(c, dict)]
+    _session(client, str(src))
+    try:
+        text, ok = (client.call("inspect_artifact", {}, limit=None) if _accepts_limit(client)
+                    else client.call("inspect_artifact", {}))
+        if not ok:
+            raise RuntimeError(f"REA inspect_artifact: {text[:300]}")
+        graph = _call(client, "project_android_application_graph", {"inventory_evidence": [json.loads(text)]})
+    finally:
+        _close(client)
+
+    def comp(c: dict[str, Any]) -> dict[str, Any]:
+        out = {"tipo": c.get("kind"), "nombre": c.get("name"), "permiso": c.get("permission")}
+        if c.get("exported") is None:
+            out["exportado_por_defecto"] = c.get("exported_default")
+        for key, label in (("actions", "acciones"), ("authorities", "autoridades"), ("target_activity", "destino")):
+            if c.get(key):
+                out[label] = c[key]
+        return out
+
+    def exported(c: dict[str, Any]) -> bool:
+        return bool(c.get("exported") if c.get("exported") is not None else c.get("exported_default"))
+
+    tipos: dict[str, dict[str, int]] = {}
+    for c in items:
+        t = tipos.setdefault(str(c.get("kind")), {"total": 0, "exportados": 0, "exportados_sin_permiso": 0})
+        t["total"] += 1
+        if exported(c):
+            t["exportados"] += 1
+            t["exportados_sin_permiso"] += 0 if c.get("permission") else 1
+    abiertos = [c for c in items if exported(c) and not c.get("permission")]
+    # Lo más delicado primero: proveedores (datos), servicios y receptores; luego las actividades.
+    orden = {"provider": 0, "service": 1, "receiver": 2}
+    abiertos.sort(key=lambda c: (orden.get(str(c.get("kind")), 3), str(c.get("name"))))
+    permisos = [str(p) for p in s.get("permissions") or []]
+    groups = graph.get("components") or {}
+    natives = groups.get("native_libraries") or []
+    return {
+        "archivo": str(src), "sha256": graph.get("root_sha256"),
+        "paquete": {"nombre": s.get("package_name"), "version": s.get("version_name"), "codigo": s.get("version_code"),
+                    "sdk_minimo": s.get("min_sdk"), "sdk_objetivo": s.get("target_sdk"),
+                    "clases": s.get("class_count"), "recursos": s.get("resource_count")},
+        "motor": " ".join(str((s.get("engine") or {}).get(k) or "") for k in ("name", "version")).strip(),
+        "permisos": permisos,
+        "permisos_peligrosos": [p for p in permisos if p.rsplit(".", 1)[-1] in ANDROID_DANGEROUS],
+        "componentes": tipos,
+        "lanzadores": [c.get("name") for c in items if "android.intent.category.LAUNCHER" in (c.get("categories") or [])],
+        "exportados_sin_permiso": [comp(c) for c in abiertos[:limite]],
+        "exportados_sin_permiso_omitidos": max(0, len(abiertos) - limite),
+        "estructura": {k: len(v) for k, v in groups.items() if isinstance(v, list)},
+        "bibliotecas_nativas": [n.get("path") for n in natives[:limite]],
+        "familias_de_ejecucion": graph.get("runtime_families") or [],
+        "puentes_candidatos": graph.get("bridge_candidates") or [],
+        "cobertura": {"componentes": (s.get("components") or {}).get("status"),
+                      "inventario": (graph.get("coverage") or {}).get("status")},
+        "firma_verificada": s.get("signature_verification"),
+        "aviso": ("Análisis estático: no se instaló ni se ejecutó la app. «Exportado» sale del manifiesto (o del valor "
+                  "por defecto de Android) y no prueba que el componente sea alcanzable ni explotable; la firma no se "
+                  "ha verificado.")}
