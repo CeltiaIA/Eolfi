@@ -1,0 +1,2 @@
+# Los scripts de shell se ejecutan en WSL/Linux: siempre con LF, aunque la copia use autocrlf.
+*.sh text eol=lf
