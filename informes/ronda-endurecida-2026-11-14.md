@@ -115,3 +115,12 @@ Titular: «cal é o problema de Mistral coas ferramentas». Diagnóstico con msm
 - Comprobación: las 5 tareas de herramientas de la ronda con msmall_q5 → **5/5 a la primera**.
 - msmall_q5 se conserva por decisión del titular (su código, 15/18 = 83 %, sigue por debajo del 85 %);
   msmall_q4 y msmall_q3 **eliminados** (25,8 GB).
+
+## Medición más fiable (14/11/2026)
+
+- **Tokens por respuesta** en los exámenes de código: entrada y salida sumando análisis, respuesta y corrección
+  (antes `null`). En las tareas de herramientas siguen sin registrarse.
+- **Respuestas truncadas**: se guardan con su texto parcial y `truncada: true` (antes el texto se perdía; p. ej.
+  gemma_q4 en `rle_bytes`, cortado dos rondas seguidas sin poder ver por qué).
+- **`ejecutar_python` con error** cuenta como llamada errónea (suma al límite de 3) y en el chat se muestra «con
+  error»: antes bastaba con que el código se ejecutara, aunque acabase en excepción.
