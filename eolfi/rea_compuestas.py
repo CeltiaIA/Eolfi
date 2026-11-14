@@ -880,3 +880,84 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+def grafo_llamadas(client: Any, path: str, funcion: str, *, hacia: str = "adelante", profundidad: int = 3,
+                   max_nodos: int = 60) -> dict[str, Any]:
+    """Grafo de llamadas de una función (plan REA, punto 8: «llamadas»), con nombres y en Mermaid. Estático (Ghidra).
+
+    `funcion` es un nombre de `list_procedures` (p. ej. «entry» o «KERNEL32.DLL::Sleep») o una dirección. «adelante»
+    sigue a quién llama; «atras», quién la llama. REA recorre el grafo entero; Eolfi lo recorta a `profundidad`
+    niveles y `max_nodos` nodos, y dice cuánto ha dejado fuera. Las llamadas indirectas o calculadas no aparecen."""
+    if hacia not in ("adelante", "atras"):
+        raise ValueError("«hacia» tiene que ser «adelante» o «atras»")
+    profundidad = max(1, min(int(profundidad), 10))
+    max_nodos = max(2, min(int(max_nodos), 300))
+    _session(client, path)
+    try:
+        procs = _call(client, "list_procedures", {"detail": "complete"})
+        procs = procs if isinstance(procs, list) else []
+        names = {str(p.get("address")): str(p.get("value") or p.get("address")) for p in procs if p.get("address")}
+        by_name = {v.lower(): k for k, v in names.items()}
+        wanted = funcion.strip()
+        address = (wanted if wanted in names else by_name.get(wanted.lower())
+                   or next((a for a in names if a.lower() == wanted.lower()), None))
+        if address is None and re.fullmatch(r"(0x)?[0-9a-fA-F]+", wanted):
+            address = wanted if wanted.lower().startswith("0x") else f"0x{wanted}"
+        if address is None:
+            parecidas = sorted(v for v in names.values() if wanted.lower() in v.lower())[:10]
+            raise ValueError(f"no hay ninguna función llamada «{funcion}»"
+                             + (f"; parecidas: {', '.join(parecidas)}" if parecidas else ""))
+        raw = _call(client, "get_call_graph", {"address": address,
+                                               "direction": "forward" if hacia == "adelante" else "backward"})
+    finally:
+        _close(client)
+    levels = raw.get("graph") or {}
+    order = sorted(levels, key=lambda k: int(k)) if isinstance(levels, dict) else []
+    total = sum(len(levels[k]) for k in order)
+    nodes: dict[str, dict[str, Any]] = {}
+    edges: list[tuple[str, str]] = []
+    errors = 0
+    for k in order:
+        if int(k) > profundidad:
+            break
+        for n in levels[k]:
+            addr = str(n.get("address"))
+            if n.get("status") != "ok":
+                errors += 1
+            if addr not in nodes and len(nodes) < max_nodos:
+                nodes[addr] = {"direccion": addr, "nombre": names.get(addr, addr), "nivel": int(k),
+                               # Importaciones y sus «thunks» (nombre «DLL::función»): código de otra biblioteca.
+                               "externa": addr.startswith("EXTERNAL:") or "::" in names.get(addr, "")}
+    for k in order:
+        if int(k) >= profundidad:
+            break
+        for n in levels[k]:
+            src = str(n.get("address"))
+            for other in n.get("calls") or []:
+                other = str(other)
+                if src in nodes and other in nodes:
+                    edges.append((src, other) if hacia == "adelante" else (other, src))
+    externas: dict[str, list[str]] = {}
+    for n in nodes.values():
+        if n["externa"] and "::" in n["nombre"]:
+            dll, api = n["nombre"].split("::", 1)
+            externas.setdefault(dll.upper(), []).append(api)
+
+    def label(text: str) -> str:   # los nombres vienen del binario: datos, no sintaxis de Mermaid
+        return re.sub(r'["\[\](){}<>|#;`\\\n\r]', "_", text)[:60]
+
+    ids = {a: f"n{i}" for i, a in enumerate(nodes)}
+    mermaid = ["graph LR"]
+    for a, n in nodes.items():
+        mermaid.append(f'  {ids[a]}["{label(n["nombre"])}"]' + (":::externa" if n["externa"] else ""))
+    mermaid += [f"  {ids[a]} --> {ids[b]}" for a, b in dict.fromkeys(edges)]
+    mermaid.append("  classDef externa fill:#eee,stroke:#999")
+    return {
+        "archivo": path, "funcion": names.get(address, address), "direccion": address, "hacia": hacia,
+        "profundidad": profundidad, "nodos": list(nodes.values()), "aristas": len(dict.fromkeys(edges)),
+        "nodos_en_rea": total, "nodos_omitidos": max(0, total - len(nodes)), "nodos_con_error": errors,
+        "apis_externas": {dll: sorted(set(apis)) for dll, apis in sorted(externas.items())},
+        "mermaid": "\n".join(mermaid),
+        "aviso": ("Grafo estático de Ghidra: solo llamadas resueltas; las indirectas o calculadas no aparecen. "
+                  "Los nombres FUN_… son de Ghidra, no del programa.")}

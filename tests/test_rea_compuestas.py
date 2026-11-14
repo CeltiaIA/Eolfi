@@ -371,3 +371,53 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeCallGraph:
+    """REA con Ghidra: list_procedures y get_call_graph por niveles (formas reales con whoami.exe, 14/11/2026)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        procs = [{"address": "0x10", "value": "entry"}, {"address": "0x20", "value": "FUN_20"},
+                 {"address": "0x30", "value": 'raro"[x]'}, {"address": "EXTERNAL:0x1", "value": "KERNEL32.DLL::Sleep"},
+                 {"address": "0x40", "value": "MSVCRT.DLL::exit"}]
+        if name == "list_procedures":
+            r = procs
+        elif name == "get_call_graph":
+            if args["direction"] == "backward":   # quién llama a 0x20: entry
+                r = {"graph": {"0": [{"address": args["address"], "status": "ok", "calls": ["0x10"]}],
+                               "1": [{"address": "0x10", "status": "ok", "calls": []}]}}
+            else:
+                r = {"graph": {"0": [{"address": args["address"], "status": "ok", "calls": ["0x20", "0x30"]}],
+                               "1": [{"address": "0x20", "status": "ok", "calls": ["EXTERNAL:0x1", "0x40"]},
+                                     {"address": "0x30", "status": "error", "calls": []}],
+                               "2": [{"address": "EXTERNAL:0x1", "status": "ok", "calls": []},
+                                     {"address": "0x40", "status": "ok", "calls": []}]}}
+        else:
+            r = {"result": {}}
+        return json.dumps({"normalized_result": r}), True
+
+
+def test_grafo_llamadas_resuelve_nombres_recorta_y_da_mermaid():
+    fake = FakeCallGraph()
+    out = rc.grafo_llamadas(fake, r"C:\x.exe", "ENTRY", profundidad=2)
+    assert ("get_call_graph", {"address": "0x10", "direction": "forward"}) in fake.calls
+    assert fake.calls[-1][0] == "close_binary"
+    assert [n["nombre"] for n in out["nodos"]] == ["entry", "FUN_20", 'raro"[x]', "KERNEL32.DLL::Sleep", "MSVCRT.DLL::exit"]
+    assert out["apis_externas"] == {"KERNEL32.DLL": ["Sleep"], "MSVCRT.DLL": ["exit"]}
+    assert out["aristas"] == 4 and out["nodos_con_error"] == 1 and out["nodos_omitidos"] == 0
+    assert 'n2["raro__x_"]' in out["mermaid"] and "n0 --> n1" in out["mermaid"] and "n1 --> n3" in out["mermaid"]
+    corto = rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "entry", profundidad=1, max_nodos=2)
+    assert len(corto["nodos"]) == 2 and corto["nodos_omitidos"] == 3 and corto["aristas"] == 1
+
+
+def test_grafo_llamadas_hacia_atras_y_errores():
+    out = rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "0x20", hacia="atras", profundidad=1)
+    assert out["funcion"] == "FUN_20" and "n1 --> n0" in out["mermaid"]
+    with pytest.raises(ValueError, match="parecidas: FUN_20"):
+        rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "fun")
+    with pytest.raises(ValueError, match="adelante"):
+        rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "entry", hacia="arriba")
