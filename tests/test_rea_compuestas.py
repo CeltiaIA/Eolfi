@@ -55,6 +55,7 @@ def test_explicar_binario_elige_entrada_y_las_mas_complejas_y_cierra_la_sesion()
     assert names[0] == "entry" and len(names) == 2 and "thunk_x" not in names
     assert out["importaciones"] == 1 and out["funciones_propias"] == 3 and out["cadenas_muestra"] == ["hola mundo"]
     assert "no se ejecutó" in out["aviso"] and rea.calls[-1] == "close_binary"
+    assert "Ghidra" in out["fuente_cifras"]["importaciones"] and "inventario" in out["fuente_cifras"]["importaciones"]
 
 
 def test_reimplementar_funcion_avisa_de_que_una_prueba_verde_no_es_equivalencia():

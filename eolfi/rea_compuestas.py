@@ -118,6 +118,13 @@ def explicar_binario(client: Any, path: str, funciones: int = 5) -> dict[str, An
                 "sha256": head.get("sha256"),
                 "segmentos": [s.get("name") for s in (overview.get("segments") or [])] if isinstance(overview, dict) else [],
                 "funciones_propias": len(own), "importaciones": len(imports), "importaciones_muestra": imports[:40],
+                # 14/11/2026: con whoami.exe, 121 importaciones aquí frente a 127 en la tabla del PE; las dos son
+                # correctas pero miden cosas distintas, así que se dice de dónde sale cada una.
+                "fuente_cifras": {
+                    "funciones_propias": "procedimientos que Ghidra encuentra en el propio binario",
+                    "importaciones": "funciones externas que Ghidra resuelve; puede diferir de la tabla de importaciones "
+                                     "del ejecutable (nombres repetidos, importaciones por ordinal). La tabla exacta: "
+                                     "eolfi rea inventario"},
                 "cadenas_muestra": strings, "funciones_relevantes": detail,
                 "aviso": "Análisis estático (Ghidra vía REA): el programa no se ejecutó. Los nombres FUN_* son "
                          "automáticos; el pseudocódigo es una reconstrucción y puede tener errores."}

@@ -1034,7 +1034,7 @@ def test_ronda_endurecida_formato_tiempo_y_llamadas_erroneas(tmp_path, monkeypat
     monkeypatch.setattr(eolas_v2, "_evaluation_request", lambda *a, **k: {"content": "def es_palindromo(t): return True", "usage": {}})
     monkeypatch.setattr(eolas_v2, "_run_code_case", lambda *a, **k: {"passed": True, "executed": True, "output": "EOLFI-OK"})
     calls = iter([[{"name": "eolfi_triage", "ok": False}] * 3 + [{"name": "eolfi_triage", "ok": True}]] + [[]] * 10)
-    monkeypatch.setattr(eolas_v2, "_tool_session", lambda c, prompt, mcp, announce, name: ('{"formato": "wasm", "sha256": "x"}', next(calls)))
+    monkeypatch.setattr(eolas_v2, "_tool_session", lambda c, prompt, mcp, announce, name, **k: ('{"formato": "wasm", "sha256": "x"}', next(calls)))
     report = eolas_v2.run_full_evaluation(profiles=["gemma_q4"], battery="completa")
     code = [r for r in report["results"] if r["kind"] == "codigo"][0]
     assert code["passed"] and not code["first_try"] and "bloque" in code["formato_invalido"]
@@ -1190,3 +1190,23 @@ def test_ejecutar_python_que_termina_en_error_es_llamada_erronea(monkeypatch):
     final, calls = eolas_v2._tool_session({"alias": "m", "url": "http://127.0.0.1:1"}, "calcula", FakeMCP(), lambda m: None, "m")
     assert final == '{"resultado": 1}'
     assert [c["ok"] for c in calls] == [False, True]
+
+
+def test_las_tareas_de_herramientas_registran_sus_tokens(monkeypatch):
+    """14/11/2026: en las tareas de herramientas los tokens quedaban a null; ahora se suman todas las vueltas."""
+    from eolfi import eolas_v2
+
+    class FakeMCP:
+        tools = {}
+
+    replies = iter([
+        {"tool_calls": [{"id": "x", "function": {"name": "ejecutar_python", "arguments": json.dumps({"codigo": "print(2)"})}}],
+         "_usage": {"prompt_tokens": 100, "completion_tokens": 20}},
+        {"content": '{"resultado": 2}', "_usage": {"prompt_tokens": 150, "completion_tokens": 8}},
+    ])
+    monkeypatch.setattr(eolas_v2, "_chat_tools", lambda *a, **k: next(replies))
+    monkeypatch.setattr(eolas_v2, "_run_code_case", lambda *a, **k: {"passed": True, "executed": True, "output": "2\nEOLFI-OK"})
+    usage: dict = {}
+    final, calls = eolas_v2._tool_session({"alias": "m", "url": "http://127.0.0.1:1"}, "calcula", FakeMCP(),
+                                          lambda m: None, "m", usage=usage)
+    assert final == '{"resultado": 2}' and usage == {"entrada": 250, "salida": 28}
