@@ -493,7 +493,7 @@ def verificar_comportamiento(client: Any, authorizer: Any, original: dict[str, A
                 libro = {"error": str(exc)[:400]}
             try:
                 cobertura = cobertura_reconstruccion(client, captures, cmp, v_raw, str(modulo), scenarios["original"],
-                                                     bundle=bundle)
+                                                     bundle=bundle, reconstruccion=scenarios["reconstruccion"])
             except (OSError, RuntimeError, ValueError) as exc:
                 cobertura = {"error": str(exc)[:400]}
     no_modulo = ("no generado: indica en la reconstrucción «modulo» (el archivo de código que la implementa) para "
@@ -545,15 +545,190 @@ def _canonical_sha(value: Any) -> str:
                                      ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+# Primitivas con las que un módulo puede lanzar otro programa (y, por tanto, llamar al original).
+PY_PROCESS_MODULES = {"subprocess", "pty", "_posixsubprocess", "_winapi", "ctypes", "cffi", "multiprocessing",
+                      "concurrent.futures", "platform", "webbrowser", "uuid", "pydoc", "pipes", "mailcap"}
+PY_PROCESS_CALLS = ("os.system", "os.popen", "os.startfile", "os.exec", "os.spawn", "os.posix_spawn", "os.fork",
+                    "asyncio.create_subprocess_", "pty.spawn")
+PY_DYNAMIC = {"eval", "exec", "compile", "__import__", "importlib", "runpy", "builtins"}
+JS_PRIMITIVES = re.compile(r"child_process|worker_threads|process\.(binding|dlopen)|\beval\s*\(|\bFunction\s*\(|"
+                           r"Deno\.(run|Command)|Bun\.spawn|\bimport\s*\(")
+JS_STRING = re.compile(r"""(["'`])((?:\\.|(?!\1).)*)\1""", re.S)
+
+
+def _name_pattern(names: set[str]) -> re.Pattern[str]:
+    """Nombre del original como palabra de ruta: «whoami» o «whoami.exe», no «whoami_rec.py»."""
+    alt = "|".join(sorted((re.escape(n) for n in names if n), key=len, reverse=True))
+    return re.compile(rf"(?:^|[\s/\\\"'=:]){alt}(?:\.exe|\.com)?(?=$|[\s\"'])", re.I)
+
+
+def _dotted(node: Any) -> str | None:
+    import ast
+
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        return ".".join([node.id, *reversed(parts)])
+    return None
+
+
+def _static_python(source: str) -> tuple[list[str], list[str], list[str]]:
+    """(primitivas, textos literales, importaciones ajenas a la biblioteca estándar) de un módulo Python. Los
+    comentarios no cuentan: no se ejecutan."""
+    import ast
+    import sys
+
+    stdlib = getattr(sys, "stdlib_module_names", None)
+    tree = ast.parse(source)
+    found, strings, foreign = set(), [], set()
+    for node in ast.walk(tree):
+        names: list[str] = []
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if not node.module or node.level:
+                foreign.add("." * node.level + (node.module or ""))
+                continue
+            names = [node.module, *(f"{node.module}.{a.name}" for a in node.names)]
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" \
+                and len(node.args) >= 2:
+            attr = node.args[1]
+            if not (isinstance(attr, ast.Constant) and isinstance(attr.value, str)) \
+                    or re.match(r"(system|popen|exec|spawn|startfile|fork|posix_spawn)", attr.value):
+                found.add("código dinámico: getattr")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            modules = names[:1] if isinstance(node, ast.ImportFrom) else names
+            foreign.update(r for r in (m.split(".")[0] for m in modules) if stdlib is None or r not in stdlib)
+        elif isinstance(node, (ast.Attribute, ast.Name)):
+            dotted = _dotted(node)
+            names = [dotted] if dotted else []
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.append(node.value)
+        for name in names:
+            root = name.split(".")[0]
+            if root in PY_PROCESS_MODULES or ".".join(name.split(".")[:2]) in PY_PROCESS_MODULES:
+                found.add(f"proceso: {root if root in PY_PROCESS_MODULES else '.'.join(name.split('.')[:2])}")
+            elif any(name.startswith(p) for p in PY_PROCESS_CALLS):
+                found.add(f"proceso: {name}")
+            elif root in PY_DYNAMIC:
+                found.add(f"código dinámico: {root}")
+    return sorted(found), strings, sorted(foreign)
+
+
+def prueba_independencia(captures: dict[str, Any], modulo: str, original: dict[str, Any],
+                         reconstruccion: dict[str, Any]) -> dict[str, Any]:
+    """¿La reconstrucción llama al original? Prueba de independencia para la cobertura (kind authority-independence).
+
+    Dos partes, y las dos tienen que salir limpias para «pass»:
+    - estática: el módulo (Python o JavaScript) no tiene NINGUNA primitiva para lanzar programas ni código dinámico,
+      y el módulo es lo que se ejecuta en el escenario;
+    - en ejecución: en el muestreo de procesos de REA de la reconstrucción ningún proceso es el original, y el
+      muestreo no es parcial ni ciego (un programa de Windows lanzado por interoperabilidad tiene hijos que WSL no ve).
+    «fail» si se observa el original, si la reconstrucción ES el original o si el módulo tiene primitivas y nombra al
+    original. Cualquier otra cosa es «unknown»: Eolfi no da por buena una independencia que no ha comprobado."""
+    import hashlib
+
+    orig_exe = str(original.get("executable") or "")
+    rec_exe = str(reconstruccion.get("executable") or "")
+    stem = Path(orig_exe.replace("\\", "/")).name
+    names = {stem, Path(stem).stem}
+    pattern = _name_pattern(names)
+    paths = {orig_exe, orig_exe.replace("/", "\\")} - {""}
+    orig_sha = _executable_sha(captures["original"])
+    rec_sha = _executable_sha(captures["reconstruccion"])
+    motivos, estatica, ejecucion = [], {"estado": "unknown"}, {"estado": "unknown"}
+
+    def names_original(text: str) -> bool:
+        return bool(pattern.search(text)) or any(p in text for p in paths) or bool(orig_sha and orig_sha in text)
+
+    # Estática.
+    owner = Path(modulo)
+    run_parts = [rec_exe, *map(str, reconstruccion.get("arguments") or [])]
+    if not any(Path(p.replace("\\", "/")).name == owner.name for p in run_parts):
+        estatica["motivo"] = f"el módulo {owner.name} no aparece en el escenario de la reconstrucción"
+    else:
+        try:
+            source = owner.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            estatica["motivo"] = f"no se pudo leer el módulo como texto: {exc}"
+        else:
+            suffix = owner.suffix.lower()
+            ajenos: list[str] = []
+            if suffix == ".py":
+                try:
+                    primitivas, strings, ajenos = _static_python(source)
+                except SyntaxError as exc:
+                    primitivas, strings = None, []
+                    estatica["motivo"] = f"el módulo no es Python válido: {exc.msg}"
+            elif suffix in (".js", ".mjs", ".cjs"):
+                primitivas = sorted({f"proceso o código dinámico: {m.group(0)}" for m in JS_PRIMITIVES.finditer(source)})
+                strings = [m.group(2) for m in JS_STRING.finditer(source)]
+            else:
+                primitivas, strings = None, []
+                estatica["motivo"] = f"lenguaje no analizado ({suffix or 'sin extensión'})"
+            if primitivas is not None:
+                nombra = [s[:80] for s in strings if names_original(s)]
+                estatica.update({"primitivas": primitivas, "nombra_original": nombra[:5],
+                                 "sha256": hashlib.sha256(owner.read_bytes()).hexdigest()})
+                if primitivas and nombra:
+                    estatica["estado"] = "detected"
+                    motivos.append("el módulo puede lanzar programas y nombra al original")
+                elif primitivas:
+                    estatica["motivo"] = "el módulo puede lanzar programas o generar código; no se sabe a cuál"
+                elif ajenos:
+                    estatica["importaciones_sin_analizar"] = ajenos
+                    estatica["motivo"] = ("el módulo importa código fuera de la biblioteca estándar que no se ha "
+                                          f"analizado: {', '.join(ajenos[:5])}")
+                else:
+                    estatica["estado"] = "none"
+
+    # En ejecución.
+    if (rec_sha and orig_sha and rec_sha == orig_sha) or (rec_exe and rec_exe == orig_exe):
+        ejecucion = {"estado": "detected", "motivo": "la reconstrucción ejecuta el mismo programa que el original"}
+        motivos.append(ejecucion["motivo"])
+    else:
+        result = captures["reconstruccion"].get("normalized_result") or {}
+        samples = result.get("process_samples") or []
+        sampling = (result.get("truncation_details") or {}).get("process") or {}
+        vistos = [s.get("command") for s in samples if isinstance(s.get("command"), str) and names_original(s["command"])]
+        ejecucion["procesos_muestreados"] = len(samples)
+        if vistos:
+            ejecucion.update({"estado": "detected", "procesos_del_original": vistos[:5]})
+            motivos.append("se observó el original entre los procesos de la reconstrucción")
+        elif WINDOWS_PROGRAM.search(rec_exe):
+            ejecucion["motivo"] = ("la reconstrucción es un programa de Windows: sus procesos hijos no se ven desde el "
+                                   "muestreo de WSL")
+        elif not samples or sampling.get("sampling_partial") or sampling.get("sample_limit_reached") \
+                or sampling.get("sampling_failures") or result.get("truncated"):
+            ejecucion["motivo"] = "el muestreo de procesos falta, es parcial o la captura está truncada"
+        else:
+            ejecucion["estado"] = "none"
+    if "detected" in (estatica["estado"], ejecucion["estado"]):
+        estado, ruta = "fail", "detected"
+    elif estatica["estado"] == ejecucion["estado"] == "none":
+        estado, ruta = "pass", "none"
+    else:
+        estado, ruta = "unknown", "unknown"
+        motivos += [p["motivo"] for p in (estatica, ejecucion) if p.get("motivo")]
+    return {"estado": estado, "ruta_al_original": ruta, "estatica": estatica, "ejecucion": ejecucion,
+            "motivos": motivos,
+            "limites": "El muestreo de procesos puede perder hijos muy breves y el análisis estático no entra en la "
+                       "biblioteca estándar más allá de la lista de módulos que lanzan programas; por eso «pass» exige "
+                       "las dos partes limpias. No cubre red ni servicios: solo procesos."}
+
+
 def cobertura_reconstruccion(client: Any, captures: dict[str, Any], cmp: dict[str, Any], verdict_raw: dict[str, Any],
-                             modulo: str, original: dict[str, Any], *, bundle: dict[str, Any]) -> dict[str, Any]:
+                             modulo: str, original: dict[str, Any], *, bundle: dict[str, Any],
+                             reconstruccion: dict[str, Any] | None = None) -> dict[str, Any]:
     """Cobertura de la reconstrucción en una frontera (evaluate_reconstruction_coverage, plan REA, punto 1).
 
     Una superficie (la salida del programa en este escenario), su propietario (`modulo` y su SHA-256), una afirmación
     y un contrato de verificador POR DIMENSIÓN (terminal, salida) con el estado que dio verify_reconstruction, citando
-    las capturas observadas. Lo que Eolfi no puede demostrar se declara «unknown», nunca bien: si el módulo se
-    distribuye y si la reconstrucción llama al original (independencia). La frontera exige esa prueba de
-    independencia, que Eolfi aún no genera, así que la cobertura no puede salir «ready»."""
+    las capturas observadas. La frontera exige la prueba de independencia (prueba_independencia: la reconstrucción no
+    llama al original), que cita la captura observada de la reconstrucción. Lo que Eolfi no puede demostrar se
+    declara «unknown», nunca bien: si el módulo se distribuye, así que la cobertura aún no puede salir «ready»."""
     import datetime
     import hashlib
 
@@ -588,6 +763,10 @@ def cobertura_reconstruccion(client: Any, captures: dict[str, Any], cmp: dict[st
                         "normalization_sha256": norm_sha, "repeats": 1, "evidence_ids": ids})
     exe = str(original.get("executable"))
     boundary = "eolfi.escenario"
+    indep = prueba_independencia(captures, modulo, original, reconstruccion) if reconstruccion is not None else None
+    proofs = [] if indep is None else [{
+        "proof_id": "eolfi.independencia", "kind": "authority-independence", "status": indep["estado"],
+        "artifact_sha256s": sorted({orig_sha, owner_sha}), "evidence_ids": [ids[1]]}]
     coverage = {
         "evidence_bundle": bundle,
         "artifacts": [{"artifact_id": "original", "artifact_sha256": orig_sha, "version": "observado",
@@ -597,12 +776,13 @@ def cobertura_reconstruccion(client: Any, captures: dict[str, Any], cmp: dict[st
                       "location": exe, "authority": "observed", "dependency_surface_ids": [], "evidence_ids": [ids[0]]}],
         "owners": [{"surface_id": surface, "ownership": {
             "disposition": "implemented", "owner_path": str(owner), "owner_export": None, "owner_sha256": owner_sha,
-            "path_state": "present", "package_state": "unknown", "authority_route": "unknown"}}],
+            "path_state": "present", "package_state": "unknown",
+            "authority_route": indep["ruta_al_original"] if indep else "unknown"}}],
         "claims": [{"claim_id": f"comportamiento-{d}", "title": f"Mismo comportamiento ({d})", "kind": "behavioral",
                     "surface_ids": [surface], "required_dimensions": [d], "required_authority": "controlled-replay"}
                    for d in dims],
         "verifier_contracts": contracts, "verifier_results": results,
-        "residual_unknown_ids": [], "contradictions": [], "package_proofs": [],
+        "residual_unknown_ids": [], "contradictions": [], "package_proofs": proofs,
         "boundaries": [{"boundary_id": boundary, "title": f"{Path(exe).name} en este escenario",
                         "required_surface_ids": [surface], "required_claim_ids": [f"comportamiento-{d}" for d in dims],
                         "required_package_proof_kinds": ["authority-independence"], "allowed_dispositions": [],
@@ -612,8 +792,9 @@ def cobertura_reconstruccion(client: Any, captures: dict[str, Any], cmp: dict[st
             "razones": [f"{r.get('code')} ({r.get('subject_id')}): {r.get('detail')}" for r in out.get("reasons") or []],
             "siguientes_pruebas": [f"{p.get('operation')} ({p.get('subject_id')})" for p in
                                    out.get("recommended_probes") or []],
-            "aviso": "«ready» exigiría además demostrar que la reconstrucción no llama al original (independencia) y "
-                     "cómo se distribuye; Eolfi lo declara «unknown» porque no lo ha probado."}
+            "independencia": indep if indep is not None else "no comprobada: falta el escenario de la reconstrucción",
+            "aviso": "«ready» exige además saber cómo se distribuye el módulo, que Eolfi declara «unknown» porque no lo "
+                     "ha probado; la independencia solo vale para procesos en este escenario."}
 
 
 def libro_obligaciones(client: Any, captures: dict[str, Any], verdict_raw: dict[str, Any], modulo: str,
