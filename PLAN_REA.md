@@ -57,8 +57,15 @@ autorización.
   registrado en el caso (artefacto y evidencia). Sus importaciones (121, símbolos externos de Ghidra) difieren de la
   tabla PE (127): ahora el informe lo dice en `fuente_cifras`. Corregido: `--caso` se comprueba antes del análisis.
 
-**Pendiente de verificar en vivo:** `revisar-modelo` (GGUF de varios GB), `reimplementar`, `comparar` y la verificación
-de comportamiento (requiere aprobar la ejecución en los dos lados).
+- **`eolfi rea revisar-modelo`** (4–6 s, solo cabecera): Gemma 4 Q5 y Q4 aprobados, con la cuantización dominante
+  (Q5_K, Q4_K) igual al `general.file_type` leído con un lector GGUF propio (17 y 15). Con el mismo Q4 enlazado con el
+  nombre `…-Q8_0.gguf`, **no aprueba**: «la cuantización real coincide con el nombre (Q8_0)» falso, dominante Q4_K. Un
+  GGUF recortado se rechaza: REA comprueba que los tensores quepan en el archivo.
+- **`eolfi rea reimplementar whoami.exe entry`** (53 s): 18 bytes y llamadas a `0x1400021b4` y `0x140001af0` (esta
+  como salto de cola), iguales al desensamblado de `objdump`.
+
+**Pendiente de verificar en vivo:** `comparar` (necesita dos versiones de un mismo programa) y la verificación de
+comportamiento (requiere aprobar la ejecución en los dos lados).
 
 ## Lo que crearemos, por orden
 
