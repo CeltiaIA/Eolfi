@@ -123,7 +123,7 @@ autorización.
 | 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Pendiente |
 | 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
 | 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
-| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
+| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Hecho (14/11/2026, `entorno_agente`, `eolfi rea entorno <captura.har> <destino> [--nombre] [--escribir]`): ensayo por defecto; con `--escribir`, carpeta nueva con README, manifiesto, evidencias, Dockerfile, verificador y tarea de humo. En vivo con un HAR sintético de una tienda: 3 herramientas (`get_items`, `get_items_by_id`, `post_items`), 2 lecturas desde el estado y la creación servida. NO VERIFICADO: arrancar el entorno (Docker + `rea environment-serve`) y HAR reales |
 
 ## Lo que se aprendió de REA al construir
 
