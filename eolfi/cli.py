@@ -444,6 +444,10 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r15 = rps.add_parser("flutter", help="Qué hay en una app Flutter: motor, snapshot Dart y paquetes, sin ejecutarla")
+    r15.add_argument("ruta")
+    r15.add_argument("--abi", help="ABI del snapshot que se examina (por defecto la que elija REA)")
+    r15.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1544,6 +1548,9 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "flutter":
+                op, params = "app_flutter", {"ruta": args.ruta, "abi": args.abi}
+                result = rc.app_flutter(client, args.ruta, args.abi, args.limite)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

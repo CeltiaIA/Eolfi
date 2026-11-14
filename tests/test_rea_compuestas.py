@@ -371,3 +371,62 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeFlutter:
+    """REA simulado para una app Flutter: build por ABI, resumen del snapshot y pool de cadenas paginado."""
+
+    def __init__(self, flutter=True, pkg_al_menos=4):
+        self.calls, self.flutter, self.al_menos = [], flutter, pkg_al_menos
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        if name == "identify_flutter_build":
+            abis = [{"abi": x, "libapp": {"bytes": 10, "sha256": "aa", "snapshot_hash": "h1"},
+                     "libflutter": {"build_id": "b-" + x, "dart_version": None, "toolchain_lines": ["clang 9"]}}
+                    for x in ("arm64-v8a", "x86_64")] if self.flutter else []
+            out = {"target": {"sha256": "ff" * 32, "bytes": 99}, "flutter_detected": self.flutter, "abis": abis}
+        elif name == "inspect_dart_aot":
+            out = {"parent_evidence_id": "ev_dart", "summary": {
+                "abi": args.get("abi", "arm64-v8a"), "coverage": "partial",
+                "libapp": {"coverage": "complete", "sections": [{"name": "_kDartIsolateSnapshotData", "size": 5,
+                                                                 "kind": 3}]},
+                "string_pool": {"coverage": "partial", "package_uri_count_at_least": self.al_menos,
+                                "dart_uri_count_at_least": 3, "class_like_token_count_at_least": 9}}}
+        elif name == "inspect_analysis_view":
+            v = args["view"]
+            data = {"package_uris": ["package:app/main.dart", "package:app/home.dart", "package:http/http.dart",
+                                     "package:flutter/widgets.dart"],
+                    "dart_uris": ["dart:async/future.dart", "dart:core", "dart:async-patch8", "dart:ui/text.dart"]}
+            rows = data[v["collection"]]
+            o = v["offset"]
+            page = rows[o:o + 2]  # páginas pequeñas para probar la paginación
+            nxt = o + 2 if o + 2 < len(rows) else None
+            out = {"items": page, "coverage": {"next_offset": nxt}}
+        else:
+            raise AssertionError(name)
+        return json.dumps({"normalized_result": out}), True
+
+
+def test_app_flutter_agrupa_paquetes_y_librerias_del_sdk(tmp_path):
+    f = tmp_path / "app.apk"
+    f.write_bytes(b"PK")
+    fake = FakeFlutter()
+    r = rc.app_flutter(fake, str(f), abi="x86_64")
+    assert r["flutter"] and [a["abi"] for a in r["abis"]] == ["arm64-v8a", "x86_64"] and r["snapshot_hash"] == "h1"
+    assert r["paquetes"][0] == {"paquete": "app", "archivos": 2} and r["paquetes_total"] == 3
+    assert r["sdk_dart"] == ["dart:async", "dart:core", "dart:ui"]  # sin el resto «async-patch8»
+    assert r["pool_cadenas"]["uris_package_devueltas"] == 4 and r["paquetes_incompletos"]  # cobertura parcial
+    assert ("inspect_dart_aot", {"path": str(f), "detail": "summary", "abi": "x86_64"}) in fake.calls
+    assert sum(1 for n, a in fake.calls if n == "inspect_analysis_view"
+               and a["view"]["collection"] == "package_uris") == 2
+
+
+def test_app_flutter_sin_libapp_o_ruta_invalida(tmp_path):
+    f = tmp_path / "nativa.apk"
+    f.write_bytes(b"PK")
+    fake = FakeFlutter(flutter=False)
+    r = rc.app_flutter(fake, str(f))
+    assert r["flutter"] is False and [n for n, _ in fake.calls] == ["identify_flutter_build"]
+    with pytest.raises(ValueError):
+        rc.app_flutter(FakeFlutter(), str(tmp_path / "app.ipa"))
