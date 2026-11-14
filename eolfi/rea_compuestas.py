@@ -880,3 +880,84 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+def _dart_items(client: Any, parent: str, collection: str) -> list[str]:
+    """Todas las entradas que REA devuelve de una colección del pool de cadenas Dart (de 1000 en 1000)."""
+    items: list[str] = []
+    offset: int | None = 0
+    while offset is not None:
+        v = _call(client, "inspect_analysis_view", {"source": {"kind": "retained-evidence", "evidence_id": parent},
+                                                    "view": {"kind": "dart-aot", "collection": collection,
+                                                             "offset": offset, "limit": 1000}})
+        got = [x for x in v.get("items") or [] if isinstance(x, str)]
+        items += got
+        offset = (v.get("coverage") or {}).get("next_offset") if got else None
+    return items
+
+
+def app_flutter(client: Any, path: str, abi: str | None = None, limite: int = 40) -> dict[str, Any]:
+    """Qué hay dentro de una app Flutter (plan REA, punto 9: Flutter/Dart), sin instalarla ni ejecutarla.
+
+    Por ABI: `libapp.so` (código Dart compilado AOT) con su hash de snapshot y `libflutter.so` (motor) con su
+    build-id y toolchain. Del snapshot de una ABI: secciones y, del pool de cadenas, los paquetes Dart que incluye
+    (agrupando las URI `package:`) y las librerías del SDK (`dart:`). Son observaciones de bytes, no clases ni
+    funciones recuperadas; los recuentos de REA son mínimos («al menos»)."""
+    src = Path(path)
+    if not src.is_file() or src.suffix.lower() not in (".apk", ".apks", ".xapk", ".aab"):
+        raise ValueError(f"no es un APK existente: {path}")
+    limite = max(1, min(int(limite or 40), 1000))
+    p = str(src)
+    build = _call(client, "identify_flutter_build", {"path": p})
+    target = build.get("target") or {}
+    base = {"archivo": p, "sha256": target.get("sha256"), "bytes": target.get("bytes"),
+            "flutter": bool(build.get("flutter_detected"))}
+    if not base["flutter"]:
+        return {**base, "aviso": "REA no encuentra lib/<abi>/libapp.so: no parece una app Flutter compilada AOT."}
+    abis = []
+    for a in build.get("abis") or []:
+        if not isinstance(a, dict):
+            continue
+        app, eng = a.get("libapp") or {}, a.get("libflutter") or {}
+        abis.append({"abi": a.get("abi"), "libapp_bytes": app.get("bytes"), "libapp_sha256": app.get("sha256"),
+                     "snapshot_hash": app.get("snapshot_hash"),
+                     "motor_build_id": eng.get("build_id"), "motor_sha256": eng.get("sha256"),
+                     "version_dart": eng.get("dart_version"), "toolchain": (eng.get("toolchain_lines") or [])[:2]})
+    hashes = sorted({a["snapshot_hash"] for a in abis if a.get("snapshot_hash")})
+    args: dict[str, Any] = {"path": p, "detail": "summary"}
+    if abi:
+        args["abi"] = abi
+    aot = _call(client, "inspect_dart_aot", args)
+    s = aot.get("summary") or {}
+    pool = s.get("string_pool") or {}
+    parent = aot["parent_evidence_id"]
+    pkg_uris = _dart_items(client, parent, "package_uris")
+    dart_uris = _dart_items(client, parent, "dart_uris")
+    paquetes: Counter[str] = Counter()
+    for u in pkg_uris:
+        name = u[len("package:"):].split("/", 1)[0] if u.startswith("package:") else ""
+        if name:
+            paquetes[name] += 1
+    # Patrones de bytes: se quedan solo los nombres de librería bien formados (fuera restos como «async-patch8»).
+    sdk = sorted({lib for u in dart_uris if re.fullmatch(r"dart:_?[a-z][a-z0-9_]*(-patch)?", lib := u.split("/", 1)[0])})
+    at_least = pool.get("package_uri_count_at_least")
+    incompleto = bool(pool.get("coverage") != "complete" or (at_least or 0) > len(pkg_uris))
+    return {**base, "abis": abis,
+            "snapshot_hash": hashes[0] if len(hashes) == 1 else hashes,
+            "snapshot": {"abi": s.get("abi"), "cobertura": (s.get("libapp") or {}).get("coverage"),
+                         "secciones": [{"nombre": x.get("name"), "bytes": x.get("size"), "tipo": x.get("kind")}
+                                       for x in (s.get("libapp") or {}).get("sections") or [] if isinstance(x, dict)]},
+            "paquetes": [{"paquete": k, "archivos": n} for k, n in sorted(paquetes.items(),
+                                                                          key=lambda kv: (-kv[1], kv[0]))][:limite],
+            "paquetes_total": len(paquetes), "paquetes_incompletos": incompleto,
+            "sdk_dart": sdk[:limite],
+            "pool_cadenas": {"cobertura": pool.get("coverage"),
+                             "uris_package_al_menos": pool.get("package_uri_count_at_least"),
+                             "uris_package_devueltas": len(pkg_uris),
+                             "uris_dart_al_menos": pool.get("dart_uri_count_at_least"),
+                             "identificadores_al_menos": pool.get("class_like_token_count_at_least")},
+            "cobertura": s.get("coverage"),
+            "aviso": ("Análisis estático: no se instaló ni ejecutó la app. Las URI y paquetes salen de patrones de "
+                      "bytes del snapshot, no de clases o funciones recuperadas; si REA devuelve menos URI de las que "
+                      "cuenta, la lista de paquetes es incompleta («paquetes_incompletos»). El hash de snapshot identifica la versión "
+                      "del SDK de Dart con una tabla externa que REA no consulta.")}
