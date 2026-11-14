@@ -371,3 +371,136 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeWasm:
+    """REA simulado para WASM: el resumen deja la evidencia en la sesión y las vistas leen sus facetas."""
+
+    def __init__(self, fail=None):
+        self.calls, self.fail = [], fail
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        if name == self.fail:
+            return "REA_WABT_BIN_DIRECTORY must be an absolute tool directory.", False
+        if name == "inspect_wasm_artifact":
+            ev = "ev_" + ("b" if args["path"].endswith("v2.wasm") else "a") * 64
+            return json.dumps({"normalized_result": {
+                "parent_evidence_id": ev, "artifact": {"path": args["path"], "sha256": "cd" * 32},
+                "summary": {"bytes": 1000, "validation": "valid", "debug_name_metadata": "not-present",
+                            "custom_section_warnings": [], "available_counts": {"sections": 2, "imports": 2, "exports": 3},
+                            "wat": {"sha256": "ef" * 32, "code_units": 5000},
+                            "tool_profile": {"release": "1.0.42", "commands": [
+                                {"tool": "wasm-validate", "sha256": "11" * 32}, {"tool": "wasm-objdump", "sha256": "22" * 32}]}}}}), True
+        if name == "inspect_analysis_view":
+            facet, lim = args["view"]["facet"], args["view"]["limit"]
+            rows = {"imports": ['(import "env" "abort" (func (;0;) (type 1)))', '(import "a" "b\\"c" (memory (;0;) 1))'],
+                    "exports": ['(export "memory" (memory 0))', '(export "run" (func 7))', "(rara)"],
+                    "sections": [{"kind": "Type", "bytes": 10, "description": "count: 2"},
+                                 {"kind": "Code", "bytes": 900, "description": "count: 4"}],
+                    "glue": [{"artifact": {"path": "/x/carga.mjs", "sha256": "99" * 32}, "parse_status": "complete",
+                              "references": [{"value": "../dist/m.wasm", "line": 4, "column": 21,
+                                              "candidate_paths": ["/x/m.wasm"], "association": "basename-candidates"}]}],
+                    }[facet]
+            return json.dumps({"normalized_result": {"item": rows[:lim], "coverage": {"total": len(rows)}}}), True
+        assert name == "compare_wasm_interfaces"
+        return json.dumps({"normalized_result": {
+            "coverage": "complete-within-inputs", "summary": {"added": 1, "removed": 0, "changed": 1, "unchanged": 2, "unknown": 0},
+            "changes": [{"direction": "export", "module": None, "name": "run", "state": "changed",
+                         "left": [{"signature": {"kind": "func", "params": ["i32", "i32"], "results": ["i32"]}}],
+                         "right": [{"signature": {"kind": "func", "params": ["i64"], "results": []}}], "reason": None},
+                        {"direction": "export", "module": None, "name": "nueva", "state": "added", "left": [],
+                         "right": [{"wat_form": "(func)"}], "reason": None},
+                        {"direction": "import", "module": "env", "name": "abort", "state": "unchanged", "left": [], "right": []}]}}), True
+
+
+def test_modulo_wasm_resume_validez_secciones_e_interfaz(tmp_path):
+    w = tmp_path / "m.wasm"
+    w.write_bytes(b"\0asm\1\0\0\0")
+    fake = FakeWasm()
+    r = rc.modulo_wasm(fake, str(w))
+    first = fake.calls[0][1]
+    # Sin el WAT entero (no cabe en la respuesta) y con más tiempo por orden de WABT que los 30 s de REA.
+    assert first == {"path": str(w.resolve()), "detail": "summary", "command_timeout_ms": rc.WASM_TIMEOUT_MS}
+    views = [a["view"]["facet"] for n, a in fake.calls if n == "inspect_analysis_view"]
+    assert views == ["sections", "imports", "exports"]
+    assert all(a["source"] == {"kind": "retained-evidence", "evidence_id": "ev_" + "a" * 64}
+               for n, a in fake.calls if n == "inspect_analysis_view")
+    assert r["validacion"] == "valid" and r["recuentos"] == {"sections": 2, "imports": 2, "exports": 3}
+    assert r["wabt"]["version"] == "1.0.42" and [h["herramienta"] for h in r["wabt"]["herramientas"]] == [
+        "wasm-validate", "wasm-objdump"]
+    assert r["secciones"][1] == {"tipo": "Code", "bytes": 900, "detalle": "count: 4"}
+    assert r["importaciones"] == [{"modulo": "env", "nombre": "abort", "tipo": "func"},
+                                  {"modulo": "a", "nombre": 'b\\"c', "tipo": "memory"}]
+    assert r["exportaciones"][:2] == [{"nombre": "memory", "tipo": "memory", "indice": 0},
+                                      {"nombre": "run", "tipo": "func", "indice": 7}]
+    assert r["exportaciones"][2] == {"wat": "(rara)"}  # lo que no se entiende se conserva tal cual
+    assert "comparacion" not in r and "no se ejecuta" in r["limites"]
+
+
+def test_modulo_wasm_dice_desde_que_javascript_se_carga(tmp_path):
+    w, js = tmp_path / "m.wasm", tmp_path / "carga.mjs"
+    w.write_bytes(b"\0asm")
+    js.write_text('const p = new URL("../dist/m.wasm", import.meta.url);', encoding="utf-8")
+    fake = FakeWasm()
+    r = rc.modulo_wasm(fake, str(w), js=[str(js)])
+    assert fake.calls[0][1]["glue_paths"] == [str(js.resolve())]
+    (g,) = r["cargado_desde"]
+    assert g["lectura"] == "complete" and g["sha256"] == "99" * 32
+    (ref,) = g["referencias"]
+    assert ref["literal"] == "../dist/m.wasm" and (ref["linea"], ref["columna"]) == (4, 21)
+    assert ref["asociacion"] == "basename-candidates" and "solo coincide el nombre" in ref["significa"]
+    sin_js = FakeWasm()
+    r2 = rc.modulo_wasm(sin_js, str(w))
+    assert "glue_paths" not in sin_js.calls[0][1] and "cargado_desde" not in r2
+    assert "glue" not in [a["view"]["facet"] for n, a in sin_js.calls if n == "inspect_analysis_view"]
+    with pytest.raises(ValueError, match="no existe el JavaScript"):
+        rc.modulo_wasm(FakeWasm(), str(w), js=[str(tmp_path / "no.js")])
+
+
+def test_modulo_wasm_recorta_y_lo_dice(tmp_path):
+    w = tmp_path / "m.wasm"
+    w.write_bytes(b"\0asm")
+    r = rc.modulo_wasm(FakeWasm(), str(w), limite=1)
+    assert len(r["importaciones"]) == 1 and r["recortado"] == {"importaciones": True, "exportaciones": True}
+
+
+def test_modulo_wasm_compara_las_interfaces_de_dos_versiones(tmp_path):
+    a, b = tmp_path / "v1.wasm", tmp_path / "v2.wasm"
+    a.write_bytes(b"\0asm")
+    b.write_bytes(b"\0asm")
+    fake = FakeWasm()
+    r = rc.modulo_wasm(fake, str(a), str(b))
+    (cmp_args,) = [x for n, x in fake.calls if n == "compare_wasm_interfaces"]
+    assert cmp_args == {"left": {"kind": "retained-evidence", "evidence_id": "ev_" + "a" * 64},
+                        "right": {"kind": "retained-evidence", "evidence_id": "ev_" + "b" * 64}, "scope": "both"}
+    c = r["comparacion"]
+    assert c["resumen"]["changed"] == 1 and c["cobertura"] == "complete-within-inputs"
+    assert [x["nombre"] for x in c["cambios"]] == ["run", "nueva"]  # lo que no cambió no se lista
+    assert c["cambios"][0]["antes"] == ["(i32, i32) -> i32"] and c["cambios"][0]["despues"] == ["(i64) -> ()"]
+    assert c["cambios"][1]["despues"] == ["(func)"]  # sin firma tipada: la forma WAT tal cual
+
+
+def test_firma_wasm_de_memorias_tablas_y_globales():
+    assert rc._firma_wasm({"signature": {"kind": "memory", "minimum": "1", "maximum": None, "address_type": "i32",
+                                         "shared": False, "page_size": "65536"}}) == "memoria 1..sin límite (i32)"
+    assert rc._firma_wasm({"signature": {"kind": "table", "element": "funcref", "minimum": "2", "maximum": "8",
+                                         "address_type": "i32", "shared": True}}) == "tabla funcref 2..8 compartida"
+    assert rc._firma_wasm({"signature": {"kind": "global", "value_type": "f64", "mutable": True}}) == "global f64 mutable"
+
+
+def test_modulo_wasm_valida_y_explica_como_instalar_wabt(tmp_path):
+    with pytest.raises(ValueError, match="no existe"):
+        rc.modulo_wasm(FakeWasm(), str(tmp_path / "no.wasm"))
+    w = tmp_path / "m.wasm"
+    w.write_bytes(b"\0asm")
+    with pytest.raises(RuntimeError, match="instalar-wabt"):
+        rc.modulo_wasm(FakeWasm(fail="inspect_wasm_artifact"), str(w))
+
+    class Grande(FakeWasm):
+        def call(self, name, args, limit=None):
+            return '{"error": {"code": "resource_constraint", "message": "WABT output exceeded the 33554432-byte output budget"}}', False
+
+    with pytest.raises(RuntimeError, match="demasiado grande") as exc:
+        rc.modulo_wasm(Grande(), str(w))
+    assert "instalar-wabt" not in str(exc.value)  # no es que falte WABT

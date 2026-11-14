@@ -141,11 +141,42 @@ autorización.
 
 | Herramienta | Qué desbloquea | Licencia | Estado |
 |---|---|---|---|
-| WABT 1.0.42 | Análisis completo de WASM (`inspect_wasm_artifact`, `compare_wasm_interfaces`) | Libre | Pendiente |
+| WABT 1.0.42 | Análisis completo de WASM (`inspect_wasm_artifact`, `compare_wasm_interfaces`) | Libre | Instalado el 14/11/2026 (ver «Módulos WebAssembly») |
 | Npcap | Captura de red en vivo (ahora solo se leen capturas) | Libre | Pendiente; instala un controlador de sistema |
 | sigrok | Grabaciones de señales | Libre | Pendiente |
 | Cutter | Interfaz visual de rizin | Libre | Pendiente |
 | JEB, IDA | Descompiladores alternativos | Comerciales | Solo si el titular lo decide |
+
+## Módulos WebAssembly (14/11/2026)
+
+WABT 1.0.42 descargado con permiso del titular («descarga wabt») de la publicación oficial
+(github.com/WebAssembly/wabt, release 1.0.42 del 15/09/2026), con el SHA-256 igual al publicado: Windows x64
+(`62f1eb2b…8c88`) en `~/.eolfi/tools/wabt-1.0.42` y Linux x64 (`84895407…b131`) en `~/.local/eolfi-rea/wabt-1.0.42`
+de Ubuntu. Instaladores con el hash fijo: `tools/instalar-wabt.ps1` y `tools/instalar-wabt-wsl.sh` (probados también
+descargando en una carpeta temporal). REA exige la versión exacta y la carpeta `bin` en `REA_WABT_BIN_DIRECTORY`, con
+`wasm-validate`, `wasm-objdump` y `wasm2wat`; `rea_env` la pasa sola si está instalado.
+
+`eolfi rea wasm <módulo> [--frente <otra versión>]` (y `eolfi_modulo_wasm` en el chat): validez, secciones,
+importaciones y exportaciones; con `--frente`, `compare_wasm_interfaces` (añadidas, quitadas y cambiadas, con su firma
+legible). Siempre pide el resumen (`detail: summary`): la respuesta completa lleva el WAT entero y no cabe en la
+respuesta de REA. Cada orden de WABT tiene 120 s en vez de los 30 s de REA.
+
+En vivo (REA de Windows): `webp_codec.wasm` de Playwright (SHA-256 `164cd958…4b79`) «valid», 11 secciones, 5
+importaciones y 8 exportaciones, igual que `wasm-objdump -h` y `wasm-validate` a mano. Comparación de dos módulos
+propios compilados con `wat2wasm`: añadidas `multiplicar` y la importación `env.now`, quitada `restar`, `sumar`
+cambiada de `(i32, i32) -> i32` a `(i64, i64) -> i64`, y `memory` y `env.log` sin cambios: exactamente lo escrito.
+
+Con `--js <cargador>` (repetible; `js` en el chat, con las rutas comprobadas como las demás) REA busca en ese
+JavaScript, sin ejecutarlo, los literales que nombran un .wasm y dice cómo se asocian: «la ruta apunta a este
+archivo», «solo coincide el nombre» o «sin archivo local». En vivo con `evmole` (dependencia del propio REA): módulo
+«valid», 30 importaciones y 21 exportaciones (igual que `wasm-objdump -h`); en `evmole_node.mjs` el literal
+`../dist/evmole_bg.wasm`, línea 4, columna 21, «solo coincide el nombre» (la copia no está en `../dist`). Es una
+asociación estática: no prueba que el módulo se cargue.
+
+Límite de REA, sin solución en esta versión: si la salida de WABT pasa de 32 MiB (fijo), el análisis falla. Le pasa a
+`tree-sitter-javascript.wasm` (~650 KB): Eolfi lo dice en vez de mostrar el error de REA. NO VERIFICADO: el REA de WSL
+con WABT (instalado, pero sin conectar en `wsl_rea_command`, que cambia en la PR #22) y módulos con nombres de
+depuración.
 
 ## Registros de REA en los agentes
 

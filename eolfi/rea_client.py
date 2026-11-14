@@ -45,8 +45,12 @@ def rea_command() -> list[str] | None:
     return [node, str(script), "mcp"] if node and script.is_file() else None
 
 
+WABT_DIR = "wabt-1.0.42"   # REA exige esta versión exacta (comprueba «--version» de cada herramienta)
+WABT_TOOLS = ("wasm-validate", "wasm-objdump", "wasm2wat")
+
+
 def rea_env() -> dict[str, str]:
-    """Entorno de REA sin secretos de Eolfi, con las herramientas instaladas para él (apktool, tshark, jadx)."""
+    """Entorno de REA sin secretos de Eolfi, con las herramientas instaladas para él (apktool, tshark, jadx, WABT)."""
     env = {k: v for k, v in os.environ.items() if not _SECRET.search(k)}
     home = Path.home()
     defaults = {
@@ -58,6 +62,11 @@ def rea_env() -> dict[str, str]:
     for key, path in defaults.items():   # un servidor arrancado antes de instalarlas no ve las variables nuevas
         if not env.get(key) and path.is_file():
             env[key] = str(path)
+    # WABT 1.0.42 (tools/instalar-wabt.ps1): REA pide la CARPETA bin con wasm-validate, wasm-objdump y wasm2wat.
+    wabt = home / ".eolfi" / "tools" / WABT_DIR / "bin"
+    exe = ".exe" if os.name == "nt" else ""
+    if not env.get("REA_WABT_BIN_DIRECTORY") and all((wabt / f"{t}{exe}").is_file() for t in WABT_TOOLS):
+        env["REA_WABT_BIN_DIRECTORY"] = str(wabt)
     return env
 
 

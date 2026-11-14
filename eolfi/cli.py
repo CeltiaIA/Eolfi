@@ -447,6 +447,14 @@ def _parser() -> argparse.ArgumentParser:
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
+    rw = rps.add_parser("wasm", help="Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y "
+                                     "exportaciones (WABT 1.0.42)")
+    rw.add_argument("ruta")
+    rw.add_argument("--frente", default=None, metavar="OTRO.wasm",
+                    help="otra versión del módulo: compara sus importaciones y exportaciones")
+    rw.add_argument("--js", action="append", default=[], metavar="CARGADOR.js",
+                    help="JavaScript que carga el módulo (repetible): dónde lo nombra, sin ejecutarlo")
+    rw.add_argument("--limite", type=int, default=40)
 
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
@@ -1551,6 +1559,9 @@ def main(argv: list[str] | None = None) -> int:
                 result = rc.explicar_binario(client, args.ruta, args.funciones)
             elif args.rea_action == "inventario":
                 op, params, result = "inventario_dependencias", {"ruta": args.ruta}, rc.inventario_dependencias(client, args.ruta)
+            elif args.rea_action == "wasm":
+                op, params = "modulo_wasm", {"ruta": args.ruta, "frente": args.frente, "js": args.js}
+                result = rc.modulo_wasm(client, args.ruta, args.frente, args.limite, args.js)
             elif args.rea_action == "app-js":
                 op, params, result = "analizar_app_js", {"ruta": args.ruta}, rc.analizar_app_js(client, args.ruta)
             elif args.rea_action == "reimplementar":
@@ -1559,6 +1570,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
                 result = rc.comparar_versiones(client, args.original, args.nueva)
+        except (ValueError, RuntimeError) as exc:
+            # Error de REA o ruta no válida: el mensaje, sin traza (EOLFI_DEBUG la muestra).
+            if os.environ.get("EOLFI_DEBUG"):
+                raise
+            print(f"eolfi rea {args.rea_action}: {exc}", file=sys.stderr)
+            return 1
         finally:
             client.close()
         if args.caso:   # plan REA, punto 6: lo analizado queda en el caso

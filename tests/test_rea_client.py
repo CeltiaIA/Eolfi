@@ -68,3 +68,22 @@ def test_sin_rea_instalado_el_chat_sigue(monkeypatch):
     assert rea_client.rea_command() is None
     assert rea_client.blocked("capture_process_scenario") and rea_client.blocked("install_adb_package")
     assert not rea_client.blocked("decompile_all") and not rea_client.blocked("inspect_adb_client")
+
+
+def test_rea_env_pasa_wabt_si_esta_instalado(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.delenv("REA_WABT_BIN_DIRECTORY", raising=False)
+    assert "REA_WABT_BIN_DIRECTORY" not in rea_client.rea_env()
+    bin_ = tmp_path / ".eolfi" / "tools" / rea_client.WABT_DIR / "bin"
+    bin_.mkdir(parents=True)
+    exe = ".exe" if os.name == "nt" else ""
+    (bin_ / f"wasm-validate{exe}").write_bytes(b"")
+    assert "REA_WABT_BIN_DIRECTORY" not in rea_client.rea_env()  # falta wasm-objdump
+    (bin_ / f"wasm-objdump{exe}").write_bytes(b"")
+    assert "REA_WABT_BIN_DIRECTORY" not in rea_client.rea_env()  # falta wasm2wat
+    (bin_ / f"wasm2wat{exe}").write_bytes(b"")
+    assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == str(bin_)
+    monkeypatch.setenv("REA_WABT_BIN_DIRECTORY", "/otra")
+    assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == "/otra"  # la del usuario manda
