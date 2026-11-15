@@ -463,7 +463,13 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
     record = _runtime()
     if record and _pid_alive(int(record.get("pid") or 0)):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):
-            return {"running": True, "started": False, "profile": name, "url": c["url"], "pid": record["pid"]}
+            watchdog = None
+            if popen is subprocess.Popen:      # un vigilante perdido se rearma al reutilizar el servidor (P0-3)
+                from eolfi.local_gpu import ensure_watchdog
+
+                watchdog = ensure_watchdog()
+            return {"running": True, "started": False, "profile": name, "url": c["url"], "pid": record["pid"],
+                    "idle_watchdog_pid": watchdog}
         raise RuntimeError(f"Eolas ya tiene activo el perfil {record.get('profile')}; cambia de perfil con switch")
     runtime_file().unlink(missing_ok=True)
     if release_eolas:
@@ -503,9 +509,9 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
             if _healthy(c, str(c["alias"])):
                 watchdog = None
                 if popen is subprocess.Popen:      # solo un servidor real lleva vigilante de inactividad
-                    from eolfi.local_gpu import IDLE_MINUTES, start_watchdog
+                    from eolfi.local_gpu import ensure_watchdog
 
-                    watchdog = start_watchdog(proc.pid, int(c["port"]), IDLE_MINUTES)
+                    watchdog = ensure_watchdog()   # deja su PID y token en el runtime
                 return {"running": True, "started": True, "profile": name, "url": c["url"], "pid": proc.pid,
                         "idle_watchdog_pid": watchdog}
             time.sleep(0.5)
@@ -659,6 +665,8 @@ def status() -> dict[str, Any]:
     return {"config": str(config_file()), "active_profile": cfg["active_profile"], "running_profile": selected if live else None,
             "model": c["model"], "alias": c["alias"], "url": c["url"], "pid": record.get("pid") if live else None,
             "running": bool(live and healthy), "model_verified": healthy,
+            "idle_watchdog_pid": (record.get("idle_watchdog_pid") if live and _pid_alive(
+                int(record.get("idle_watchdog_pid") or 0)) else None),
             "feedback_enabled": bool(cfg["feedback_enabled"]), "feedback_file": str(feedback_file())}
 
 

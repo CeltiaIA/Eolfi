@@ -35,6 +35,10 @@ class _Eolas(BaseHTTPRequestHandler):
         elif self.path == "/api/tags":            # el catálogo: siempre lleno, haya algo cargado o no
             self._send({"models": [{"name": "gemma-4-12b-it:latest"}, {"name": "mistral-7b:latest"}]})
         elif self.path == "/slots":
+            # Como el llama-server real arrancado con --api-key-file: sin la clave, 401 (P0-2, 15/11/2026).
+            if self.headers.get("Authorization") != f"Bearer {eolas_v2.api_key()}":
+                self.send_error(401)
+                return
             self._send(_Eolas.slots)
         else:
             self.send_error(404)
@@ -137,6 +141,58 @@ def test_vigilante_para_tras_inactividad_y_cuenta_peticiones_cortas(v2, server):
     assert r.startswith("parado tras 2") and v2 == [1]
     assert now[0] >= 5 * 60                # las peticiones cortas reiniciaron la cuenta
     assert local_gpu.watch(os.getpid(), server[1], 2, clock=lambda: 0, sleep=lambda _: None) == "servidor terminado"
+
+
+def test_el_vigilante_lee_slots_con_la_clave_de_eolas_v2(v2, server):
+    _Eolas.slots = [{"id": 0, "id_task": 5, "is_processing": True}]
+    holder = local_gpu.eolas_v2_holder()
+    assert holder["slots_ok"] and holder["busy"] and holder["tasks"] == (5,)
+
+
+class _Proc:
+    def __init__(self, pid):
+        self.pid = pid
+
+
+def test_vigilante_sale_del_job_y_si_no_puede_se_lanza_igual(monkeypatch):
+    monkeypatch.setattr(local_gpu.os, "name", "nt")
+    monkeypatch.setattr(local_gpu.subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000, raising=False)
+    calls = []
+
+    def popen(args, creationflags=0, **k):
+        calls.append(creationflags)
+        if creationflags & 0x01000000 and len(calls) == 1 and fail:
+            raise OSError("acceso denegado")
+        return _Proc(4242)
+
+    fail = False
+    assert local_gpu.start_watchdog(1, 8090, 15, popen=popen, token="t") == 4242
+    assert calls[0] & 0x01000000
+    calls.clear()
+    fail = True
+    assert local_gpu.start_watchdog(1, 8090, 15, popen=popen) == 4242
+    assert calls[0] & 0x01000000 and not calls[1] & 0x01000000
+
+
+def test_vigilante_perdido_se_rearma_y_el_antiguo_se_retira(v2, server, monkeypatch):
+    launched = []
+    alive = {os.getpid()}
+    monkeypatch.setattr(eolas_v2, "_pid_alive", lambda pid: pid in alive)
+    popen = lambda args, **k: launched.append(args) or _Proc(777)
+    first = local_gpu.ensure_watchdog(popen=popen)
+    record = json.loads(eolas_v2.runtime_file().read_text(encoding="utf-8"))
+    assert first == 777 and record["idle_watchdog_pid"] == 777 and len(launched) == 1
+    old_token = record["idle_watchdog_token"]
+    assert launched[0][launched[0].index("--token") + 1] == old_token
+    alive.add(777)
+    assert local_gpu.ensure_watchdog(popen=popen) == 777 and len(launched) == 1   # vivo: no se duplica
+    alive.discard(777)                                                           # murió con su sesión
+    assert local_gpu.ensure_watchdog(popen=popen) == 777 and len(launched) == 2
+    new_token = json.loads(eolas_v2.runtime_file().read_text(encoding="utf-8"))["idle_watchdog_token"]
+    assert new_token != old_token
+    # Un vigilante antiguo que siguiera vivo ve otro token y se retira sin parar el servidor.
+    r = local_gpu.watch(os.getpid(), server[1], 15, clock=lambda: 0, sleep=lambda _: None, token=old_token)
+    assert r == "otro vigilante activo" and v2 == []
 
 
 def test_eolfi_llama_start_retirado(capsys):

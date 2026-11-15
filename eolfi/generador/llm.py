@@ -522,6 +522,11 @@ def make_provider(name: str = DEFAULT_PROVIDER, *, model: str | None = None, bas
         raise LLMError(f"proveedor desconocido '{name}' (opciones: {', '.join(PRESETS)})")
     p = PRESETS[name]
     if p["kind"] == "ollama":
+        from eolfi.local_gpu import eolas_v1_parked
+
+        if name == "eolas" and not base_url and eolas_v1_parked():
+            raise LLMError("Eolas V1 (CeltIA, 11435) está parado hasta que se repare: usa el proveedor eolas-v2 "
+                           "(o define EOLFI_EOLAS_V1=1 cuando esté reparado)")
         return OllamaProvider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
     if p["kind"] == "bridge":
         return BridgeProvider(name, p["site"], p["context_bytes"])
