@@ -430,7 +430,7 @@ def test_enrutamiento_eolas_auto(tmp_path, monkeypatch, effort, expected):
         yield eolas_v2.profile_config(profile, cfg)
 
     monkeypatch.setattr(eolas_v2, "inference_profile", inference)
-    monkeypatch.setattr(llm, "_post", lambda *args: {"choices": [{"message": {"content": "{}"}}]})
+    monkeypatch.setattr(llm, "_post", lambda *args, **kwargs: {"choices": [{"message": {"content": "{}"}}]})
     reply = llm.EolasEngineProvider("auto").complete("system", [], {}, effort)
     assert reply.model.startswith(cfg["profiles"][expected]["alias"])
 

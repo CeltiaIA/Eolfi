@@ -2,7 +2,7 @@
 
 - eolas-v2  Motor Eolas V2 de Eolfi (llama-server local con clave de API): el proveedor por defecto.
 - celtia-v2 CeltIA V2: un perfil de Eolas V2 redacta y otro revisa (por defecto gemma → gemma_q4).
-- eolas     Motor local Eolas V1 (CeltIA), API compatible con Ollama en 127.0.0.1:11435.
+- eolas     Motor local Eolas V1 (CeltIA), API propia de Eolas (/api/chat, /api/tags) en 127.0.0.1:11435.
 - deepseek-web / gemini-web / meta-web / web
             Webs de chat a través del puente Electron de Eolfi (python -m eolfi bridge):
             tu sesión iniciada a mano y permiso en cada envío. Puede ir contra las
@@ -42,7 +42,7 @@ class Reply:
 
 
 PRESETS: dict[str, dict[str, Any]] = {
-    "eolas": {"kind": "ollama", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
+    "eolas": {"kind": "eolas-v1", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
               "model": os.environ.get("EOLAS_MODEL", "gemma-4-12b-it:latest"), "key_env": None,
               "context_bytes": 60_000},
     # Motor Eolas V2 gestionado por Eolfi (llama-server local, perfil Gemma o Mistral alterno).
@@ -157,8 +157,14 @@ MAX_RESPONSE_BYTES = 32 * 1024 * 1024   # una respuesta mayor no es una respuest
 RETRIES = 3                             # reintentos ante 429, 5xx y cortes de red
 
 
+# Un modelo local que agota el plazo no ha fallado de forma pasajera: está generando y repetir la petición vuelve a
+# empezar desde cero en la misma GPU (15/11/2026: tres reintentos de 15 min con Eolas V1, sin ninguna respuesta).
+LOCAL_TIMEOUT = 1800.0
+
+
 def _post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float,
-          retries: int = RETRIES, sleep: Callable[[float], None] | None = None) -> dict[str, Any]:
+          retries: int = RETRIES, sleep: Callable[[float], None] | None = None,
+          retry_timeouts: bool = True) -> dict[str, Any]:
     import time as _time
 
     check_key_url(url, "Authorization" in headers)
@@ -186,6 +192,10 @@ def _post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: floa
                 continue
             raise LLMError(f"HTTP {exc.code} de {where}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            timed_out = isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError)
+            if timed_out and not retry_timeouts:
+                raise LLMError(f"{where} no terminó en {timeout:.0f} s: el modelo local sigue generando o va "
+                               "demasiado lento; no se repite la petición para no empezar otra vez desde cero") from exc
             if attempt < retries:
                 wait(min(2.0 * 2 ** attempt, 60.0))
                 continue
@@ -203,11 +213,11 @@ class Provider:
         raise NotImplementedError
 
 
-class OllamaProvider(Provider):
-    """Eolas V1 / Ollama: POST /api/chat con `format` = esquema JSON."""
+class EolasV1Provider(Provider):
+    """Eolas V1 (CeltIA): POST /api/chat con `format` = esquema JSON."""
     name = "eolas"
 
-    def __init__(self, base_url: str, model: str, context_bytes: int = 60_000, timeout: float = 900.0):
+    def __init__(self, base_url: str, model: str, context_bytes: int = 60_000, timeout: float = LOCAL_TIMEOUT):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.context_bytes = context_bytes
@@ -229,7 +239,7 @@ class OllamaProvider(Provider):
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
             "options": {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2},
-        }, eolas_v1_headers(self.base_url), self.timeout)
+        }, eolas_v1_headers(self.base_url), self.timeout, retry_timeouts=False)
         text = (r.get("message") or {}).get("content", "")
         if not text:
             raise LLMError(f"Eolas no devolvió contenido ({r.get('error') or r.get('done_reason')})")
@@ -358,7 +368,7 @@ class EolasEngineProvider(Provider):
         self.context_bytes = PRESETS["eolas-v2"]["context_bytes"]
         self.model = self.profile or eolas_v2.load_config()["active_profile"]
         self.last_reasoning = ""
-        self.timeout = 1800.0
+        self.timeout = LOCAL_TIMEOUT
 
     def complete(self, system, messages, schema, effort) -> Reply:
         from eolfi import eolas_v2, llamacpp
@@ -396,7 +406,7 @@ class EolasEngineProvider(Provider):
             response = _post(f"{c['url']}/v1/chat/completions", {
                 "model": c["alias"], "messages": msgs, **opts,
                 "response_format": {"type": "json_schema", "json_schema": {"name": "eolfi_changes", "schema": schema, "strict": True}},
-            }, eolas_v2.auth_headers(), self.timeout)
+            }, eolas_v2.auth_headers(), self.timeout, retry_timeouts=False)
         self.last_server_timings = dict(response.get("timings") or {})
         choice = (response.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
@@ -528,8 +538,8 @@ def make_provider(name: str | None = None, *, model: str | None = None, base_url
     if name not in PRESETS:
         raise LLMError(f"proveedor desconocido '{name}' (opciones: {', '.join(PRESETS)})")
     p = PRESETS[name]
-    if p["kind"] == "ollama":
-        return OllamaProvider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
+    if p["kind"] == "eolas-v1":
+        return EolasV1Provider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
     if p["kind"] == "bridge":
         return BridgeProvider(name, p["site"], p["context_bytes"])
     if p["kind"] == "llamacpp":
@@ -605,7 +615,7 @@ def probe(name: str, base_url: str | None = None) -> dict[str, Any]:
                     "detail": f"{roles[0]} redacta → {roles[1]} revisa; carga secuencial, runtime NO VERIFICADO"}
         except (OSError, ValueError) as exc:
             return {"available": False, "detail": str(exc)}
-    if p["kind"] == "ollama":
+    if p["kind"] == "eolas-v1":
         from eolfi.local_gpu import eolas_v1_headers
 
         root = (base_url or p["base_url"]).rstrip("/")

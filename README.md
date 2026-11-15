@@ -281,7 +281,7 @@ Proveedores (`--provider`, también en el panel):
 |---|---|---|
 | `eolas-v2` (defecto) | el motor local Eolas V2 de Eolfi (llama-server con clave de API), con el perfil activo | `python -m eolfi eolas-v2 start` (o se arranca solo al usarlo) |
 | `celtia-v2` | dos perfiles de Eolas V2: uno redacta (gemma) y otro revisa (gemma_q4) | los dos GGUF instalados y sin retirar |
-| `eolas` | Eolas V1 local (CeltIA), API Ollama en `127.0.0.1:11435` | arrancar Eolas (`launch-eolas.ps1`); `--base-url`/`--model` para cambiarlo |
+| `eolas` | Eolas V1 local (CeltIA), API de Eolas en `127.0.0.1:11435` | arrancar Eolas (`launch-eolas.ps1`); `--base-url`/`--model` para cambiarlo |
 
 | `deepseek-web` · `gemini-web` · `meta-web` · `web` | las webs de chat con tu sesión, vía el puente Electron (`web` elige la primera lista) | `python -m eolfi bridge` e iniciar sesión en sus ventanas |
 
@@ -418,7 +418,7 @@ python -m eolfi vscode-do open --path src/app.py --line 40
   van a «Descartadas al verificar» con su motivo. Si el veredicto es dudoso o ilegible, se queda como REAL.
 - **Límites de peticiones de Copilot**: la auditoría usa Auto primero, cambia de modelo si uno llega a su límite y,
   si todos lo están, sigue con un **modelo local llama.cpp** (Eolas en 127.0.0.1:11435 o un `llama-server` en
-  127.0.0.1:8080; ajustes `eolfi.fallback.*`): sin límites y sin que el código salga del equipo. Sin Ollama.
+  127.0.0.1:8080; ajustes `eolfi.fallback.*`): sin límites y sin que el código salga del equipo.
   Si no hay ninguno en marcha, **Eolfi arranca un `llama-server`** (en manual pregunta una vez por sesión; en
   automático no) con el GGUF más adecuado para código, solo en 127.0.0.1, y lo para al cerrar VS Code o tras 15 min
   sin uso (`eolfi.fallback.autoStart`, `eolfi.fallback.llamaServer`, `eolfi.fallback.gguf`).

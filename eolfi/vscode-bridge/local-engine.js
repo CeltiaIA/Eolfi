@@ -1,6 +1,6 @@
 'use strict';
 // Motor local de la extensión (15/11/2026, decisión del titular: trabajar con Eolas V1 o Eolas V2).
-//   eolas-v1: Eolas de CELTIAIA (127.0.0.1:11435, API tipo Ollama), con la clave que crea launch-eolas.ps1.
+//   eolas-v1: Eolas de CELTIAIA (127.0.0.1:11435, API propia /api/*), con la clave que crea launch-eolas.ps1.
 //   eolas-v2: llama-server de Eolfi (127.0.0.1:8090, API de OpenAI), con su propia clave (eolas-v2-starter.js).
 // La elección es la misma que en la CLI y el panel (eolfi/local_gpu.py): el ajuste «eolfi.local.engine» si se ha
 // fijado; si no, EOLFI_LOCAL_ENGINE; si no, ~/.eolfi/motor-local.json («python -m eolfi motor-local …»); si no,
