@@ -123,20 +123,21 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                    ai_client=None, ai_provider: str = "eolas-v2", ai_model: str | None = None,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
                    progress: Callable[[str], None] | None = None, case_id: str | None = None,
-                   provenance: str = "") -> dict[str, Any]:
-    """case_id: cada fuente analizada queda en el caso (con su propio registro «analysis») y la reconstrucción
+                   provenance: str = "", autofix: bool = False) -> dict[str, Any]:
+    """autofix: si la verificación falla, la IA (ai_provider) intenta corregir el proyecto (ver run_autofix).
+    case_id: cada fuente analizada queda en el caso (con su propio registro «analysis») y la reconstrucción
     se registra como «reconstruction», con la verificación y sus pasos. Sin verificación verde: «partial»."""
     from eolfi.core.cases import case_run
 
     params = {"sources": sources, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
               "force": force, "reanalyze": reanalyze, "db": db, "auth": auth, "ai": bool(ai_brief),
-              "ai_provider": ai_provider if ai_brief else None}
+              "ai_provider": ai_provider if (ai_brief or autofix) else None, "autofix": autofix}
     with case_run(store, case_id, "create", params,
                   provenance or "fuentes indicadas por el operador para una reconstrucción") as run:
         rep = _create_project(sources, store, out, name=name, target=target, do_verify=do_verify, force=force,
                               reanalyze=reanalyze, workdir=workdir, ai_brief=ai_brief, ai_client=ai_client,
                               ai_provider=ai_provider, ai_model=ai_model, ai_base_url=ai_base_url, db=db,
-                              auth=auth, progress=progress, case_id=case_id)
+                              auth=auth, progress=progress, case_id=case_id, autofix=autofix)
         if run.active:
             for src in rep["sources"]:
                 run.associate(src["subject"])
@@ -150,6 +151,9 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                 errors.append(f"verificación fallida: {', '.join(failed) or ver.get('error', '?')}")
             if rep.get("assist") and not rep["assist"].get("ok"):
                 errors.append("la IA no consiguió un estado verde")
+            if rep.get("autofix") and not rep["autofix"].get("ok"):
+                errors.append("autofix: " + str(rep["autofix"].get("summary") or rep["autofix"].get("error")
+                                                or "no se corrigieron los errores"))
             run.finish(status="done" if not errors else "partial", errors=errors,
                        evidence_ids=[x for x in (rep["evidence_id"], rep.get("verification_evidence_id")) if x],
                        result={"out": rep["out"], "target": rep["target"], "files": rep["files"],
@@ -160,6 +164,7 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
 
 def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str, target: str,
                     do_verify: bool, force: bool, reanalyze: bool, workdir: str, ai_brief: str | None,
+                    autofix: bool = False,
                     ai_client, ai_provider: str, ai_model: str | None, ai_base_url: str | None, db: str,
                     auth: bool, progress: Callable[[str], None] | None, case_id: str | None) -> dict[str, Any]:
     from eolfi.generador.generators import generate
@@ -289,7 +294,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
             params={"target": spec["target"]}, result=ver, authority=Authority.CONTROLLED_REPRO,
             confidence=Confidence.HIGH, environment=env,
             limitations="Instalación, compilación y pruebas del proyecto generado en esta máquina."))
-        if not ver["ok"]:
+        if not ver["ok"] and not (autofix and not overwrite):   # con autofix, la incógnita la pone él si no lo arregla
             failed = next((s for s in ver.get("steps", []) if s["exit"] != 0), None)
             store.add_incognita(Incognita(subject=subject, severity="high", question=(
                 f"La verificación falló en '{failed['step'] if failed else ver.get('error')}'; "
@@ -299,10 +304,62 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
                                             ({"tail": s["tail"][-1200:]} if s["exit"] != 0 else {})
                                             for s in ver.get("steps", [])],
                                   **({"error": ver["error"]} if "error" in ver else {})}
+    if autofix and do_verify and not ver["ok"]:
+        if overwrite:
+            # Escribir sobre la fuente: no se ejecutan sus pruebas fuera de la carpeta limpia (AGENTS.md).
+            result["autofix"] = {"ok": False, "needed": True, "summary": "autofix no se aplica al escribir sobre "
+                                 "la fuente; ejecútalo aparte con «eolfi autofix» sobre una copia"}
+        else:
+            result["autofix"] = _safe_autofix(store, out_path, client=ai_client, provider=ai_provider,
+                                              model=ai_model, base_url=ai_base_url, progress=log)
+            if result["autofix"].get("ok"):
+                final = result["autofix"]["final"]
+                result["verification"] = {**final, "autofixed": True}
+                result["verification_evidence_id"], _ = store.add_evidence(Evidence(
+                    subject=subject, provider="eolfi.generador", provider_version="0.1.0",
+                    operation="project_verification", params={"target": spec["target"], "after": "autofix"},
+                    result=final, authority=Authority.CONTROLLED_REPRO, confidence=Confidence.HIGH,
+                    environment=env, limitations="Verificación aislada tras la corrección automática de la IA."))
     if ai_brief:
         result["assist"] = run_assist(store, out_path, ai_brief, client=ai_client, provider=ai_provider,
                                       model=ai_model, base_url=ai_base_url, progress=log)
     return result
+
+
+def _safe_autofix(store: EvidenceStore, project: Path, **kw: Any) -> dict[str, Any]:
+    """Dentro de create: un proveedor caído o sin configurar no rompe la creación; queda como autofix fallido."""
+    from eolfi.generador.assist import AssistError
+
+    try:
+        return run_autofix(store, project, **kw)
+    except AssistError as exc:
+        (kw.get("progress") or (lambda _m: None))(f"autofix no disponible: {exc}")
+        store.add_incognita(Incognita(subject=f"proyecto:{Path(project).resolve()}", severity="high", question=(
+            f"La verificación falló y autofix no pudo ejecutarse ({exc}); revisa la salida antes de usar el proyecto.")))
+        return {"ok": False, "needed": True, "error": str(exc), "summary": f"autofix no disponible: {exc}"}
+
+
+def run_autofix(store: EvidenceStore, project: str | Path, *, client=None, provider: str = "eolas-v2",
+                model: str | None = None, base_url: str | None = None,
+                progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """Comprueba que no queden errores en un proyecto generado y, si los hay, la IA los corrige (con evidencia)."""
+    from eolfi.generador.assist import autofix
+
+    root = Path(project).resolve()
+    rep = autofix(root, client=client, provider=provider, model=model, base_url=base_url, progress=progress)
+    subject = f"proyecto:{root}"
+    store.add_evidence(Evidence(
+        subject=subject, provider="eolfi.autofix", provider_version="0.1.0", operation="project_autofix",
+        params={"provider": rep["provider"], "model": rep["model"], "needed": rep["needed"]}, result=rep,
+        authority=Authority.CONTROLLED_REPRO if not rep["needed"] else Authority.ANALYST_INFERENCE,
+        confidence=Confidence.HIGH if not rep["needed"] else (Confidence.MEDIUM if rep["ok"] else Confidence.LOW),
+        environment=environment_string(),
+        limitations="Corrección escrita por un modelo y validada solo por la compilación y las pruebas del "
+                    "proyecto; revísala." if rep["needed"] else "Verificación sin cambios: no había errores."))
+    if not rep["ok"]:
+        store.add_incognita(Incognita(subject=subject, severity="high", question=(
+            f"autofix no dejó el proyecto en verde: {rep['summary']}. Los archivos quedaron como estaban.")))
+    return rep
 
 
 def run_assist(store: EvidenceStore, project: str | Path, brief: str, *, client=None, provider: str = "eolas-v2",

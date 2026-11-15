@@ -33,6 +33,7 @@ Comandos:
   decompile <archivo> --functions entry,main
                                  Pseudo-C de funciones concretas con Ghidra.
   assist <proyecto> --brief TEXTO [--provider P] [--model M] [--base-url URL]
+  autofix <proyecto> [--provider P] [--model M] [--base-url URL]   comprueba que no queden errores y los corrige
                                  La IA implementa cambios en un proyecto generado (verificado y,
                                  si no queda en verde, deshecho).
   bridge [--login] [--browser B] [--engine browser|electron] [--install-only]
@@ -323,6 +324,8 @@ def _parser() -> argparse.ArgumentParser:
     _case_args(cr)
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
+    cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
+                    help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
         sp.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
         sp.add_argument("--model", default=None, help="Modelo del proveedor (por defecto, el de su preajuste)")
@@ -335,6 +338,13 @@ def _parser() -> argparse.ArgumentParser:
     asg.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
     asg.add_argument("--model", default=None)
     asg.add_argument("--base-url", default=None)
+
+    afx = sub.add_parser("autofix", help="Comprueba que no queden errores en un proyecto generado y, si los hay, "
+                                         "la IA los corrige (se deshace si no queda en verde)")
+    afx.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
+    afx.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
+    afx.add_argument("--model", default=None)
+    afx.add_argument("--base-url", default=None)
 
     rpt = sub.add_parser("report", help="Informe HTML o Markdown de un objetivo (con umbral para CI)")
     rpt.add_argument("subject", help="Objetivo: sha256, prefijo, nombre o ruta ya analizada")
@@ -805,7 +815,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
                              do_verify=True, force=args.force, reanalyze=args.reanalyze,
                              workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                              ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
-                             progress=_progress, case_id=args.case_id, provenance=args.provenance)
+                             progress=_progress, case_id=args.case_id, provenance=args.provenance,
+                             autofix=args.autofix)
         rep.pop("spec", None)
         _print(rep)
         if rep.get("assist") and not rep["assist"]["ok"]:
@@ -826,6 +837,17 @@ def _dispatch(args, store: EvidenceStore) -> int:
             raise ValueError(str(exc)) from exc
         _print(rep)
         return 0 if rep["ok"] else 6
+    elif args.cmd == "autofix":
+        from eolfi.flows.create_flow import run_autofix
+        from eolfi.generador.assist import AssistError
+
+        try:
+            rep = run_autofix(store, args.project, provider=args.provider, model=args.model,
+                              base_url=args.base_url, progress=_progress)
+        except AssistError as exc:
+            raise ValueError(str(exc)) from exc
+        _print(rep)
+        return 0 if rep["ok"] else 5
     elif args.cmd == "report":
         from eolfi.core.report import build_report, fails, render_html, render_markdown
         from eolfi.flows.create_flow import resolve_subject
