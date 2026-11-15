@@ -68,10 +68,10 @@ function pickModel(names, wanted = '') {
   return ok[0] || null;
 }
 
-async function getJson(fetchFn, url, ms = 3000) {
+async function getJson(fetchFn, url, ms = 3000, headers = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  try { const r = await fetchFn(url, { signal: ctrl.signal }); return r.ok ? await r.json() : null; } catch { return null; } finally { clearTimeout(t); }
+  try { const r = await fetchFn(url, { signal: ctrl.signal, headers }); return r.ok ? await r.json() : null; } catch { return null; } finally { clearTimeout(t); }
 }
 
 // fetch mínimo con node:http: el fetch de Node corta a los 5 minutos si no llegan las cabeceras, y un modelo local
@@ -111,7 +111,8 @@ function eolasV2Holder({ fs = require('node:fs'), path = require('node:path'), o
 }
 
 function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = httpFetch, timeoutMs = 20 * 60 * 1000, options = null,
-  starter = null, allowStart = async () => true, gpuHolder = eolasV2Holder } = {}) {
+  starter = null, allowStart = async () => true, gpuHolder = eolasV2Holder, authHeaders = () => ({}),
+  startHint = 'arranca Eolas con launch-eolas.ps1' } = {}) {
   let found = null;   // { url, api: 'eolas' | 'openai', model }
   const opts = (o) => (options ? options(o) || {} : {});   // temperatura, longitud y razonamiento de la configuración
   let started = false;
@@ -140,7 +141,8 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     lastProbe = [];
     for (const url of list.filter(isLoopback)) {
       // Eolas expone su API en /api/* (con el backend llama.cpp); llama-server, la de OpenAI en /v1/*.
-      const tags = await getJson(fetchFn, `${url}/api/tags`);
+      // authHeaders: la clave de Eolas V2 (su llama-server exige «Authorization: Bearer» fuera de /health).
+      const tags = await getJson(fetchFn, `${url}/api/tags`, 3000, authHeaders());
       if (tags && Array.isArray(tags.models)) {
         const names = tags.models.map((x) => x.name || x.model).filter(Boolean);
         const m = pickModel(names, model);
@@ -148,7 +150,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         lastProbe.push({ url, api: 'eolas', models: names });
         continue;
       }
-      const v1 = await getJson(fetchFn, `${url}/v1/models`);
+      const v1 = await getJson(fetchFn, `${url}/v1/models`, 3000, authHeaders());
       if (v1 && Array.isArray(v1.data)) {
         const names = v1.data.map((x) => x.id).filter(Boolean);
         // Con un modelo pedido no se cambia en silencio a otro: si no está, este endpoint no vale.
@@ -168,7 +170,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
       return `el modelo local ${model} no está disponible: ${seen.map((p) => `${p.url} anuncia ${p.models.length ? p.models.join(', ') : 'ningún modelo'}`).join('; ')}`;
     }
     const where = endpoints.filter(isLoopback).join(', ') || 'ningún endpoint loopback';
-    return `no hay modelo local llama.cpp: sin respuesta en ${where} (arranca Eolas con launch-eolas.ps1)`;
+    return `no hay modelo local llama.cpp: sin respuesta en ${where} (${startHint})`;
   }
 
   async function ready() {
@@ -208,7 +210,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         [endpoint, body] = [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, tools: fns, tool_choice: 'auto',
           temperature: 0.2, max_tokens: 4000, chat_template_kwargs: { enable_thinking: false }, ...requestOptions }];
       }
-      const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         const detail = typeof r.text === 'function' ? (await r.text()).slice(0, 200) : '';
         throw new Error(`modelo local ${at.model}: HTTP ${r.status}${/tool|jinja/i.test(detail) ? ' (arranca llama-server con --jinja para usar herramientas)' : ''} ${detail}`);
@@ -238,7 +240,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         : (() => { const o = opts({ review: true }) || {}; const { num_ctx, num_gpu, num_thread, ...requestOptions } = o;
           return [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, temperature: 0.2, max_tokens: 6000,
             chat_template_kwargs: { enable_thinking: false }, ...requestOptions, ...(o.max_tokens ? { max_tokens: Math.max(6000, o.max_tokens) } : {}) }]; })();
-      const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await fetchFn(endpoint, { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         let detail = '';
         try { detail = typeof r.text === 'function' ? String(await r.text()).replace(/\s+/g, ' ').slice(0, 300) : ''; } catch { /* sin cuerpo */ }

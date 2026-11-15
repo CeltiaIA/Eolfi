@@ -20,6 +20,7 @@ const { makeHistory } = require('./history');
 const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('./local-model');
 const { findServer } = require('./llama-starter');
 const { makeEolasStarter } = require('./eolas-starter');
+const { makeEolasV2Starter, v2Target, v2AuthHeaders } = require('./eolas-v2-starter');
 const llamacfg = require('./llamacpp-config');
 const lmi = require('./lm-integration');
 const { splitTextFile, validateParts } = require('./file-splitter');
@@ -499,18 +500,33 @@ function activate(context) {
       showModel: () => vscode.workspace.getConfiguration('eolfi').get('agent.showModel') !== false,
       localModel: (() => {
         const c = vscode.workspace.getConfiguration('eolfi');
-        const endpoint = EOLAS_URL;
-        const model = EOLAS_MODEL;
-        // El único proveedor local es Eolas/Gemma 12B; el autoarranque nunca usa un GGUF externo ni 8090.
+        // 15/11/2026, decisión del titular: el proveedor local es Eolas V2 (llama-server de «eolfi eolas-v2», con
+        // clave y vigilante de inactividad). Eolas V1 (CeltIA, 11435) queda parado hasta que se repare; solo se usa
+        // si se pide expresamente con «eolfi.local.engine»: "eolas-v1".
         const autoStart = c.get('fallback.autoStart') === true;
-        const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
-        const starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
-        const lm = makeLocalModel({ endpoints: [endpoint], model, starter,
-          options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
-          allowStart: async () => autoStart });
-        out.appendLine(`Modelo local: ${model} en ${endpoint}; autoarranque Eolas ${autoStart ? 'activado' : 'desactivado'}.`);
+        const useV1 = String(c.get('local.engine') || 'eolas-v2') === 'eolas-v1';
+        let endpoint, model, starter, lm;
+        if (useV1) {
+          endpoint = EOLAS_URL;
+          model = EOLAS_MODEL;
+          const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
+          starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
+          lm = makeLocalModel({ endpoints: [endpoint], model, starter,
+            options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
+            allowStart: async () => autoStart });
+        } else {
+          const target = v2Target({ profile: String(c.get('local.eolasV2Profile') || '').trim() });
+          endpoint = target.url;
+          model = target.alias;
+          starter = autoStart ? makeEolasV2Starter({ python: lmi.pythonCommand(vscode), cwd: lmi.EOLFI_ROOT, profile: target.profile, log: (m) => out.appendLine(m) }) : null;
+          lm = makeLocalModel({ endpoints: [endpoint], model, starter, authHeaders: () => v2AuthHeaders(),
+            gpuHolder: () => null, startHint: 'arranca Eolas V2 con «python -m eolfi eolas-v2 start»',
+            options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
+            allowStart: async () => autoStart });
+        }
+        out.appendLine(`Modelo local: ${model} en ${endpoint} (${useV1 ? 'Eolas V1' : 'Eolas V2'}); autoarranque ${autoStart ? 'activado' : 'desactivado'}.`);
         primaryLocalModel = lm;
-        registerEolasModel(vscode, context, lm, { modelId: model, limits: () => { const k = llamacfg.loadConfig({ findServer }); return { ctx: Number(k.ctx) || 32768, maxTokens: Number(k.max_tokens) || 4096 }; } });
+        registerEolasModel(vscode, context, lm, { modelId: model, limits: () => { const k = llamacfg.loadConfig({ findServer }); return { ctx: Math.min(Number(k.ctx) || 32768, useV1 ? Infinity : 32000), maxTokens: Number(k.max_tokens) || 4096 }; } });
         context.subscriptions.push({ dispose: () => lm.stop() });
         return lm;
       })(),
