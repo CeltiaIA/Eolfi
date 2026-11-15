@@ -60,12 +60,36 @@ from eolfi.core.evidence import EvidenceStore
 from eolfi.core.models import Status
 
 
+def _emit(text: str, end: str = "\n", ascii_fallback: str | None = None) -> None:
+    """Escribe en stdout. Redirigido a archivo/tubería: bytes UTF-8 (15/11/2026).
+
+    En Windows, con stdout redirigido, Python codifica con la página local (cp1252) y el JSON o el informe
+    resultante no es UTF-8 válido. Si stdout no es una consola y expone `buffer`, se escriben los bytes UTF-8
+    directamente. En consola se usa el flujo de texto; si no puede codificar, `ascii_fallback` o reemplazo.
+    """
+    out = sys.stdout
+    buf = getattr(out, "buffer", None)
+    try:
+        tty = out.isatty()
+    except (AttributeError, ValueError):
+        tty = False
+    if buf is not None and not tty:
+        out.flush()   # conserva el orden con lo ya escrito por la capa de texto
+        buf.write((text + end).encode("utf-8"))
+        buf.flush()
+        return
+    try:
+        out.write(text + end)
+    except UnicodeEncodeError:   # consola Windows sin UTF-8
+        if ascii_fallback is None:
+            enc = getattr(out, "encoding", None) or "ascii"
+            ascii_fallback = text.encode(enc, "replace").decode(enc)
+        out.write(ascii_fallback + end)
+
+
 def _print(obj) -> None:
     text = json.dumps(obj, indent=2, ensure_ascii=False)
-    try:
-        print(text)
-    except UnicodeEncodeError:   # consola Windows sin UTF-8
-        print(json.dumps(obj, indent=2, ensure_ascii=True))
+    _emit(text, ascii_fallback=json.dumps(obj, indent=2, ensure_ascii=True))
 
 
 def _default_library() -> str:
@@ -532,7 +556,7 @@ def _spec(args, store: EvidenceStore) -> int:
                 _print({"out": args.out, "format": args.format, "requirements": len(c["requirements"]),
                         **{k: len(v) for k, v in c["summary"].items()}})
             else:
-                print(text)
+                _emit(text)
         elif args.spec_cmd == "diff":
             a, b = latest_spec(store, args.case_id, args.a), latest_spec(store, args.case_id, args.b)
             _print(diff_specs(a, b))
@@ -750,7 +774,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
                 _print({"case_id": args.case_id, "report": args.out, "format": args.format,
                         "conclusions": len(rep["conclusions"]), "open_incognitas": rep["open_incognitas"]})
             else:
-                sys.stdout.write(text)
+                _emit(text, end="")
         elif args.case_cmd == "artifact":
             created = cases.add_artifact(args.case_id, args.subject, size=args.size, format=args.format,
                                          provenance=args.provenance, version=args.version,
@@ -825,7 +849,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
             _P(args.out).write_text(text, encoding="utf-8")
             _progress(f"Informe en {args.out}")
         else:
-            sys.stdout.write(text)
+            _emit(text, end="")
         if fails(rep, args.fail_on):
             _progress(f"Hay incógnitas abiertas de gravedad {args.fail_on} o mayor")
             return 1
@@ -857,8 +881,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
             _print(findings[0]["result"] if findings else {"error": "sin resultados"})
             return 1
         for fn in dec["result"]["functions"]:
-            print(f"// {fn['name']} @ {fn['entry']}" + ("" if fn["ok"] else f"  (error: {fn['error']})"))
-            print(fn["c"] or "")
+            _emit(f"// {fn['name']} @ {fn['entry']}" + ("" if fn["ok"] else f"  (error: {fn['error']})"))
+            _emit(fn["c"] or "")
     elif args.cmd == "resilience":
         from eolfi.security.resilience import fuzz_file, prompt_injection_scan
 
@@ -1486,7 +1510,7 @@ def main(argv: list[str] | None = None) -> int:
             _print({"stopped": llamacpp.stop()})
         elif args.accion == "config":
             llamacpp.load_config()
-            print(llamacpp.config_file())
+            _emit(str(llamacpp.config_file()))
             if hasattr(os, "startfile"):
                 os.startfile(llamacpp.config_file())  # noqa: S606 — abre tu propia configuración
         else:
