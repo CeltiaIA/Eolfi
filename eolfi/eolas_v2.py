@@ -463,7 +463,9 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
     record = _runtime()
     if record and _pid_alive(int(record.get("pid") or 0)):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):
-            return {"running": True, "started": False, "profile": name, "url": c["url"], "pid": record["pid"]}
+            watchdog = _ensure_watchdog(record, int(c["port"]), popen)
+            return {"running": True, "started": False, "profile": name, "url": c["url"], "pid": record["pid"],
+                    "idle_watchdog_pid": watchdog}
         raise RuntimeError(f"Eolas ya tiene activo el perfil {record.get('profile')}; cambia de perfil con switch")
     runtime_file().unlink(missing_ok=True)
     if release_eolas:
@@ -506,6 +508,8 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
                     from eolfi.local_gpu import IDLE_MINUTES, start_watchdog
 
                     watchdog = start_watchdog(proc.pid, int(c["port"]), IDLE_MINUTES)
+                    if watchdog:   # queda en runtime.json para poder comprobarlo y volver a armarlo
+                        _write_json_atomic(runtime_file(), {**runtime, "idle_watchdog_pid": watchdog})
                 return {"running": True, "started": True, "profile": name, "url": c["url"], "pid": proc.pid,
                         "idle_watchdog_pid": watchdog}
             time.sleep(0.5)
@@ -518,6 +522,21 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
             pass
         runtime_file().unlink(missing_ok=True)
         raise
+
+
+def _ensure_watchdog(record: dict[str, Any], port: int, popen: Callable[..., Any]) -> int | None:
+    """Servidor ya en marcha: si su vigilante murió (o nunca se guardó), se vuelve a armar (auditoría 15/11, P0-3)."""
+    current = int(record.get("idle_watchdog_pid") or 0)
+    if current and _pid_alive(current):
+        return current
+    if popen is not subprocess.Popen:      # pruebas con popen simulado: sin vigilante real
+        return None
+    from eolfi.local_gpu import IDLE_MINUTES, start_watchdog
+
+    watchdog = start_watchdog(int(record["pid"]), port, IDLE_MINUTES)
+    if watchdog:
+        _write_json_atomic(runtime_file(), {**record, "idle_watchdog_pid": watchdog})
+    return watchdog
 
 
 def start(profile: str | None = None, *, wait: float | None = None, release_eolas: bool = False) -> dict[str, Any]:
@@ -659,6 +678,8 @@ def status() -> dict[str, Any]:
     return {"config": str(config_file()), "active_profile": cfg["active_profile"], "running_profile": selected if live else None,
             "model": c["model"], "alias": c["alias"], "url": c["url"], "pid": record.get("pid") if live else None,
             "running": bool(live and healthy), "model_verified": healthy,
+            "idle_watchdog_pid": record.get("idle_watchdog_pid") if live else None,
+            "idle_watchdog_alive": bool(live and _pid_alive(int(record.get("idle_watchdog_pid") or 0))),
             "feedback_enabled": bool(cfg["feedback_enabled"]), "feedback_file": str(feedback_file())}
 
 

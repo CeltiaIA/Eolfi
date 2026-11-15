@@ -22,7 +22,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Callable
 
 EOLAS_URL = os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435").rstrip("/")
 IDLE_MINUTES = float(os.environ.get("EOLFI_LOCAL_IDLE_MINUTES", "15"))
@@ -33,9 +33,9 @@ class GpuBusy(RuntimeError):
     """Otro modelo local ocupa la GPU y no se puede liberar sin interrumpir trabajo."""
 
 
-def _get_json(url: str, timeout: float = 2.0) -> Any:
+def _get_json(url: str, timeout: float = 2.0, headers: dict[str, str] | None = None) -> Any:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers or {}), timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8")) if r.status == 200 else None
     except (urllib.error.URLError, OSError, ValueError):
         return None
@@ -65,7 +65,10 @@ def release_eolas(url: str = EOLAS_URL) -> list[str]:
 
 
 def eolas_v2_holder() -> dict[str, Any] | None:
-    """El llama-server de Eolas V2 si está vivo: {pid, profile, port, busy}."""
+    """El llama-server de Eolas V2 si está vivo: {pid, profile, port, busy, tasks, slots_known}.
+
+    El servidor se arranca con --api-key-file, así que /slots exige la clave: sin ella respondía 401, el vigilante
+    veía siempre «ocioso» y lo paraba a los 15 min aunque hubiera una conversación (auditoría 15/11, P0-2)."""
     from eolfi import eolas_v2
 
     try:
@@ -76,12 +79,18 @@ def eolas_v2_holder() -> dict[str, Any] | None:
     if not eolas_v2._pid_alive(pid):
         return None
     port = int(record.get("port") or 0)
-    slots = _get_json(f"http://127.0.0.1:{port}/slots") if port else None
-    slots = [s for s in slots if isinstance(s, dict)] if isinstance(slots, list) else []
+    try:
+        headers = eolas_v2.auth_headers()
+    except (OSError, ValueError):
+        headers = {}
+    raw = _get_json(f"http://127.0.0.1:{port}/slots", headers=headers) if port else None
+    known = isinstance(raw, list)
+    slots = [s for s in raw if isinstance(s, dict)] if known else []
     busy = any(s.get("is_processing") for s in slots)
     # id_task cambia con cada petición: así se ve también la actividad corta entre dos miradas del vigilante.
     tasks = tuple(s.get("id_task") for s in slots)
-    return {"pid": pid, "profile": record.get("profile"), "port": port, "busy": busy, "tasks": tasks}
+    return {"pid": pid, "profile": record.get("profile"), "port": port, "busy": busy, "tasks": tasks,
+            "slots_known": known}
 
 
 def check_before_eolas_v2(*, release: bool = False, url: str = EOLAS_URL) -> dict[str, Any]:
@@ -104,7 +113,10 @@ def free_for_eolas() -> dict[str, Any]:
     holder = eolas_v2_holder()
     if holder is None:
         return {"stopped_eolas_v2": None}
-    if holder["busy"]:
+    if holder["busy"] or not holder["slots_known"]:
+        if not holder["slots_known"]:
+            raise GpuBusy(f"Eolas V2 (perfil {holder['profile']}, PID {holder['pid']}) no deja ver su actividad "
+                          "(/slots); no lo paro a ciegas. Páralo con «eolfi eolas-v2 stop» si no lo estás usando")
         raise GpuBusy(f"Eolas V2 está generando con el perfil {holder['profile']} (PID {holder['pid']}); no pido a "
                       "Eolas que cargue otro modelo encima. Espera a que termine o páralo con «eolfi eolas-v2 stop»")
     from eolfi import eolas_v2
@@ -113,15 +125,26 @@ def free_for_eolas() -> dict[str, Any]:
     return {"stopped_eolas_v2": holder}
 
 
-def start_watchdog(pid: int, port: int, idle_minutes: float = IDLE_MINUTES) -> int | None:
+def start_watchdog(pid: int, port: int, idle_minutes: float = IDLE_MINUTES, *,
+                   popen: Callable[..., Any] = subprocess.Popen) -> int | None:
     """Lanza en segundo plano el vigilante que para Eolas V2 tras ``idle_minutes`` sin uso."""
     if idle_minutes <= 0:
         return None
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
              | getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
-    proc = subprocess.Popen([sys.executable, "-m", "eolfi.local_gpu", "watch", "--pid", str(pid), "--port", str(port),
-                             "--idle", str(idle_minutes)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=os.name != "nt")
+    # Igual que el servidor: fuera del Job Object de quien lo lanza. Sin esto, cerrar la terminal o la sesión de
+    # agente (Job con kill-on-close) mataba al vigilante y dejaba vivo el llama-server (auditoría 15/11, P0-3).
+    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0) if os.name == "nt" else 0
+    args = [sys.executable, "-m", "eolfi.local_gpu", "watch", "--pid", str(pid), "--port", str(port),
+            "--idle", str(idle_minutes)]
+    common = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+              "start_new_session": os.name != "nt"}
+    try:
+        proc = popen(args, creationflags=flags | breakaway, **common)
+    except OSError:
+        if not breakaway:   # el Job no permite salir: se lanza dentro, como antes
+            raise
+        proc = popen(args, creationflags=flags, **common)
     return proc.pid
 
 
@@ -136,7 +159,8 @@ def watch(pid: int, port: int, idle_minutes: float, *, poll: float = POLL_SECOND
         holder = eolas_v2_holder()
         if holder is None or holder["pid"] != pid:
             return "servidor terminado"
-        if holder["busy"] or (seen is not None and holder["tasks"] != seen):
+        # Sin /slots (no debería pasar con la clave) no se para a ciegas: se cuenta como uso.
+        if holder["busy"] or not holder["slots_known"] or (seen is not None and holder["tasks"] != seen):
             last = clock()
         elif clock() - last >= idle_minutes * 60:
             eolas_v2.stop()
