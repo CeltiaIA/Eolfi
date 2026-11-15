@@ -157,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "watch":
         watch(args.pid, args.port, args.idle)
     else:
+        if not sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")   # redirigido en Windows: UTF-8, no cp1252 (15/11/2026)
         print(json.dumps({"eolas_loaded": eolas_loaded(), "eolas_v2": eolas_v2_holder()}, ensure_ascii=False))
     return 0
 
