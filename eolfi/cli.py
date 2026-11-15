@@ -1547,7 +1547,8 @@ def main(argv: list[str] | None = None) -> int:
                 print("Ghidra en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh), "
                       "Java 21 (tools/instalar-java-wsl.sh) y GHIDRA_INSTALL_DIR con Ghidra 12.1", file=sys.stderr)
                 return 2
-        client = rea_client.ReaClient(cmd, timeout=900)
+        client = rea_client.ReaClient(
+            cmd, timeout=rea_client.GHIDRA_CLIENT_TIMEOUT if args.rea_action == "swift" else 900)
         try:
             if args.rea_action == "recuperar-js":
                 op, params = "recuperar_fuentes_js", {"ruta": args.ruta, "destino": args.destino}
@@ -1563,7 +1564,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "swift":
                 op, params = "tipos_swift_apple", {"ruta": args.ruta, "arquitectura": args.arquitectura}
                 result = rc.tipos_swift_apple(client, args.ruta, arquitectura=args.arquitectura, limite=args.limite,
-                                              ruta_rea=rea_client.wsl_path)
+                                              ruta_rea=rea_client.wsl_path, demangle=rea_client.wsl_swift_demangle)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

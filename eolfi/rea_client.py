@@ -295,6 +295,14 @@ def wsl_rea_command() -> list[str] | None:
 
 
 WSL_JDK = "jdk21/usr/lib/jvm/java-21-openjdk-amd64"   # tools/instalar-java-wsl.sh
+# Plazo y memoria de Ghidra para importar y analizar: con los 330 s y 2 GB de REA no se analiza un ejecutable de app de
+# ~20 MB desde /mnt (Feather 2.9.0, 15/11/2026: ~24 min con 2 GB y la máquina libre; más de 25 con otra carga).
+# El cliente debe esperar algo más que Ghidra (GHIDRA_CLIENT_TIMEOUT).
+GHIDRA_STARTUP_MS = 3_600_000
+GHIDRA_MAX_HEAP = "6G"
+# Respuesta máxima de REA por MCP: los 10 MiB por defecto no bastan para analyze_swift_types de Feather (21,7 MB).
+GHIDRA_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+GHIDRA_CLIENT_TIMEOUT = 4200
 
 
 def wsl_rea_ghidra_command(ghidra_dir: str | None = None) -> list[str] | None:
@@ -322,7 +330,30 @@ def wsl_rea_ghidra_command(ghidra_dir: str | None = None) -> list[str] | None:
         return None
     i = base_cmd.index("env") + 1
     return [*base_cmd[:i], f"GHIDRA_INSTALL_DIR={ghidra_wsl}", f"JAVA_HOME={java_home}",
-            f"PATH={java_home}/bin:/usr/bin:/bin", *base_cmd[i:]]
+            f"PATH={java_home}/bin:/usr/bin:/bin", f"REA_GHIDRA_STARTUP_TIMEOUT_MS={GHIDRA_STARTUP_MS}",
+            f"GHIDRA_MAXMEM={GHIDRA_MAX_HEAP}",
+            f"REA_MCP_MAX_RESPONSE_BYTES={GHIDRA_MAX_RESPONSE_BYTES}",
+            *base_cmd[i:]]
+
+
+WSL_SWIFT_DEMANGLE = "swift-6.4.2/swift-6.4.2-RELEASE-ubuntu26.04/usr/bin/swift-demangle"  # tools/instalar-swift-demangle-wsl.sh
+
+
+def wsl_swift_demangle(names: list[str], timeout: float = 120) -> list[str] | None:
+    """Nombres Swift descifrados con el swift-demangle oficial de Linux (Swift 6.4.2) en WSL, uno por entrada y en
+    el mismo orden. None si no está instalado o falla (REA solo ofrece demangle_swift en macOS)."""
+    if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe") or not names:
+        return None if names else []
+    clean = [n.replace("\n", " ").strip() for n in names]
+    script = f'B="$HOME/.local/eolfi-rea/{WSL_SWIFT_DEMANGLE}"; test -x "$B" && exec "$B"'
+    try:
+        r = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], input="\n".join(clean) + "\n",
+                           capture_output=True, text=True, timeout=timeout, encoding="utf-8",
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    out = r.stdout.splitlines()
+    return out if r.returncode == 0 and len(out) == len(clean) else None
 
 
 def wsl_has_tshark() -> bool:

@@ -174,7 +174,10 @@ NO VERIFICADO:
 `eolfi rea swift <.app|.zip|.ipa|Mach-O> [--arquitectura A]` (compuesta `tipos_swift_apple`). No necesita macOS.
 - **Eolfi** saca el ejecutable principal (`CFBundleExecutable` del Info.plist), lee las arquitecturas de la cabecera universal y separa la porción elegida (arm64 por defecto) en un temporal que borra al acabar.
 - **REA con Ghidra en WSL**: el Ghidra del REA de Windows solo abre PE, así que se usa el REA de WSL con la misma instalación de Ghidra 12.1.4 vista desde `/mnt` (trae el descompilador de Linux) y Java 21 en el espacio del usuario (`tools/instalar-java-wsl.sh`, sin sudo). `wsl_rea_ghidra_command` comprueba Java, `analyzeHeadless` y el descompilador.
-- Pide `analyze_swift_types`, `get_objc_classes` y las secciones de `binary_overview`. REA devuelve nombres de procedimientos, no tipos: Eolfi lee el contexto nominal del mangling (moderno `$s…` y antiguo `_TtC…`; solo identificadores literales) y agrupa por módulo y tipo. La sección decide el origen: `__text` es código del ejecutable (la app y los paquetes enlazados estáticamente) y `__stubs`, llamadas a frameworks del sistema; los protocolos de otros módulos en `__text` son conformidades de la app.
+- Pide `analyze_swift_types`, `get_objc_classes` y las secciones de `binary_overview`. REA devuelve nombres de procedimientos, no tipos: Eolfi lee el contexto nominal del mangling (moderno `$s…` y antiguo `_TtC…`) y agrupa por módulo y tipo. La sección decide el origen: `__text` es código del ejecutable (la app y los paquetes enlazados estáticamente) y `__stubs`, llamadas a frameworks del sistema; los protocolos de otros módulos en `__text` son conformidades de la app.
+- **swift-demangle de Linux** (Swift 6.4.2 oficial en WSL, `tools/instalar-swift-demangle-wsl.sh` con verificación GPG; `rea_client.wsl_swift_demangle`): `eolfi rea swift` le pasa los nombres que el lector de Eolfi no entiende y devuelve `sin_resolver_descifrados` (cuántos, por módulo y una muestra). El `demangle_swift` de REA sigue necesitando macOS.
+- Frameworks del sistema: un módulo al que se llama por `__stubs` (SwiftUI, Foundation, Combine…), la biblioteca estándar, lo importado de Objective-C y los overlays de C (Darwin, `os`…) no cuentan como paquetes incluidos aunque tengan especializaciones genéricas en `__text`; sus protocolos siguen como implementados.
+- Plazo, memoria y respuesta de Ghidra en la orden de WSL: `REA_GHIDRA_STARTUP_TIMEOUT_MS` a 60 min, `GHIDRA_MAXMEM` a 6 GB y `REA_MCP_MAX_RESPONSE_BYTES` a 64 MiB. Con los valores de REA (330 s, 2 GB, 10 MiB) no se analiza el ejecutable de 21,7 MB de Feather.
 
 Verificado en vivo con Maccy 2.8.0 (porción arm64, SHA-256 `d2fa9a71…dfef`), unos 4 minutos:
 - tipos de la app: `About`, `AppDelegate`, `Clipboard`, `LargeTextView.Coordinator` y `LargeTextView.EditorState` (los que ve Objective-C: el binario no lleva símbolos y el resto de su código no tiene nombre);
@@ -183,7 +186,11 @@ Verificado en vivo con Maccy 2.8.0 (porción arm64, SHA-256 `d2fa9a71…dfef`), 
 - frameworks Swift usados: SwiftUI (139 tipos), Foundation, AppIntents, SwiftData y Combine; clases Objective-C importadas de AppKit, Foundation, Vision, UserNotifications, Sparkle…;
 - 1065 nombres Swift: 1028 con tipo, 37 globales (funciones y variables de módulo) y 0 sin resolver; Eolfi decodifica sustituciones estándar (`SS`, `Sc…`), módulos `s`/`So`, palabras comprimidas (`0A…`), extensiones y nombres privados (`P33_…`), con lo que salen también `DragSourceView` y `MouseMovedViewModifier.Coordinator`.
 
+Verificado en vivo con dos releases oficiales más:
+- SwiftFormat 0.64.7 (`swiftformat.zip`, Mach-O universal suelto, SHA-256 `e82e2243…4038`), porción arm64: 1351 nombres Swift, 0 sin resolver, módulo `SwiftFormat` con 77 tipos (49 enumeraciones, 8 estructuras, 2 clases…).
+- Feather 2.9.0 (`Feather.ipa`, SHA-256 `833c57d3…30ea`; ejecutable arm64 de 21,7 MB), unos 24 min con 6 GB: 115.035 procedimientos y 17.202 nombres Swift (305 globales, 22 sin resolver que `swift-demangle` descifra todos: Builtin y Swift). Módulo `Feather` con 13 tipos (`AppDelegate`, `DownloadManager`, `SigningHandler`, `CertificateReader`…), 49 paquetes incluidos (NIOCore, Vapor, NIOHTTP2, Nuke, SWCompression, ZsignSwift…), 60 protocolos implementados y frameworks usados: Swift, SwiftUI (212 tipos), Foundation, Network, Combine, CryptoKit…
+
 NO VERIFICADO:
-- `demangle_swift`, `list_architectures` e `inspect_macho` de REA: necesitan macOS.
+- `demangle_swift`, `list_architectures` e `inspect_macho` de REA: necesitan macOS (comprobado: REA los rechaza en WSL con «Native macOS utilities require macOS»).
 - Nombres en punycode y la firma completa de cada función (solo se lee el contexto del tipo).
-- Apps con símbolos completos (con ellas saldrían muchos más tipos propios) y `.ipa` reales.
+- Apps con símbolos completos (con ellas saldrían muchos más tipos propios).

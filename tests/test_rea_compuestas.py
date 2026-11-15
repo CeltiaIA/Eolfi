@@ -529,7 +529,10 @@ class FakeSwift:
             cats = {"classes": [row("0x100002000", "_TtC1X11AppDelegate::init"),
                                 row("0x100002100", "_$s1X11AppDelegateC5applyyyF"),
                                 row("0x100002200", "_$s8Settings4PaneC4bodyQrvg"),
-                                row("0x100002300", "_$s7SwiftUI4ViewP1XE4bodyQrvg")],
+                                row("0x100002300", "_$s7SwiftUI4ViewP1XE4bodyQrvg"),
+                                # especializaciones de frameworks del sistema compiladas en __text
+                                row("0x100002400", "_$s7SwiftUI5ImageVMa"),
+                                row("0x100002500", "_$s6Darwin7timevalVMa")],
                     "structs": [row("0x100100010", "_$s7SwiftUI4TextVMa"),
                                 row("0x100100020", "_$s7SwiftUI4TextV7verbatimACSS_tcfC")],
                     "other": [row("0x100100030", "_$sScP13userInitiatedScPvgZ"),
@@ -565,13 +568,15 @@ def test_tipos_swift_apple_separa_app_incluidos_y_frameworks(tmp_path):
     assert r["ejecutable"] == "X.app/Contents/MacOS/X" and r["arquitecturas"] == ["x86_64", "arm64"]
     assert r["arquitectura_analizada"] == "arm64" and r["modulo_de_la_app"] == "X"
     assert r["tipos_de_la_app"] == [{"tipo": "AppDelegate", "clase": "clase"}]
+    assert r["tipos_de_la_app_total"] == 1 and r["tipos_de_la_app_por_clase"] == {"clase": 1}
     assert r["modulos_incluidos"] == {"Settings": {"tipos": 1, "muestra": ["Pane"]}}
     assert r["protocolos_implementados"] == ["SwiftUI.View"]
     assert r["frameworks_swift_usados"] == {
-        "SwiftUI": {"tipos": 1, "por_clase": {"estructura": 1}, "muestra": ["Text"]},
-        "Swift": {"tipos": 1, "por_clase": {"estructura": 1}, "muestra": ["TaskPriority"]}}
+        "SwiftUI": {"tipos": 2, "por_clase": {"estructura": 2}, "muestra": ["Image", "Text"]},
+        "Swift": {"tipos": 1, "por_clase": {"estructura": 1}, "muestra": ["TaskPriority"]},
+        "Darwin": {"tipos": 1, "por_clase": {"estructura": 1}, "muestra": ["timeval"]}}
     assert r["clases_objc_importadas"] == {"AppKit": ["NSAlert"], "libobjc.A.dylib": ["NSObject"]}
-    assert r["nombres_swift"] == 9 and r["nombres_globales"] == 1 and r["nombres_sin_resolver"] == 1
+    assert r["nombres_swift"] == 11 and r["nombres_globales"] == 1 and r["nombres_sin_resolver"] == 1
     assert r["procedimientos"] == 900
 
 
@@ -589,3 +594,67 @@ def test_tipos_swift_apple_arquitectura_pedida_y_errores(tmp_path):
     (app / "Y").write_bytes(_thin(0x01000007))
     r = rc.tipos_swift_apple(FakeSwift(), str(tmp_path / "Y.app"), ruta_rea=lambda p: p)
     assert r["ejecutable"] == "Y.app/Contents/MacOS/Y" and r["arquitectura_analizada"] == "x86_64"
+
+
+def test_tipos_swift_apple_desde_ipa_y_macho_suelto(tmp_path):
+    import plistlib
+    import zipfile
+    ipa = tmp_path / "Z.ipa"
+    with zipfile.ZipFile(ipa, "w") as f:
+        f.writestr("Payload/Z.app/Frameworks/F.framework/Info.plist", plistlib.dumps({"CFBundleExecutable": "F"}))
+        f.writestr("Payload/Z.app/Info.plist", plistlib.dumps({"CFBundleExecutable": "Z"}))
+        f.writestr("Payload/Z.app/Z", _thin(0x0100000C))
+    r = rc.tipos_swift_apple(FakeSwift(), str(ipa), ruta_rea=lambda p: p)
+    assert r["ejecutable"] == "Payload/Z.app/Z" and r["arquitecturas"] == ["arm64"] and r["modulo_de_la_app"] == "Z"
+    loose = tmp_path / "herramienta"
+    loose.write_bytes(_thin(0x0100000C))
+    assert rc.tipos_swift_apple(FakeSwift(), str(loose), ruta_rea=lambda p: p)["ejecutable"] == "herramienta"
+    lower = tmp_path / "x"   # el módulo «X» de FakeSwift: la app se reconoce sin distinguir mayúsculas
+    lower.write_bytes(_thin(0x0100000C))
+    r = rc.tipos_swift_apple(FakeSwift(), str(lower), ruta_rea=lambda p: p)
+    assert r["modulo_de_la_app"] == "X" and r["tipos_de_la_app"] == [{"tipo": "AppDelegate", "clase": "clase"}]
+    tool = tmp_path / "tool.zip"
+    with zipfile.ZipFile(tool, "w") as f:
+        f.writestr("LEEME.txt", "x")
+        f.writestr("bin/tool", _thin(0x01000007))
+    assert rc.tipos_swift_apple(FakeSwift(), str(tool), ruta_rea=lambda p: p)["ejecutable"] == "bin/tool"
+    (tmp_path / "W.ipa").write_bytes(b"PK\x05\x06" + b"\0" * 18)   # zip vacío: sin app
+    with pytest.raises(ValueError, match="ejecutable de la app"):
+        rc.tipos_swift_apple(FakeSwift(), str(tmp_path / "W.ipa"))
+
+
+def test_tipos_swift_apple_descifra_los_sin_resolver_con_swift_demangle(tmp_path):
+    z = _swift_app_zip(tmp_path)
+    asked = []
+
+    def demangle(names):
+        asked.append(names)
+        return ["static Swift.TaskPriority.userInitiated.getter : Swift.TaskPriority"]
+
+    r = rc.tipos_swift_apple(FakeSwift(), str(z), ruta_rea=lambda p: p, demangle=demangle)
+    unresolved = r["nombres_sin_resolver"]
+    assert len(asked) == (1 if unresolved else 0)
+    if unresolved:   # el falso REA solo deja uno sin resolver si el lector no entiende «Sc…»
+        assert r["sin_resolver_descifrados"] == {
+            "disponible": True, "pedidos": 1, "descifrados": 1, "por_modulo": {"Swift": 1},
+            "muestra": ["static Swift.TaskPriority.userInitiated.getter : Swift.TaskPriority"]}
+    names = ["$sX9", "$sY0", "noesswift"]   # nombres que el lector no entiende
+    fake = FakeSwift()
+    real_call = fake.call
+
+    def call(name, args, limit=None):   # tres nombres que el lector no entiende
+        text, ok = real_call(name, args, limit)
+        if name == "analyze_swift_types":
+            items = [{"address": "0x100002000", "name": n, "mangled_names": [n]} for n in names]
+            text = json.dumps({"normalized_result": {"categories": {"other": {"items": items}}}})
+        return text, ok
+
+    fake.call = call
+    table = {"$sX9": "(extension in Maccy):__C.NSWindow.shake() -> ()", "$sY0": "$sY0", "noesswift": "noesswift"}
+    r = rc.tipos_swift_apple(fake, str(z), ruta_rea=lambda p: p, demangle=lambda ns: [table[n] for n in ns])
+    d = r["sin_resolver_descifrados"]
+    assert r["nombres_sin_resolver"] == 3 and d["disponible"] and d["pedidos"] == 3 and d["descifrados"] == 1
+    assert d["por_modulo"] == {rc.SWIFT_OBJC_MODULE: 1}
+    r = rc.tipos_swift_apple(fake, str(z), ruta_rea=lambda p: p, demangle=lambda ns: None)
+    assert r["sin_resolver_descifrados"] == {"disponible": False}
+    assert rc.tipos_swift_apple(fake, str(z), ruta_rea=lambda p: p)["sin_resolver_descifrados"] is None

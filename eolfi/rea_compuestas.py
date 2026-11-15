@@ -994,13 +994,14 @@ def mapa_app_apple(client: Any, path: str, limite: int = 40) -> dict[str, Any]:
 
 MACHO_CPU = {7: "x86", 0x01000007: "x86_64", 12: "arm", 0x0100000C: "arm64", 0x0200000C: "arm64_32", 18: "ppc"}
 MACHO_THIN = (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce")
+MACHO_FAT = (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf")
 
 
 def macho_slices(data: bytes) -> list[dict[str, Any]]:
     """Arquitecturas de un Mach-O: las de la cabecera universal (FAT/FAT64) o la única de uno fino. Análisis puro;
     devuelve desplazamiento y tamaño de cada una dentro de `data`."""
     magic = data[:4]
-    if magic in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+    if magic in MACHO_FAT:
         wide = magic == b"\xca\xfe\xba\xbf"
         (count,) = struct.unpack(">I", data[4:8])
         if count > 32:  # 0xcafebabe también es la cabecera de los .class de Java
@@ -1050,6 +1051,8 @@ SWIFT_STD_CONCURRENCY = {
     "P": ("TaskPriority", _V), "S": ("AsyncStream", _V), "s": ("AsyncThrowingStream", _V), "T": ("Task", _V),
     "t": ("UnsafeCurrentTask", _V)}
 SWIFT_OBJC_MODULE = "(Objective-C/C)"   # «So» y «SC»: tipos importados de cabeceras de Objective-C o C
+# Módulos del sistema que pueden no tener stubs propios (overlays de C) y nunca son paquetes de la app.
+SWIFT_SYSTEM_MODULES = frozenset({"Swift", SWIFT_OBJC_MODULE, "Darwin", "Glibc", "ObjectiveC", "os"})
 
 
 class _SwiftNames:
@@ -1219,6 +1222,15 @@ def _macho_executable(src: Path) -> tuple[str, bytes]:
                 if info.file_size > MAX_MACHO:
                     raise ValueError(f"ejecutable mayor de {MAX_MACHO // 2**20} MiB: {exe}")
                 return exe, z.read(info)
+        # Sin .app: un zip con un único Mach-O (herramientas de línea de órdenes como swiftformat.zip).
+        machos = []
+        for info in z.infolist():
+            if not info.is_dir() and 4 <= info.file_size <= MAX_MACHO:
+                with z.open(info) as f:
+                    if f.read(4) in MACHO_THIN + MACHO_FAT:
+                        machos.append(info)
+        if len(machos) == 1:
+            return machos[0].filename, z.read(machos[0])
     raise ValueError(f"no se encontró el ejecutable de la app en {src}")
 
 
@@ -1230,8 +1242,11 @@ def _segment_of(segments: list[tuple[int, int, str]], address: Any) -> str | Non
     return next((name for start, end, name in segments if start <= a < end), None)
 
 
+MAX_DEMANGLE = 5000  # nombres sin resolver que se pasan a swift-demangle en una llamada
+
+
 def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None, limite: int = 60,
-                      ruta_rea: Any = None) -> dict[str, Any]:
+                      ruta_rea: Any = None, demangle: Any = None) -> dict[str, Any]:
     """Tipos Swift y clases Objective-C de una app de Apple (plan REA, punto 9: Apple) sin macOS ni ejecutarla.
 
     - Eolfi: saca el ejecutable principal (.app, .zip, .ipa o un Mach-O suelto), lee sus arquitecturas de la cabecera
@@ -1240,7 +1255,9 @@ def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None
       secciones de `binary_overview`.
     - Eolfi agrupa los nombres por tipo y módulo leyendo el contexto nominal del mangling, y separa lo que está en
       `__text` (código del ejecutable: la app y los paquetes que lleva dentro) de lo que está en `__stubs` (llamadas
-      a frameworks del sistema). `ruta_rea` traduce la ruta para el REA que se use (p. ej. wsl_path)."""
+      a frameworks del sistema). `ruta_rea` traduce la ruta para el REA que se use (p. ej. wsl_path).
+    - `demangle` (opcional, p. ej. rea_client.wsl_swift_demangle): descifra los nombres que Eolfi no lee, con el
+      swift-demangle oficial de Linux (el demangle_swift de REA necesita macOS)."""
     import hashlib
     import shutil
     import tempfile
@@ -1280,6 +1297,7 @@ def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None
     own: dict[str, dict[str, str]] = {}
     used: dict[str, dict[str, str]] = {}
     unresolved = module_level = 0
+    unresolved_names: list[str] = []
     rows = [x for c in ((swift.get("categories") or {}).values() if isinstance(swift, dict) else [])
             if isinstance(c, dict) for x in c.get("items") or [] if isinstance(x, dict)]
     seen_rows: set[tuple[Any, Any]] = set()
@@ -1291,13 +1309,26 @@ def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None
                       for r in [swift_context(str(m))] if r), None)
         if not found:
             unresolved += 1
+            unresolved_names.append(str(x.get("name")))
             continue
         module, type_name, kind = found
         if not type_name or not kind:   # función o variable global del módulo, sin tipo
             module_level += 1
             continue
-        bucket = used if _segment_of(segments, x.get("address")) == "__stubs" else own
+        # La biblioteca estándar y lo importado de Objective-C nunca son código propio, aunque haya especializaciones
+        # suyas compiladas en __text.
+        stub = _segment_of(segments, x.get("address")) == "__stubs" or module in ("Swift", SWIFT_OBJC_MODULE)
+        bucket = used if stub else own
         bucket.setdefault(module, {}).setdefault(type_name, kind)
+    # Un módulo al que se llama por __stubs es un framework del sistema (SwiftUI, Foundation…): sus especializaciones
+    # genéricas compiladas en __text no lo hacen paquete incluido. Solo sus protocolos quedan como implementados.
+    for module in [m for m in own if m in used or m in SWIFT_SYSTEM_MODULES]:
+        for type_name, kind in list(own[module].items()):
+            if kind != "protocolo":
+                used.setdefault(module, {}).setdefault(type_name, kind)
+                del own[module][type_name]
+        if not own[module]:
+            del own[module]
     frameworks: dict[str, set[str]] = {}
     for c in (objc.get("classes") or []) if isinstance(objc, dict) else []:
         name = str(c.get("name") or "")
@@ -1306,7 +1337,22 @@ def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None
             fw = re.search(r"([^/]+)\.framework/", lib)
             frameworks.setdefault(fw.group(1) if fw else lib.rsplit("/", 1)[-1], set()).add(
                 cls.removeprefix("_OBJC_CLASS_$_"))
-    app_module = Path(inner).name
+    # El módulo de la app suele llamarse como el ejecutable, a veces con otras mayúsculas (swiftformat → SwiftFormat).
+    exe_name = Path(inner).name
+    app_module = next((m for m in own if m == exe_name), None) or next(
+        (m for m in own if m.lower() == exe_name.lower().replace("-", "_").replace(" ", "_")), exe_name)
+    demangled: dict[str, Any] | None = None
+    if demangle is not None and unresolved_names:
+        batch = unresolved_names[:MAX_DEMANGLE]
+        out = demangle([n.split("::", 1)[0] for n in batch])
+        if out is None:
+            demangled = {"disponible": False}
+        else:
+            readable = [d for n, d in zip(batch, out, strict=True) if d and d != n.split("::", 1)[0]]
+            top = Counter(SWIFT_OBJC_MODULE if m.group(1) == "__C" else m.group(1) for d in readable
+                          if (m := re.match(r"(?:\(extension in [^)]*\):)?(?:\w+ )*([A-Za-z_]\w*)\.", d)))
+            demangled = {"disponible": True, "pedidos": len(batch), "descifrados": len(readable),
+                         "por_modulo": dict(top.most_common(15)), "muestra": readable[:limite]}
     return {
         "archivo": str(src), "ejecutable": inner,
         "arquitecturas": archs, "arquitectura_analizada": want,
@@ -1314,6 +1360,8 @@ def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None
         "procedimientos": overview.get("procedure_count") if isinstance(overview, dict) else None,
         "modulo_de_la_app": app_module,
         "tipos_de_la_app": [{"tipo": t, "clase": k} for t, k in sorted((own.get(app_module) or {}).items())][:limite],
+        "tipos_de_la_app_total": len(own.get(app_module) or {}),
+        "tipos_de_la_app_por_clase": dict(Counter((own.get(app_module) or {}).values())),
         # En __text, un protocolo de otro módulo es uno que la app implementa (View de SwiftUI…), no código de él.
         "protocolos_implementados": sorted(f"{m}.{t}" for m, ts in own.items() if m != app_module
                                            for t, k in ts.items() if k == "protocolo")[:limite],
@@ -1326,10 +1374,12 @@ def tipos_swift_apple(client: Any, path: str, *, arquitectura: str | None = None
         "clases_objc_importadas": {fw: sorted(c)[:limite] for fw, c in sorted(frameworks.items(),
                                                                                 key=lambda kv: -len(kv[1]))},
         "nombres_swift": len(seen_rows), "nombres_globales": module_level, "nombres_sin_resolver": unresolved,
+        "sin_resolver_descifrados": demangled,
         "aviso": ("Análisis estático con Ghidra de una sola arquitectura; no se ejecutó la app. Salen los tipos cuyos "
                   "nombres conserva el binario: en una app sin símbolos, los de la propia app son pocos (los que "
                   "Objective-C necesita ver) y el resto de su código no tiene nombre. «Incluidos» son tipos con código "
-                  "dentro del ejecutable (paquetes enlazados estáticamente); «protocolos implementados», protocolos "
+                  "dentro del ejecutable (paquetes enlazados estáticamente; un módulo con llamadas por stubs cuenta como "
+                  "framework del sistema aunque tenga especializaciones dentro); «protocolos implementados», protocolos "
                   "de otros módulos con conformidades en él; «usados», llamadas a frameworks del sistema. "
                   "Eolfi lee el contexto del mangling (sustituciones estándar, palabras comprimidas, extensiones y "
                   "nombres privados), no la firma completa; «sin resolver» son los que no sabe leer (p. ej. "
