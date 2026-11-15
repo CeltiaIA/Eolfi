@@ -35,8 +35,11 @@ before(async () => {
   // La ruta va como argumento (sys.argv), no dentro del código Python.
   execFileSync(PY, ['-c', 'import sys; from tests.elfgen import build_elf64; open(sys.argv[1], "wb").write(build_elf64())',
     join(tmp, 'muestra.elf')], { cwd: ROOT });
+  // Aislado de los puentes reales del equipo (15/11/2026): con el puente de chats web arrancado y una ventana
+  // minimizada, la vista en directo daba 502 y la prueba fallaba por un error de consola ajeno al panel.
   server = spawn(PY, ['-m', 'eolfi', '--db', join(tmp, 'e.db'), 'serve', '--port', String(PORT), '--samples', join(tmp, 's')],
-    { cwd: ROOT, stdio: 'ignore', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    { cwd: ROOT, stdio: 'ignore', env: { ...process.env, PYTHONIOENCODING: 'utf-8',
+      EOLFI_BRIDGE_FILE: join(tmp, 'sin-puente.json'), EOLFI_VSCODE_BRIDGE_FILE: join(tmp, 'sin-puente-vscode.json') } });
   await waitHealth();
   browser = await chromium.launch({
     headless: true,
