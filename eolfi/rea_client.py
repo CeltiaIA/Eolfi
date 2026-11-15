@@ -279,8 +279,9 @@ def wsl_rea_command() -> list[str] | None:
     if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe"):
         return None
     script = ("B=$HOME/.local/eolfi-rea; N=$(ls -d $B/node-*-linux-x64 2>/dev/null | tail -1); "
+              "K=; test -x $B/kuna && K=kuna; "
               "test -x \"$N/bin/node\" -a -x $B/wakaru/wakaru -a -f $B/npm/node_modules/rea-agents/scripts/rea.mjs "
-              "&& echo \"$N|$HOME\"")
+              "&& echo \"$N|$HOME|$K\"")
     try:
         out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
@@ -288,10 +289,17 @@ def wsl_rea_command() -> list[str] | None:
         return None
     if "|" not in out:
         return None
-    node_dir, home = out.splitlines()[-1].split("|", 1)
+    node_dir, home, *rest = out.splitlines()[-1].split("|")
     base = f"{home}/.local/eolfi-rea"
-    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", f"{node_dir}/bin/node",
+    # Kuna (15/11/2026): REA solo lo admite en Linux/macOS; instalar-rea-wsl.sh deja $B/kuna → kuna-1.833.
+    kuna = [f"REA_KUNA_COMMAND={base}/kuna"] if rest and rest[0] == "kuna" else []
+    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", *kuna, f"{node_dir}/bin/node",
             f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
+
+
+def wsl_has_kuna(cmd: list[str] | None) -> bool:
+    """¿La orden del REA de WSL trae Kuna configurado?"""
+    return bool(cmd) and any(a.startswith("REA_KUNA_COMMAND=") for a in cmd)
 
 
 def wsl_has_tshark() -> bool:

@@ -459,6 +459,9 @@ def _parser() -> argparse.ArgumentParser:
     r3 = rps.add_parser("reimplementar", help="Pseudocódigo, firma y llamadas de una función para reimplementarla")
     r3.add_argument("ruta")
     r3.add_argument("funcion", help="nombre o dirección (p. ej. entry o 0x140001010)")
+    for sp in (r2, r3):
+        sp.add_argument("--motor", choices=["ghidra", "kuna"], default="ghidra",
+                        help="Descompilador: ghidra (REA de Windows) o kuna (REA de WSL2; solo ELF y Mach-O)")
     r5 = rps.add_parser("inventario", help="Librerías, firmas, recursos y dependencias Go/Rust de un binario")
     r5.add_argument("ruta")
     r6 = rps.add_parser("app-js", help="Analiza una app JavaScript, Electron o web (carpeta o .asar) sin ejecutarla")
@@ -1554,11 +1557,22 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             finally:
                 check.close()
-        cmd = rea_client.wsl_rea_command() if args.rea_action == "recuperar-js" else None
-        if args.rea_action == "recuperar-js" and not cmd:
+        motor = getattr(args, "motor", "ghidra")
+        wsl = args.rea_action == "recuperar-js" or motor == "kuna"
+        cmd = rea_client.wsl_rea_command() if wsl else None
+        if wsl and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
+        if motor == "kuna" and not rea_client.wsl_has_kuna(cmd):
+            print("Kuna no instalado en WSL2: vuelve a ejecutar tools/instalar-rea-wsl.sh dentro de Ubuntu "
+                  "(REA solo admite Kuna en Linux y macOS)", file=sys.stderr)
+            return 2
         client = rea_client.ReaClient(cmd, timeout=900)
+        if motor == "kuna":   # el REA de WSL ve las rutas de Windows como /mnt/<unidad>/…
+            from eolfi.server import _WslPaths
+
+            raw, client = client, _WslPaths(client)
+            client.close = raw.close
         try:
             if args.rea_action == "recuperar-js":
                 op, params = "recuperar_fuentes_js", {"ruta": args.ruta, "destino": args.destino}
@@ -1571,18 +1585,27 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
-                op, params = "explicar_binario", {"ruta": args.ruta, "funciones": args.funciones}
-                result = rc.explicar_binario(client, args.ruta, args.funciones)
+                extra = {"motor": motor} if motor != "ghidra" else {}
+                op, params = "explicar_binario", {"ruta": args.ruta, "funciones": args.funciones, **extra}
+                result = rc.explicar_binario(client, args.ruta, args.funciones, motor=motor)
             elif args.rea_action == "inventario":
                 op, params, result = "inventario_dependencias", {"ruta": args.ruta}, rc.inventario_dependencias(client, args.ruta)
             elif args.rea_action == "app-js":
                 op, params, result = "analizar_app_js", {"ruta": args.ruta}, rc.analizar_app_js(client, args.ruta)
             elif args.rea_action == "reimplementar":
-                op, params = "reimplementar_funcion", {"ruta": args.ruta, "funcion": args.funcion}
-                result = rc.reimplementar_funcion(client, args.ruta, args.funcion)
+                extra = {"motor": motor} if motor != "ghidra" else {}
+                op, params = "reimplementar_funcion", {"ruta": args.ruta, "funcion": args.funcion, **extra}
+                result = rc.reimplementar_funcion(client, args.ruta, args.funcion, motor=motor)
             else:
                 op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
                 result = rc.comparar_versiones(client, args.original, args.nueva)
+        except RuntimeError as exc:   # error de REA: mensaje claro en vez de una traza (15/11/2026)
+            if os.environ.get("EOLFI_DEBUG"):
+                raise
+            hint = (" Kuna solo admite ELF y Mach-O de una arquitectura; para PE usa --motor ghidra."
+                    if motor == "kuna" and "unsupported_provider" in str(exc) else "")
+            print(f"eolfi rea: error: {exc}{hint}", file=sys.stderr)
+            return 1
         finally:
             client.close()
         if args.caso:   # plan REA, punto 6: lo analizado queda en el caso

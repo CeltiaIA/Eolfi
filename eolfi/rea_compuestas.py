@@ -68,27 +68,55 @@ def revisar_modelo(client: Any, path: str) -> dict[str, Any]:
                        "completo lo verifica la descarga)."}
 
 
-def _session(client: Any, path: str) -> dict[str, Any]:
-    opened = _call(client, "open_binary", {"path": path})
+MOTORES = {"ghidra": "Ghidra", "kuna": "Kuna"}
+
+
+def _session(client: Any, path: str, motor: str | None = None) -> dict[str, Any]:
+    args = {"path": path, **({"provider_id": motor} if motor and motor != "ghidra" else {})}
+    opened = _call(client, "open_binary", args)
     return opened.get("result", opened) if isinstance(opened, dict) else {}
 
 
-def explicar_binario(client: Any, path: str, funciones: int = 5) -> dict[str, Any]:
+def _procedure_info(client: Any, address: str) -> dict[str, Any] | None:
+    """Tamaño y firma de una función; None si el motor no declara procedure_info (Kuna, 15/11/2026)."""
+    try:
+        info = _call(client, "procedure_info", {"procedure": address})
+    except RuntimeError as exc:
+        if "capability_unavailable" in str(exc) or "not declared" in str(exc):
+            return None
+        raise
+    return info if isinstance(info, dict) else {}
+
+
+def explicar_binario(client: Any, path: str, funciones: int = 5, motor: str | None = None) -> dict[str, Any]:
     funciones = max(1, min(int(funciones or 5), 8))
-    head = _session(client, path)
+    motor_name = MOTORES.get(motor or "ghidra", motor or "Ghidra")
+    head = _session(client, path, motor)
     try:
         overview = _call(client, "binary_overview", {})
         procs = _call(client, "list_procedures", {"detail": "complete"})
         procs = procs if isinstance(procs, list) else []
+        # Kuna no marca las externas: sin la marca no hay recuento de importaciones (no se da un 0 engañoso).
+        marks = any("procedure" in p for p in procs)
         imports = [p["value"] for p in procs if (p.get("procedure") or {}).get("external")]
         own = [p for p in procs if not (p.get("procedure") or {}).get("external") and not (p.get("procedure") or {}).get("thunk")]
-        sized = []
+        sized, has_info, by_code = [], True, {}
         for p in own[:400]:   # tamaño de cada función propia (barato: metadatos ya analizados)
             try:
-                info = _call(client, "procedure_info", {"procedure": p["address"]})
-                sized.append((int(info.get("length") or 0), int(info.get("basicblock_count") or 0), p, info))
+                info = _procedure_info(client, p["address"]) if has_info else None
             except RuntimeError:
                 continue
+            if info is None:   # el motor no da tamaños: se ordena por la longitud del pseudocódigo (en caché)
+                has_info = False
+                if len(by_code) >= 60:
+                    break
+                try:
+                    by_code[p["address"]] = str(_call(client, "procedure_pseudo_code", {"procedure": p["address"]}))
+                except RuntimeError:
+                    continue
+                sized.append((len(by_code[p["address"]]), 0, p, {}))
+                continue
+            sized.append((int(info.get("length") or 0), int(info.get("basicblock_count") or 0), p, info))
         named = [s for s in sized if re.search(r"(^|_)(w?main|entry|start)", s[2]["value"], re.I)]
         top = (named + sorted(sized, key=lambda s: (s[1], s[0]), reverse=True))
         chosen, seen = [], set()
@@ -100,9 +128,10 @@ def explicar_binario(client: Any, path: str, funciones: int = 5) -> dict[str, An
                 break
         detail = []
         for length, blocks, p, info in chosen:
-            code = _call(client, "procedure_pseudo_code", {"procedure": p["address"]})
+            code = by_code.get(p["address"]) or _call(client, "procedure_pseudo_code", {"procedure": p["address"]})
             detail.append({"nombre": p["value"], "direccion": p["address"], "firma": info.get("signature"),
-                           "bloques": blocks, "bytes": length, "pseudocodigo": str(code)[:MAX_PSEUDO]})
+                           "bloques": blocks if has_info else None, "bytes": length if has_info else None,
+                           "pseudocodigo": str(code)[:MAX_PSEUDO]})
         strings = []
         try:
             raw = _call(client, "list_strings", {"detail": "complete"})
@@ -117,28 +146,35 @@ def explicar_binario(client: Any, path: str, funciones: int = 5) -> dict[str, An
         return {"archivo": path, "formato": head.get("format"), "arquitectura": head.get("architecture"),
                 "sha256": head.get("sha256"),
                 "segmentos": [s.get("name") for s in (overview.get("segments") or [])] if isinstance(overview, dict) else [],
-                "funciones_propias": len(own), "importaciones": len(imports), "importaciones_muestra": imports[:40],
+                "motor": motor_name,
+                "funciones_propias": len(own), "importaciones": len(imports) if marks else None,
+                "importaciones_muestra": imports[:40],
                 # 14/11/2026: con whoami.exe, 121 importaciones aquí frente a 127 en la tabla del PE; las dos son
                 # correctas pero miden cosas distintas, así que se dice de dónde sale cada una.
                 "fuente_cifras": {
-                    "funciones_propias": "procedimientos que Ghidra encuentra en el propio binario",
-                    "importaciones": "funciones externas que Ghidra resuelve; puede diferir de la tabla de importaciones "
-                                     "del ejecutable (nombres repetidos, importaciones por ordinal). La tabla exacta: "
-                                     "eolfi rea inventario"},
+                    "funciones_propias": f"procedimientos que {motor_name} encuentra en el propio binario"
+                                         + ("" if marks else " (sin distinguir las externas: el motor no las marca)"),
+                    "importaciones": (f"funciones externas que {motor_name} resuelve; puede diferir de la tabla de "
+                                      "importaciones del ejecutable (nombres repetidos, importaciones por ordinal). "
+                                      "La tabla exacta: eolfi rea inventario") if marks
+                                     else f"{motor_name} no marca las funciones externas: usa eolfi rea inventario",
+                    **({} if has_info else {"funciones_relevantes": f"{motor_name} no da tamaño ni firma por "
+                                            "función: se eligen por la longitud del pseudocódigo"})},
                 "cadenas_muestra": strings, "funciones_relevantes": detail,
-                "aviso": "Análisis estático (Ghidra vía REA): el programa no se ejecutó. Los nombres FUN_* son "
-                         "automáticos; el pseudocódigo es una reconstrucción y puede tener errores."}
+                "aviso": f"Análisis estático ({motor_name} vía REA): el programa no se ejecutó. Los nombres FUN_*/sub_* "
+                         "son automáticos; el pseudocódigo es una reconstrucción y puede tener errores."}
     finally:
         _close(client)
 
 
-def reimplementar_funcion(client: Any, path: str, funcion: str) -> dict[str, Any]:
-    _session(client, path)
+def reimplementar_funcion(client: Any, path: str, funcion: str, motor: str | None = None) -> dict[str, Any]:
+    _session(client, path, motor)
     try:
-        info = _call(client, "procedure_info", {"procedure": funcion})
+        info = _procedure_info(client, funcion) or {}   # Kuna no da firma ni tamaño: quedan a None
         code = _call(client, "procedure_pseudo_code", {"procedure": funcion})
         callees = _call(client, "procedure_callees", {"procedure": funcion})
-        return {"archivo": path, "funcion": info.get("name") or funcion, "firma": info.get("signature"),
+        return {"archivo": path, "motor": MOTORES.get(motor or "ghidra", motor),
+                "funcion": info.get("name") or funcion, "firma": info.get("signature"),
                 "bloques": info.get("basicblock_count"), "bytes": info.get("length"),
                 "llama_a": callees if isinstance(callees, list) else [], "pseudocodigo": str(code)[:MAX_PSEUDO_ONE],
                 "instrucciones": "Escribe en Python una implementación LIMPIA y propia con el mismo comportamiento "

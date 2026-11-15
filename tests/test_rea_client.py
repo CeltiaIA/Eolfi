@@ -68,3 +68,50 @@ def test_sin_rea_instalado_el_chat_sigue(monkeypatch):
     assert rea_client.rea_command() is None
     assert rea_client.blocked("capture_process_scenario") and rea_client.blocked("install_adb_package")
     assert not rea_client.blocked("decompile_all") and not rea_client.blocked("inspect_adb_client")
+
+
+@pytest.mark.parametrize("salida,con_kuna", [("/n/node|/home/u|kuna", True), ("/n/node|/home/u|", False),
+                                              ("/n/node|/home/u", False)])
+def test_el_rea_de_wsl_recibe_kuna_si_esta_instalado(monkeypatch, salida, con_kuna):
+    """15/11/2026: instalar-rea-wsl.sh deja ~/.local/eolfi-rea/kuna; Eolfi se lo pasa a REA como REA_KUNA_COMMAND."""
+    import subprocess
+
+    monkeypatch.delenv("EOLFI_NO_REA", raising=False)
+    monkeypatch.setattr(rea_client.shutil, "which", lambda name: "wsl.exe")
+    monkeypatch.setattr(rea_client.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=salida + "\n", stderr=""))
+    cmd = rea_client.wsl_rea_command()
+    assert cmd[:4] == ["wsl.exe", "-e", "env", "REA_WAKARU_COMMAND=/home/u/.local/eolfi-rea/wakaru/wakaru"]
+    assert cmd[-3:] == ["/n/node/bin/node", "/home/u/.local/eolfi-rea/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
+    assert rea_client.wsl_has_kuna(cmd) is con_kuna
+    assert ("REA_KUNA_COMMAND=/home/u/.local/eolfi-rea/kuna" in cmd) is con_kuna
+
+
+def test_cli_motor_kuna_sin_kuna_lo_explica(monkeypatch, tmp_path, capsys):
+    from eolfi import cli
+
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: ["wsl.exe", "-e", "env", "REA_WAKARU_COMMAND=w", "n", "r", "mcp"])
+    code = cli.main(["--db", str(tmp_path / "e.db"), "rea", "explicar", str(tmp_path / "x.elf"), "--motor", "kuna"])
+    assert code == 2 and "instalar-rea-wsl.sh" in capsys.readouterr().err
+
+
+def test_cli_error_de_rea_sin_traza(monkeypatch, tmp_path, capsys):
+    from eolfi import cli, rea_compuestas
+
+    class Rea:
+        def __init__(self, *a, **k):
+            pass
+
+        def close(self):
+            pass
+
+    def falla(*a, **k):
+        raise RuntimeError('REA open_binary: {"error":{"category":"unsupported_provider"}}')
+
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: ["wsl.exe", "-e", "env", "REA_KUNA_COMMAND=k", "mcp"])
+    monkeypatch.setattr(rea_client, "ReaClient", Rea)
+    monkeypatch.setattr(rea_compuestas, "explicar_binario", falla)
+    monkeypatch.delenv("EOLFI_DEBUG", raising=False)
+    code = cli.main(["--db", str(tmp_path / "e.db"), "rea", "explicar", str(tmp_path / "x.exe"), "--motor", "kuna"])
+    err = capsys.readouterr().err
+    assert code == 1 and "Traceback" not in err and "para PE usa --motor ghidra" in err

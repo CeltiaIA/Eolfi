@@ -64,6 +64,60 @@ def test_reimplementar_funcion_avisa_de_que_una_prueba_verde_no_es_equivalencia(
     assert "NO demuestra" in out["instrucciones"] and "no copies" in out["instrucciones"]
 
 
+class FakeKuna:
+    """Como Kuna vía REA (15/11/2026): sin marca de externas y sin procedure_info."""
+
+    def __init__(self):
+        self.calls, self.args = [], []
+
+    def call(self, name, args, limit=None):
+        self.calls.append(name)
+        self.args.append(args)
+        if name == "procedure_info":
+            return json.dumps({"error": {"code": "capability_unavailable", "category": "unsupported_provider",
+                                         "details": {"reason": "operation is not declared by this provider"}}}), False
+        code = {"0x1": "int a(void) { return 0; }", "0x2": "int main(void) { return 1; }",
+                "0x3": "void larga(void) {" + " x();" * 50 + " }"}
+        data = {
+            "open_binary": {"result": {"format": "elf", "architecture": "x86_64", "sha256": "cd" * 32}},
+            "binary_overview": {"document": {}, "procedure_count": 3, "string_count": 1},
+            "list_procedures": [{"address": "0x1", "value": "sub_1"}, {"address": "0x2", "value": "main"},
+                                {"address": "0x3", "value": "sub_3"}],
+            "procedure_pseudo_code": code.get(args.get("procedure"), ""),
+            "procedure_callees": [],
+            "list_strings": [{"value": "/lib64/ld-linux-x86-64.so.2"}],
+            "close_binary": {},
+        }[name]
+        return json.dumps(data), True
+
+
+def test_explicar_con_kuna_sin_tamanos_ni_externas():
+    rea = FakeKuna()
+    out = rc.explicar_binario(rea, "/tmp/x.elf", funciones=2, motor="kuna")
+    assert rea.args[0]["provider_id"] == "kuna" and rea.calls[-1] == "close_binary"
+    assert [f["nombre"] for f in out["funciones_relevantes"]] == ["main", "sub_3"]   # main y la de más pseudocódigo
+    assert out["funciones_relevantes"][1]["bytes"] is None and out["funciones_relevantes"][1]["firma"] is None
+    assert out["motor"] == "Kuna" and out["importaciones"] is None and "Kuna" in out["aviso"]
+    assert "inventario" in out["fuente_cifras"]["importaciones"]
+    assert "pseudocódigo" in out["fuente_cifras"]["funciones_relevantes"]
+    assert rea.calls.count("procedure_info") == 1   # se deja de pedir en cuanto el motor dice que no lo tiene
+
+
+def test_reimplementar_con_kuna_sin_firma():
+    rea = FakeKuna()
+    out = rc.reimplementar_funcion(rea, "/tmp/x.elf", "0x2", motor="kuna")
+    assert out["motor"] == "Kuna" and out["firma"] is None and out["funcion"] == "0x2"
+    assert out["pseudocodigo"].startswith("int main") and rea.calls[-1] == "close_binary"
+
+
+def test_ghidra_no_pide_proveedor_explicito():
+    rea, seen = FakeRea(), []
+    orig = rea.call
+    rea.call = lambda name, args, limit=None: (seen.append(args) if name == "open_binary" else None) or orig(name, args, limit)
+    out = rc.explicar_binario(rea, "/tmp/x.exe", funciones=1)
+    assert "provider_id" not in seen[0] and out["motor"] == "Ghidra" and out["importaciones"] == 1
+
+
 def test_la_sesion_de_rea_se_cierra_aunque_falle():
     rea = FakeRea(fail_on="procedure_pseudo_code")
     with pytest.raises(RuntimeError, match="procedure_pseudo_code"):
