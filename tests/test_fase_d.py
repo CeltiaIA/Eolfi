@@ -140,9 +140,11 @@ def test_upload_with_provider_selection_and_job_eviction(tmp_path):
     app.MAX_JOBS = 3
     app.create = lambda body: {"ok": True}
     ids = [app.start_job({"kind": "create", "body": {"name": str(i)}})["job_id"] for i in range(6)]
-    for _ in range(100):
-        if all(app.jobs.get(i, {}).get("status", "done") == "done" for i in ids):
-            break
+    # Solo se retiran trabajos terminados: hay que esperar a que acaben los 6 (3 a la vez y cada uno
+    # escribe en SQLite). Con 2 s fijos fallaba en Windows lento; se espera hasta 30 s y se exige.
+    deadline = time.monotonic() + 30
+    while not all(app.jobs.get(i, {}).get("status", "done") == "done" for i in ids):
+        assert time.monotonic() < deadline, {i: app.jobs.get(i, {}).get("status") for i in ids}
         time.sleep(0.02)
     app.start_job({"kind": "create", "body": {"name": "último"}})
     assert len(app.jobs) <= 4 and ids[0] not in app.jobs
