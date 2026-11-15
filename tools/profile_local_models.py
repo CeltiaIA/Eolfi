@@ -6,6 +6,8 @@ from pathlib import Path
 from eolfi import eolas_v2 as engine
 
 def main():
+    import sys
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')   # redirigido en Windows: UTF-8, no cp1252
     rows = []
     output = Path('informes/model-timings.json')
     cfg = engine.load_config()
