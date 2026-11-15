@@ -9,7 +9,8 @@ const DEFAULT_URL = 'http://127.0.0.1:11435';
 const DEFAULT_MODEL = 'gemma-4-12b-it:latest';
 
 function makeEolasStarter({ launcher = DEFAULT_LAUNCHER, expectedSha256 = '', log = () => {},powershell = 'powershell.exe', endpoint = DEFAULT_URL,
-  model = DEFAULT_MODEL, spawnFn = spawn, fetchFn = httpFetch, launchMs = 135000, readyMs = 30000, pollMs = 500 } = {}) {
+  model = DEFAULT_MODEL, spawnFn = spawn, fetchFn = httpFetch, launchMs = 135000, readyMs = 30000, pollMs = 500,
+  authHeaders = () => ({}) } = {}) {
   let active = false;
   let starting = null;
 
@@ -17,7 +18,8 @@ function makeEolasStarter({ launcher = DEFAULT_LAUNCHER, expectedSha256 = '', lo
 
   async function hasModel() {
     try {
-      const r = await fetchFn(`${endpoint}/api/tags`);
+      // Con clave (launch-eolas.ps1 crea runtime\eolas\api.key) /api/tags responde 401 sin ella.
+      const r = await fetchFn(`${endpoint}/api/tags`, { headers: authHeaders() });
       if (!r?.ok) return false;
       const data = await r.json();
       return Array.isArray(data?.models) && data.models.some((m) => (m?.name || m?.model) === model);

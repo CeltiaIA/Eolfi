@@ -22,6 +22,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 EOLAS_URL = os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435").rstrip("/")
@@ -29,10 +30,93 @@ IDLE_MINUTES = float(os.environ.get("EOLFI_LOCAL_IDLE_MINUTES", "15"))
 POLL_SECONDS = 30.0
 
 
-def eolas_v1_parked() -> bool:
-    """Eolas V1 (CeltIA, 11435) parado hasta que se repare (15/11/2026, decisión del titular): Eolfi no lo arranca
-    ni lo usa como proveedor. ``EOLFI_EOLAS_V1=1`` lo vuelve a habilitar cuando esté reparado."""
-    return os.environ.get("EOLFI_EOLAS_V1", "").strip() != "1"
+# Motor local de Eolfi (15/11/2026, decisión del titular: poder trabajar con Eolas V1 o Eolas V2).
+#   eolas-v1: Eolas de CELTIAIA (11435, API tipo Ollama), lo arranca launch-eolas.ps1 y lo comparten Fios y la web.
+#   eolas-v2: llama-server que gestiona Eolfi (8090, API de OpenAI), con perfiles y vigilante de inactividad.
+# Se elige con EOLFI_LOCAL_ENGINE o con «eolfi motor-local <motor>», que lo guarda en ~/.eolfi/motor-local.json;
+# lo leen la CLI, el panel, el generador y la extensión de VS Code. Sin elección: eolas-v2, que no depende de
+# CELTIAIA. Cualquiera de los dos se puede pedir siempre de forma explícita (--provider eolas / eolas-v2).
+ENGINES = ("eolas-v1", "eolas-v2")
+ENGINE_PROVIDER = {"eolas-v1": "eolas", "eolas-v2": "eolas-v2"}
+DEFAULT_ENGINE = "eolas-v2"
+
+
+def engine_file() -> Path:
+    if os.environ.get("EOLFI_MOTOR_LOCAL_FILE"):
+        return Path(os.environ["EOLFI_MOTOR_LOCAL_FILE"])
+    return Path(os.environ.get("EOLFI_HOME") or Path.home() / ".eolfi") / "motor-local.json"
+
+
+def _normalize_engine(value: Any) -> str | None:
+    text = str(value or "").strip().lower().replace("_", "-")
+    aliases = {"v1": "eolas-v1", "eolas": "eolas-v1", "1": "eolas-v1", "v2": "eolas-v2", "2": "eolas-v2"}
+    text = aliases.get(text, text)
+    return text if text in ENGINES else None
+
+
+def local_engine() -> str:
+    """El motor local elegido: EOLFI_LOCAL_ENGINE, después ~/.eolfi/motor-local.json, si no eolas-v2."""
+    env = _normalize_engine(os.environ.get("EOLFI_LOCAL_ENGINE"))
+    if env:
+        return env
+    try:
+        saved = _normalize_engine(json.loads(engine_file().read_text(encoding="utf-8")).get("engine"))
+    except (OSError, ValueError, AttributeError):
+        saved = None
+    return saved or DEFAULT_ENGINE
+
+
+def set_local_engine(value: str) -> dict[str, Any]:
+    engine = _normalize_engine(value)
+    if not engine:
+        raise ValueError(f"motor desconocido «{value}» (opciones: {', '.join(ENGINES)})")
+    path = engine_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"engine": engine}, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+    return {"engine": engine, "file": str(path), "provider": ENGINE_PROVIDER[engine]}
+
+
+def local_provider() -> str:
+    """Proveedor de IA del generador que corresponde al motor elegido."""
+    return ENGINE_PROVIDER[local_engine()]
+
+
+# Clave de Eolas V1 (P2-1, auditoría del 15/11/2026): launch-eolas.ps1 la crea en runtime/eolas/api.key y se la
+# pasa a Eolas y a la web; Eolfi la lee de EOLAS_API_KEY o de ese archivo para hablar con 11435.
+def eolas_v1_key_files() -> list[Path]:
+    files = []
+    if os.environ.get("EOLAS_HOME"):
+        files.append(Path(os.environ["EOLAS_HOME"]) / "api.key")
+    celtiaia = os.environ.get("CELTIAIA_HOME") or (r"D:\celtiaia" if os.name == "nt" else "")
+    if celtiaia:
+        files.append(Path(celtiaia) / "runtime" / "eolas" / "api.key")
+    return files
+
+
+def eolas_v1_key() -> str:
+    key = os.environ.get("EOLAS_API_KEY", "").strip()
+    if key:
+        return key
+    for path in eolas_v1_key_files():
+        try:
+            key = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if key:
+            return key
+    return ""
+
+
+def eolas_v1_headers(url: str = EOLAS_URL) -> dict[str, str]:
+    """Cabecera de la clave de Eolas V1, solo para direcciones de este equipo."""
+    from urllib.parse import urlsplit
+
+    if urlsplit(url).hostname not in ("127.0.0.1", "localhost", "::1"):
+        return {}
+    key = eolas_v1_key()
+    return {"Authorization": f"Bearer {key}"} if key else {}
 
 
 class GpuBusy(RuntimeError):
@@ -49,7 +133,7 @@ def _get_json(url: str, timeout: float = 2.0, headers: dict[str, str] | None = N
 
 def eolas_loaded(url: str = EOLAS_URL) -> list[str]:
     """Modelos que Eolas tiene cargados en memoria ahora mismo (vacío si no responde o no hay ninguno)."""
-    data = _get_json(f"{url}/api/ps") or {}
+    data = _get_json(f"{url}/api/ps", headers=eolas_v1_headers(url)) or {}
     return [str(m.get("name") or m.get("model")) for m in data.get("models", []) if isinstance(m, dict)]
 
 
@@ -58,7 +142,8 @@ def release_eolas(url: str = EOLAS_URL) -> list[str]:
     released = []
     for name in eolas_loaded(url):
         body = json.dumps({"model": name, "keep_alive": 0}).encode("utf-8")
-        req = urllib.request.Request(f"{url}/api/generate", data=body, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(f"{url}/api/generate", data=body,
+                                     headers={"Content-Type": "application/json", **eolas_v1_headers(url)})
         try:
             with urllib.request.urlopen(req, timeout=30):
                 released.append(name)
@@ -217,9 +302,18 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--idle", type=float, default=IDLE_MINUTES)
     w.add_argument("--token")
     sub.add_parser("status")
+    sub.add_parser("free-for-eolas", help="Para Eolas V2 si está ocioso, para que Eolas V1 cargue su modelo")
     args = ap.parse_args(argv)
     if args.cmd == "watch":
         watch(args.pid, args.port, args.idle, token=args.token)
+    elif args.cmd == "free-for-eolas":
+        # La usa la extensión de VS Code antes de pedir a Eolas V1 (P1-5): la misma guardia que el generador.
+        try:
+            result = free_for_eolas()
+        except GpuBusy as exc:
+            print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+            return 3
+        print(json.dumps(result, ensure_ascii=False, default=str))
     else:
         if not sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8")   # redirigido en Windows: UTF-8, no cp1252 (15/11/2026)

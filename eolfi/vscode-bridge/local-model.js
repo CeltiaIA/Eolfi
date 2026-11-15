@@ -77,10 +77,10 @@ function pickModel(names, wanted = '') {
   return ok[0] || null;
 }
 
-async function getJson(fetchFn, url, ms = 3000, headers = {}) {
+async function getJson(fetchFn, url, ms = 3000, headers = {}, onStatus = () => {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
-  try { const r = await fetchFn(url, { signal: ctrl.signal, headers }); return r.ok ? await r.json() : null; } catch { return null; } finally { clearTimeout(t); }
+  try { const r = await fetchFn(url, { signal: ctrl.signal, headers }); onStatus(r.status); return r.ok ? await r.json() : null; } catch { return null; } finally { clearTimeout(t); }
 }
 
 // fetch mínimo con node:http: el fetch de Node corta a los 5 minutos si no llegan las cabeceras, y un modelo local
@@ -121,7 +121,7 @@ function eolasV2Holder({ fs = require('node:fs'), path = require('node:path'), o
 
 function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = httpFetch, timeoutMs = 20 * 60 * 1000, options = null,
   starter = null, allowStart = async () => true, gpuHolder = eolasV2Holder, authHeaders = () => ({}),
-  startHint = 'arranca Eolas con launch-eolas.ps1' } = {}) {
+  startHint = 'arranca Eolas con launch-eolas.ps1', freeGpu = null } = {}) {
   let found = null;   // { url, api: 'eolas' | 'openai', model }
   const opts = (o) => (options ? options(o) || {} : {});   // temperatura, longitud y razonamiento de la configuración
   let started = false;
@@ -151,7 +151,9 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     for (const url of list.filter(isLoopback)) {
       // Eolas expone su API en /api/* (con el backend llama.cpp); llama-server, la de OpenAI en /v1/*.
       // authHeaders: la clave de Eolas V2 (su llama-server exige «Authorization: Bearer» fuera de /health).
-      const tags = await getJson(fetchFn, `${url}/api/tags`, 3000, authHeaders());
+      let denied = false;
+      const status = (code) => { if (code === 401 || code === 403) denied = true; };
+      const tags = await getJson(fetchFn, `${url}/api/tags`, 3000, authHeaders(), status);
       if (tags && Array.isArray(tags.models)) {
         const names = tags.models.map((x) => x.name || x.model).filter(Boolean);
         const m = pickModel(names, model);
@@ -159,7 +161,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         lastProbe.push({ url, api: 'eolas', models: names });
         continue;
       }
-      const v1 = await getJson(fetchFn, `${url}/v1/models`, 3000, authHeaders());
+      const v1 = await getJson(fetchFn, `${url}/v1/models`, 3000, authHeaders(), status);
       if (v1 && Array.isArray(v1.data)) {
         const names = v1.data.map((x) => x.id).filter(Boolean);
         // Con un modelo pedido no se cambia en silencio a otro: si no está, este endpoint no vale.
@@ -168,7 +170,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
         lastProbe.push({ url, api: 'openai', models: names });
         continue;
       }
-      lastProbe.push({ url, api: null, models: [] });
+      lastProbe.push({ url, api: null, models: [], denied });
     }
     return null;
   }
@@ -177,6 +179,12 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     const seen = lastProbe.filter((p) => p.api);
     if (model && seen.length) {
       return `el modelo local ${model} no está disponible: ${seen.map((p) => `${p.url} anuncia ${p.models.length ? p.models.join(', ') : 'ningún modelo'}`).join('; ')}`;
+    }
+    // Responde 401/403: el motor está en marcha pero exige una clave que no se envió o no coincide.
+    const denied = lastProbe.filter((p) => p.denied).map((p) => p.url);
+    if (denied.length) {
+      return `el motor local en ${denied.join(', ')} rechaza la petición (401): falta su clave de API o no coincide `
+        + '(Eolas V1: EOLAS_API_KEY o runtime/eolas/api.key de CELTIAIA; Eolas V2: EOLAS_V2_API_KEY o ~/.eolfi/eolas-v2.key)';
     }
     const where = endpoints.filter(isLoopback).join(', ') || 'ningún endpoint loopback';
     return `no hay modelo local llama.cpp: sin respuesta en ${where} (${startHint})`;
@@ -188,11 +196,19 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
     if (started && starter && !starter.running()) { found = null; at = await locate(); }   // se paró por inactividad: otra vez
     if (started) starter?.touch();
     if (at.api === 'eolas') {
-      const other = gpuHolder();
+      let other = gpuHolder();
+      // P1-5 (auditoría del 15/11/2026): Eolas V2 ocioso se para antes, como hace la CLI; si está respondiendo, no.
+      let reason = '';
+      if (other && freeGpu) {
+        const r = await freeGpu();
+        reason = r?.ok ? '' : String(r?.error || '');
+        other = gpuHolder();
+      }
       if (other) {
         throw new Error(`Eolas V2 tiene cargado el perfil ${other.profile} (PID ${other.pid}, puerto ${other.port}) en la GPU; `
-          + 'no pido a Eolas que cargue otro modelo encima (8 GB no dan para dos). Páralo con «python -m eolfi eolas-v2 stop» '
-          + 'o espera: se para solo tras 15 minutos sin uso.');
+          + 'no pido a Eolas que cargue otro modelo encima (8 GB no dan para dos). '
+          + (reason ? `No se pudo parar: ${reason}. ` : '')
+          + 'Páralo con «python -m eolfi eolas-v2 stop» o espera: se para solo tras 15 minutos sin uso.');
       }
     }
     return at;
