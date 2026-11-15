@@ -13,7 +13,9 @@ function safeJson(v) {
   try { return JSON.parse(String(v || '{}')); } catch { return {}; }
 }
 
-// Gemma 4 a través de Eolas: la llamada a herramienta y el razonamiento llegan como texto en content
+// Gemma 4 sin analizador en el servidor: la llamada a herramienta y el razonamiento pueden llegar como texto en content
+// (el binario de Eolas del 03/11 lo hacía; los posteriores y llama-server con --jinja ya devuelven tool_calls y
+// reasoning_content estructurados). Se conserva como respaldo (P2-5, auditoría del 15/11/2026):
 // («<|channel>thought…<channel|>» y «<|tool_call>call:nombre{clave:<|"|>valor<|"|>}<tool_call|>»).
 const GEMMA_THOUGHT = /<\|channel>(?:thought)?([\s\S]*?)<channel\|>/g;
 const GEMMA_CALL = /<\|tool_call>call:([\w.-]+)(\{[\s\S]*?\})<tool_call\|>/g;
@@ -46,15 +48,22 @@ function splitGemma(text) {
 // Eolas gestiona su llama.cpp (capas en GPU, hilos y límite de VRAM en launch-eolas.ps1): Eolfi no le impone
 // num_gpu ni num_thread de ~/.eolfi/llamacpp.json, que son de su llama-server propio. El contexto sí se pide:
 // sin num_ctx, Eolas carga con 2048 tokens y las peticiones del agente no caben.
+// Sin límite, Eolas genera hasta llenar el contexto (num_predict -1 en el servidor): max_tokens de la configuración
+// pasa a num_predict, como el max_tokens de llama-server (P1-4, auditoría del 15/11/2026).
 function eolasOptions(runtime = {}) {
-  return { num_ctx: Number(runtime.num_ctx) || 32768, temperature: runtime.temperature ?? 0.2 };
+  const o = { num_ctx: Number(runtime.num_ctx) || 32768, temperature: runtime.temperature ?? 0.2 };
+  const limit = Number(runtime.max_tokens);
+  if (limit > 0) o.num_predict = limit;
+  return o;
 }
 
 // Razonamiento de Gemma 4 en Eolas: «think» en la petición (equivale a enable_thinking de llama-server). Sin él,
 // Eolas razona por defecto: una revisión breve pasa de ~130 a ~590 tokens y el pensamiento llega dentro de content.
-function eolasThink(runtime = {}) {
+// Sin ajuste explícito, la revisión (complete) va sin razonar, igual que con llama-server (enable_thinking: false).
+function eolasThink(runtime = {}, fallback = undefined) {
   const t = runtime.chat_template_kwargs?.enable_thinking;
-  return typeof t === 'boolean' ? { think: t } : {};
+  if (typeof t === 'boolean') return { think: t };
+  return typeof fallback === 'boolean' ? { think: fallback } : {};
 }
 
 function isLoopback(url) {
@@ -235,7 +244,8 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
       // Revisión: el mismo perfil (review_reasoning) con Eolas y con llama-server.
       const runtime = opts({ review: true }) || {};
       const [endpoint, body] = at.api === 'eolas'
-        ? [`${at.url}/api/chat`, { model: at.model, stream: false, messages, ...eolasThink(runtime), options: eolasOptions(runtime) }]
+        ? [`${at.url}/api/chat`, { model: at.model, stream: false, messages, ...eolasThink(runtime, false),
+          options: eolasOptions({ ...runtime, max_tokens: runtime.max_tokens ? Math.max(6000, runtime.max_tokens) : 6000 }) }]
         // Sin «modo pensar» (qwen3, gemma…): la revisión va directa y no se dispara el tiempo.
         : (() => { const o = opts({ review: true }) || {}; const { num_ctx, num_gpu, num_thread, ...requestOptions } = o;
           return [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, temperature: 0.2, max_tokens: 6000,

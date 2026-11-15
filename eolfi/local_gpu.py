@@ -79,7 +79,7 @@ def eolas_v2_holder() -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     pid = int(record.get("pid") or 0)
-    if not eolas_v2._pid_alive(pid):
+    if not eolas_v2._record_alive(record):
         return None
     port = int(record.get("port") or 0)
     # /slots exige la clave de Eolas V2 (--api-key-file): sin ella responde 401 y el vigilante no veía ninguna
@@ -162,10 +162,10 @@ def ensure_watchdog(*, idle_minutes: float = IDLE_MINUTES, popen=None) -> int | 
     if not record or idle_minutes <= 0:
         return None
     pid, port = int(record.get("pid") or 0), int(record.get("port") or 0)
-    if not (pid and port and eolas_v2._pid_alive(pid)):
+    if not (pid and port and eolas_v2._record_alive(record)):
         return None
     current = int(record.get("idle_watchdog_pid") or 0)
-    if current and eolas_v2._pid_alive(current):
+    if current and eolas_v2._record_alive(record, "idle_watchdog_pid"):
         return current
     import secrets
 
@@ -175,7 +175,8 @@ def ensure_watchdog(*, idle_minutes: float = IDLE_MINUTES, popen=None) -> int | 
                                                           "idle_watchdog_pid": None})
     new = start_watchdog(pid, port, idle_minutes, popen=popen or subprocess.Popen, token=token)
     eolas_v2._write_json_atomic(eolas_v2.runtime_file(), {**record, "idle_watchdog_token": token,
-                                                          "idle_watchdog_pid": new})
+                                                          "idle_watchdog_pid": new,
+                                                          "idle_watchdog_pid_started": eolas_v2._process_started(new or 0)})
     return new
 
 
@@ -195,8 +196,14 @@ def watch(pid: int, port: int, idle_minutes: float, *, poll: float = POLL_SECOND
         if holder["busy"] or (seen is not None and holder["tasks"] != seen):
             last = clock()
         elif clock() - last >= idle_minutes * 60:
-            eolas_v2.stop()
-            return f"parado tras {idle_minutes:g} min sin uso"
+            try:
+                eolas_v2.stop()
+            except eolas_v2.EolasBusy:
+                # Alguien tiene el candado (una inferencia o un cambio de perfil): hay uso. El vigilante sigue; si
+                # muriera aquí, el servidor quedaría sin vigilar.
+                last = clock()
+            else:
+                return f"parado tras {idle_minutes:g} min sin uso"
         seen = holder["tasks"]
         sleep(poll)
 

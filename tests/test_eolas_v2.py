@@ -471,7 +471,7 @@ def test_inferencia_impide_cambiar_perfil_hasta_terminar(tmp_path, monkeypatch):
 
     with eolas_v2.inference_profile("gemma") as profile:
         assert profile["alias"] == eolas_v2.DEFAULT_PROFILES["gemma"]["alias"]
-        with pytest.raises(RuntimeError, match="cambiando de perfil"):
+        with pytest.raises(RuntimeError, match="respondiendo una petición"):
             eolas_v2.switch("mistral")
 
     assert not eolas_v2.lock_file().exists()

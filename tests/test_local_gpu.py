@@ -200,3 +200,46 @@ def test_eolfi_llama_start_retirado(capsys):
 
     assert cli.main(["llama", "start"]) != 0
     assert "retirado" in capsys.readouterr().err
+
+
+def test_un_pid_reutilizado_no_se_toma_por_eolas_v2(v2, server, monkeypatch):
+    """P2-3 (15/11/2026): con la hora de creación anotada, otro proceso con el mismo PID no es el servidor."""
+    started = eolas_v2._process_started(os.getpid())
+    assert started is not None and abs(started - __import__("time").time()) < 7 * 24 * 3600
+    record = {"pid": os.getpid(), "pid_started": started, "profile": "nemo_q4", "port": server[1]}
+    assert eolas_v2._record_alive(record)
+    assert not eolas_v2._record_alive({**record, "pid_started": started - 3600})     # PID reutilizado
+    assert eolas_v2._record_alive({k: v for k, v in record.items() if k != "pid_started"})   # registro antiguo
+    eolas_v2.runtime_file().write_text(json.dumps({**record, "pid_started": started - 3600}), encoding="utf-8")
+    assert local_gpu.eolas_v2_holder() is None
+    killed = []
+    monkeypatch.setattr(eolas_v2.subprocess, "run", lambda *a, **k: killed.append(a) or pytest.fail("no debe matar"))
+    monkeypatch.setattr(eolas_v2, "_read_json", lambda *a, **k: None)
+    assert eolas_v2._stop_locked() is True and killed == []          # limpia el registro sin tocar el proceso ajeno
+    assert not eolas_v2.runtime_file().exists()
+
+
+def test_candado_explica_la_inferencia_y_el_vigilante_no_muere(v2, server, monkeypatch):
+    """P2-4: una inferencia retiene el candado; stop lo explica y el vigilante sigue en lugar de morir."""
+    with eolas_v2._exclusive_lock("inferencia"),             pytest.raises(eolas_v2.EolasBusy, match="respondiendo una petición"), eolas_v2._exclusive_lock():
+        pass
+    with eolas_v2._exclusive_lock(), pytest.raises(eolas_v2.EolasBusy, match="cambiando de perfil"),             eolas_v2._exclusive_lock():
+        pass
+    now = [0.0]
+    attempts = []
+
+    def busy_stop():
+        attempts.append(now[0])
+        if len(attempts) == 1:
+            raise eolas_v2.EolasBusy("Eolas V2 está respondiendo una petición")
+        eolas_v2.runtime_file().unlink()
+        return {"stopped": True}
+
+    monkeypatch.setattr(eolas_v2, "stop", busy_stop)
+
+    def tick(_):
+        now[0] += 60
+
+    r = local_gpu.watch(os.getpid(), server[1], idle_minutes=2, clock=lambda: now[0], sleep=tick)
+    assert r.startswith("parado tras 2") and len(attempts) == 2
+    assert attempts[1] - attempts[0] >= 2 * 60          # el candado contó como uso y reinició la espera
