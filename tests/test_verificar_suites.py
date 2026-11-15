@@ -56,3 +56,44 @@ def test_las_suites_no_heredan_las_variables_git_del_gancho(monkeypatch, tmp_pat
     assert not any(k.upper().startswith("GIT_") for k in env) and env["EOLFI_OTRA"] == "se conserva"
     ok, info = vs.run("eco", [sys.executable, "-c", "import os; print(os.environ.get('GIT_DIR', 'sin GIT_DIR'))"], tmp_path)
     assert ok and "sin GIT_DIR" in info
+
+
+def test_el_tiempo_agotado_mata_la_suite_y_sus_descendientes(tmp_path):
+    """15/11/2026: con un nieto que hereda las tuberías (como npm → node), el límite solo mataba al hijo y la
+    guardia esperaba para siempre. Ahora termina, informa del fallo y no deja el nieto vivo."""
+    import subprocess
+    import sys
+    import time
+
+    pidfile = tmp_path / "nieto.pid"
+    nieto = "import time; time.sleep(600)"
+    hijo = (f"import subprocess, sys, time; p = subprocess.Popen([sys.executable, '-c', {nieto!r}]); "
+            f"open({str(pidfile)!r}, 'w').write(str(p.pid)); time.sleep(600)")
+    start = time.monotonic()
+    ok, info = vs.run("colgada", [sys.executable, "-c", hijo], tmp_path, timeout=5)
+    assert not ok and "sin terminar" in info
+    assert time.monotonic() - start < 60
+    pid = int(pidfile.read_text())
+    if sys.platform == "win32":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
+        assert str(pid) not in out
+    else:
+        import os
+
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("el nieto sigue vivo")
+
+
+def test_suite_npm_sin_node_modules_falla_con_motivo(tmp_path, monkeypatch):
+    suite = tmp_path / "e2e"
+    suite.mkdir()
+    (suite / "package.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(vs, "ROOT", tmp_path)
+    ok, info = vs.run("navegador (e2e)", ["npm", "test"], suite)
+    assert not ok and "faltan dependencias" in info and "npm ci" in info
