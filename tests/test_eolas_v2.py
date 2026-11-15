@@ -263,8 +263,21 @@ def test_cli_eolas_y_provider_nuevo_sin_romper_alias_legacy():
     assert _parser().parse_args(["create", "--from", "x", "--out", "y"]).provider == "eolas-v2"
     with pytest.raises(SystemExit):
         _parser().parse_args(["create", "--from", "x", "--out", "y", "--provider", "nemo-moe"])
-    legacy = make_provider("eolas")
-    assert legacy.name == "eolas"
+    # 15/11/2026: Eolas V1 (11435) parado hasta que se repare; vuelve con EOLFI_EOLAS_V1=1.
+    import os
+
+    from eolfi.generador.llm import LLMError
+
+    saved = os.environ.pop("EOLFI_EOLAS_V1", None)
+    with pytest.raises(LLMError, match="parado hasta que se repare"):
+        make_provider("eolas")
+    os.environ["EOLFI_EOLAS_V1"] = "1"
+    try:
+        assert make_provider("eolas").name == "eolas"
+    finally:
+        os.environ.pop("EOLFI_EOLAS_V1", None)
+        if saved is not None:
+            os.environ["EOLFI_EOLAS_V1"] = saved
 
 
 def test_celtia_v2_compone_redactor_y_revisor_secuencial(monkeypatch):

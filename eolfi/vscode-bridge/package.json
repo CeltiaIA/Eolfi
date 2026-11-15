@@ -221,7 +221,18 @@
         "eolfi.fallback.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Activado: si Eolas no responde, arranca CELTIAIA/Eolas con Gemma 12B y CUDA. Nunca inicia un llama-server independiente ni otro modelo."
+          "description": "Activado: si el motor local no responde, lo arranca (Eolas V2: «python -m eolfi eolas-v2 start» con el perfil elegido; Eolas V1: launch-eolas.ps1). Nunca inicia otro llama-server ni otro modelo."
+        },
+        "eolfi.local.engine": {
+          "type": "string",
+          "enum": ["eolas-v2", "eolas-v1"],
+          "default": "eolas-v2",
+          "description": "Motor local del agente. Eolas V2 (llama-server de Eolfi en 8090, con clave y vigilante de inactividad) es el habitual; Eolas V1 (CeltIA, 11435) está parado hasta que se repare."
+        },
+        "eolfi.local.eolasV2Profile": {
+          "type": "string",
+          "default": "",
+          "description": "Perfil de Eolas V2 para el agente (por ejemplo gemma o gemma_q4). Vacío: el perfil activo de ~/.eolfi/eolas-v2.json."
         },
         "eolfi.agent.model": {
           "type": "string",

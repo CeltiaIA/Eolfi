@@ -1259,7 +1259,10 @@ def _run_up(args) -> int:
     logs = Path.home() / ".eolfi" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     started: list[tuple[str, subprocess.Popen]] = []
-    os.environ.setdefault("EOLFI_DEFAULT_AI", "eolas")
+    from eolfi.local_gpu import eolas_v1_parked
+
+    v1_parked = eolas_v1_parked()
+    os.environ.setdefault("EOLFI_DEFAULT_AI", "eolas-v2" if v1_parked else "eolas")
     os.environ["EOLFI_BOOT_ID"] = str(int(time.time()))
     eolas_url = PRESETS["eolas"]["base_url"].rstrip("/")
     panel = f"http://127.0.0.1:{args.port}"
@@ -1267,7 +1270,10 @@ def _run_up(args) -> int:
     try:
         # 1. Eolas (motor local de CeltIA). Es un servicio compartido con CeltIA: se lanza con -Detach (supervisor
         #    propio que reinicia Eolas si cae) y sigue activo al cerrar Eolfi; se para con launch-eolas.ps1 -Stop.
-        if not args.no_eolas:
+        if not args.no_eolas and v1_parked:
+            _progress("Eolas V1 (CeltIA, 11435) está parado hasta que se repare: no lo arranco. El motor local es "
+                      "Eolas V2, que se arranca al usarlo («python -m eolfi eolas-v2 start»).")
+        elif not args.no_eolas:
             _start_eolas(eolas_url, Path(args.celtiaia), logs)
 
         # 2. Puente de chats web: los proveedores web se eligen después en el panel, si hacen falta
