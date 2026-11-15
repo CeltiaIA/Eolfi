@@ -166,6 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    if not sys.stdout.isatty() and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")   # redirigida a archivo en Windows: UTF-8, no la página local
     args = build_parser().parse_args(argv)
     if args.resource is None:
         build_parser().print_help()
@@ -246,6 +248,17 @@ def test_se_ejecuta_como_modulo(tmp_path):
     r = subprocess.run([sys.executable, "-m", "__PKG__", "--json", "info"], capture_output=True, text=True,
                        env={**__import__("os").environ, "__ENV__": str(tmp_path)})
     assert r.returncode == 0 and json.loads(r.stdout)["version"]
+
+
+def test_json_redirigido_a_archivo_es_utf8(tmp_path):
+    env = {k: v for k, v in __import__("os").environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+    env["__ENV__"] = str(tmp_path)
+    out = tmp_path / "salida.json"
+    with open(out, "wb") as fh:
+        r = subprocess.run([sys.executable, "-m", "__PKG__", "--json", RESOURCES[0], "add", "Canción ñandú"],
+                           stdout=fh, env=env)
+    assert r.returncode == 0
+    assert json.loads(out.read_bytes().decode("utf-8"))["name"] == "Canción ñandú"
 '''
 
 
