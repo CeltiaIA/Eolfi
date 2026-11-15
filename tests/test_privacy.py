@@ -55,7 +55,8 @@ def test_observation_redacts_previews_but_keeps_hashes(tmp_path):
         assert rep["coverage"]["personal_data"]["status"] == "redacted"
         assert rep["coverage"]["personal_data"]["redacted"] == {"correo": 1, "tarjeta": 1}
         stored = json.dumps(store.get_evidence(rep["evidence_id"])["result"])
-        assert "ana.perez" not in stored and "4111" not in stored
+        # El número completo, no un prefijo: el JSON lleva UUID aleatorios que pueden contener "4111".
+        assert "ana.perez" not in stored and CARD not in stored and CARD.replace(" ", "") not in stored
         # Los hashes son de los bytes reales: dos ejecuciones siguen comparándose igual.
         rep2 = run_observation(s, store, authorized=True)
         assert rep2["steps"][0]["stdout"]["sha256"] == out["sha256"]
