@@ -7,7 +7,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -35,11 +35,14 @@ before(async () => {
   // La ruta va como argumento (sys.argv), no dentro del código Python.
   execFileSync(PY, ['-c', 'import sys; from tests.elfgen import build_elf64; open(sys.argv[1], "wb").write(build_elf64())',
     join(tmp, 'muestra.elf')], { cwd: ROOT });
-  // Aislado de los puentes reales del equipo (15/11/2026): con el puente de chats web arrancado y una ventana
-  // minimizada, la vista en directo daba 502 y la prueba fallaba por un error de consola ajeno al panel.
+  // Directorio personal propio: sin él, el servidor leía el ~/.eolfi real (puente de chats web, Eolas V2,
+  // puente de VS Code) y la prueba fallaba con 502 según lo que estuviera haciendo el equipo. Así ve lo mismo que la CI.
+  const home = join(tmp, 'home');
+  mkdirSync(home);
+  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json'),
+    EOLFI_VSCODE_BRIDGE_FILE: join(home, '.eolfi', 'vscode-bridge.json') };
   server = spawn(PY, ['-m', 'eolfi', '--db', join(tmp, 'e.db'), 'serve', '--port', String(PORT), '--samples', join(tmp, 's')],
-    { cwd: ROOT, stdio: 'ignore', env: { ...process.env, PYTHONIOENCODING: 'utf-8',
-      EOLFI_BRIDGE_FILE: join(tmp, 'sin-puente.json'), EOLFI_VSCODE_BRIDGE_FILE: join(tmp, 'sin-puente-vscode.json') } });
+    { cwd: ROOT, stdio: 'ignore', env: { ...process.env, ...isolated, PYTHONIOENCODING: 'utf-8' } });
   await waitHealth();
   browser = await chromium.launch({
     headless: true,
