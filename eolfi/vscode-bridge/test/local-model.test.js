@@ -24,8 +24,9 @@ test('Eolas (llama.cpp detrás de su API /api/*)', async () => {
   const m = makeLocalModel({ fetchFn, options: () => ({ num_ctx: 12288, num_gpu: 20, num_thread: 4, temperature: 0.2 }) });
   assert.strictEqual(await m.complete('revisa'), '### `a.py`\n- ok');
   assert.strictEqual(m.name(), 'gemma-4-12b-it:latest (llama.cpp local)');
-  // Eolas decide capas en GPU e hilos: Eolfi solo pide contexto y temperatura.
-  assert.deepStrictEqual(calls.at(-1)[1].options, { num_ctx: 12288, temperature: 0.2 });
+  // Eolas decide capas en GPU e hilos: Eolfi pide contexto, temperatura y tope de salida (revisión: 6000).
+  assert.deepStrictEqual(calls.at(-1)[1].options, { num_ctx: 12288, temperature: 0.2, num_predict: 6000 });
+  assert.strictEqual(calls.at(-1)[1].think, false);   // revisión sin razonar si la configuración no lo dice
 });
 
 test('llama-server propio (API de OpenAI en /v1/*) si Eolas no está', async () => {
@@ -81,7 +82,7 @@ test('Gemma 4 vía Eolas: herramienta y razonamiento como texto en content', asy
   const m = makeLocalModel({ fetchFn, options: () => ({ num_ctx: 12288, num_gpu: 20, num_thread: 4, temperature: 0.2 }) });
   const r = await m.chatTools([{ role: 'user', content: 'lee notas.txt' }], [{ name: 'eolfi_read_file', description: 'lee' }]);
   assert.deepStrictEqual(calls.find(([url]) => url.endsWith(':11435/api/chat'))[1].options,
-    { num_ctx: 12288, temperature: 0.2 });
+    { num_ctx: 12288, temperature: 0.2, num_predict: 4000 });
   assert.strictEqual(r.tool_calls.length, 1);
   assert.strictEqual(r.tool_calls[0].name, 'eolfi_read_file');
   assert.deepStrictEqual(r.tool_calls[0].arguments, { path: 'notas.txt', limit: 20 });
@@ -142,7 +143,24 @@ test('Eolas: razonamiento como «think» (revisión con review_reasoning, agente
   await m.chatTools([{ role: 'user', content: 'hola' }], []);
   assert.strictEqual(bodies[0].think, false);
   assert.strictEqual(bodies[1].think, true);
-  assert.deepStrictEqual(bodies[0].options, { num_ctx: 12288, temperature: 0.2 });
+  assert.deepStrictEqual(bodies[0].options, { num_ctx: 12288, temperature: 0.2, num_predict: 6000 });
+});
+
+test('Eolas: max_tokens de la configuración pasa a num_predict (auditoría 15/11, P1-4)', async () => {
+  const bodies = [];
+  const fetchFn = async (url, opts = {}) => {
+    if (url.endsWith('/api/tags')) return reply(200, { models: [{ name: 'gemma-4-12b-it:latest' }] });
+    if (url.endsWith('/api/chat')) { bodies.push(JSON.parse(opts.body)); return reply(200, { message: { content: 'ok' } }); }
+    return reply(404, {});
+  };
+  const options = () => ({ num_ctx: 16384, max_tokens: 1500, chat_template_kwargs: { enable_thinking: true } });
+  const m = makeLocalModel({ endpoints: ['http://127.0.0.1:11435'], model: 'gemma-4-12b-it:latest', fetchFn, options });
+  await m.complete('revisa');
+  await m.chatTools([{ role: 'user', content: 'hola' }], []);
+  assert.strictEqual(bodies[0].options.num_predict, 1500);
+  assert.strictEqual(bodies[1].options.num_predict, 1500);
+  assert.strictEqual(bodies[0].think, true);            // lo configurado manda sobre el «sin razonar» por defecto
+  assert.ok(!('max_tokens' in bodies[0]) && !('max_tokens' in bodies[0].options));
 });
 
 test('no pide a Eolas que cargue su modelo si Eolas V2 ya ocupa la GPU (11-12/11/2026)', async () => {

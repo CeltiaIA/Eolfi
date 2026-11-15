@@ -46,15 +46,19 @@ function splitGemma(text) {
 // Eolas gestiona su llama.cpp (capas en GPU, hilos y límite de VRAM en launch-eolas.ps1): Eolfi no le impone
 // num_gpu ni num_thread de ~/.eolfi/llamacpp.json, que son de su llama-server propio. El contexto sí se pide:
 // sin num_ctx, Eolas carga con 2048 tokens y las peticiones del agente no caben.
-function eolasOptions(runtime = {}) {
-  return { num_ctx: Number(runtime.num_ctx) || 32768, temperature: runtime.temperature ?? 0.2 };
+// num_predict: Eolas no limita la salida por defecto (num_predict -1); se pide el mismo tope que con llama-server
+// propio (max_tokens 4000 en el agente y 6000 en la revisión), o max_tokens de la configuración (auditoría, P1-4).
+function eolasOptions(runtime = {}, predict = 4000) {
+  const limit = Number(runtime.max_tokens ?? runtime.num_predict) || predict;
+  return { num_ctx: Number(runtime.num_ctx) || 32768, temperature: runtime.temperature ?? 0.2, num_predict: limit };
 }
 
 // Razonamiento de Gemma 4 en Eolas: «think» en la petición (equivale a enable_thinking de llama-server). Sin él,
 // Eolas razona por defecto: una revisión breve pasa de ~130 a ~590 tokens y el pensamiento llega dentro de content.
-function eolasThink(runtime = {}) {
+// fallback: lo que se envía si la configuración no lo dice (la revisión va sin razonar, como con llama-server).
+function eolasThink(runtime = {}, fallback) {
   const t = runtime.chat_template_kwargs?.enable_thinking;
-  return typeof t === 'boolean' ? { think: t } : {};
+  return typeof t === 'boolean' ? { think: t } : typeof fallback === 'boolean' ? { think: fallback } : {};
 }
 
 function isLoopback(url) {
@@ -233,7 +237,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
       // Revisión: el mismo perfil (review_reasoning) con Eolas y con llama-server.
       const runtime = opts({ review: true }) || {};
       const [endpoint, body] = at.api === 'eolas'
-        ? [`${at.url}/api/chat`, { model: at.model, stream: false, messages, ...eolasThink(runtime), options: eolasOptions(runtime) }]
+        ? [`${at.url}/api/chat`, { model: at.model, stream: false, messages, ...eolasThink(runtime, false), options: eolasOptions(runtime, 6000) }]
         // Sin «modo pensar» (qwen3, gemma…): la revisión va directa y no se dispara el tiempo.
         : (() => { const o = opts({ review: true }) || {}; const { num_ctx, num_gpu, num_thread, ...requestOptions } = o;
           return [`${at.url}/v1/chat/completions`, { model: at.model, stream: false, messages, temperature: 0.2, max_tokens: 6000,
