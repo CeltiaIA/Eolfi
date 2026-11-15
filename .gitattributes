@@ -1,2 +1,34 @@
-# Los scripts de shell se ejecutan en WSL/Linux: siempre con LF, aunque la copia use autocrlf.
+# Fines de línea: LF en el repositorio y en las copias de trabajo, en Windows y en Linux/macOS.
+# Sin esto, core.autocrlf de cada equipo decidía y una edición podía mostrar un archivo entero como cambiado.
+* text=auto eol=lf
+
+# Scripts de Windows: cmd.exe necesita CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binarios: nunca se convierten.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.wasm binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.gguf binary
+*.sqlite binary
+*.db binary
+
+# Paquete con manifiesto de hashes (MANIFEST-SHA256.csv): los bytes se conservan tal cual,
+# incluidos sus scripts .cmd/.ps1, para que los SHA-256 publicados sigan coincidiendo.
+informes/eolas-v2-para-eolfi-2026-11-09/** -text
+
+# Scripts que se ejecutan en Linux/WSL o como ganchos: siempre LF (con CRLF, bash falla en WSL).
 *.sh text eol=lf
+.githooks/* text eol=lf
