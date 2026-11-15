@@ -842,6 +842,13 @@ class EolfiApp:
         # se ha pedido expresamente otro, el panel prefiere Eolas V2, que gestiona
         # un único llama-server y el perfil local activo (Gemma Q4 por defecto).
         selected_ai = os.environ.get("EOLFI_DEFAULT_AI")
+        if not selected_ai:
+            # El motor local compartido elegido con «eolfi motor-local» (eolas-v1 o eolas-v2), si está disponible.
+            from eolfi.local_gpu import local_provider
+
+            wanted = local_provider()
+            if any(row["name"] == f"ia:{wanted}" and row["available"] for row in ia_rows):
+                selected_ai = wanted
         if not selected_ai and any(row["name"] == "ia:eolas-v2" and row["available"] for row in ia_rows):
             selected_ai = "eolas-v2"
         # La elección se aplica una vez por versión de arranque; después el panel

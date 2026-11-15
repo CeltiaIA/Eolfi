@@ -200,3 +200,134 @@ def test_eolfi_llama_start_retirado(capsys):
 
     assert cli.main(["llama", "start"]) != 0
     assert "retirado" in capsys.readouterr().err
+
+
+def test_un_pid_reutilizado_no_se_toma_por_eolas_v2(v2, server, monkeypatch):
+    """P2-3 (15/11/2026): con la hora de creación anotada, otro proceso con el mismo PID no es el servidor."""
+    started = eolas_v2._process_started(os.getpid())
+    assert started is not None and abs(started - __import__("time").time()) < 7 * 24 * 3600
+    record = {"pid": os.getpid(), "pid_started": started, "profile": "nemo_q4", "port": server[1]}
+    assert eolas_v2._record_alive(record)
+    assert not eolas_v2._record_alive({**record, "pid_started": started - 3600})     # PID reutilizado
+    assert eolas_v2._record_alive({k: v for k, v in record.items() if k != "pid_started"})   # registro antiguo
+    eolas_v2.runtime_file().write_text(json.dumps({**record, "pid_started": started - 3600}), encoding="utf-8")
+    assert local_gpu.eolas_v2_holder() is None
+    killed = []
+    monkeypatch.setattr(eolas_v2.subprocess, "run", lambda *a, **k: killed.append(a) or pytest.fail("no debe matar"))
+    monkeypatch.setattr(eolas_v2, "_read_json", lambda *a, **k: None)
+    assert eolas_v2._stop_locked() is True and killed == []          # limpia el registro sin tocar el proceso ajeno
+    assert not eolas_v2.runtime_file().exists()
+
+
+def test_candado_explica_la_inferencia_y_el_vigilante_no_muere(v2, server, monkeypatch):
+    """P2-4: una inferencia retiene el candado; stop lo explica y el vigilante sigue en lugar de morir."""
+    with eolas_v2._exclusive_lock("inferencia"),             pytest.raises(eolas_v2.EolasBusy, match="respondiendo una petición"), eolas_v2._exclusive_lock():
+        pass
+    with eolas_v2._exclusive_lock(), pytest.raises(eolas_v2.EolasBusy, match="cambiando de perfil"),             eolas_v2._exclusive_lock():
+        pass
+    now = [0.0]
+    attempts = []
+
+    def busy_stop():
+        attempts.append(now[0])
+        if len(attempts) == 1:
+            raise eolas_v2.EolasBusy("Eolas V2 está respondiendo una petición")
+        eolas_v2.runtime_file().unlink()
+        return {"stopped": True}
+
+    monkeypatch.setattr(eolas_v2, "stop", busy_stop)
+
+    def tick(_):
+        now[0] += 60
+
+    r = local_gpu.watch(os.getpid(), server[1], idle_minutes=2, clock=lambda: now[0], sleep=tick)
+    assert r.startswith("parado tras 2") and len(attempts) == 2
+    assert attempts[1] - attempts[0] >= 2 * 60          # el candado contó como uso y reinició la espera
+
+
+def test_motor_local_se_elige_y_lo_siguen_el_generador_y_la_cli(monkeypatch, capsys):
+    """15/11/2026: Eolfi trabaja con Eolas V1 o V2; la elección se guarda y la siguen proveedor y CLI."""
+    from eolfi.cli import main
+    from eolfi.generador.llm import default_provider, make_provider
+
+    assert local_gpu.local_engine() == "eolas-v2" and default_provider() == "eolas-v2"
+    assert main(["motor-local", "v1"]) == 0
+    assert "eolas-v1" in capsys.readouterr().out
+    assert local_gpu.local_engine() == "eolas-v1" and default_provider() == "eolas"
+    assert make_provider().name == "eolas"
+    monkeypatch.setenv("EOLFI_LOCAL_ENGINE", "eolas-v2")
+    assert local_gpu.local_provider() == "eolas-v2"
+    monkeypatch.delenv("EOLFI_LOCAL_ENGINE")
+    assert main(["motor-local", "eolas-v3"]) == 2
+    assert local_gpu.local_engine() == "eolas-v1"
+    with pytest.raises(ValueError):
+        local_gpu.set_local_engine("ollama")
+
+
+def test_clave_de_eolas_v1_solo_va_a_este_equipo(tmp_path, monkeypatch):
+    """P2-1: la clave que crea launch-eolas.ps1 se lee del runtime de CeltIA y nunca sale a un host remoto."""
+    assert local_gpu.eolas_v1_headers("http://127.0.0.1:11435") == {}
+    key = tmp_path / "celtiaia" / "runtime" / "eolas" / "api.key"
+    key.parent.mkdir(parents=True)
+    key.write_text("clave-de-prueba\n", encoding="utf-8")
+    assert local_gpu.eolas_v1_headers("http://127.0.0.1:11435") == {"Authorization": "Bearer clave-de-prueba"}
+    assert local_gpu.eolas_v1_headers("http://192.168.1.20:11435") == {}
+    monkeypatch.setenv("EOLAS_API_KEY", "de-la-variable")
+    assert local_gpu.eolas_v1_headers("http://localhost:11435") == {"Authorization": "Bearer de-la-variable"}
+
+
+def test_eolas_v1_recibe_la_clave_en_chat_y_en_ps(tmp_path, monkeypatch):
+    """El proveedor eolas y la guardia de GPU envían la clave a 11435 (con ella activa, sin clave es 401)."""
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def _ok(self, body):
+            seen.append((self.path, self.headers.get("Authorization")))
+            if self.headers.get("Authorization") != "Bearer k1":
+                self.send_response(401)
+                self.end_headers()
+                return
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            self._ok({"models": []})
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self._ok({"message": {"content": "{\"ok\": 1}"}})
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        monkeypatch.setenv("EOLAS_API_KEY", "k1")
+        assert local_gpu.eolas_loaded(url) == []
+        from eolfi.generador import llm
+
+        monkeypatch.setattr(local_gpu, "free_for_eolas", lambda: {"freed": []})
+        provider = llm.make_provider("eolas", base_url=url)
+        assert provider.complete("s", [{"role": "user", "content": "x"}], {}, None).data["ok"] == 1
+        assert all(auth == "Bearer k1" for _, auth in seen) and any(p == "/api/chat" for p, _ in seen)
+    finally:
+        srv.shutdown()
+
+
+def test_free_for_eolas_por_linea_de_ordenes(monkeypatch, capsys):
+    """P1-5: la extensión libera Eolas V2 antes de usar V1 llamando a «python -m eolfi.local_gpu free-for-eolas»."""
+    monkeypatch.setattr(local_gpu, "free_for_eolas", lambda: {"freed": ["eolas-v2"]})
+    assert local_gpu.main(["free-for-eolas"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"freed": ["eolas-v2"]}
+
+    def busy():
+        raise local_gpu.GpuBusy("Eolas V2 está respondiendo")
+
+    monkeypatch.setattr(local_gpu, "free_for_eolas", busy)
+    assert local_gpu.main(["free-for-eolas"]) == 3
+    assert "respondiendo" in json.loads(capsys.readouterr().out)["error"]

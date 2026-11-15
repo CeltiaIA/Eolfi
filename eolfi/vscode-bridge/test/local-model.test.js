@@ -24,8 +24,9 @@ test('Eolas (llama.cpp detrás de su API /api/*)', async () => {
   const m = makeLocalModel({ fetchFn, options: () => ({ num_ctx: 12288, num_gpu: 20, num_thread: 4, temperature: 0.2 }) });
   assert.strictEqual(await m.complete('revisa'), '### `a.py`\n- ok');
   assert.strictEqual(m.name(), 'gemma-4-12b-it:latest (llama.cpp local)');
-  // Eolas decide capas en GPU e hilos: Eolfi solo pide contexto y temperatura.
-  assert.deepStrictEqual(calls.at(-1)[1].options, { num_ctx: 12288, temperature: 0.2 });
+  // Eolas decide capas e hilos; la revisión lleva límite de generación (num_predict) y va sin razonar (P1-4).
+  assert.deepStrictEqual(calls.at(-1)[1].options, { num_ctx: 12288, temperature: 0.2, num_predict: 6000 });
+  assert.strictEqual(calls.at(-1)[1].think, false);
 });
 
 test('llama-server propio (API de OpenAI en /v1/*) si Eolas no está', async () => {
@@ -142,7 +143,23 @@ test('Eolas: razonamiento como «think» (revisión con review_reasoning, agente
   await m.chatTools([{ role: 'user', content: 'hola' }], []);
   assert.strictEqual(bodies[0].think, false);
   assert.strictEqual(bodies[1].think, true);
-  assert.deepStrictEqual(bodies[0].options, { num_ctx: 12288, temperature: 0.2 });
+  assert.deepStrictEqual(bodies[0].options, { num_ctx: 12288, temperature: 0.2, num_predict: 6000 });
+});
+
+test('Eolas: max_tokens de la configuración pasa a num_predict (P1-4)', async () => {
+  const bodies = [];
+  const fetchFn = async (url, opts = {}) => {
+    if (url.endsWith('/api/tags')) return reply(200, { models: [{ name: 'gemma-4-12b-it:latest' }] });
+    if (url.endsWith('/api/chat')) { bodies.push(JSON.parse(opts.body)); return reply(200, { message: { content: 'ok' } }); }
+    return reply(404, {});
+  };
+  const m = makeLocalModel({ endpoints: ['http://127.0.0.1:11435'], model: 'gemma-4-12b-it:latest', fetchFn,
+    options: () => ({ num_ctx: 32768, temperature: 0.2, max_tokens: 4096, chat_template_kwargs: { enable_thinking: true } }) });
+  await m.chatTools([{ role: 'user', content: 'hola' }], []);
+  await m.complete('revisa');
+  assert.strictEqual(bodies[0].options.num_predict, 4096);
+  assert.strictEqual(bodies[1].options.num_predict, 6000);   // la revisión, como con llama-server: al menos 6000
+  assert.strictEqual(bodies[1].think, true);                 // un ajuste explícito se respeta
 });
 
 test('no pide a Eolas que cargue su modelo si Eolas V2 ya ocupa la GPU (11-12/11/2026)', async () => {

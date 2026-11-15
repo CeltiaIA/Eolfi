@@ -225,9 +225,10 @@
         },
         "eolfi.local.engine": {
           "type": "string",
-          "enum": ["eolas-v2", "eolas-v1"],
-          "default": "eolas-v2",
-          "description": "Motor local del agente. Eolas V2 (llama-server de Eolfi en 8090, con clave y vigilante de inactividad) es el habitual; Eolas V1 (CeltIA, 11435) está parado hasta que se repare."
+          "enum": ["", "eolas-v2", "eolas-v1"],
+          "enumDescriptions": ["El motor elegido con «python -m eolfi motor-local» (como la CLI y el panel); sin elección, Eolas V2", "Eolas V2: llama-server de Eolfi en 8090, con clave y vigilante de inactividad", "Eolas V1: Eolas de CELTIAIA en 11435, compartido con Fios y la web, con la clave de runtime/eolas/api.key"],
+          "default": "",
+          "description": "Motor local del agente. Vacío: el elegido con «python -m eolfi motor-local» (eolas-v1 o eolas-v2); sin elección, Eolas V2."
         },
         "eolfi.local.eolasV2Profile": {
           "type": "string",

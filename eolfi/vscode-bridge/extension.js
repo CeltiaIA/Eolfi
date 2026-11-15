@@ -21,6 +21,7 @@ const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('./local-model');
 const { findServer } = require('./llama-starter');
 const { makeEolasStarter } = require('./eolas-starter');
 const { makeEolasV2Starter, v2Target, v2AuthHeaders } = require('./eolas-v2-starter');
+const { localEngine, v1AuthHeaders, makeFreeForEolas } = require('./local-engine');
 const llamacfg = require('./llamacpp-config');
 const lmi = require('./lm-integration');
 const { splitTextFile, validateParts } = require('./file-splitter');
@@ -500,18 +501,20 @@ function activate(context) {
       showModel: () => vscode.workspace.getConfiguration('eolfi').get('agent.showModel') !== false,
       localModel: (() => {
         const c = vscode.workspace.getConfiguration('eolfi');
-        // 15/11/2026, decisión del titular: el proveedor local es Eolas V2 (llama-server de «eolfi eolas-v2», con
-        // clave y vigilante de inactividad). Eolas V1 (CeltIA, 11435) queda parado hasta que se repare; solo se usa
-        // si se pide expresamente con «eolfi.local.engine»: "eolas-v1".
+        // 15/11/2026, decisión del titular: el agente trabaja con Eolas V1 (CeltIA, 11435, reparado y con clave) o con
+        // Eolas V2 (llama-server de «eolfi eolas-v2», con clave y vigilante de inactividad). Se elige con
+        // «eolfi.local.engine»; vacío, sigue a «python -m eolfi motor-local» (como la CLI y el panel); sin elección, V2.
         const autoStart = c.get('fallback.autoStart') === true;
-        const useV1 = String(c.get('local.engine') || 'eolas-v2') === 'eolas-v1';
+        const engine = localEngine({ setting: c.get('local.engine') });
+        const useV1 = engine === 'eolas-v1';
         let endpoint, model, starter, lm;
         if (useV1) {
           endpoint = EOLAS_URL;
           model = EOLAS_MODEL;
           const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
-          starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
-          lm = makeLocalModel({ endpoints: [endpoint], model, starter,
+          starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, authHeaders: () => v1AuthHeaders(), expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
+          lm = makeLocalModel({ endpoints: [endpoint], model, starter, authHeaders: () => v1AuthHeaders(),
+            freeGpu: makeFreeForEolas({ python: lmi.pythonCommand(vscode), cwd: lmi.EOLFI_ROOT }),
             options: (o) => llamacfg.requestOptions(llamacfg.loadConfig({ findServer }), o),
             allowStart: async () => autoStart });
         } else {

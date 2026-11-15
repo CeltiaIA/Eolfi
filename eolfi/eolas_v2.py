@@ -346,24 +346,85 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _process_started(pid: int) -> float | None:
+    """Hora de creación del proceso (segundos desde la época), o None si no se puede saber.
+
+    Junto al PID identifica el proceso: un PID solo puede reutilizarse cuando el proceso original ya terminó, y el
+    nuevo tendrá otra hora de creación (P2-3, auditoría del 15/11/2026)."""
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+            kernel32.GetProcessTimes.restype = wintypes.BOOL
+            if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+            return ticks / 10_000_000 - 11_644_473_600   # FILETIME (1601, 100 ns) -> época Unix
+        finally:
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle(handle)
+    try:
+        return Path(f"/proc/{int(pid)}").stat().st_ctime
+    except OSError:
+        return None
+
+
+def _record_alive(record: dict[str, Any] | None, key: str = "pid") -> bool:
+    """¿Sigue vivo el proceso que anota ``record[key]``? Si el registro guarda su hora de creación
+    (``<key>_started``), un PID reutilizado por otro proceso no cuenta como vivo. Registros antiguos: solo el PID."""
+    if not record:
+        return False
+    pid = int(record.get(key) or 0)
+    if not _pid_alive(pid):
+        return False
+    expected = record.get(f"{key}_started")
+    if expected is None:
+        return True
+    current = _process_started(pid)
+    return current is None or abs(float(current) - float(expected)) < 2.0
+
+
+class EolasBusy(RuntimeError):
+    """Otro proceso tiene el candado de Eolas V2 (cambiando de perfil o respondiendo una petición)."""
+
+
 @contextmanager
-def _exclusive_lock() -> Iterator[None]:
+def _exclusive_lock(purpose: str = "cambio") -> Iterator[None]:
+    """Candado de Eolas V2. ``purpose`` («cambio» o «inferencia») se anota para explicar la espera: una inferencia
+    lo retiene hasta que termina, y entonces stop/switch esperan (P2-4, auditoría del 15/11/2026)."""
     path = lock_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
+        record: dict[str, Any] = {}
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
             stale = not _pid_alive(int(record.get("pid", -1)))
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, AttributeError):
             stale = False
         if not stale:
-            raise RuntimeError("Eolas ya está cambiando de perfil; espera a que termine")
+            since = f" desde {record['since']}" if isinstance(record, dict) and record.get("since") else ""
+            holder = f" (PID {record.get('pid')}{since})" if isinstance(record, dict) and record.get("pid") else ""
+            if isinstance(record, dict) and record.get("purpose") == "inferencia":
+                raise EolasBusy(f"Eolas V2 está respondiendo una petición{holder}; espera a que termine")
+            raise EolasBusy(f"Eolas ya está cambiando de perfil{holder}; espera a que termine")
         path.unlink(missing_ok=True)
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     try:
-        os.write(fd, json.dumps({"pid": os.getpid()}).encode("utf-8"))
+        os.write(fd, json.dumps({"pid": os.getpid(), "purpose": purpose,
+                                 "since": datetime.now().astimezone().strftime("%H:%M:%S")}).encode("utf-8"))
         yield
     finally:
         os.close(fd)
@@ -425,7 +486,7 @@ def _stop_locked(*, wait: float = 30.0) -> bool:
         return False
     pid = int(record.get("pid") or 0)
     port = int(record.get("port") or load_config(create=False)["port"])
-    if pid and _pid_alive(pid):
+    if pid and _record_alive(record):   # un PID reutilizado por otro proceso no se mata
         if os.name == "nt":
             result = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=wait)
             if result.returncode and _pid_alive(pid):
@@ -461,7 +522,7 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
                            f"Restáuralo con «eolfi eolas-v2 restore {name}» si lo necesitas.")
     c = profile_config(name, cfg)
     record = _runtime()
-    if record and _pid_alive(int(record.get("pid") or 0)):
+    if _record_alive(record):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):
             watchdog = None
             if popen is subprocess.Popen:      # un vigilante perdido se rearma al reutilizar el servidor (P0-3)
@@ -497,7 +558,7 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
             if not breakaway:
                 raise
             proc = popen(args, creationflags=flags, **common)
-    runtime = {"pid": proc.pid, "profile": name, "model": c["model"], "alias": c["alias"], "port": c["port"],
+    runtime = {"pid": proc.pid, "pid_started": _process_started(proc.pid), "profile": name, "model": c["model"], "alias": c["alias"], "port": c["port"],
                "started_at": datetime.now(timezone.utc).isoformat()}
     timeout = float(wait if wait is not None else cfg["ready_timeout"])
     deadline = time.monotonic() + timeout
@@ -599,7 +660,7 @@ def uninstall_profile(name: str) -> dict[str, Any]:
     if name == cfg["active_profile"]:
         raise ValueError(f"{name} es el motor activo: elige antes otro motor en Eolfi")
     record = _runtime()
-    if record and record.get("profile") == name and _pid_alive(int(record.get("pid") or 0)):
+    if record and record.get("profile") == name and _record_alive(record):
         raise RuntimeError(f"{name} está cargado ahora: detenlo antes de desinstalarlo")
     retire_profile(name)
     model = str(cfg["profiles"][name].get("model") or "")
@@ -644,7 +705,7 @@ def set_active_profile(profile: str) -> dict[str, Any]:
 @contextmanager
 def inference_profile(name: str) -> Iterator[dict[str, Any]]:
     """Keep the selected model loaded until the caller finishes inference."""
-    with _exclusive_lock():
+    with _exclusive_lock("inferencia"):
         cfg = load_config()
         c = profile_config(name, cfg)
         record = _runtime()
@@ -658,15 +719,15 @@ def inference_profile(name: str) -> Iterator[dict[str, Any]]:
 def status() -> dict[str, Any]:
     cfg = load_config(create=False)
     record = _runtime()
-    live = bool(record and _pid_alive(int(record.get("pid") or 0)))
+    live = bool(_record_alive(record))
     selected = str(record.get("profile")) if live else str(cfg["active_profile"])
     c = profile_config(selected, cfg)
     healthy = _healthy(c, str(c["alias"])) if live else False
     return {"config": str(config_file()), "active_profile": cfg["active_profile"], "running_profile": selected if live else None,
             "model": c["model"], "alias": c["alias"], "url": c["url"], "pid": record.get("pid") if live else None,
             "running": bool(live and healthy), "model_verified": healthy,
-            "idle_watchdog_pid": (record.get("idle_watchdog_pid") if live and _pid_alive(
-                int(record.get("idle_watchdog_pid") or 0)) else None),
+            "idle_watchdog_pid": (record.get("idle_watchdog_pid")
+                                  if live and _record_alive(record, "idle_watchdog_pid") else None),
             "feedback_enabled": bool(cfg["feedback_enabled"]), "feedback_file": str(feedback_file())}
 
 
@@ -1187,7 +1248,7 @@ def run_full_evaluation(*, profiles: list[str] | None = None, progress: Callable
     if not selected:
         raise ValueError("No hay GGUF locales seleccionados para la evaluación")
     record = _runtime()
-    original = str(record.get("profile")) if record and _pid_alive(int(record.get("pid") or 0)) else ""
+    original = str(record.get("profile")) if _record_alive(record) else ""
     code = battery in ("codigo", "codigo_nuevo")
     cases = (CODE_VALIDATION_CASES if battery == "codigo_nuevo" else CODE_EVALUATION_CASES) if code else FULL_EVALUATION_CASES
     if code and NEMO_MOE_PROFILE in selected:
@@ -1810,7 +1871,7 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
             + [{**c, "kind": "inedito"} for c in CODE_UNSEEN_CASES]
             + [{**c, "kind": "herramientas"} for c in tool_cases])
     record = _runtime()
-    original = str(record.get("profile")) if record and _pid_alive(int(record.get("pid") or 0)) else ""
+    original = str(record.get("profile")) if _record_alive(record) else ""
     rows: list[dict[str, Any]] = []
     summary: dict[str, dict[str, Any]] = {}
     with _exclusive_lock():
@@ -2036,7 +2097,7 @@ def run_fair_evaluation(*, prompt: str, expected: str = "", profiles: list[str] 
     # Solo se restaura lo que de verdad estaba cargado: antes se arrancaba active_profile aunque no hubiera ningún
     # servidor, y quedaba un modelo olvidado en la GPU tras la prueba.
     record = _runtime()
-    original = str(record.get("profile")) if record and _pid_alive(int(record.get("pid") or 0)) else ""
+    original = str(record.get("profile")) if _record_alive(record) else ""
     results: list[dict[str, Any]] = []
     with _exclusive_lock():
         released = _release_legacy_eolas(announce)
