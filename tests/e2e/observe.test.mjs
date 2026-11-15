@@ -23,6 +23,9 @@ document.getElementById('mas').onclick = async () => {
 };</script></body></html>`;
 
 test('observación web: trazas enlazadas a la acción, bloqueo y repetición', async () => {
+  // Antes de abrir el servidor: si falta playwright-core la prueba falla, sin dejar el servidor abierto y el
+  // proceso colgado (15/11/2026: `npm test` sin node_modules no terminaba nunca).
+  const pw = require.resolve('playwright-core');
   let n = 0;
   const srv = createServer((req, res) => {
     if (req.method === 'POST') { n += 1; res.writeHead(201, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ n })); }
@@ -38,7 +41,6 @@ test('observación web: trazas enlazadas a la acción, bloqueo y repetición', a
     steps: [{ id: 'ui', action: 'browser', url: 'http://127.0.0.1:{var:port}/',
       actions: [{ id: 'pulsar', do: 'click', selector: '#mas' }] }],
   }));
-  const pw = require.resolve('playwright-core');
   const env = { ...process.env, PYTHONIOENCODING: 'utf-8',
     ...(process.env.EOLFI_E2E_BROWSER ? { EOLFI_BROWSER_PATH: process.env.EOLFI_E2E_BROWSER }
       : { EOLFI_BROWSER_CHANNEL: process.env.EOLFI_E2E_CHANNEL || 'chrome' }) };
@@ -82,6 +84,7 @@ test('observación web: trazas enlazadas a la acción, bloqueo y repetición', a
 });
 
 test('comparación de interfaces: navegación, contenido y accesibilidad con tolerancias declaradas', async () => {
+  const pw = require.resolve('playwright-core');   // antes de abrir los servidores (ver la prueba anterior)
   const page = (label, callsApi) => `<!doctype html><html lang="es"><title>Contador</title><body><h1 id="n">0</h1>
 <button id="mas">${label}</button><script>
 document.getElementById('mas').onclick = async () => {
@@ -107,7 +110,6 @@ document.getElementById('mas').onclick = async () => {
     steps: [{ id: 'ui', action: 'browser', url: 'http://127.0.0.1:{var:port}/',
       actions: [{ id: 'pulsar', do: 'click', selector: '#mas' }] }],
   }));
-  const pw = require.resolve('playwright-core');
   const env = { ...process.env, PYTHONIOENCODING: 'utf-8',
     ...(process.env.EOLFI_E2E_BROWSER ? { EOLFI_BROWSER_PATH: process.env.EOLFI_E2E_BROWSER }
       : { EOLFI_BROWSER_CHANNEL: process.env.EOLFI_E2E_CHANNEL || 'chrome' }) };
