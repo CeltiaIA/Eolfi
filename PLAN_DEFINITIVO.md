@@ -67,7 +67,7 @@ navegador dé permiso a la página (en `127.0.0.1` lo permite).
 | B2 | Determinismo: semilla y `temperature` 0 en la generación evaluada; el banco pasa la semilla | Hecho en local para Eolas V2 y llama.cpp: `EOLFI_SEMILLA` envía semilla, temperatura 0 y `cache_prompt: false` (la caché de prompt era la causa). Medido: 7 de 7 respuestas idénticas. Falta: Eolas V1 y medir el banco completo |
 | B3 | Evaluador estadístico y prueba A/A del RSI | Hecho en local (`73afd36`); A/A real en curso |
 | B4 | Telemetría por fase en JSONL (carga, tokens/s, verificación, juez) | Hecho en local (rama `vas-b1-b2`): `eolfi/telemetria.py`, `eolfi telemetria`. Rondas de `assist` y muestras del banco; sin contenido. Falta: tiempo de carga del modelo |
-| B5 | Más encargos en el banco (hoy uno solo, «tareas») | Pendiente |
+| B5 | Más encargos en el banco (hoy uno solo, «tareas») | Hecho en local (rama `vas-b1-b2`): «contador» y «filtro», y `--banco todos`. Jueces validados con apps de referencia. NO VERIFICADO con un modelo real |
 | B6 | Bucle generar → juez → reparar que conserva el mejor intento; memoria de ejemplos verificados | Pendiente |
 | B7 | Elección de motor y perfil por banco; más superficies del RSI | Pendiente |
 | B8 | Registro encadenado de todas las acciones de agente (hoy solo el RSI) | Pendiente |
