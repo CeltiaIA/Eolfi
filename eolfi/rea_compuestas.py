@@ -880,3 +880,211 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+# --- Plan REA, puntos 8 a 11 (16/11/2026): mapa de la app, móvil/gestionado, firmware y entorno de agente. ---------
+# La forma de algunas salidas de REA (Android con JADX, IL2CPP, Flutter, firmware, grafo de llamadas) no se ha
+# comprobado con muestras reales en esta máquina: se extraen escalares y recuentos de forma defensiva en vez de
+# suponer claves, y lo que falta se dice en «no_aplica» (que el caso registra como incógnita).
+ANDROID_EXT = (".apk", ".aab", ".xapk", ".apks")
+_DRIVE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
+_MACHO = (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+
+
+def _escalares(value: Any, depth: int = 2) -> Any:
+    """Resumen acotado de un resultado de forma no garantizada: escalares tal cual, listas como su longitud."""
+    if isinstance(value, dict):
+        if depth <= 0:
+            return f"{len(value)} claves"
+        return {k: _escalares(v, depth - 1) for k, v in list(value.items())[:40]
+                if not str(k).startswith("_") and v not in (None, [], {})}
+    if isinstance(value, list):
+        return f"{len(value)} elementos"
+    if isinstance(value, str):
+        return value[:300]
+    return value
+
+
+def _ruta_rea_absoluta(path: str) -> str:
+    """inspect_managed_artifact exige una ruta que empiece por «/». Comprobado el 16/11/2026: el REA de Windows la
+    resuelve en la unidad de su carpeta de trabajo («/c/Windows/x.dll» se convirtió en «D:\\c\\Windows\\x.dll»)."""
+    m = _DRIVE.match(path)
+    return "/" + m.group(2).replace("\\", "/") if m else path
+
+
+def _misma_ruta(a: Any, b: str) -> bool:
+    import os
+
+    return bool(a) and os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(b))
+
+
+def _magic(path: str, n: int = 4) -> bytes:
+    with open(path, "rb") as fh:
+        return fh.read(n)
+
+
+def _resumen_de(data: Any, depth: int = 2) -> Any:
+    return _escalares(data.get("summary", data) if isinstance(data, dict) else data, depth)
+
+
+def _gestionado(client: Any, path: str) -> dict[str, Any]:
+    n = _call(client, "inspect_managed_artifact", {"path": _ruta_rea_absoluta(path), "detail": "summary"})
+    s = n.get("summary") or {}
+    art = s.get("artifact") or n.get("artifact") or {}
+    if not _misma_ruta(art.get("path"), path):
+        raise RuntimeError(f"REA leyó otro archivo ({art.get('path')}): en Windows inspect_managed_artifact solo "
+                           "alcanza la unidad de su carpeta de trabajo; copia el archivo a esa unidad.")
+    cls = s.get("classification") or {}
+    asm = s.get("assembly") or {}
+    out = {"tipo": "gestionado", "sha256": art.get("sha256"), "evidencia_rea": n.get("parent_evidence_id"),
+           "clasificacion": cls.get("status"), "familia": cls.get("runtime_family"),
+           "implementacion": cls.get("implementation"), "metadatos": (s.get("metadata") or {}).get("status"),
+           "ensamblado": _escalares(asm, 1) if asm else None, "marcos": s.get("target_frameworks") or [],
+           "recuentos": s.get("reported_counts"), "limites": s.get("limitations") or n.get("limitations") or []}
+    if cls.get("status") == "not-managed":
+        out["tipo"] = "pe-nativo"
+        out["siguiente_paso"] = "No es un ensamblado .NET: usa «eolfi rea inventario» o «eolfi rea explicar»."
+    return out
+
+
+def analizar_movil(client: Any, path: str, binario: str | None = None) -> dict[str, Any]:
+    """Aplicaciones móviles y código gestionado sin ejecutarlos (plan REA, punto 9).
+
+    APK/AAB: paquete y permisos (JADX), firmas declaradas y, si es Flutter, la versión de Dart. PE: si es .NET,
+    ensamblado, marcos y recuentos de metadatos. global-metadata.dat de Unity IL2CPP: imágenes, tipos y métodos (con
+    «binario» = GameAssembly/libil2cpp enlaza direcciones). Mach-O/iOS queda pendiente de una sesión propia."""
+    name = Path(path).name.lower()
+    out: dict[str, Any] = {"archivo": path, "no_aplica": {}}
+    if name.endswith(ANDROID_EXT):
+        out["tipo"] = "android"
+        for key, tool, args in (("paquete", "inspect_android_package", {"path": path, "detail": "summary"}),
+                                ("firmas", "inspect_apk_signature", {"path": path, "detail": "summary"}),
+                                ("flutter", "identify_flutter_build", {"path": path})):
+            data, err = _try(client, tool, args)
+            if data is not None:
+                out[key] = _resumen_de(data)
+                if isinstance(data, dict) and not out.get("sha256"):
+                    out["sha256"] = (data.get("artifact") or {}).get("sha256")
+            else:
+                out["no_aplica"][key] = err
+        if "paquete" not in out:
+            out["siguiente_paso"] = "inspect_android_package necesita el JAR de JADX MCP y un JDK configurados en REA."
+    elif name == "global-metadata.dat" or (name.endswith(".dat") and _magic(path) == b"\xaf\x1b\xb1\xfa"):
+        out["tipo"] = "unity-il2cpp"
+        args: dict[str, Any] = {"path": path, "detail": "summary"}
+        if binario:
+            args["binary_path"] = binario
+        data = _call(client, "inspect_il2cpp_metadata", args)
+        out["metadatos"] = _resumen_de(data, 3)
+        out["evidencia_rea"] = data.get("parent_evidence_id") if isinstance(data, dict) else None
+        if not binario:
+            out["no_aplica"]["direcciones_nativas"] = "sin «binario» (GameAssembly.dll/libil2cpp.so) no se enlazan"
+    elif _magic(path, 2) == b"MZ":
+        out.update(_gestionado(client, path))
+    elif name.endswith(".ipa") or _magic(path) in _MACHO:
+        out["tipo"] = "apple"
+        out["no_aplica"]["macho"] = ("aún no compuesto: abre el binario con rea_usar open_binary y usa inspect_macho, "
+                                    "o open_bundle_resources para Info.plist")
+    else:
+        raise ValueError("formato no reconocido: APK/AAB, ensamblado .NET (PE) o global-metadata.dat de Unity")
+    out["aviso"] = ("Lectura estática de REA: no se ejecutó ni se instaló nada; las firmas no se verifican "
+                    "criptográficamente y lo declarado no prueba el comportamiento en ejecución.")
+    return out
+
+
+def analizar_firmware(client: Any, path: str, timeout_ms: int = 120000) -> dict[str, Any]:
+    """Firmware sin ejecutarlo ni extraerlo (plan REA, punto 10). Un devicetree (FDT) se lee entero con REA; una
+    imagen se recorre con Binwalk (solo REA de Linux/WSL: en Windows queda en «no_aplica»). La extracción
+    (extract_firmware) escribe archivos y no se hace aquí."""
+    out: dict[str, Any] = {"archivo": path, "no_aplica": {}}
+    if _magic(path) == b"\xd0\x0d\xfe\xed":
+        out["tipo"] = "devicetree"
+        data = _call(client, "inspect_devicetree", {"path": path, "detail": "summary"})
+        out["devicetree"] = _resumen_de(data, 3)
+        out["evidencia_rea"] = data.get("parent_evidence_id") if isinstance(data, dict) else None
+    else:
+        out["tipo"] = "imagen"
+        data, err = _try(client, "inspect_firmware_regions", {"path": path, "analysis_timeout_ms": timeout_ms})
+        if data is None:
+            out["no_aplica"]["regiones"] = err
+            out["siguiente_paso"] = "Binwalk 3.1 solo funciona con el REA de Linux (WSL2) y su ruta configurada."
+        else:
+            regs = next((v for v in (data.get("regions"), data.get("signatures"), data.get("results"))
+                         if isinstance(v, list)), []) if isinstance(data, dict) else []
+            out["regiones"] = [{"desplazamiento": r.get("offset"), "longitud": r.get("length") or r.get("size"),
+                                "descripcion": str(r.get("description") or r.get("name") or "")[:160],
+                                "confianza": r.get("confidence")} for r in regs[:200] if isinstance(r, dict)]
+            out["total_regiones"] = len(regs)
+            if not regs:
+                out["resumen"] = _escalares(data)
+    out["aviso"] = ("Firmas candidatas sin validar: las longitudes y direcciones de ejecución quedan como incógnitas; "
+                    "no se ejecutó ni se extrajo nada.")
+    return out
+
+
+def _call_raw(client: Any, name: str, args: dict[str, Any]) -> Any:
+    """Como _call, pero devuelve la evidencia completa (otras herramientas de REA la reciben tal cual)."""
+    text, ok = client.call(name, args, limit=None) if _accepts_limit(client) else client.call(name, args)
+    if not ok:
+        raise RuntimeError(f"REA {name}: {text[:300]}")
+    return json.loads(text)
+
+
+def mapa_app(client: Any, path: str, funcion: str | None = None, direccion: str = "forward") -> dict[str, Any]:
+    """Mapa de una aplicación para el panel (plan REA, punto 8). APK: inventario de componentes y familias de
+    ejecución (dex, nativo, Flutter, React Native…) proyectado por REA. Binario nativo: grafo de llamadas desde una
+    función («forward» = a quién llama, «backward» = quién la llama). Estático: no prueba llamadas reales."""
+    android = path.lower().endswith(ANDROID_EXT)
+    if not android and not funcion:
+        raise ValueError("para un binario nativo indica la función de partida (nombre o dirección, p. ej. entry)")
+    if direccion not in ("forward", "backward"):
+        raise ValueError("dirección: forward o backward")
+    out: dict[str, Any] = {"archivo": path}
+    _call(client, "open_binary", {"path": path})
+    try:
+        if android:
+            ev = _call_raw(client, "inspect_artifact", {"detail": "complete"})
+            graph = _call(client, "project_android_application_graph", {"inventory_evidence": [ev]})
+            out.update({"tipo": "android", "mapa": _escalares(graph, 3)})
+        else:
+            g = _call(client, "get_call_graph", {"address": funcion, "direction": direccion})
+            nodes = (g.get("nodes") if isinstance(g, dict) else None) or []
+            edges = (g.get("edges") if isinstance(g, dict) else None) or []
+            out.update({"tipo": "nativo", "desde": funcion, "direccion": direccion, "nodos": len(nodes),
+                        "aristas": len(edges),
+                        "funciones": [{"direccion": n.get("address"), "nombre": n.get("name"), "estado": n.get("status")}
+                                      for n in nodes[:150] if isinstance(n, dict)],
+                        "enlaces": [[e.get("from") or e.get("source"), e.get("to") or e.get("target")]
+                                    for e in edges[:300] if isinstance(e, dict)]})
+            if not nodes:
+                out["resumen"] = _escalares(g)
+            if len(nodes) > 150:
+                out["truncado"] = f"se muestran 150 de {len(nodes)} funciones"
+    finally:
+        _close(client)
+    out["aviso"] = ("Grafo estático: faltan las llamadas indirectas no resueltas y no es un grafo completo del "
+                    "programa; nada se ejecutó.")
+    return out
+
+
+def entorno_agente(client: Any, captura: str, destino: str, *, escribir: bool = False,
+                   nombre: str | None = None) -> dict[str, Any]:
+    """Entorno de agente (AgentEnv) desde una captura HAR ya grabada (plan REA, punto 11). Sin «escribir» solo
+    informa de qué cubriría el paquete (dry_run). Grabar una captura nueva con el navegador es otra operación que
+    necesita autorización; aquí no se abre ninguna red."""
+    if not captura.lower().endswith(".har"):
+        raise ValueError("de momento solo capturas HAR (.har); una captura del navegador se graba con autorización")
+    if Path(destino).exists():
+        raise ValueError("la carpeta destino NO debe existir (REA la crea)")
+    if not Path(destino).parent.is_dir():
+        raise ValueError("la carpeta padre del destino debe existir")
+    ev = _call_raw(client, "inspect_web_network_capture", {"capture_path": captura, "format": "har",
+                                                           "detail": "complete"})
+    args: dict[str, Any] = {"source": ev, "output_directory": destino, "dry_run": not escribir}
+    if nombre:
+        args["name"] = nombre
+    rep = _call(client, "export_environment_bundle", args)
+    return {"archivo": captura, "destino": destino, "escrito": escribir, "informe": _escalares(rep, 3),
+            "aviso": ("El paquete copia la captura tal cual, cuerpos de respuesta incluidos: revisa credenciales y "
+                      "datos personales antes de compartirlo." if escribir else
+                      "Simulación (dry_run): no se escribió nada. Repite con escribir para crear el paquete.")}

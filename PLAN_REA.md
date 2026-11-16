@@ -115,16 +115,16 @@ autorización.
 |---|---|---|---|---|
 | 1 | **Cobertura de reconstrucción** | `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction` | Qué parte del original cubre el proyecto que generó Eolfi y qué falta, con evidencias (fase 4) | Estructural hecha (con el punto 3). Comportamiento hecho: `verificar_comportamiento` ejecuta original y reconstrucción con el mismo escenario (`capture_process_scenario`), compara (`compare_process_captures`) y verifica afirmaciones `behavioral` (overall, terminal, exit), siempre con permiso del titular. Probado en vivo el 14/11 (ver arriba), también con programas de Windows vía el REA de WSL. Libro de obligaciones hecho (`build_reconstruction_obligation_ledger`, con propietario), limitado a «implemented» por REA. Cobertura por frontera hecha (`evaluate_reconstruction_coverage`). Falta: la prueba de independencia (que la reconstrucción no llama al original) |
 | 2 | **Autorización por caso en el chat** (hecho) | Petición del modelo y decisión del titular («una vez», «en este caso», «rechazar»), con registro y revocación | Habilita el análisis dinámico (Frida, gdb, capturas, `observe_*`) solo con permiso expreso | Hecho; falta probarlo en vivo con un modelo |
-| 3 | **Diferencias entre versiones** (hecho) | `compare_artifacts`, `compare_functions`, `find_changed_behavior`, `compare_application_versions`, `compare_wasm_interfaces` | Informe «qué cambió entre A y B» | Pendiente |
-| 4 | **Inventario de dependencias** (hecho) | `inspect_pe_imports`, `inspect_native_exports`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_pe_certificates` | Librerías, versiones, firmas y certificados | Pendiente |
-| 5 | **Apps JavaScript, Electron y web** (hecho, con recuperación de fuentes vía REA en WSL2) | `analyze_javascript_application`, `recover_javascript_sources`, `trace_javascript_semantics`, `compare_source_to_bundle` | Fuentes recuperadas y trazadas: base para regenerar la app | Pendiente |
-| 6 | **Evidencias e incógnitas compartidas** (hecho, salvo exportar el paquete completo de REA) | `export_evidence_bundle`, `import_evidence_bundle`, `record_unknown`, `update_unknown` | Un mismo caso de Eolfi con lo analizado en VS Code, en el chat o por Claude | Pendiente |
-| 7 | **De captura de red a API** | `inspect_pcap_capture`, `inspect_packet_fields` y Eolas | Especificación de API (estilo OpenAPI) y un cliente generado por Eolfi | Pendiente |
-| 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Pendiente |
-| 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
-| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
-| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
-| 12 | **Automejora recursiva (RSI), acotada** | Observaciones de `eolfi rea`, `create --ai` y el juez funcional; reglas síntoma → propuesta; banco «tareas»; registro encadenado | Eolfi mejora su propia configuración con pruebas repetidas y el titular decide qué se adopta | Núcleo hecho (16/11): `eolfi/rsi.py`, `eolfi/rsi_banco.py`, `eolfi rsi`. Falta: evaluación en vivo con el banco, más superficies y reglas, y conectarlo al chat y al panel |
+| 3 | **Diferencias entre versiones** (hecho) | `compare_artifacts`, `compare_functions`, `find_changed_behavior`, `compare_application_versions`, `compare_wasm_interfaces` | Informe «qué cambió entre A y B» | Hecho (ver «Hecho») |
+| 4 | **Inventario de dependencias** (hecho) | `inspect_pe_imports`, `inspect_native_exports`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_pe_certificates` | Librerías, versiones, firmas y certificados | Hecho (ver «Hecho») |
+| 5 | **Apps JavaScript, Electron y web** (hecho, con recuperación de fuentes vía REA en WSL2) | `analyze_javascript_application`, `recover_javascript_sources`, `trace_javascript_semantics`, `compare_source_to_bundle` | Fuentes recuperadas y trazadas: base para regenerar la app | Hecho (ver «Hecho») |
+| 6 | **Evidencias e incógnitas compartidas** (hecho, salvo exportar el paquete completo de REA) | `export_evidence_bundle`, `import_evidence_bundle`, `record_unknown`, `update_unknown` | Un mismo caso de Eolfi con lo analizado en VS Code, en el chat o por Claude | Hecho, salvo exportar el paquete completo de REA |
+| 7 | **De captura de red a API** | `inspect_pcap_capture`, `inspect_packet_fields` y Eolas | Especificación de API (estilo OpenAPI) y un cliente generado por Eolfi | Hecho: `eolfi rea api`, `eolfi_api_desde_captura` (OpenAPI completo si hay tshark en WSL) |
+| 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Datos hechos (16/11): `mapa_app`, `eolfi rea mapa`, `eolfi_mapa_app` (componentes de un APK con `inspect_artifact` + `project_android_application_graph`; grafo de llamadas nativo con `get_call_graph`). Falta: el dibujo en el panel y `build_call_path`. NO VERIFICADO con REA real |
+| 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Hecho (16/11): `analizar_movil`, `eolfi rea movil`, `eolfi_analizar_movil` (APK: JADX, firmas, Flutter; .NET; Unity IL2CPP). Verificado con REA real solo .NET/PE (`own.dll`, nativo, bien clasificado); Android, IL2CPP y Flutter NO VERIFICADOS (sin JADX ni muestras). Apple (Mach-O, plist) pendiente |
+| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Hecho (16/11) sin extracción: `analizar_firmware`, `eolfi rea firmware`, `eolfi_analizar_firmware` (devicetree; regiones con Binwalk solo en el REA de Linux). NO VERIFICADO con REA real. `extract_firmware` (escribe) pendiente |
+| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Hecho (16/11) desde HAR: `entorno_agente`, `eolfi rea entorno` (simulación por defecto, `--escribir` para crear), `eolfi_entorno_agente`. NO VERIFICADO con REA real. Grabar con el navegador (autorización) pendiente |
+| 12 | **Automejora recursiva (RSI), acotada** | Observaciones de `eolfi rea`, `create --ai` y el juez funcional; reglas síntoma → propuesta; banco «tareas»; registro encadenado | Eolfi mejora su propia configuración con pruebas repetidas y el titular decide qué se adopta | Hecho (16/11): `eolfi/rsi.py`, `eolfi/rsi_banco.py`, `eolfi rsi`, lecciones de V2, observación del chat y tarjeta en el panel. Falta: evaluación en vivo con el banco |
 
 ## Punto 12: automejora recursiva (RSI)
 
@@ -153,23 +153,32 @@ adopción pide una repetición más antes de volver a proponer (hasta 10), y una
 queda como evento `meta`.
 
 **Superficies (lo único que puede cambiar):** `eolas_v2.max_tokens` (1024–32768),
-`eolas_v2.perfil.<perfil>.ctx` (2048–131072) y `.gpu_layers` (0–999), y `rea.timeout`, el plazo de REA en la CLI
-(60–7200 s, en `~/.eolfi/rsi/ajustes.json`). Reglas actuales: `salida_cortada_v2` (duplica `max_tokens`) y
-`rea_plazo` (duplica el plazo de REA).
+`eolas_v2.perfil.<perfil>.ctx` (2048–131072) y `.gpu_layers` (0–999), `eolas_v2.leccion.<perfil>.<categoría>`
+(activa o no; solo lecciones que ya existen), y `rea.timeout`, el plazo de REA en la CLI (60–7200 s, en
+`~/.eolfi/rsi/ajustes.json`). Reglas actuales: `salida_cortada_v2` (duplica `max_tokens`), `rea_plazo` (duplica el
+plazo de REA) y `reactivar_leccion` (el motor sigue fallando por una causa cuya lección desactivó el titular).
+
+**Dónde se observa:** `eolfi rea …`, `create --ai`, las herramientas REA del chat (`in_case` del servidor) y las
+lecciones de la batería de código de V2. **Panel:** «Automejora (RSI)» en el chat lista las propuestas con su
+evaluación; «Aprobar y aplicar» solo aparece si la evaluación mejora, «Revertir» si está aplicada, y una pendiente
+muestra la orden `eolfi rsi evaluar` (la evaluación carga modelos y no se lanza desde el panel). API `/api/rsi`,
+`/api/rsi/proponer` y `/api/rsi/propuestas/<id>/(aprobar|rechazar|revertir)`; un cliente vinculado (VS Code) no
+puede decidir. En el chat, `eolfi_automejora` es solo lectura.
 
 **Invariantes:** no toca código, autorizaciones de REA, rutas permitidas, AGENTS.md, el juez ni el banco; nada se
 aplica sin evaluación aprobada y decisión del titular; registro en `~/.eolfi/rsi/registro.jsonl` encadenado por
 SHA-256 (`eolfi rsi verificar` detecta cualquier edición, borrado o reordenación); `EOLFI_RSI=0` lo apaga.
 
-**Verificado:** `tests/test_rsi.py` (13 pruebas: registro y manipulación, superficies cerradas, propuestas con
+**Verificado:** `tests/test_rsi.py` (15 pruebas, incluidas la regla de lecciones y la API del panel), la tarjeta
+en `tests/e2e/panel.test.mjs` (Chrome real, axe sin problemas graves) y `tests/test_rea_puntos_8_11.py`; antes, 13 pruebas: registro y manipulación, superficies cerradas, propuestas con
 repetición, evaluación con restauración y margen, aprobación y reversión, ajuste del umbral, ganchos de la CLI y banco
 con juez simulado). El juez funcional da 9/9 y 8/9 sobre los proyectos reales de V1 Q5 y V2 Q4 de la competición.
 **NO VERIFICADO:** una evaluación completa con el banco y el modelo local (carga el modelo durante varios minutos por
 muestra).
 
-**Siguiente:** más superficies (lecciones de los motores de V2, capas y contexto de V1 por petición), reglas a partir
-del juez funcional y de las incógnitas de REA, y la propuesta en el chat y el panel con su tarjeta de decisión, como
-las autorizaciones de REA.
+**Siguiente:** capas y contexto de V1 por petición como superficie (cuando se fusione la rama `eolas-plazo-local`),
+reglas a partir del juez funcional y de las incógnitas de REA, y la evaluación en vivo cuando el titular reanude las
+pruebas.
 
 ## Lo que se aprendió de REA al construir
 

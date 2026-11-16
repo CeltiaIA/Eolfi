@@ -212,3 +212,64 @@ def test_banco_tareas_puntua_con_el_juez_y_limpia(monkeypatch):
     assert [n.get("juez") or n.get("exit") for n in notas] == ["6/8", 6]
     assert all(not c.exists() for c in carpetas)
     assert rsi_banco.FUENTE.joinpath("index.html").is_file() and rsi_banco.JUEZ.is_file()
+
+
+def test_leccion_desactivada_que_sigue_fallando_se_propone_reactivar():
+    eolas_v2.record_lessons("gemma_q4", ["NameError: name 'x' is not defined"])
+    eolas_v2.set_lesson_active("gemma_q4", "nombre", False)
+    sup = "eolas_v2.leccion.gemma_q4.nombre"
+    assert rsi._leer(sup) is False
+    with pytest.raises(rsi.RSIError):
+        rsi.validar(sup, "si")                                  # solo verdadero/falso
+    with pytest.raises(rsi.RSIError):
+        rsi.validar("eolas_v2.leccion.gemma_q4.inventada", True)
+    for _ in range(2):                                          # el motor vuelve a fallar por la misma causa
+        eolas_v2.record_lessons("gemma_q4", ["NameError: name 'y' is not defined"])
+    obs = rsi.eventos("observacion")
+    assert obs[-1]["datos"]["sintomas"] == ["leccion_inactiva"] and obs[-1]["datos"]["contexto"]["categoria"] == "nombre"
+    prop = rsi.proponer()
+    assert [(p["regla"], p["superficie"], p["actual"], p["propuesto"]) for p in prop] == [
+        ("reactivar_leccion", sup, False, True)]
+    rsi.evaluar(prop[0]["id"], lambda: 1.0 if rsi._leer(sup) else 0.0)
+    assert rsi._leer(sup) is False                              # la evaluación restaura
+    rsi.decidir(prop[0]["id"], "aprobar", por="titular")
+    assert eolas_v2.active_lessons("gemma_q4")
+    rsi.revertir(prop[0]["id"], por="titular")
+    assert rsi._leer(sup) is False and not eolas_v2.active_lessons("gemma_q4")
+
+
+def test_panel_muestra_y_decide_y_un_cliente_no_puede_aprobar(tmp_path):
+    import http.client
+    import threading
+
+    from eolfi.server import make_server
+
+    _cortes(2)
+    httpd = make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+
+    def req(method, path, headers=None):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+        c.request(method, path, body="{}" if method == "POST" else None, headers={"X-Eolfi": "1", **(headers or {})})
+        r = c.getresponse()
+        data = json.loads(r.read())
+        c.close()
+        return r.status, data
+    try:
+        st, d = req("POST", "/api/rsi/proponer")
+        pid = d["nuevas"][0]["id"]
+        st, d = req("GET", "/api/rsi")
+        assert st == 200 and d["registro"]["ok"] and d["propuestas"][0]["estado"] == "pendiente"
+        assert req("POST", f"/api/rsi/propuestas/{pid}/aprobar")[0] == 400           # sin evaluar
+        rsi.evaluar(pid, lambda: 1.0 if eolas_v2.load_config()["max_tokens"] > BASE else 0.0)
+        assert req("POST", f"/api/rsi/propuestas/{pid}/aprobar", {"X-Eolfi-Client": "vscode"})[0] in (401, 403)
+        st, d = req("POST", f"/api/rsi/propuestas/{pid}/aprobar")
+        assert st == 200 and eolas_v2.load_config()["max_tokens"] == 2 * BASE
+        assert [e for e in rsi.eventos("decision")][-1]["datos"]["por"] == "titular (panel)"
+        assert req("POST", f"/api/rsi/propuestas/{pid}/revertir")[0] == 200
+        assert eolas_v2.load_config()["max_tokens"] == BASE
+        assert req("POST", "/api/rsi/propuestas/000000000000/rechazar")[0] == 404
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

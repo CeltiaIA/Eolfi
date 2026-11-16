@@ -404,6 +404,7 @@ body.chat-full .eolas-chat-form textarea { min-height: 7rem; }
 .auth-card { margin-top: var(--s2); padding: var(--s2) var(--s3); border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line));
   border-radius: var(--r-sm); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); white-space: normal; display: grid; gap: 4px; }
 .auth-card .auth-args { font-size: 11px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 8rem; overflow: auto; }
+.rsi-card { border-color: var(--line); background: var(--panel); }
 /* -- «Ahora mismo»: registro en directo del trabajo en marcha (14/11/2026) ------- */
 .jobs-live { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-2); }
 .jobs-live[hidden] { display: none; }

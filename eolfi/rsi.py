@@ -127,6 +127,9 @@ def _rango(lo: int, hi: int) -> Callable[[Any], int]:
     return check
 
 
+_LECCION = re.compile(r"eolas_v2\.leccion\.(\w+)\.(\w+)")
+
+
 def _leer(superficie: str) -> Any:
     from eolfi import eolas_v2
 
@@ -137,6 +140,9 @@ def _leer(superficie: str) -> Any:
     m = re.fullmatch(r"eolas_v2\.perfil\.(\w+)\.(ctx|gpu_layers)", superficie)
     if m:
         return eolas_v2.load_config()["profiles"][m[1]][m[2]]
+    m = _LECCION.fullmatch(superficie)
+    if m:
+        return bool(eolas_v2._read_lessons().get(m[1], {}).get(m[2], {}).get("activa", False))
     raise RSIError(f"superficie no permitida: {superficie}")
 
 
@@ -148,6 +154,13 @@ def _escribir(superficie: str, valor: Any) -> None:
         data = _read_json(_ajustes_file(), {})
         data["rea.timeout"] = valor
         _write_json(_ajustes_file(), data)
+        return
+    m = _LECCION.fullmatch(superficie)
+    if m:
+        try:
+            eolas_v2.set_lesson_active(m[1], m[2], valor)
+        except ValueError as exc:
+            raise RSIError(str(exc)) from exc
         return
     path = eolas_v2.config_file()
     user = _read_json(path, {})
@@ -169,6 +182,11 @@ def validar(superficie: str, valor: Any) -> Any:
     m = re.fullmatch(r"eolas_v2\.perfil\.(\w+)\.(ctx|gpu_layers)", superficie)
     if m and m[1] in eolas_v2.DEFAULT_PROFILES:
         return _rango(2048, 131072)(valor) if m[2] == "ctx" else _rango(0, 999)(valor)
+    m = _LECCION.fullmatch(superficie)
+    if m and m[2] in eolas_v2.LESSON_CATEGORIES:
+        if not isinstance(valor, bool):
+            raise RSIError(f"una lección se activa o desactiva (true/false): {valor!r}")
+        return valor
     raise RSIError(f"superficie no permitida: {superficie}")
 
 
@@ -179,6 +197,7 @@ SINTOMAS: dict[str, str] = {
     "rea_tiempo_agotado": r"REA no respondi[óo] a .* en \d+(\.\d+)? s",
     "js_sintaxis": r"sintaxis JS del sitio",
     "plazo_local": r"no termin[óo] en \d+ s",
+    "leccion_inactiva": r"lecci[óo]n inactiva",
 }
 
 
@@ -222,6 +241,14 @@ def _doblar(superficie: str, tope: int) -> Callable[[dict[str, Any]], tuple[str,
     return propose
 
 
+def _reactivar_leccion(ctx: dict[str, Any]) -> tuple[str, Any] | None:
+    perfil, categoria = ctx.get("perfil"), ctx.get("categoria")
+    if not perfil or not categoria:
+        return None
+    superficie = f"eolas_v2.leccion.{perfil}.{categoria}"
+    return None if _leer(superficie) else (superficie, True)
+
+
 REGLAS: dict[str, dict[str, Any]] = {
     "salida_cortada_v2": {"sintoma": "salida_cortada", "fuente": "eolas-v2", "motivo":
                           "Las respuestas de Eolas V2 se cortan por longitud: más tokens de salida.",
@@ -229,6 +256,10 @@ REGLAS: dict[str, dict[str, Any]] = {
     "rea_plazo": {"sintoma": "rea_tiempo_agotado", "fuente": "rea", "motivo":
                   "REA agota el plazo de la CLI: más tiempo por petición.",
                   "proponer": _doblar("rea.timeout", 7200)},
+    # La lección la desactivó el titular y el motor sigue fallando por esa misma causa: volver a activarla.
+    "reactivar_leccion": {"sintoma": "leccion_inactiva", "fuente": "eolas-v2", "motivo":
+                          "Eolas V2 repite fallos de una categoría cuya lección está desactivada: reactivarla.",
+                          "proponer": _reactivar_leccion},
 }
 
 
@@ -278,7 +309,7 @@ def proponer() -> list[dict[str, Any]]:
         hechos = [e for e in hechos if e["fecha"] > ultima]
         if len(hechos) < umbral(nombre):
             continue
-        cambio = regla["proponer"]({})
+        cambio = regla["proponer"](hechos[-1]["datos"]["contexto"])
         if not cambio:
             continue
         superficie, valor = cambio

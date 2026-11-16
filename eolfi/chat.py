@@ -115,8 +115,36 @@ APP_TOOLS = {
                        "puedes escribir un cliente. No captura tráfico.",
         "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}}, "required": ["ruta"],
                        "additionalProperties": False}},
+    "eolfi_analizar_movil": {
+        "description": "Analiza con REA, SIN ejecutarlo, un APK/AAB (paquete, permisos, firmas, Flutter), un ensamblado "
+                       ".NET (marcos, metadatos) o el global-metadata.dat de Unity IL2CPP («binario» opcional: "
+                       "GameAssembly.dll o libil2cpp.so).",
+        "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}, "binario": {"type": "string"}},
+                       "required": ["ruta"], "additionalProperties": False}},
+    "eolfi_analizar_firmware": {
+        "description": "Firmware con REA sin ejecutarlo ni extraerlo: un devicetree (.dtb) completo o las regiones de "
+                       "una imagen (Binwalk; solo con el REA de Linux/WSL).",
+        "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}}, "required": ["ruta"],
+                       "additionalProperties": False}},
+    "eolfi_mapa_app": {
+        "description": "Mapa estático de una aplicación con REA: componentes y familias de ejecución de un APK, o grafo "
+                       "de llamadas de un binario desde «funcion» (direccion forward = a quién llama, backward = quién "
+                       "la llama).",
+        "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}, "funcion": {"type": "string"},
+                                                        "direccion": {"type": "string", "enum": ["forward", "backward"]}},
+                       "required": ["ruta"], "additionalProperties": False}},
+    "eolfi_entorno_agente": {
+        "description": "Entorno de agente (AgentEnv) de REA desde una captura HAR ya grabada. Por defecto solo simula y "
+                       "dice qué cubriría; con escribir=true crea el paquete en «destino» (carpeta que no existe).",
+        "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}, "destino": {"type": "string"},
+                                                        "escribir": {"type": "boolean"}, "nombre": {"type": "string"}},
+                       "required": ["ruta", "destino"], "additionalProperties": False}},
     "eolfi_casos": {
         "description": "Lista los casos de Eolfi (cada uno agrupa artefactos, evidencias, incógnitas y proyectos).",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
+    "eolfi_automejora": {
+        "description": "Estado de la automejora de Eolfi (RSI): propuestas, su evaluación y el registro. Solo lectura: "
+                       "aprobar, rechazar o revertir lo hace el titular en el panel; tú no puedes decidir.",
         "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
 }
 

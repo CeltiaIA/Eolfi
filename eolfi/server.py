@@ -66,6 +66,16 @@ class ApiError(Exception):
         self.status = status
 
 
+def _rsi_observar(operacion: str, resultado: dict[str, Any]) -> None:
+    """Resultado de una herramienta REA del chat para la automejora (PLAN_REA.md, punto 12). Nunca rompe el chat."""
+    try:
+        from eolfi import rsi
+
+        rsi.observar("chat", operacion, resultado)
+    except Exception:  # noqa: BLE001, S110 — el registro es accesorio
+        pass
+
+
 def _decode_rows(rows: list[dict[str, Any]], fields: tuple[str, ...]) -> list[dict[str, Any]]:
     for r in rows:
         for k in fields:
@@ -482,6 +492,7 @@ class EolfiApp:
             "eolfi_objetivos": self._chat_subjects,
             "eolfi_casos": lambda _a: {"casos": [{k: c.get(k) for k in ("case_id", "name", "status", "updated_at")}
                                                  for c in self.cases_list({})["cases"][:30]]},
+            "eolfi_automejora": lambda _a: self.rsi_overview(),
             **(self._chat_rea_composites(rea, self._case_id(body)) if rea is not None else {}),
         }, rea=rea)
         context = chat.with_context(messages, attachments, analyze)
@@ -517,7 +528,13 @@ class EolfiApp:
 
         def in_case(operation: str, fn: Any) -> Any:
             def run(a: dict[str, Any]) -> Any:
-                result = fn(a)
+                try:
+                    result = fn(a)
+                except Exception as exc:
+                    _rsi_observar(operation, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+                    raise
+                if isinstance(result, dict):
+                    _rsi_observar(operation, {"ok": not result.get("error"), "error": str(result.get("error") or "")})
                 if case_id and isinstance(result, dict) and not result.get("autorizacion_pendiente"):
                     s = self.store()
                     try:
@@ -540,6 +557,19 @@ class EolfiApp:
                                                          lambda: self._recover_js(ruta(a), a.get("destino"))),
             "eolfi_analizar_app_js": lambda a: step("REA analiza la aplicación JavaScript (estático)…",
                                                     lambda: rc.analizar_app_js(rea.client, ruta(a))),
+            "eolfi_analizar_movil": lambda a: step("REA lee el paquete o ensamblado (estático)…",
+                                                   lambda: rc.analizar_movil(rea.client, ruta(a), ruta({"ruta": a["binario"]})
+                                                                             if a.get("binario") else None)),
+            "eolfi_analizar_firmware": lambda a: step("REA lee el firmware (estático)…",
+                                                      lambda: rc.analizar_firmware(rea.client, ruta(a))),
+            "eolfi_mapa_app": lambda a: step("REA construye el mapa de la aplicación (estático)…",
+                                             lambda: rc.mapa_app(rea.client, ruta(a), a.get("funcion"),
+                                                                 str(a.get("direccion") or "forward"))),
+            "eolfi_entorno_agente": lambda a: step("REA prepara el entorno de agente desde la captura…",
+                                                   lambda: rc.entorno_agente(rea.client, ruta(a),
+                                                                             ruta({"ruta": a.get("destino")}),
+                                                                             escribir=bool(a.get("escribir")),
+                                                                             nombre=a.get("nombre"))),
             "eolfi_verificar_comportamiento": lambda a: self._verify_behavior(
                 rea, checked_scenario(a.get("original")), checked_scenario(a.get("reconstruccion"))),
             "eolfi_comparar_versiones": lambda a: step("REA compara las dos versiones (estático, ~1-2 min)…",
@@ -550,7 +580,9 @@ class EolfiApp:
                  "eolfi_reimplementar_funcion": "reimplementar_funcion", "eolfi_comparar_versiones": "comparar_versiones",
                  "eolfi_inventario_dependencias": "inventario_dependencias",
                  "eolfi_verificar_comportamiento": "verificar_comportamiento", "eolfi_analizar_app_js": "analizar_app_js",
-                 "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura"}
+                 "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura",
+                 "eolfi_analizar_movil": "analizar_movil", "eolfi_analizar_firmware": "analizar_firmware",
+                 "eolfi_mapa_app": "mapa_app", "eolfi_entorno_agente": "entorno_agente"}
         return {name: in_case(names[name], fn) for name, fn in tools.items()}
 
     def _verify_behavior(self, rea: Any, original: dict[str, Any], reconstruccion: dict[str, Any]) -> dict[str, Any]:
@@ -642,6 +674,34 @@ class EolfiApp:
             return rea_autorizacion.revoke(self._rea_db, grant_id)
         except KeyError as exc:
             raise ApiError(404, str(exc).strip("'")) from exc
+
+    # Automejora (PLAN_REA.md, punto 12): el panel muestra y el TITULAR decide. La evaluación carga modelos y genera
+    # proyectos, así que se lanza solo desde la CLI («eolfi rsi evaluar»), nunca desde aquí ni desde el chat.
+    def rsi_overview(self, _q: dict[str, str] | None = None) -> dict[str, Any]:
+        from eolfi import rsi
+
+        props = sorted(rsi.propuestas(), key=lambda p: p["fecha"], reverse=True)
+        return {"activo": rsi.activo(), "registro": rsi.verificar_registro(), "casos_regresion": len(rsi.casos()),
+                "observaciones": len(rsi.eventos("observacion")), "propuestas": props[:30],
+                "umbrales": {r: rsi.umbral(r) for r in rsi.REGLAS}}
+
+    def rsi_propose(self) -> dict[str, Any]:
+        from eolfi import rsi
+
+        try:
+            return {"nuevas": rsi.proponer()}
+        except rsi.RSIError as exc:
+            raise ApiError(400, str(exc)) from exc
+
+    def rsi_act(self, pid: str, action: str) -> dict[str, Any]:
+        from eolfi import rsi
+
+        try:
+            if action == "revertir":
+                return rsi.revertir(pid, por="titular (panel)")
+            return rsi.decidir(pid, action, por="titular (panel)")
+        except rsi.RSIError as exc:
+            raise ApiError(404 if "desconocida" in str(exc) else 400, str(exc)) from exc
 
     def _chat_answer(self, context: list[dict[str, str]], remote: Any, mcp: Any) -> dict[str, Any]:
         from eolfi import chat, eolas_v2
@@ -1828,7 +1888,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
                         "/api/vscode/activity": app.vscode_activity,
                         "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
-                        "/api/rea/autorizaciones": app.rea_authorizations,
+                        "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
                         "/api/eolas/perfiles": lambda _q: {"perfiles": __import__("eolfi.eolas_v2", fromlist=["x"]).available_evaluation_profiles()},
                         "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
@@ -1927,6 +1987,13 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     m = re.fullmatch(r"/api/rea/permisos/(perm_[0-9a-f]{16})/revocar", path)
                     if m:
                         return self._json(200, app.rea_revoke(m.group(1)))
+                    if path == "/api/rsi/proponer":
+                        return self._json(200, app.rsi_propose())
+                    m = re.fullmatch(r"/api/rsi/propuestas/([0-9a-f]{12})/(aprobar|rechazar|revertir)", path)
+                    if m:
+                        if self.headers.get("X-Eolfi-Client"):   # solo el titular, desde el panel; nunca un cliente
+                            raise ApiError(403, "las propuestas de automejora se deciden en el panel de Eolfi")
+                        return self._json(200, app.rsi_act(m.group(1), m.group(2)))
                     if path == "/api/chat/motor":
                         return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":

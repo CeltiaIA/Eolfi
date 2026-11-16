@@ -34,3 +34,5 @@ def _eolas_v2_aislado(tmp_path, monkeypatch):
     monkeypatch.setenv("EOLFI_MOTOR_LOCAL_FILE", str(tmp_path / "motor-local.json"))
     monkeypatch.setenv("EOLAS_HOME", str(tmp_path / "eolas-v1"))
     monkeypatch.setenv("CELTIAIA_HOME", str(tmp_path / "celtiaia"))
+    # 16/11/2026: el registro de la automejora (RSI) es del equipo; lo que observan las pruebas va a su carpeta.
+    monkeypatch.setenv("EOLFI_RSI_DIR", str(tmp_path / "rsi"))

@@ -923,8 +923,21 @@ def record_lessons(profile: str, failures: list[str]) -> dict[str, Any]:
         entry = mine.setdefault(category, {"veces": 0, "activa": True, "desde": now})
         entry["veces"] += 1
         entry["ultima"] = now
+        if not entry.get("activa"):
+            _rsi_leccion_inactiva(profile, category)
     _write_json_atomic(lessons_file(), data)
     return mine
+
+
+def _rsi_leccion_inactiva(profile: str, category: str) -> None:
+    """Para la automejora (PLAN_REA.md, punto 12): el motor falla por una causa cuya lección está desactivada."""
+    try:
+        from eolfi import rsi
+
+        rsi.observar("eolas-v2", "lecciones", {"ok": False, "error": f"lección inactiva: {profile}.{category}"},
+                     contexto={"perfil": profile, "categoria": category})
+    except Exception:  # noqa: BLE001, S110 — el registro es accesorio
+        pass
 
 
 def set_lesson_active(profile: str, category: str, active: bool) -> dict[str, Any]:

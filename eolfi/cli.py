@@ -491,6 +491,20 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r9 = rps.add_parser("movil", help="APK/AAB, ensamblado .NET o global-metadata.dat de Unity, sin ejecutarlo")
+    r9.add_argument("ruta")
+    r9.add_argument("--binario", default=None, help="GameAssembly.dll/libil2cpp.so para enlazar direcciones (Unity)")
+    r10 = rps.add_parser("firmware", help="Devicetree o regiones de una imagen de firmware (Binwalk: REA de Linux)")
+    r10.add_argument("ruta")
+    r11 = rps.add_parser("mapa", help="Mapa de la app: componentes de un APK o grafo de llamadas desde una función")
+    r11.add_argument("ruta")
+    r11.add_argument("--funcion", default=None, help="función de partida en un binario nativo (nombre o dirección)")
+    r11.add_argument("--direccion", choices=["forward", "backward"], default="forward")
+    r12 = rps.add_parser("entorno", help="Entorno de agente (AgentEnv) desde una captura HAR; simulación por defecto")
+    r12.add_argument("ruta", help="captura .har ya grabada")
+    r12.add_argument("destino", help="carpeta que NO existe todavía")
+    r12.add_argument("--escribir", action="store_true", help="crea de verdad el paquete (sin esto, dry_run)")
+    r12.add_argument("--nombre", default=None)
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1690,6 +1704,17 @@ def main(argv: list[str] | None = None) -> int:
                 op, params, result = "inventario_dependencias", {"ruta": args.ruta}, rc.inventario_dependencias(client, args.ruta)
             elif args.rea_action == "app-js":
                 op, params, result = "analizar_app_js", {"ruta": args.ruta}, rc.analizar_app_js(client, args.ruta)
+            elif args.rea_action == "movil":
+                op, params = "analizar_movil", {"ruta": args.ruta, "binario": args.binario}
+                result = rc.analizar_movil(client, args.ruta, args.binario)
+            elif args.rea_action == "firmware":
+                op, params, result = "analizar_firmware", {"ruta": args.ruta}, rc.analizar_firmware(client, args.ruta)
+            elif args.rea_action == "mapa":
+                op, params = "mapa_app", {"ruta": args.ruta, "funcion": args.funcion, "direccion": args.direccion}
+                result = rc.mapa_app(client, args.ruta, args.funcion, args.direccion)
+            elif args.rea_action == "entorno":
+                op, params = "entorno_agente", {"ruta": args.ruta, "destino": args.destino, "escribir": args.escribir}
+                result = rc.entorno_agente(client, args.ruta, args.destino, escribir=args.escribir, nombre=args.nombre)
             elif args.rea_action == "reimplementar":
                 op, params = "reimplementar_funcion", {"ruta": args.ruta, "funcion": args.funcion}
                 result = rc.reimplementar_funcion(client, args.ruta, args.funcion)
