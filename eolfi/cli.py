@@ -524,6 +524,8 @@ def _parser() -> argparse.ArgumentParser:
         r_.add_argument("id")
         r_.add_argument("--por", required=True, help="Quién decide (queda en el registro)")
 
+    tl = sub.add_parser("telemetria", help="Telemetría local: tiempos y rendimiento por fase (no sale del equipo)")
+    tl.add_argument("telemetria_action", choices=["resumen", "ruta"], nargs="?", default="resumen")
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
@@ -1742,6 +1744,12 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 store.close()
         _print(result)
+        return 0
+    if args.cmd == "telemetria":
+        from eolfi import telemetria
+
+        _print({"carpeta": str(telemetria.carpeta()), "activa": telemetria.activa()}
+               if args.telemetria_action == "ruta" else telemetria.resumen())
         return 0
     if args.cmd == "mcp":
         from eolfi import mcp_server

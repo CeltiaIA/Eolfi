@@ -14,8 +14,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
+
+from eolfi import telemetria
 
 ROOT = Path(__file__).resolve().parents[1]
 FUENTE = ROOT / "tools" / "rsi" / "fuente-tareas"
@@ -66,6 +69,7 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
     proyecto no ve. La semilla del par llega a la generación por ``EOLFI_SEMILLA`` (B2)."""
     def correr(semilla: int | None = None) -> float:
         work = Path(tempfile.mkdtemp(prefix="eolfi-rsi-tareas-"))
+        t0 = time.monotonic()
         try:
             proyecto = work / "tareas"
             cmd = [sys.executable, "-m", "eolfi", "create", "--from", str(FUENTE), "--out", str(proyecto),
@@ -84,6 +88,9 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
             else:
                 j = juzgar(proyecto)
                 score, detalle = j["passed"] / max(1, j["total"]), {"juez": f'{j["passed"]}/{j["total"]}'}
+            telemetria.anotar("muestra", banco="tareas", proveedor=proveedor, modelo=modelo, semilla=semilla,
+                              puntuacion=float(score), minutos=(time.monotonic() - t0) / 60,
+                              exit=run.returncode, juez_en_verify=juez_en_verify)
             if registro:
                 registro({"banco": "tareas", "proveedor": proveedor, "semilla": semilla, "puntuacion": score, **detalle})
             return score

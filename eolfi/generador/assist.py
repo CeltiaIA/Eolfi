@@ -299,6 +299,21 @@ no añadas dependencias. Toca solo los archivos necesarios. Salida de la verific
 _SETUP_STEP = re.compile(r"^(instalar|restaurar|crear entorno)", re.IGNORECASE)
 
 
+def _tiempos(llm) -> dict[str, Any]:
+    """Tiempos que da el motor (tokens/s…): el proveedor de Eolas V2 los deja en ``last_server_timings``."""
+    return dict(getattr(llm, "last_timings", None) or getattr(llm, "last_server_timings", None) or {})
+
+
+def _medir(llm, target: str, r: dict[str, Any]) -> None:
+    """Telemetría local de la ronda (PLAN_DEFINITIVO.md, B4): solo números y nombres."""
+    from eolfi import telemetria
+
+    telemetria.ronda(proveedor=str(llm.name), modelo=str(getattr(llm, "model", "") or ""), destino=target,
+                     numero=r["round"], generacion_s=r["generation_seconds"], verificacion_s=r["verification_seconds"],
+                     uso=r["usage"], tiempos=r["provider_timings"], ok=r["ok"], paso_fallido=r["failed_step"],
+                     juez=r["verification"].get("judge"))
+
+
 def _ver_summary(ver: dict[str, Any]) -> dict[str, Any]:
     return {"ok": bool(ver.get("ok")),
             "steps": [{k: s[k] for k in ("step", "exit", "seconds") if k in s} for s in ver.get("steps", [])],
@@ -403,9 +418,10 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
             log(f"  la respuesta se cortó por longitud: ronda {n} sin cambios")
             rounds.append({"round": n, "written": [], "rejected": [], "ok": False,
                            "generation_seconds": time.monotonic() - generation_started, "writing_seconds": 0.0,
-                           "verification_seconds": 0.0, "provider_timings": dict(getattr(llm, "last_timings", {})),
+                           "verification_seconds": 0.0, "provider_timings": _tiempos(llm),
                            "usage": {}, "failed_output": str(exc), "failed_step": "respuesta cortada por longitud",
                            "verification": {"ok": False, "steps": []}})
+            _medir(llm, target, rounds[-1])
             if CORTE_NOTA not in messages[-1]["content"]:
                 messages[-1] = {**messages[-1], "content": messages[-1]["content"] + CORTE_NOTA}
             continue
@@ -429,11 +445,12 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
         rounds.append({"round": n, "written": written, "rejected": rejected, "ok": ver["ok"],
                        "generation_seconds": generation_seconds, "writing_seconds": writing_seconds,
                        "verification_seconds": verification_seconds,
-                       "provider_timings": dict(getattr(llm, "last_timings", {})),
+                       "provider_timings": _tiempos(llm),
                        "usage": dict(reply.usage),
                        "failed_output": (failed or {}).get("tail", "")[-4000:],
                        "failed_step": failed["step"] if failed else None,
                        "verification": _ver_summary(ver)})
+        _medir(llm, target, rounds[-1])
         if failed:
             log("detalle de verificación: " + str(failed.get("tail", ""))[-1800:])
             # Guardar el candidato que falló antes del rollback, fuera de los
