@@ -41,6 +41,11 @@
 - V1 restaurado: binario instalado (`5d3b6dbd…`), backend `llama`.
 - Plan VAS subido: PR https://github.com/CeltiaIA/Eolfi/pull/47 (el titular autorizó el push).
 - Fase 1.3 hecha en local: evaluador estadístico del RSI, commit `73afd36` en `rea-automejora` (`D:\Eolfi-wt-rsi`), **sin subir** (titular: «vete guardando todo en local y ya subiremos todo»). 5 pares alternados, prueba exacta de signos, intervalo por bootstrap y orden `eolfi rsi aa`. A/A simulada (desviación 0,3): 2,5 % de falsos positivos frente al 37,75 % de la regla anterior. pytest 698, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO:** A/A real con el banco (unas 2 h de modelo).
+- **Plan definitivo, voz y modelos** (titular: «genera el plan definitivo… voz a texto y todo lo demás», «comprueba que los modelos no tengan ninguna puerta trasera»): rama `voz-y-plan` (`D:\Eolfi-wt-voz`, commit `7d02f45`), **sin subir**.
+  - `PLAN_DEFINITIVO.md`: backlog único por bloques (A voz, B medir, C producto, D largo plazo, E REA, F higiene, G modelos).
+  - Voz A1–A6: `eolfi/voz.py` (motor de Windows sin conexión, whisper.cpp opcional), `/api/voz/*`, `eolfi voz`, y en el chat del panel dictado (Alt+M), lectura, modo conversación y órdenes. pytest 685, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO** con micrófono real. El reconocedor de Windows se equivoca bastante («Crea» → «Tenía»): Whisper (A8) pide permiso de descarga.
+  - Modelos: `docs/auditoria-modelos-2026-11-16.md`. Cuatro GGUF distintos de V1 y V2: 0 bytes sobrantes, plantillas sin URL ni órdenes, SHA-256 coincidente; `llama-server` solo en 127.0.0.1 con V2 generando. Sin puertas traseras ni conexiones hacia fuera. Refuerzos en el bloque G.
+- A/A real del RSI en marcha desde las 14:01 (V2, aislada en el scratchpad `rsi-eval\rsi-aa`); primera muestra 5/9 a los 30 min: serán unas 5 h. **V1 está parado** mientras dura; al acabar, `launch-eolas.ps1 -Backend llama -Detach -NoBrowser`.
 - Siguiente: fase 1.1 (juez dentro de `verify`) y 1.2 (semilla y `temperature` 0).
 - La CI de Eolfi tampoco arranca ya (PR #46: «recent account payments have failed»): facturación de GitHub, la resuelve el titular.
 
