@@ -68,7 +68,7 @@ navegador dé permiso a la página (en `127.0.0.1` lo permite).
 | B3 | Evaluador estadístico y prueba A/A del RSI | Hecho en local (`73afd36`); A/A real en curso |
 | B4 | Telemetría por fase en JSONL (carga, tokens/s, verificación, juez) | Hecho en local (rama `vas-b1-b2`): `eolfi/telemetria.py`, `eolfi telemetria`. Rondas de `assist` y muestras del banco; sin contenido. Falta: tiempo de carga del modelo |
 | B5 | Más encargos en el banco (hoy uno solo, «tareas») | Hecho en local (rama `vas-b1-b2`): «contador» y «filtro», y `--banco todos`. Jueces validados con apps de referencia. NO VERIFICADO con un modelo real |
-| B6 | Bucle generar → juez → reparar que conserva el mejor intento; memoria de ejemplos verificados | Pendiente |
+| B6 | Bucle generar → juez → reparar que conserva el mejor intento; memoria de ejemplos verificados | Mejor intento hecho en local (rama `vas-b1-b2`): el bucle vuelve a la mejor versión si una ronda empeora y, sin verde, la conserva como parcial; el banco la puntúa. NO VERIFICADO con un modelo real. Falta: memoria de ejemplos verificados |
 | B7 | Elección de motor y perfil por banco; más superficies del RSI | Pendiente |
 | B8 | Registro encadenado de todas las acciones de agente (hoy solo el RSI) | Pendiente |
 
@@ -111,7 +111,7 @@ ni conexiones hacia fuera).
 
 | # | Pieza | Estado |
 |---|---|---|
-| G1 | `eolfi modelos auditar`: estructura GGUF, bytes sobrantes, plantilla, SHA-256 y conexiones del motor en vivo | Hecho en otra rama (`codex/modelos-reconstruccion`, en `D:\Eolfi`): auditor en CLI, chat y MCP y conexiones por PID. El estado al día del bloque G está en el `PLAN_DEFINITIVO.md` de esa rama |
+| G1 | `eolfi modelos auditar`: estructura GGUF, bytes sobrantes, plantilla, SHA-256 y conexiones del motor en vivo | Hecho en otra rama (`codex/modelos-reconstruccion`, en `D:\Eolfi`): auditor en CLI, chat y MCP y conexiones por PID. El estado al día del bloque G está en el `PLAN_DEFINITIVO.md` de esa rama. Propuesta en la rama `modelos-tensores-k` (`c1cc178`): confirmar el tamaño de los tensores K con los desplazamientos del propio archivo |
 | G2 | Lista de modelos de confianza (SHA-256): Eolas y Eolfi no cargan lo que no esté | Hecho en esa misma rama (manifiesto con `EOLFI_MODELOS_CONFIANZA`, arranque de V2 y llama.cpp); sin activar |
 | G3 | Modo sin red en Eolas (`EOLAS_OFFLINE=1`) y regla de cortafuegos de salida | Pendiente; el cortafuegos lo ejecuta el titular |
 | G4 | **Reconstruir modelos**: del original (BF16, ya en disco) a cada cuantización con `llama-quantize`, con receta, SHA-256 de entrada y salida y registro | Flujo hecho en esa misma rama (`eolfi modelos reconstruir`) |
