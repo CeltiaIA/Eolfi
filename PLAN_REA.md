@@ -146,8 +146,9 @@ mejorar a sí mismos.
    > 0 y la mejora media es ≥ 0,05 (fase 1.3 de `PLAN_VAS.md`). Con 4 pares o menos es imposible aprobar (p ≥ 1/16).
    **A/A** del evaluador: `eolfi rsi aa --proveedor … [--simulada DESVIACION]`; la real queda en el registro como
    evento `aa`. Simulada con la desviación medida del banco (0,3), 400 repeticiones: 2,5 % de falsos positivos con
-   5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. La A/A real con el banco
-   está **NO VERIFICADA** (unos 13 min por muestra, 10 muestras).
+   5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. **A/A real** (16/11, 14:01–17:14, V2
+   `gemma_q4`, 5 pares): A 5/9, 5/9, 7/9, 1/9, 5/9; B 5/9, 7/9, 7/9, 5/9, 1/9; diferencia +0,04, intervalo
+   [−0,22, +0,31], p = 0,5 → no aprueba, sin falso positivo. Es una sola corrida.
    **Juez dentro de `verify` y semilla** (`PLAN_DEFINITIVO.md`, B1 y B2): el banco crea el proyecto con
    `create --juez tools/rsi/criterios-tareas.json` (10 comprobaciones declaradas), así que `verify` prueba la app en
    Chrome, un proyecto que no funciona ya no sale en verde y cada ronda de reparación recibe qué comprobación falla.
