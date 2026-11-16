@@ -39,6 +39,9 @@
 - Fase 2.1 hecha: planificador de V1 con ventana deslizante, PR https://github.com/CeltiaIA/CeltiaIA/pull/11 (rama `eolas-plan-swa`, apilada sobre #10). `go test ./...` en verde. A/B en vivo, backend `llama`, 32K: 13→39 de 49 capas; 3,59→10,46 t/s (prompt corto) y 1,95→9,82 t/s (prompt de 27.710 tokens); pico de VRAM 3,1→6,7 GB, sin caídas.
 - Hallazgo: el backend nativo `eolas` (en proceso) ignora `plan.Layers` y coloca capas por su cuenta (2,0 t/s a 32K). Pendiente para la fase 2.
 - V1 restaurado: binario instalado (`5d3b6dbd…`), backend `llama`.
+- Plan VAS subido: PR https://github.com/CeltiaIA/Eolfi/pull/47 (el titular autorizó el push).
+- Fase 1.3 hecha en local: evaluador estadístico del RSI, commit `73afd36` en `rea-automejora` (`D:\Eolfi-wt-rsi`), **sin subir** (titular: «vete guardando todo en local y ya subiremos todo»). 5 pares alternados, prueba exacta de signos, intervalo por bootstrap y orden `eolfi rsi aa`. A/A simulada (desviación 0,3): 2,5 % de falsos positivos frente al 37,75 % de la regla anterior. pytest 698, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO:** A/A real con el banco (unas 2 h de modelo).
+- Siguiente: fase 1.1 (juez dentro de `verify`) y 1.2 (semilla y `temperature` 0).
 - La CI de Eolfi tampoco arranca ya (PR #46: «recent account payments have failed»): facturación de GitHub, la resuelve el titular.
 
 **16/11, tarde (titular: «para las pruebas por ahora e implementemos primero todo el plan»).** Pruebas en vivo en pausa (medición de VRAM, competición repetida, evaluación del RSI con el banco).
