@@ -10,7 +10,12 @@ la seguridad de los pesos, la calidad, la compatibilidad del motor ni la procede
 
 Los tipos GGML Q8_1 y K (IDs 9–15), y cualquier tipo desconocido, conservan tamaño y bytes sobrantes como
 desconocidos: existen layouts históricos que no se pueden distinguir solo por el identificador. El auditor
-no adivina cuál se usó. Las palabras del vocabulario y de las reglas BPE no se clasifican como órdenes.
+no adivina cuál se usó. Excepción con evidencia: en los tipos K (10–15), un tensor con sucesor es testigo de su tamaño,
+porque con el formato actual (superbloque de 256), una vez alineado, debe acabar justo donde empieza el siguiente.
+Si todos los testigos de un tipo coinciden, ese tipo queda confirmado, `tamanos_k` indica cuántos testigos hubo y
+los bytes sobrantes se calculan. Si uno solo discrepa, o el tipo no tiene ningún testigo, sigue como desconocido.
+Q8_1 (ID 9) nunca se confirma. Medido el 17/11/2026 con Gemma 4 12B Q3_K_M, Q4_K_M, Q5_K_M y Q6_K: 329 tensores K
+confirmados en cada uno y 0 bytes sobrantes. Las palabras del vocabulario y de las reglas BPE no se clasifican como órdenes.
 Las URL y otras cadenas del resto de metadatos se muestran para revisión; no son defectos demostrados.
 
 ## Manifiesto explícito
