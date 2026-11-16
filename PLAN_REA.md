@@ -154,7 +154,11 @@ mejorar a sí mismos.
    Chrome, un proyecto que no funciona ya no sale en verde y cada ronda de reparación recibe qué comprobación falla.
    El modelo no puede escribir `eolfi.juez.json`. La semilla del par llega a la generación por `EOLFI_SEMILLA`
    (semilla y `temperature` 0 en los motores locales). Sin verde, la muestra puntúa 0 y se anota el mejor intento.
-   **NO VERIFICADO** con un modelo real. Banco «tareas» (`eolfi/rsi_banco.py`):
+   **Corrida real** (16/11, V2 `gemma_q4`, dos muestras con la misma semilla): una abortó a los 23 min por una
+   respuesta cortada por longitud; la otra sacó **9/9** en 11,7 min (primera nota máxima del banco). El juez funciona
+   con el modelo; la semilla NO hace iguales dos corridas. Corregido después: un corte por longitud es una ronda
+   fallida (se pide una respuesta más corta), no el fin del trabajo, y el banco anota por qué falló `create`.
+   **NO VERIFICADO** en vivo tras esa corrección. Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
 4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,

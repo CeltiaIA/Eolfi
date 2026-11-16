@@ -37,6 +37,12 @@ def juzgar(proyecto: Path, *, timeout: float = 300) -> dict:
     return json.loads(out.stdout)[proyecto.name]
 
 
+def _ultima_linea(texto: str) -> str:
+    """Última línea con contenido de la salida de errores: para saber por qué falló sin guardar todo."""
+    lineas = [x.strip() for x in (texto or "").splitlines() if x.strip()]
+    return lineas[-1][-300:] if lineas else ""
+
+
 def _mejor_intento(salida: str) -> dict:
     """Mejor resultado del juez de ``verify`` entre las rondas de un ``create --ai`` fallido (solo informativo)."""
     try:
@@ -73,7 +79,8 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
                                  timeout=timeout, cwd=ROOT, env={**os.environ, **fijo, **(entorno or {})}, check=False)
             if run.returncode != 0:
                 # Sin verde no hay entrega (el proyecto se restaura): 0. Se anota hasta dónde llegó el mejor intento.
-                score, detalle = 0.0, {"exit": run.returncode, **_mejor_intento(run.stdout)}
+                score, detalle = 0.0, {"exit": run.returncode, **_mejor_intento(run.stdout),
+                                       "error": _ultima_linea(run.stderr)}
             else:
                 j = juzgar(proyecto)
                 score, detalle = j["passed"] / max(1, j["total"]), {"juez": f'{j["passed"]}/{j["total"]}'}

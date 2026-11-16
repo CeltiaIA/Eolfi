@@ -216,3 +216,56 @@ def test_el_banco_pasa_criterios_y_semilla_y_anota_el_mejor_intento(monkeypatch)
     assert "--juez" not in cmd and "EOLFI_SEMILLA" not in {k for k in env if env[k] != __import__("os").environ.get(k)}
     assert sum(1 for p in juez.validar(json.loads(rsi_banco.CRITERIOS.read_text(encoding="utf-8")))["pasos"]
                if "comprobar" in p) == 10
+
+
+# ── Corte por longitud: una ronda fallida, no el fin del trabajo (16/11/2026) ───────────────────────────────────
+
+class _SeCorta(FakeClient):
+    """Se corta por longitud las primeras ``cortes`` veces y luego responde."""
+
+    def __init__(self, replies, cortes):
+        super().__init__(replies)
+        self.cortes = cortes
+
+    def complete(self, system, messages, schema, effort):
+        if self.cortes:
+            self.cortes -= 1
+            self.calls.append({"messages": [dict(m) for m in messages]})
+            raise llm.RespuestaCortada("La respuesta de Eolas V2 se cortó por longitud")
+        return super().complete(system, messages, schema, effort)
+
+
+def test_un_corte_por_longitud_es_una_ronda_fallida_y_se_pide_mas_corto(tmp_path):
+    if not shutil.which("node"):
+        pytest.skip("requiere Node.js")
+    out = _project(tmp_path)
+    html = (out / "index.html").read_text(encoding="utf-8")
+    bueno = {"summary": "ok", "notes": [], "files": [{"path": "index.html", "content": html.replace("</main>", "<p>hecho</p></main>")}]}
+    cliente = _SeCorta([bueno], cortes=1)
+    r = assist(out, "Añade un párrafo", provider=cliente)
+    assert r["ok"] and [x["failed_step"] for x in r["rounds"]] == ["respuesta cortada por longitud", None]
+    assert r["rounds"][0]["written"] == []
+    turnos = cliente.calls[1]["messages"]
+    assert [m["role"] for m in turnos] == ["user"] and "se cortó por longitud" in turnos[0]["content"]
+    assert "hecho" in (out / "index.html").read_text(encoding="utf-8")
+
+
+def test_si_todas_las_rondas_se_cortan_se_restaura_sin_excepcion(tmp_path):
+    if not shutil.which("node"):
+        pytest.skip("requiere Node.js")
+    out = _project(tmp_path)
+    original = (out / "index.html").read_text(encoding="utf-8")
+    cliente = _SeCorta([], cortes=99)
+    r = assist(out, "algo", provider=cliente)
+    assert not r["ok"] and r["restored"] and len(r["rounds"]) == 3
+    assert (out / "index.html").read_text(encoding="utf-8") == original
+    assert cliente.calls[2]["messages"][0]["content"].count("se cortó por longitud") == 1     # la nota no se repite
+
+
+def test_el_banco_guarda_por_que_fallo_create(monkeypatch):
+    def run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, "", "progreso\nAssistError: El motor no responde\n\n")
+    monkeypatch.setattr(rsi_banco.subprocess, "run", run)
+    notas = []
+    assert rsi_banco.banco_tareas(proveedor="eolas-v2", registro=notas.append)(0) == 0.0
+    assert notas[0]["exit"] == 1 and notas[0]["error"] == "AssistError: El motor no responde"
