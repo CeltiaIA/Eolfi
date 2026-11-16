@@ -139,6 +139,16 @@ def _parser() -> argparse.ArgumentParser:
     mr.add_argument("--memoria-mib", type=int, default=256)
     mr.add_argument("--timeout", type=float, default=1800)
     mr.add_argument("--ejecutar", action="store_true", help="Ejecuta el cuantizador; requiere los hashes de entrada y paquete")
+    mp = model_commands.add_parser("probar", help="Prepara un smoke de inferencia en CPU de una reconstrucción; ejecutar exige opción y hash")
+    mp.add_argument("carpeta", help="Carpeta de salida de `modelos reconstruir`, con receta.json y modelo.gguf")
+    mp.add_argument("--ejecutor", required=True, help="Ruta del ejecutable local llama-completion")
+    mp.add_argument("--sha256-paquete")
+    mp.add_argument("--ejecutar", action="store_true")
+    mp.add_argument("--pregunta")
+    mp.add_argument("--esperado")
+    mp.add_argument("--tokens", type=int, default=64)
+    mp.add_argument("--hilos", type=int, default=4)
+    mp.add_argument("--timeout", type=float, default=900)
 
     doc = sub.add_parser("doctor", help="Comprueba proveedores")
     doc.add_argument("--pin", metavar="ARCHIVO", default=None,
@@ -1472,6 +1482,22 @@ def main(argv: list[str] | None = None) -> int:
                 _print(result)
                 # El resultado aún necesita inferencia y banco: no anunciar un modelo listo.
                 return 2 if args.ejecutar else 0
+            if args.modelos_action == "probar":
+                from eolfi.modelos_reconstruir import SMOKE_EXPECTED, SMOKE_PROMPT, execute_smoke, prepare_smoke
+
+                if args.ejecutar and not args.sha256_paquete:
+                    raise ValueError("--ejecutar requiere --sha256-paquete del ejecutor revisado")
+                if (args.pregunta is None) != (args.esperado is None):
+                    raise ValueError("--pregunta y --esperado se indican juntos")
+                result = prepare_smoke(args.carpeta, args.ejecutor, bundle_sha=args.sha256_paquete,
+                                       prompt=SMOKE_PROMPT if args.pregunta is None else args.pregunta,
+                                       expected=SMOKE_EXPECTED if args.esperado is None else args.esperado,
+                                       tokens=args.tokens, threads=args.hilos, timeout=args.timeout)
+                if args.ejecutar:
+                    result = execute_smoke(result)
+                _print(result)
+                # 0 significa solo «smoke superado»; el banco y la adopción siguen pendientes en `verificacion`.
+                return 0 if result["estado"] in ("preparado", "smoke_superado") else 2
             if args.modelos_action == "auditar":
                 result = audit(args.archivo)
                 if args.pid is not None:

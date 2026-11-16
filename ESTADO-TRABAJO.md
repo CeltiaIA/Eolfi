@@ -3,6 +3,22 @@
 > Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-16 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
 
+## Continuación G4: conversión real y smoke (17/11/2026) — INCOMPLETO, cortado por límite de uso
+
+- Commit previo `15cdbd7` (bloque G) ya existe en `codex/modelos-reconstruccion`; sin publicar.
+- Conversión real ejecutada: Gemma BF16 → Q4_K_M en `generated/modelos/gemma4-q4_k_m-2026-11-17/` (ignorado por git).
+  Cuantizador salida 0 en 722 s; salida 7.381.383.776 bytes, SHA-256
+  `d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054`; 667 tensores (338 F32, 284 tipo 12, 45 tipo 14);
+  original con el mismo hash después. Estado de la receta: NO VERIFICADO (layouts K, inferencia y banco).
+- Nueva orden `modelos probar` (smoke de inferencia solo CPU, con hash del paquete del ejecutor) en
+  `eolfi/modelos_reconstruir.py` y `eolfi/cli.py`; guía en `docs/modelos-reconstruccion.md`.
+  `tests/test_modelos_reconstruir.py`: 29 pasadas, 6 omitidas (nativas sin opt-in).
+- **NO VERIFICADO / pendiente:** smoke real sobre la reconstrucción (paquete de `llama-completion.exe`:
+  `779ee85e567371effdac71e1d73903d4442c3ed6aa50e76c5ef4b882a9510330`; los argumentos del ejecutor no se han probado
+  con un modelo real), suites completas tras el cambio, banco, informe de avance y entrada de limpieza para la
+  carpeta de 7,4 GB. El fixture sintético no carga en inferencia (probado: falla el vocabulario).
+- Motor ajeno en marcha sin tocar: llama-server PID 34776 en 8090 (Gemma Q4, GPU al 100 %).
+
 ## Continuación G4: reconstrucción por cuantización (16/11/2026)
 
 - Rama actual `codex/modelos-reconstruccion`, sin commits/publicación; conserva los cambios anteriores.

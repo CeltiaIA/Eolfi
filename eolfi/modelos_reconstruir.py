@@ -50,6 +50,34 @@ def _timeout(value):
     return float(value)
 
 
+def _tool_identity(tool, tool_sha=None, bundle_sha=None):
+    """Identidad del ejecutable y de las bibliotecas de su carpeta; no demuestra procedencia."""
+    digest = sha256(tool)
+    if tool_sha and tool_sha != digest:
+        raise ValueError("SHA-256 del cuantizador distinto del esperado")
+    libraries = sorted({*tool.parent.glob("*.dll"), *tool.parent.glob("*.so*"), *tool.parent.glob("*.dylib")})
+    if len(libraries) > 128:
+        raise ValueError("Más de 128 bibliotecas junto al cuantizador: acota la instalación")
+    if any(not p.is_file() for p in libraries):
+        raise ValueError("Una biblioteca local no es un archivo legible")
+    identity = {"archivo": str(tool), "sha256": digest, "version": "NO VERIFICADA",
+                "bibliotecas_locales": [{"nombre": p.name, "archivo": str(p.resolve()), "sha256": sha256(p)}
+                                         for p in libraries]}
+    bundle = {"ejecutable": digest, "bibliotecas": [[p["nombre"], p["sha256"]]
+                                                    for p in identity["bibliotecas_locales"]]}
+    identity["bundle_sha256"] = hashlib.sha256(json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if bundle_sha and bundle_sha != identity["bundle_sha256"]:
+        raise ValueError("SHA-256 del paquete del cuantizador distinto del esperado")
+    return identity
+
+
+def _child_env():
+    # El hijo no restaura dependencias: no necesita URLs de pip/npm, proxies ni claves del cliente.
+    env = {k: v for k, v in os.environ.items() if k.upper() in NATIVE_ENV}
+    env.update(EOLAS_OFFLINE="1", HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
+    return env
+
+
 def prepare(source, destination, tool, quant, *, source_sha=None, tool_sha=None, bundle_sha=None,
             threads=4, buffer_mib=256, timeout=1800):
     started = time.monotonic()
@@ -85,22 +113,7 @@ def prepare(source, destination, tool, quant, *, source_sha=None, tool_sha=None,
         raise ValueError("El número de capas declarado no es válido para cuantizar")
     if source_sha and source_sha != input_audit["sha256"]:
         raise ValueError("SHA-256 de entrada distinto del esperado")
-    digest = sha256(tool)
-    if tool_sha and tool_sha != digest:
-        raise ValueError("SHA-256 del cuantizador distinto del esperado")
-    libraries = sorted({*tool.parent.glob("*.dll"), *tool.parent.glob("*.so*"), *tool.parent.glob("*.dylib")})
-    if len(libraries) > 128:
-        raise ValueError("Más de 128 bibliotecas junto al cuantizador: acota la instalación")
-    if any(not p.is_file() for p in libraries):
-        raise ValueError("Una biblioteca local no es un archivo legible")
-    tool_identity = {"archivo": str(tool), "sha256": digest, "version": "NO VERIFICADA",
-                     "bibliotecas_locales": [{"nombre": p.name, "archivo": str(p.resolve()), "sha256": sha256(p)}
-                                              for p in libraries]}
-    bundle = {"ejecutable": digest, "bibliotecas": [[p["nombre"], p["sha256"]]
-                                                    for p in tool_identity["bibliotecas_locales"]]}
-    tool_identity["bundle_sha256"] = hashlib.sha256(json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    if bundle_sha and bundle_sha != tool_identity["bundle_sha256"]:
-        raise ValueError("SHA-256 del paquete del cuantizador distinto del esperado")
+    tool_identity = _tool_identity(tool, tool_sha, bundle_sha)
     if before != _stamp(source):
         raise ValueError("La entrada cambió al preparar la receta")
     return {"schema": SCHEMA, "estado": "preparado", "ejecutado": False,
@@ -166,9 +179,7 @@ def execute(recipe, *, timeout=None):
     _save(folder, recipe)
     started = time.monotonic()
     before = _stamp(source)
-    # El cuantizador no restaura dependencias: no necesita URLs de pip/npm, proxies ni claves del cliente.
-    env = {k: v for k, v in os.environ.items() if k.upper() in NATIVE_ENV}
-    env.update(EOLAS_OFFLINE="1", HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
+    env = _child_env()
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     step = {"exit": None, "error": None, "log": str(folder / "cuantizador.log")}
     proc = None
@@ -251,3 +262,155 @@ def execute(recipe, *, timeout=None):
         recipe["ejecucion_segundos"] = round(time.monotonic() - started, 3)
         _save(folder, recipe)
     return recipe
+
+
+# --- Smoke de inferencia de una reconstrucción (paso independiente de la conversión) ---
+
+SMOKE_SCHEMA = "eolfi.modelos.smoke/v1"
+SMOKE_PROMPT = "¿Cuánto es 17*3-8? Responde solo con el número."
+SMOKE_EXPECTED = "43"
+SMOKE_BUDGET = 16 * 1024 * 1024
+
+
+def _smoke_command(runner, model, prompt, tokens, threads):
+    # Solo CPU: no reserva VRAM ni puertos, así que no compite por la GPU con un motor en marcha.
+    return [str(runner), "-m", str(model), "--device", "none", "-ngl", "0", "-t", str(threads),
+            "-n", str(tokens), "-c", "2048", "--temp", "0", "--seed", "1", "--offline", "--simple-io",
+            "--no-display-prompt", "--jinja", "-cnv", "-st", "-rea", "off", "-p", prompt]
+
+
+def prepare_smoke(folder, runner, *, bundle_sha=None, prompt=SMOKE_PROMPT, expected=SMOKE_EXPECTED,
+                  tokens=64, threads=4, timeout=900):
+    """Comprueba la carpeta de una reconstrucción terminada y prepara una pregunta; no ejecuta nada."""
+    timeout = _timeout(timeout)
+    folder, runner = Path(folder).expanduser().resolve(), Path(runner).expanduser().resolve()
+    bundle_sha = _expected(bundle_sha, "del paquete")
+    if type(threads) is not int or type(tokens) is not int or not 1 <= threads <= 64 or not 1 <= tokens <= 512:
+        raise ValueError("Hilos o tokens fuera de rango (1–64 hilos; 1–512 tokens)")
+    for label, text, limit in (("pregunta", prompt, 2000), ("respuesta esperada", expected, 200)):
+        if not isinstance(text, str) or not text.strip() or len(text) > limit or "\0" in text:
+            raise ValueError(f"La {label} debe ser texto no vacío de hasta {limit} caracteres")
+    if not runner.is_file():
+        raise ValueError("Se requiere un ejecutor local de llama.cpp")
+    if os.name == "nt" and runner.suffix.lower() != ".exe":
+        raise ValueError("En Windows se requiere un ejecutor .exe; no se ejecutan scripts de shell")
+    recipe = json.loads((folder / "receta.json").read_text(encoding="utf-8"))
+    model = folder / "modelo.gguf"
+    conversion = recipe.get("conversion") or {}
+    if (recipe.get("schema") != SCHEMA or recipe.get("estado") != "NO VERIFICADO" or conversion.get("exit") != 0
+            or conversion.get("error") is not None or Path(recipe.get("salida", "")).resolve() != model
+            or not model.is_file()):
+        raise ValueError("La carpeta no contiene una reconstrucción terminada sin errores")
+    before = _stamp(model)
+    digest = sha256(model)
+    if digest != (recipe.get("auditoria_salida") or {}).get("sha256"):
+        raise ValueError("El modelo no coincide con el SHA-256 de salida de su receta")
+    if before != _stamp(model):
+        raise ValueError("El modelo cambió al preparar el smoke")
+    return {"schema": SMOKE_SCHEMA, "estado": "preparado", "ejecutado": False,
+            "fecha_utc": datetime.now(timezone.utc).isoformat(), "plataforma": sys.platform,
+            "carpeta": str(folder), "modelo": str(model), "modelo_sha256": digest, "modelo_stamp": list(before),
+            "entrada_sha256": recipe["entrada"]["sha256"], "cuantizacion": recipe["cuantizacion"],
+            "herramienta": _tool_identity(runner, None, bundle_sha), "pregunta": prompt, "esperado": expected,
+            "tokens": tokens, "hilos": threads, "timeout_segundos": timeout,
+            "argv": _smoke_command(runner, model, prompt, tokens, threads),
+            "verificacion": {"inferencia": "NO VERIFICADO", "banco": "NO VERIFICADO"},
+            "limites": ["Una sola pregunta determinista en CPU: no mide calidad, velocidad en GPU ni equivalencia",
+                        "No ejercita el servidor, las herramientas ni el planificador de Eolas (G6)",
+                        "La identidad del ejecutor no verifica su procedencia ni su seguridad",
+                        "Sin límite de RAM impuesto ni aislamiento de red del sistema",
+                        "No se adopta el modelo ni se cambia la lista de confianza"]}
+
+
+def execute_smoke(plan):
+    """Ejecuta únicamente el plan en memoria que prepare_smoke acaba de verificar."""
+    timeout = _timeout(plan["timeout_segundos"])
+    folder, model = Path(plan["carpeta"]), Path(plan["modelo"])
+    if (plan.get("schema") != SMOKE_SCHEMA or model != folder / "modelo.gguf"
+            or plan["argv"] != _smoke_command(plan["herramienta"]["archivo"], model, plan["pregunta"],
+                                              plan["tokens"], plan["hilos"])):
+        raise ValueError("Plan o argumentos modificados")
+    if list(_stamp(model)) != plan["modelo_stamp"]:
+        raise ValueError("El modelo cambió después de preparar el smoke")
+    for item in [plan["herramienta"], *plan["herramienta"]["bibliotecas_locales"]]:
+        if sha256(item["archivo"]) != item["sha256"]:
+            raise ValueError("El ejecutor o una biblioteca cambió después de preparar el smoke")
+    name = "inferencia-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    out_path, log_path, result_path = (folder / (name + ext) for ext in (".salida.txt", ".log", ".json"))
+    step = {"exit": None, "error": None, "salida": str(out_path), "log": str(log_path)}
+    plan.update(estado="en_ejecucion", ejecutado=True, resultado=str(result_path), ejecucion=step)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    started = time.monotonic()
+    proc = None
+
+    def save():
+        temporary = result_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temporary, result_path)
+
+    def over_budget():
+        return max(out_path.stat().st_size, log_path.stat().st_size) > SMOKE_BUDGET
+
+    try:
+        with out_path.open("xb") as out, log_path.open("xb") as log:
+            proc = subprocess.Popen(plan["argv"], cwd=folder, env=_child_env(), stdin=subprocess.DEVNULL,
+                                    stdout=out, stderr=log, creationflags=flags,
+                                    start_new_session=os.name != "nt")
+            plan["pid_ejecutor"] = proc.pid
+            save()
+            while proc.poll() is None:
+                if time.monotonic() - started > timeout:
+                    raise TimeoutError("Tiempo de inferencia agotado")
+                if over_budget():
+                    raise RuntimeError("El ejecutor superó el presupuesto de salida o de registro")
+                time.sleep(0.1)
+            step["exit"] = proc.returncode
+        if over_budget():
+            raise RuntimeError("El ejecutor superó el presupuesto de salida o de registro")
+        if step["exit"] != 0:
+            raise RuntimeError(f"El ejecutor terminó con código {step['exit']}")
+        answer = out_path.read_bytes().decode("utf-8", "replace").strip()
+        plan["respuesta"] = answer[:2000]
+        if not re.search(r"(?<!\w)" + re.escape(plan["esperado"].strip()) + r"(?!\w)", answer):
+            raise ValueError("La respuesta no contiene el valor esperado")
+        plan["estado"] = "smoke_superado"
+        plan["verificacion"]["inferencia"] = "smoke_superado: una pregunta determinista en CPU"
+    except (OSError, ValueError, RuntimeError) as exc:
+        step["error"] = str(exc)
+        plan["estado"] = "fallido"
+    except KeyboardInterrupt:
+        plan["estado"] = "interrumpido"
+        step["error"] = "Interrumpido por el usuario"
+        raise
+    finally:
+        if proc is not None and proc.poll() is None:
+            try:
+                _terminate(proc)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                plan["estado"] = "fallido"
+                step["error"] = f"NO VERIFICADO: no se pudo confirmar el cierre del ejecutor: {exc}"
+        if proc is not None:
+            step["exit"] = proc.returncode
+        step["seconds"] = round(time.monotonic() - started, 3)
+        if log_path.is_file():
+            step["log_sha256"] = sha256(log_path)
+            with log_path.open("rb") as stream:
+                text = stream.read(SMOKE_BUDGET).decode("utf-8", "replace")
+            version = re.findall(r"build:\s*([^\r\n]{1,200})", text)
+            speed = re.findall(r"eval time\s*=[^\r\n]*?([\d.]+ tokens per second)", text)
+            if version:
+                plan["herramienta"]["version_declarada_en_log"] = version[-1]
+            if speed:
+                step["velocidad_declarada_en_log"] = speed[-1]
+        if plan["estado"] != "interrumpido":
+            try:
+                if list(_stamp(model)) != plan["modelo_stamp"] or sha256(model) != plan["modelo_sha256"]:
+                    plan["estado"] = "fallido"
+                    step["error"] = "El modelo cambió durante la inferencia"
+            except OSError as exc:
+                plan["estado"] = "fallido"
+                step["error"] = f"No se pudo verificar el modelo al terminar: {exc}"
+        if plan["estado"] != "smoke_superado":
+            plan["verificacion"]["inferencia"] = "NO VERIFICADO"
+        save()
+    return plan

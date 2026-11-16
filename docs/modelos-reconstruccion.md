@@ -59,6 +59,33 @@ El proceso recibe solo variables de sistema, rutas y configuración regional nec
 del cliente, proxies ni direcciones privadas de registros pip/npm. Esto reduce la información entregada
 al cuantizador, pero no demuestra que el ejecutable sea seguro ni le impide acceder a archivos o a la red.
 
+## Smoke de inferencia en CPU
+
+`modelos probar` es el paso siguiente e independiente: carga la reconstrucción con un ejecutor local de
+llama.cpp (`llama-completion`) y le hace una pregunta con respuesta conocida.
+
+```powershell
+python -m eolfi modelos probar 'D:\Eolfi\generated\modelos\gemma4-q4_k_m-2026-11-17' --ejecutor 'D:\EOLAS-BASE\llama\llama-completion.exe'
+```
+
+Sin `--ejecutar` solo prepara: exige una `receta.json` de conversión terminada sin errores, vuelve a hashear
+`modelo.gguf` contra el SHA-256 de salida de la receta e identifica el ejecutor y sus bibliotecas. No lanza
+ningún proceso ni escribe en la carpeta. Para ejecutar se añade `--ejecutar --sha256-paquete HASH` con el
+`herramienta.bundle_sha256` revisado; ese hash es distinto del paquete del cuantizador porque incluye el
+ejecutable. `--pregunta` y `--esperado` se indican juntos; `--tokens` (1–512), `--hilos` y `--timeout`.
+
+La ejecución es solo CPU (`--device none -ngl 0`), determinista (`--temp 0 --seed 1`), sin razonamiento y
+con la plantilla de chat del propio GGUF. No abre puertos ni reserva VRAM, así que puede hacerse con otro
+motor en marcha; sí usa RAM por el tamaño del modelo, sin límite impuesto. El proceso recibe el mismo
+entorno reducido que el cuantizador. Cada ejecución deja `inferencia-FECHA.json`, `.salida.txt` y `.log`
+nuevos; `receta.json` no se modifica. Después se vuelve a hashear el modelo.
+
+Resultado `smoke_superado` (código 0) si el proceso termina 0 y la respuesta contiene el valor esperado
+como palabra completa; en otro caso `fallido` (código 2). **Código 0 significa solo que esa pregunta se
+respondió bien**: `verificacion.banco` sigue NO VERIFICADO. No mide calidad ni velocidad en GPU, no ejercita
+el servidor, las herramientas ni el planificador de Eolas, y no adopta el modelo. La velocidad y la versión
+que aparecen se copian del registro del programa como declaración suya.
+
 ## Pruebas nativas optativas
 
 ```powershell

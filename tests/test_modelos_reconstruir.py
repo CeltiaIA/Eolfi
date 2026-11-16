@@ -282,3 +282,131 @@ def test_native_quantizer_bf16_targets(tmp_path, quant):
             actual.extend(scale * q for q in struct.unpack("<32b", stream.read(32)))
     errors = [abs(a - b) for a, b in zip(expected, actual)]
     assert 0 < max(errors) < 0.003
+
+
+# --- Smoke de inferencia ---
+
+@pytest.fixture
+def rebuilt(recipe_inputs, monkeypatch):
+    source, output, tool = recipe_inputs
+    fake_process(monkeypatch)
+    assert rebuild.execute(rebuild.prepare(source, output, tool, "Q4_0"))["estado"] == "NO VERIFICADO"
+    runner = tool.with_name("ejecutor.exe")
+    runner.write_bytes(b"dummy-runner-not-executed")
+    return output, runner
+
+
+def fake_runner(monkeypatch, answer="43\n", code=0, mutate=False):
+    class Process:
+        pid = 123456789
+        returncode = code
+        def __init__(self, argv, **kwargs):
+            assert kwargs["stdin"] is rebuild.subprocess.DEVNULL
+            assert "EOLAS_V2_API_KEY" not in kwargs["env"]
+            assert argv[3:6] == ["--device", "none", "-ngl"] and argv[6] == "0"
+            kwargs["stdout"].write(answer.encode("utf-8"))
+            kwargs["stderr"].write(b"build: 1 (test)\nllama_perf: eval time = 1 ms / 2 runs ( 0.5 ms per token, 2.00 tokens per second)\n")
+            if mutate:
+                with open(argv[2], "ab") as stream:
+                    stream.write(b"changed")
+        def poll(self):
+            return self.returncode
+    monkeypatch.setattr(rebuild.subprocess, "Popen", Process)
+
+
+def test_smoke_preview_never_runs_or_writes(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    before = sorted(p.name for p in output.iterdir())
+    monkeypatch.setattr(rebuild.subprocess, "Popen", lambda *a, **k: pytest.fail("No debe ejecutar"))
+    plan = rebuild.prepare_smoke(output, runner)
+    assert plan["estado"] == "preparado" and plan["ejecutado"] is False
+    assert plan["modelo_sha256"] == modelos.sha256(output / "modelo.gguf")
+    assert sorted(p.name for p in output.iterdir()) == before
+
+
+def test_smoke_pass_keeps_bench_unverified_and_recipe_untouched(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    recipe = (output / "receta.json").read_bytes()
+    monkeypatch.setenv("EOLAS_V2_API_KEY", "secret-not-in-child")
+    fake_runner(monkeypatch, answer="La respuesta es 43.\n")
+    result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))
+    assert result["estado"] == "smoke_superado" and result["ejecucion"]["exit"] == 0
+    assert result["verificacion"]["banco"] == "NO VERIFICADO"
+    assert result["ejecucion"]["velocidad_declarada_en_log"] == "2.00 tokens per second"
+    assert (output / "receta.json").read_bytes() == recipe
+    assert json.loads(Path(result["resultado"]).read_text(encoding="utf-8"))["estado"] == "smoke_superado"
+
+
+@pytest.mark.parametrize("answer,code", [("143\n", 0), ("no lo sé\n", 0), ("43\n", 3)])
+def test_smoke_wrong_answer_or_exit_fails(rebuilt, monkeypatch, answer, code):
+    output, runner = rebuilt
+    fake_runner(monkeypatch, answer=answer, code=code)
+    result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))
+    assert result["estado"] == "fallido" and result["verificacion"]["inferencia"] == "NO VERIFICADO"
+    assert Path(result["ejecucion"]["log"]).is_file()
+
+
+def test_smoke_model_mutated_by_runner_is_not_accepted(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    fake_runner(monkeypatch, mutate=True)
+    result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))
+    assert result["estado"] == "fallido" and "modelo cambió" in result["ejecucion"]["error"]
+
+
+def test_smoke_rejects_unfinished_tampered_or_changed(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    monkeypatch.setattr(rebuild.subprocess, "Popen", lambda *a, **k: pytest.fail("No debe ejecutar"))
+    with pytest.raises(ValueError, match="paquete"):
+        rebuild.prepare_smoke(output, runner, bundle_sha="0" * 64)
+    plan = rebuild.prepare_smoke(output, runner)
+    plan["argv"].append("--rpc")
+    with pytest.raises(ValueError, match="argumentos modificados"):
+        rebuild.execute_smoke(plan)
+    plan["argv"].pop()
+    runner.write_bytes(b"changed runner")
+    with pytest.raises(ValueError, match="biblioteca cambió"):
+        rebuild.execute_smoke(plan)
+    with (output / "modelo.gguf").open("ab") as stream:
+        stream.write(b"x")
+    with pytest.raises(ValueError, match="SHA-256 de salida"):
+        rebuild.prepare_smoke(output, runner)
+    saved = json.loads((output / "receta.json").read_text(encoding="utf-8"))
+    saved["estado"] = "fallido"
+    (output / "receta.json").write_text(json.dumps(saved), encoding="utf-8")
+    with pytest.raises(ValueError, match="terminada sin errores"):
+        rebuild.prepare_smoke(output, runner)
+    assert not list(output.glob("inferencia-*"))
+
+
+def test_smoke_timeout_stops_own_process(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    stopped = []
+    class Process:
+        pid = 123456789
+        returncode = None
+        def __init__(self, *args, **kwargs):
+            pass
+        def poll(self):
+            return self.returncode
+    def terminate(proc):
+        stopped.append(proc.pid)
+        proc.returncode = -9
+    monkeypatch.setattr(rebuild.subprocess, "Popen", Process)
+    monkeypatch.setattr(rebuild, "_terminate", terminate)
+    result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner, timeout=0.000001))
+    assert stopped == [123456789] and result["estado"] == "fallido"
+    assert "agotado" in result["ejecucion"]["error"]
+
+
+def test_smoke_cli_requires_pin_and_reports_exit(rebuilt, monkeypatch, capsys):
+    output, runner = rebuilt
+    base = ["modelos", "probar", str(output), "--ejecutor", str(runner)]
+    assert main([*base, "--ejecutar"]) == 2
+    assert "sha256-paquete" in capsys.readouterr().out
+    assert main(base) == 0
+    pin = json.loads(capsys.readouterr().out)["herramienta"]["bundle_sha256"]
+    fake_runner(monkeypatch)
+    assert main([*base, "--ejecutar", "--sha256-paquete", pin]) == 0
+    assert json.loads(capsys.readouterr().out)["verificacion"]["banco"] == "NO VERIFICADO"
+    fake_runner(monkeypatch, answer="7\n")
+    assert main([*base, "--ejecutar", "--sha256-paquete", pin]) == 2
