@@ -111,6 +111,18 @@ def _run(cmd: list[str], cwd: Path, timeout: float, env: dict[str, str] | None =
             "tail": out if full else out[-2500:]}
 
 
+def _site_scripts(root: Path) -> list[str]:
+    """JavaScript que carga el navegador en un sitio estático: todo .js/.mjs salvo pruebas,
+    dependencias y scripts de herramientas. Rutas relativas con «/», en orden estable."""
+    skip = {"node_modules", "tests", "test", "scripts", ".git"}
+    found = []
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root)
+        if path.suffix in (".js", ".mjs") and path.is_file() and not skip.intersection(rel.parts[:-1]):
+            found.append(rel.as_posix())
+    return found
+
+
 def pin_nuget_versions(project: Path, dotnet: str) -> dict[str, str]:
     """Sustituye Version="*" por la versión que NuGet restauró de verdad (proyecto reproducible)."""
     import re
@@ -329,7 +341,13 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
         if not (npm and node):
             return {"ok": False, "steps": [], "error": "Node.js/npm no están instalados"}
         if target == "static":
-            step([node, "--test"], "pruebas (node --test)")
+            # Las pruebas de node --test no cargan el JS del navegador: un error de sintaxis
+            # en js/main.js deja la página sin lógica y las pruebas siguen en verde.
+            ok = True
+            for script in _site_scripts(root):
+                ok = step([node, "--check", script], f"sintaxis JS del sitio ({script})") and ok
+            if ok:
+                step([node, "--test"], "pruebas (node --test)")
         else:
             ok = True
             if install or not (root / "node_modules").is_dir():

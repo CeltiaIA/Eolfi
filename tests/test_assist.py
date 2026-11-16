@@ -84,6 +84,33 @@ def test_assist_repairs_then_passes(tmp_path):
     assert r["usage"] == {"input_tokens": 2000, "output_tokens": 400}
 
 
+def test_assist_detecta_js_del_sitio_con_error_de_sintaxis(tmp_path):
+    """16/11/2026: Gemma escribió un «\\n» literal en js/main.js; node --test seguía en verde y la página
+    se quedaba sin lógica. La sintaxis del JS del navegador se comprueba antes de las pruebas."""
+    out = _project(tmp_path)
+    good = (out / "js" / "main.js").read_text(encoding="utf-8")
+    broken = good + "\nvar tareas = [];\\n        tareas.push(1);\n"
+    client = FakeClient([
+        {"summary": "Lista de tareas", "notes": [], "files": [{"path": "js/main.js", "content": broken}]},
+        {"summary": "Sintaxis corregida", "notes": [], "files": [
+            {"path": "js/main.js", "content": good + "\nvar tareas = [];\ntareas.push(1);\n"}]},
+    ])
+    r = assist(out, "Añade una lista de tareas", provider=client)
+    assert r["ok"] and len(r["rounds"]) == 2
+    assert r["rounds"][0]["failed_step"] == "sintaxis JS del sitio (js/main.js)"
+    assert "SyntaxError" in r["rounds"][0]["failed_output"]
+
+
+def test_scripts_del_sitio_excluye_pruebas_y_herramientas(tmp_path):
+    from eolfi.generador.verify import _site_scripts
+
+    for rel in ("js/main.js", "js/mod.mjs", "app.js", "tests/site.test.mjs", "scripts/serve.mjs",
+                "node_modules/x/index.js", "css/style.css"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("", encoding="utf-8")
+    assert _site_scripts(tmp_path) == ["app.js", "js/main.js", "js/mod.mjs"]
+
+
 def test_assist_restores_when_never_green(tmp_path):
     out = _project(tmp_path)
     original = (out / "index.html").read_text(encoding="utf-8")
