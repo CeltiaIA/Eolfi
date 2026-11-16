@@ -161,7 +161,12 @@ mejorar a sí mismos.
    **NO VERIFICADO** en vivo tras esa corrección. **Causa del no determinismo:** la caché de prompt de
    llama-server. Medido con la misma petición, semilla 0 y temperatura 0: con la caché sale un texto en frío y otro
    en caliente; con `cache_prompt: false` sale idéntico en frío, en caliente y tras reiniciar (7 de 7). Con
-   `EOLFI_SEMILLA`, Eolas V2 y llama.cpp ya envían `cache_prompt: false`. Eolas V1 (`/api/chat`) no: pendiente. Banco «tareas» (`eolfi/rsi_banco.py`):
+   `EOLFI_SEMILLA`, Eolas V2 y llama.cpp ya envían `cache_prompt: false`. Eolas V1 (`/api/chat`) no: pendiente.
+   **Más encargos** (`PLAN_DEFINITIVO.md`, B5): además de «tareas», «contador» y «filtro» en `tools/rsi/bancos/`,
+   cada uno con `fuente/`, `encargo.txt`, `criterios.json` (los ve el proyecto) y `juez.json` (el evaluador, que el
+   proyecto no ve y comprueba más casos). `--banco todos` reparte los encargos por semilla. Jueces validados con
+   apps de referencia: la correcta saca la nota máxima y una página inerte, 1 de 8. **NO VERIFICADO** con un modelo.
+   Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
 4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,

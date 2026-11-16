@@ -1,0 +1,85 @@
+{
+ "version": 1,
+ "pagina": "index.html",
+ "pasos": [
+  {
+   "escribir": {
+    "selector": "#buscar",
+    "texto": "MEL"
+   }
+  },
+  {
+   "comprobar": "no distingue mayúsculas",
+   "selector": "#lista li:visible",
+   "cuenta": 1
+  },
+  {
+   "comprobar": "la cuenta dice 1",
+   "selector": "#cuenta",
+   "patron": "(?<![-−\\d])1(?!\\d)"
+  },
+  {
+   "escribir": {
+    "selector": "#buscar",
+    "texto": "platano"
+   }
+  },
+  {
+   "comprobar": "no distingue acentos",
+   "selector": "#lista li:visible",
+   "cuenta": 1
+  },
+  {
+   "escribir": {
+    "selector": "#buscar",
+    "texto": "an"
+   }
+  },
+  {
+   "comprobar": "«an» deja 4 frutas",
+   "selector": "#lista li:visible",
+   "cuenta": 4
+  },
+  {
+   "comprobar": "la cuenta dice 4",
+   "selector": "#cuenta",
+   "patron": "(?<![-−\\d])4(?!\\d)"
+  },
+  {
+   "escribir": {
+    "selector": "#buscar",
+    "texto": "zzz"
+   }
+  },
+  {
+   "comprobar": "sin coincidencias no se ve ninguna",
+   "selector": "#lista li:visible",
+   "cuenta": 0
+  },
+  {
+   "comprobar": "la cuenta dice 0",
+   "selector": "#cuenta",
+   "patron": "(?<![-−\\d])0(?!\\d)"
+  },
+  {
+   "escribir": {
+    "selector": "#buscar",
+    "texto": ""
+   }
+  },
+  {
+   "comprobar": "vacío muestra las 6",
+   "selector": "#lista li:visible",
+   "cuenta": 6
+  },
+  {
+   "comprobar": "la cuenta vuelve a 6",
+   "selector": "#cuenta",
+   "patron": "(?<![-−\\d])6(?!\\d)"
+  },
+  {
+   "comprobar": "sin errores de JavaScript",
+   "sin_errores_js": true
+  }
+ ]
+}

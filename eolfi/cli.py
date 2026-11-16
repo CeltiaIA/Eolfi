@@ -505,14 +505,14 @@ def _parser() -> argparse.ArgumentParser:
     rss.add_parser("proponer", help="Propone cambios a partir de los síntomas repetidos")
     rse = rss.add_parser("evaluar", help="Línea base contra candidata con un banco de pruebas (CARGA el modelo local)")
     rse.add_argument("id")
-    rse.add_argument("--banco", choices=["tareas"], default="tareas")
+    rse.add_argument("--banco", choices=["tareas", "contador", "filtro", "todos"], default="tareas")
     rse.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
     rse.add_argument("--modelo", default=None)
     rse.add_argument("--muestras", type=int, default=5, help="Pares base/candidata (mínimo 5)")
     rse.add_argument("--margen", type=float, default=0.05)
     rse.add_argument("--alfa", type=float, default=0.05, help="Nivel de la prueba exacta de signos")
     rsa = rss.add_parser("aa", help="Prueba A/A del evaluador con el banco real (CARGA el modelo local)")
-    rsa.add_argument("--banco", choices=["tareas"], default="tareas")
+    rsa.add_argument("--banco", choices=["tareas", "contador", "filtro", "todos"], default="tareas")
     rsa.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
     rsa.add_argument("--modelo", default=None)
     rsa.add_argument("--muestras", type=int, default=5)
@@ -1659,7 +1659,7 @@ def main(argv: list[str] | None = None) -> int:
             elif a in ("evaluar", "aa"):
                 from eolfi import rsi_banco
 
-                banco = rsi_banco.banco_tareas(proveedor=args.proveedor, modelo=args.modelo,
+                banco = rsi_banco.banco(args.banco, proveedor=args.proveedor, modelo=args.modelo,
                                                registro=lambda d: _progress(f"RSI muestra: {d}"))
                 if a == "aa":
                     _print(rsi.prueba_aa(banco, muestras=args.muestras))

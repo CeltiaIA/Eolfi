@@ -1,0 +1,136 @@
+{
+ "version": 1,
+ "pagina": "index.html",
+ "pasos": [
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "comprobar": "tres clics en sumar dan 3",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])3(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#menos"
+   }
+  },
+  {
+   "comprobar": "restar deja 2",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])2(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#reiniciar"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "comprobar": "reiniciar pone 0 (y sumar da 1)",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])1(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#menos"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#menos"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#menos"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "comprobar": "no baja de 0",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])1(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "recargar": true
+  },
+  {
+   "comprobar": "el valor sigue al recargar",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])2(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#reiniciar"
+   }
+  },
+  {
+   "recargar": true
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "comprobar": "el 0 también se guarda",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])1(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "comprobar": "llega a 5",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])5(?!\\d)"
+  },
+  {
+   "comprobar": "sin errores de JavaScript",
+   "sin_errores_js": true
+  }
+ ]
+}

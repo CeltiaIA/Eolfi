@@ -26,7 +26,12 @@ JUEZ = ROOT / "tools" / "rsi" / "juez-tareas.mjs"
 CRITERIOS = ROOT / "tools" / "rsi" / "criterios-tareas.json"
 ENCARGO = ("Implementa la lista de tareas: añadir una tarea con el formulario, marcarla como hecha al hacer clic, "
            "borrarla con un botón y mostrar en #resumen cuántas quedan pendientes. Guarda las tareas en localStorage.")
-BANCOS = ("tareas",)
+BANCOS_DIR = ROOT / "tools" / "rsi" / "bancos"
+# Encargos del banco (PLAN_DEFINITIVO.md, B5). «tareas» conserva su juez propio; los demás viven en
+# tools/rsi/bancos/<nombre>/ con fuente/, encargo.txt, criterios.json (los ve el proyecto: verify) y juez.json (el
+# evaluador, que el proyecto no ve y comprueba MÁS casos que los criterios).
+ENCARGOS = ("tareas", "contador", "filtro")
+BANCOS = (*ENCARGOS, "todos")
 
 
 def juzgar(proyecto: Path, *, timeout: float = 300) -> dict:
@@ -61,23 +66,59 @@ def _mejor_intento(salida: str) -> dict:
     return {"rondas": len(rondas), "mejor_juez_verify": f'{m["passed"]}/{m["total"]}'}
 
 
+def encargo(nombre: str) -> dict:
+    """Archivos de un encargo: fuente, texto, criterios visibles y juez (None en «tareas», que usa JUEZ)."""
+    if nombre == "tareas":
+        return {"nombre": nombre, "fuente": FUENTE, "texto": ENCARGO, "criterios": CRITERIOS, "juez": None}
+    if nombre not in ENCARGOS:
+        raise ValueError(f"encargo desconocido: {nombre} (hay: {', '.join(ENCARGOS)})")
+    d = BANCOS_DIR / nombre
+    return {"nombre": nombre, "fuente": d / "fuente", "texto": (d / "encargo.txt").read_text(encoding="utf-8").strip(),
+            "criterios": d / "criterios.json", "juez": d / "juez.json"}
+
+
+def _puntuar(e: dict, proyecto: Path) -> dict:
+    """Nota del evaluador: {"passed", "total"}. El juez declarativo se ejecuta con el mismo motor que el de verify."""
+    if e["juez"] is None:
+        return juzgar(proyecto)
+    from eolfi.generador import juez as _juez
+
+    j = _juez.juzgar(proyecto, _juez.validar(json.loads(Path(e["juez"]).read_text(encoding="utf-8"))))
+    if j.get("status") != "ok":
+        raise RuntimeError(f"el juez no pudo ejecutarse: {j.get('error', j.get('status'))}")
+    return {"passed": j["passed"], "total": j["total"]}
+
+
+def banco(nombre: str, **kw) -> Callable[..., float]:
+    """Banco por nombre. «todos» reparte los encargos por semilla (par 0 → tareas, par 1 → contador…), de modo que
+    la línea base y la candidata de un mismo par hacen el mismo encargo."""
+    if nombre == "todos":
+        partes = [banco_tareas(encargo_nombre=n, **kw) for n in ENCARGOS]
+        return lambda semilla=0: partes[int(semilla or 0) % len(partes)](semilla)
+    if nombre not in ENCARGOS:
+        raise ValueError(f"banco desconocido: {nombre} (hay: {', '.join(BANCOS)})")
+    return banco_tareas(encargo_nombre=nombre, **kw)
+
+
 def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str, str] | None = None,
                  timeout: float = 3600, registro: Callable[[dict], None] | None = None,
-                 juez_en_verify: bool = True) -> Callable[..., float]:
+                 juez_en_verify: bool = True, encargo_nombre: str = "tareas") -> Callable[..., float]:
     """``juez_en_verify``: el proyecto lleva los criterios del juez funcional, así que ``verify`` prueba la app en
     Chrome y las rondas de reparación ven qué falla (B1). La puntuación la sigue dando el juez externo, que el
     proyecto no ve. La semilla del par llega a la generación por ``EOLFI_SEMILLA`` (B2)."""
+    e = encargo(encargo_nombre)
+
     def correr(semilla: int | None = None) -> float:
-        work = Path(tempfile.mkdtemp(prefix="eolfi-rsi-tareas-"))
+        work = Path(tempfile.mkdtemp(prefix=f"eolfi-rsi-{e['nombre']}-"))
         t0 = time.monotonic()
         try:
-            proyecto = work / "tareas"
-            cmd = [sys.executable, "-m", "eolfi", "create", "--from", str(FUENTE), "--out", str(proyecto),
-                   "--target", "static", "--name", "tareas", "--ai", ENCARGO, "--provider", proveedor]
+            proyecto = work / e["nombre"]
+            cmd = [sys.executable, "-m", "eolfi", "create", "--from", str(e["fuente"]), "--out", str(proyecto),
+                   "--target", "static", "--name", e["nombre"], "--ai", e["texto"], "--provider", proveedor]
             if modelo:
                 cmd += ["--model", modelo]
             if juez_en_verify:
-                cmd += ["--juez", str(CRITERIOS)]
+                cmd += ["--juez", str(e["criterios"])]
             fijo = {} if semilla is None else {"EOLFI_SEMILLA": str(int(semilla))}
             run = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                  timeout=timeout, cwd=ROOT, env={**os.environ, **fijo, **(entorno or {})}, check=False)
@@ -86,13 +127,13 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
                 score, detalle = 0.0, {"exit": run.returncode, **_mejor_intento(run.stdout),
                                        "error": _ultima_linea(run.stderr)}
             else:
-                j = juzgar(proyecto)
+                j = _puntuar(e, proyecto)
                 score, detalle = j["passed"] / max(1, j["total"]), {"juez": f'{j["passed"]}/{j["total"]}'}
-            telemetria.anotar("muestra", banco="tareas", proveedor=proveedor, modelo=modelo, semilla=semilla,
+            telemetria.anotar("muestra", banco=e["nombre"], proveedor=proveedor, modelo=modelo, semilla=semilla,
                               puntuacion=float(score), minutos=(time.monotonic() - t0) / 60,
                               exit=run.returncode, juez_en_verify=juez_en_verify)
             if registro:
-                registro({"banco": "tareas", "proveedor": proveedor, "semilla": semilla, "puntuacion": score, **detalle})
+                registro({"banco": e["nombre"], "proveedor": proveedor, "semilla": semilla, "puntuacion": score, **detalle})
             return score
         finally:
             shutil.rmtree(work, ignore_errors=True)
