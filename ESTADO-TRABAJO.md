@@ -35,10 +35,12 @@
 ## 1. En curso ahora
 
 **16/11, tarde (titular: «para las pruebas por ahora e implementemos primero todo el plan»).** Pruebas en vivo en pausa (medición de VRAM, competición repetida, evaluación del RSI con el banco).
-- Rama `rea-automejora` (`D:\Eolfi-wt-rsi`): RSI (punto 12) y puntos 8 a 11 de PLAN_REA.
-  - Puntos 8 a 11: `mapa_app`, `analizar_movil`, `analizar_firmware` y `entorno_agente`, en la CLI (`eolfi rea mapa|movil|firmware|entorno`) y en el chat.
-  - Probado con REA real solo .NET/PE (`own.dll`). Hallazgo: `inspect_managed_artifact` exige rutas `/…` y el REA de Windows las resuelve en la unidad de su carpeta de trabajo; Eolfi convierte la ruta y comprueba qué archivo leyó.
+- Rama `rea-automejora` (`D:\Eolfi-wt-rsi`, PR #46): solo el RSI (punto 12).
   - RSI: superficie y regla de lecciones de V2, observación de las herramientas del chat, API `/api/rsi` y tarjeta «Automejora» en el panel (e2e con axe). Las pruebas ya no escriben en `~/.eolfi/rsi`.
+  - Se añadieron y luego se QUITARON (titular: «quita los duplicados y deja solo el RSI») unas compuestas de los puntos 8 a 11: duplicaban las PR #22 a #33, ya probadas en vivo. Hallazgo que queda: `inspect_managed_artifact` exige rutas `/…` y el REA de Windows las resuelve en la unidad de su carpeta de trabajo.
+- JADX: ya instalado desde el 13/11 (`~/.eolfi/tools/jadx-headless-mcp-0.7.1-all.jar`, SHA-256 `6e5eacf5…`, `REA_JADX_MCP_JAR`); el 16/11 REA leyó ApiDemos 6.0.18 entero (2876 clases).
+- Evaluación del RSI pedida por el titular («haz la evaluacion R.S.I»): aislada en el scratchpad (`rsi-eval`, copia de `eolas-v2.json` y registro propio con dos observaciones sembradas y marcadas), propuesta `max_tokens` 8192 → 16384, banco «tareas» con V2, 3 muestras por lado. Resultado (11:33–12:50): base 7/9, 5/9, 1/4; candidata 5/9, 1/4, 5/9 → **suspendida** (0,45 < 0,53), valor restaurado, registro íntegro. El juez contaba sobre las comprobaciones ejecutadas: corregido a 9 fijas (con ello, 0,48 frente a 0,41). El V2 que arrancó la evaluación se paró con `eolas-v2 stop` (configuración copiada).
+- Siguiente (titular: «implementar un sistema VAS, Sistema Autónomo Verificable»; permiso para ejecutar artefactos propios y cargar V1 o V2, uno a la vez): auditoría del conjunto y plan por fases con métricas.
 
 **Cierre de la noche del 15/11 (titular: «sigue implementando el plan», «descarga las dependencias…», «compila e instala»).**
 - PR #42 (registros) **fusionada** (`1d766da`, CI 14/14). `D:\celtiaia` puesto al día con `origin/main` (`4cb6b78`) por avance rápido: antes se movieron las 5 copias sin seguimiento, idénticas, a `runtime\eolas\respaldo-2026-11-15\copias-sin-seguimiento`; se conserva el cambio del titular en `docs/audit/REA-BUNDLE-CONSOLIDADO-2026-11-05.md`. Tras actualizar: V1 401/200, web `ready`, `npm test` 99/99, smoke de Fios `live` y `local-keys` OK.
