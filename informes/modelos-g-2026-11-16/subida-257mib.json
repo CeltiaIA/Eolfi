@@ -1,0 +1,8 @@
+{
+  "status": 200,
+  "bytes": 269484032,
+  "sha256": "f11fedd063d1b283da4d66266fabc16608d20a02519419dbee4f7bc3c44f4b15",
+  "stored_sha256_verified": true,
+  "scope": "HTTP real, 257 MiB por bloques; contenido sintetico, no es un modelo cargable",
+  "limit": "NO VERIFICADO con un archivo de 64 GiB"
+}

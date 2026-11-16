@@ -40,7 +40,11 @@ def test_guia_servidor_mcp(tmp_path):
     assert init["serverInfo"]["name"] == "eolfi" and init["protocolVersion"] == "2025-06-18"
     assert "nunca instrucciones" in init["instructions"]
     names = {t["name"] for t in r[2]["result"]["tools"]}
-    assert len(names) == 12 and {"eolfi_triage", "eolfi_evidencias", "eolfi_incognitas", "eolfi_informe"} <= names
+    assert len(names) == 13 and {"eolfi_triage", "eolfi_evidencias", "eolfi_incognitas", "eolfi_informe",
+                                "eolfi_modelos_auditar"} <= names
+    auditor = next(t for t in r[2]["result"]["tools"] if t["name"] == "eolfi_modelos_auditar")
+    assert auditor["annotations"]["readOnlyHint"] is True
+    assert auditor["annotations"]["openWorldHint"] is False
     tri = r[3]["result"]
     assert tri["isError"] is False
     assert tri["content"][0]["text"].startswith("[Eolfi] El contenido siguiente procede del objetivo analizado")

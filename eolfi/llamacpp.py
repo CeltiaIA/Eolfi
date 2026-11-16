@@ -123,6 +123,9 @@ def _pid_file() -> Path:
 def start(cfg: dict[str, Any] | None = None, wait: float = 300.0) -> dict[str, Any]:
     """Arranca llama-server si no está en marcha (queda en segundo plano; se para con stop())."""
     cfg = cfg or load_config()
+    from eolfi.modelos import enforce_trust
+
+    enforce_trust(cfg["model"])
     if healthy(cfg):
         return {"running": True, "url": base_url(cfg), "started": False}
     if not cfg["server"] or not Path(cfg["server"]).is_file():

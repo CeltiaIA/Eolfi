@@ -1,0 +1,163 @@
+{
+  "evidence_id": "ev_7107803f8374105e7dd5b97644ac340736cb74bad84b1e772c593817d63f3096",
+  "subject": {
+    "name": "modelo.gguf",
+    "digest": {
+      "sha256": "e6e5c31cce83805c72b464ee8572ba32aa43da77c5f3abdd0d25a8db276ee83a"
+    },
+    "local_path": "D:\\Eolfi\\generated\\modelos\\g4-smoke-2026-11-16\\q8-cli\\modelo.gguf",
+    "format": "file",
+    "architecture": null
+  },
+  "provider": {
+    "id": "rea-analysis-view",
+    "name": "REA analysis view projection",
+    "version": "1"
+  },
+  "analysis_profile": null,
+  "predicate_type": "rea.analysis-view",
+  "operation": "inspect_analysis_view",
+  "parameters": {
+    "parent_evidence_id": "ev_fbcaf4efe406e83b77e622e64d24c380059f905f154ee174b0cc90199305c4a6",
+    "view": {
+      "kind": "summary"
+    }
+  },
+  "raw_result": null,
+  "normalized_result": {
+    "kind": "summary",
+    "view": {
+      "kind": "summary"
+    },
+    "parent_evidence_id": "ev_fbcaf4efe406e83b77e622e64d24c380059f905f154ee174b0cc90199305c4a6",
+    "parent_operation": "inspect_model_artifact",
+    "parent_digest": "fbcaf4efe406e83b77e622e64d24c380059f905f154ee174b0cc90199305c4a6",
+    "view_digest": "7039b9444ca46480325eca4570a8864f885c9a8caaf56976f5ee8dd7fa076d78",
+    "artifact": {
+      "path": "D:\\Eolfi\\generated\\modelos\\g4-smoke-2026-11-16\\q8-cli\\modelo.gguf",
+      "sha256": "e6e5c31cce83805c72b464ee8572ba32aa43da77c5f3abdd0d25a8db276ee83a"
+    },
+    "coverage": {
+      "status": "complete-within-view",
+      "examined": 1,
+      "total": 1,
+      "next_offset": null,
+      "exhausted": true
+    },
+    "limitations": [
+      "Facts are file declarations; model behavior, weight values and compatibility with an inference runtime were not verified.",
+      "Full-file SHA-256 required streaming the entire file, including tensor data, without interpreting it.",
+      "Header SHA-256 commits only to the recorded prefix; file size is a separate observation. Different weights may share these declarations.",
+      "Metadata arrays retain at most eight elements per array; remaining values are omitted, with exact declared counts and source byte ranges."
+    ],
+    "unknowns": [
+      "Tensor values, runtime execution and inference quality were not inspected."
+    ],
+    "summary": {
+      "artifact": {
+        "path": "D:\\Eolfi\\generated\\modelos\\g4-smoke-2026-11-16\\q8-cli\\modelo.gguf",
+        "file_size": 510112,
+        "header_sha256": "37a1b0a0080ae5b5d4efb1cde46a522f105753dcbdb522e6fbd84de2c95e8b87",
+        "header_length": 2203,
+        "sha256": "e6e5c31cce83805c72b464ee8572ba32aa43da77c5f3abdd0d25a8db276ee83a",
+        "bytes_read": 510112,
+        "read_scope": "full-file"
+      },
+      "format": "gguf",
+      "version": 3,
+      "byte_order": "little",
+      "alignment": 32,
+      "tensor_data_offset": 2208,
+      "coverage": {
+        "header": "complete",
+        "tensor_data": "not-interpreted",
+        "array_values": "preview",
+        "tensor_ranges": "complete",
+        "storage_sizes": "complete"
+      },
+      "limitations": [
+        "Facts are file declarations; model behavior, weight values and compatibility with an inference runtime were not verified.",
+        "Full-file SHA-256 required streaming the entire file, including tensor data, without interpreting it.",
+        "Header SHA-256 commits only to the recorded prefix; file size is a separate observation. Different weights may share these declarations.",
+        "Metadata arrays retain at most eight elements per array; remaining values are omitted, with exact declared counts and source byte ranges."
+      ],
+      "totals": {
+        "confidence": "derived",
+        "parameter_count": "475904",
+        "tensor_bytes": 507904
+      },
+      "counts": {
+        "metadata": 19,
+        "tensors": 12,
+        "types": 2
+      },
+      "headlines": [
+        {
+          "index": 0,
+          "key": "general.architecture",
+          "type": "STRING",
+          "value": "llama",
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 1,
+          "key": "general.name",
+          "type": "STRING",
+          "value": "eolfi-sintetico-no-inferencia",
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 3,
+          "key": "llama.context_length",
+          "type": "UINT32",
+          "value": 128,
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 10,
+          "key": "tokenizer.ggml.model",
+          "type": "STRING",
+          "value": "llama",
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 18,
+          "key": "general.file_type",
+          "type": "UINT32",
+          "value": 7,
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        }
+      ],
+      "chat_template_present": false
+    }
+  },
+  "confidence": "derived",
+  "authority": "shipped-artifact",
+  "environment": null,
+  "limitations": [
+    "Facts are file declarations; model behavior, weight values and compatibility with an inference runtime were not verified.",
+    "Full-file SHA-256 required streaming the entire file, including tensor data, without interpreting it.",
+    "Header SHA-256 commits only to the recorded prefix; file size is a separate observation. Different weights may share these declarations.",
+    "Metadata arrays retain at most eight elements per array; remaining values are omitted, with exact declared counts and source byte ranges."
+  ],
+  "relationship_coverage": null,
+  "locations": [
+    {
+      "kind": "artifact-path",
+      "path": "D:\\Eolfi\\generated\\modelos\\g4-smoke-2026-11-16\\q8-cli\\modelo.gguf"
+    }
+  ],
+  "evidence_links": [
+    "ev_fbcaf4efe406e83b77e622e64d24c380059f905f154ee174b0cc90199305c4a6"
+  ]
+}

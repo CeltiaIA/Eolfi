@@ -460,6 +460,11 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
         raise RuntimeError(f"El perfil {name} está retirado (no aprobó la ronda de motores); su GGUF se conserva. "
                            f"Restáuralo con «eolfi eolas-v2 restore {name}» si lo necesitas.")
     c = profile_config(name, cfg)
+    from eolfi.modelos import enforce_trust
+
+    policy = enforce_trust(c["model"])
+    if policy and (cfg.get("extra_args") or cfg.get("profiles", {}).get(name, {}).get("extra_args")):
+        raise ValueError("La política de confianza no admite extra_args: podrían sustituir el modelo autorizado")
     record = _runtime()
     if record and _pid_alive(int(record.get("pid") or 0)):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):

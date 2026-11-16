@@ -1,0 +1,16 @@
+{
+  "fecha": "2026-11-16T22:24:16.1940347+01:00",
+  "pid_observado": 34776,
+  "ejecutable": {
+    "ruta": "D:\\EOLAS-BASE\\llama\\llama-server.exe",
+    "sha256": "e339d7a3aad4bb0be10267a447e125db1f0a7db501eca08cddd8e4adcbadce08",
+    "version_archivo": null,
+    "version_producto": null
+  },
+  "proveedor": {
+    "ruta": "C:\\WINDOWS\\System32\\iphlpapi.dll",
+    "sha256": "75c96c32969e9e1c13590287a63fb124af734bf4984fcb545cbc95523405cb2b",
+    "version_archivo": "10.0.26100.9949 (WinBuild.160101.0800)"
+  },
+  "alcance": "Identidad de archivos en disco; no verifica memoria del proceso ni DLL del motor cargadas"
+}

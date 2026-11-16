@@ -1,0 +1,31 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 8191 MiB):
+  Device 0: NVIDIA GeForce RTX 3060 Ti, compute capability 8.6, VMM: yes, VRAM: 8191 MiB
+load_backend: loaded CUDA backend from D:\EOLAS-BASE\llama\ggml-cuda.dll
+load_backend: loaded RPC backend from D:\EOLAS-BASE\llama\ggml-rpc.dll
+load_backend: loaded CPU backend from D:\EOLAS-BASE\llama\ggml-cpu-haswell.dll
+version: 0.8.0-dev (build 11968, commit ac8e1694d)
+built with Clang 20.1.8 for Windows x86_64
+llama_quantize: quantizing 'C:\Users\mejil\AppData\Local\Temp\pytest-of-mejil\pytest-2337\test_native_quantizer_bf16_to_0\sintetico-bf16.gguf' to 'C:\Users\mejil\AppData\Local\Temp\pytest-of-mejil\pytest-2337\test_native_quantizer_bf16_to_0\q8\modelo.gguf' as Q8_0 using 4 threads
+llama_model_loader: loaded meta data with 18 key-value pairs and 3 tensors from C:\Users\mejil\AppData\Local\Temp\pytest-of-mejil\pytest-2337\test_native_quantizer_bf16_to_0\sintetico-bf16.gguf (version GGUF V3 (latest))
+llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.
+llama_model_loader: - kv   0:                       general.architecture str              = llama
+llama_model_loader: - kv   1:                               general.name str              = eolfi-sintetico-no-inferencia
+llama_model_loader: - kv   2:                          general.file_type u32              = 32
+llama_model_loader: - kv   3:                          llama.block_count u32              = 0
+llama_model_loader: - kv   4:                       llama.context_length u32              = 128
+llama_model_loader: - kv   5:                     llama.embedding_length u32              = 256
+llama_model_loader: - kv   6:                  llama.feed_forward_length u32              = 256
+llama_model_loader: - kv   7:                 llama.attention.head_count u32              = 8
+llama_model_loader: - kv   8:              llama.attention.head_count_kv u32              = 8
+llama_model_loader: - kv   9:                 llama.rope.dimension_count u32              = 32
+llama_model_loader: - kv  10:     llama.attention.layer_norm_rms_epsilon f32              = 0.000010
+llama_model_loader: - kv  11:                       tokenizer.ggml.model str              = llama
+llama_model_loader: - kv  12:                      tokenizer.ggml.tokens arr[str,32]      = ["<s>", "</s>", "<unk>", "tok0", "tok...
+llama_model_loader: - kv  13:                      tokenizer.ggml.scores arr[f32,32]      = [0.000000, 0.000000, 0.000000, 0.0000...
+llama_model_loader: - kv  14:                  tokenizer.ggml.token_type arr[u32,32]      = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...
+llama_model_loader: - kv  15:                tokenizer.ggml.bos_token_id u32              = 0
+llama_model_loader: - kv  16:                tokenizer.ggml.eos_token_id u32              = 1
+llama_model_loader: - kv  17:            tokenizer.ggml.unknown_token_id u32              = 2
+llama_model_loader: - type  f32:    1 tensors
+llama_model_loader: - type bf16:    2 tensors
+D:/a/llama.cpp/llama.cpp/src/llama-model.cpp:1410: GGML_ASSERT(hparams.n_layer_all > 0 && hparams.n_layer_all <= LLAMA_MAX_LAYERS) failed

@@ -117,6 +117,29 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
+    model_commands = models.add_subparsers(dest="modelos_action", required=True)
+    ma = model_commands.add_parser("auditar", help="Comprueba estructura GGUF y SHA-256")
+    ma.add_argument("archivo")
+    ma.add_argument("--pid", type=int, help="Añade una instantánea de sockets de este PID (Windows)")
+    mc = model_commands.add_parser("conexiones", help="Consulta sockets de un PID, sin iniciar el motor")
+    mc.add_argument("--pid", type=int, required=True)
+    mt = model_commands.add_parser("comprobar", help="Comprueba un hash contra un manifiesto autorizado")
+    mt.add_argument("archivo")
+    mt.add_argument("--manifiesto", required=True)
+    mr = model_commands.add_parser("reconstruir", help="Prepara una receta de cuantización; ejecutar exige opción y hashes")
+    mr.add_argument("archivo")
+    mr.add_argument("--out", required=True, help="Carpeta nueva; nunca sobrescribe una anterior")
+    mr.add_argument("--cuantizador", required=True, help="Ruta del ejecutable local llama-quantize")
+    mr.add_argument("--tipo", choices=["Q4_0", "Q3_K_M", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"], default="Q4_K_M")
+    mr.add_argument("--sha256-entrada")
+    mr.add_argument("--sha256-cuantizador")
+    mr.add_argument("--sha256-paquete")
+    mr.add_argument("--hilos", type=int, default=4)
+    mr.add_argument("--memoria-mib", type=int, default=256)
+    mr.add_argument("--timeout", type=float, default=1800)
+    mr.add_argument("--ejecutar", action="store_true", help="Ejecuta el cuantizador; requiere los hashes de entrada y paquete")
+
     doc = sub.add_parser("doctor", help="Comprueba proveedores")
     doc.add_argument("--pin", metavar="ARCHIVO", default=None,
                      help="Fija rutas, versiones y SHA-256 de las herramientas en este archivo de bloqueo")
@@ -1431,6 +1454,47 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
     args = _parser().parse_args(argv)
+    if args.cmd == "modelos":
+        from eolfi.modelos import audit, check_trust
+
+        try:
+            if args.modelos_action == "reconstruir":
+                from eolfi.modelos_reconstruir import prepare, execute
+
+                if args.ejecutar and not (args.sha256_entrada and args.sha256_paquete):
+                    raise ValueError("--ejecutar requiere --sha256-entrada y --sha256-paquete de la receta revisada")
+                result = prepare(args.archivo, args.out, args.cuantizador, args.tipo,
+                                 source_sha=args.sha256_entrada, tool_sha=args.sha256_cuantizador,
+                                 bundle_sha=args.sha256_paquete, threads=args.hilos, buffer_mib=args.memoria_mib,
+                                 timeout=args.timeout)
+                if args.ejecutar:
+                    result = execute(result, timeout=args.timeout)
+                _print(result)
+                # El resultado aún necesita inferencia y banco: no anunciar un modelo listo.
+                return 2 if args.ejecutar else 0
+            if args.modelos_action == "auditar":
+                result = audit(args.archivo)
+                if args.pid is not None:
+                    from eolfi.modelos_red import snapshot
+
+                    result["conexiones_motor"] = snapshot(args.pid)
+                    if result["conexiones_motor"]["estado"] == "NO VERIFICADO":
+                        result["incognitas"].append("Conexiones del PID no verificadas completamente")
+                        if result["estado"] != "fallido":
+                            result["estado"] = "NO VERIFICADO"
+                _print(result)
+                return 0 if result["estado"] == "estructura_verificada" else 2
+            if args.modelos_action == "conexiones":
+                from eolfi.modelos_red import snapshot
+
+                result = snapshot(args.pid)
+                _print(result)
+                return 0 if result["estado"] == "observado" else 2
+            _print(check_trust(args.archivo, args.manifiesto))
+            return 0
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            _print({"estado": "fallido", "error": str(exc)})
+            return 2
     if args.cmd == "eolas-v2":
         from pathlib import Path as _P
         from eolfi import eolas_v2

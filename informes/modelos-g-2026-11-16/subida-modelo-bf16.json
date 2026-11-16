@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "archivo_origen": "D:\\AI\\Hydra\\gguf\\gemma-4-12b-it-BF16.gguf",
+  "bytes": 23832066656,
+  "sha256": "5a5eefea73350705c6753105b725a51301d653e8d6646173db29a7e8da8e6efd",
+  "stored_sha256_verified": true,
+  "seconds": 1287.39,
+  "scope": "Subida HTTP real del mayor GGUF local; copia temporal eliminada al terminar; sin cargar el modelo"
+}
