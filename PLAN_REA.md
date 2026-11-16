@@ -147,7 +147,13 @@ mejorar a sí mismos.
    **A/A** del evaluador: `eolfi rsi aa --proveedor … [--simulada DESVIACION]`; la real queda en el registro como
    evento `aa`. Simulada con la desviación medida del banco (0,3), 400 repeticiones: 2,5 % de falsos positivos con
    5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. La A/A real con el banco
-   está **NO VERIFICADA** (unos 13 min por muestra, 10 muestras). Banco «tareas» (`eolfi/rsi_banco.py`):
+   está **NO VERIFICADA** (unos 13 min por muestra, 10 muestras).
+   **Juez dentro de `verify` y semilla** (`PLAN_DEFINITIVO.md`, B1 y B2): el banco crea el proyecto con
+   `create --juez tools/rsi/criterios-tareas.json` (10 comprobaciones declaradas), así que `verify` prueba la app en
+   Chrome, un proyecto que no funciona ya no sale en verde y cada ronda de reparación recibe qué comprobación falla.
+   El modelo no puede escribir `eolfi.juez.json`. La semilla del par llega a la generación por `EOLFI_SEMILLA`
+   (semilla y `temperature` 0 en los motores locales). Sin verde, la muestra puntúa 0 y se anota el mejor intento.
+   **NO VERIFICADO** con un modelo real. Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
 4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,

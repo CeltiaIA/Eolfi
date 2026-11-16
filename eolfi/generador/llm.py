@@ -203,6 +203,28 @@ class Provider:
         raise NotImplementedError
 
 
+def semilla() -> int | None:
+    """Generación reproducible (PLAN_DEFINITIVO.md, B2): con ``EOLFI_SEMILLA`` (entero ≥ 0) los motores locales
+    reciben esa semilla y ``temperature`` 0. Sin ella, todo sigue como antes. La usa el banco del RSI para que la
+    línea base y la candidata de un mismo par partan de lo mismo."""
+    raw = os.environ.get("EOLFI_SEMILLA", "").strip()
+    if not raw:
+        return None
+    try:
+        n = int(raw)
+    except ValueError as exc:
+        raise LLMError("EOLFI_SEMILLA debe ser un entero") from exc
+    if not 0 <= n < 2**31:
+        raise LLMError("EOLFI_SEMILLA debe estar entre 0 y 2147483647")
+    return n
+
+
+def determinista(opciones: dict[str, Any]) -> dict[str, Any]:
+    """Añade semilla y temperatura 0 a las opciones de una petición si hay ``EOLFI_SEMILLA``."""
+    n = semilla()
+    return opciones if n is None else {**opciones, "temperature": 0, "seed": n}
+
+
 class OllamaProvider(Provider):
     """Eolas V1 / Ollama: POST /api/chat con `format` = esquema JSON."""
     name = "eolas"
@@ -228,7 +250,7 @@ class OllamaProvider(Provider):
                 raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
-            "options": {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2},
+            "options": determinista({"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}),
         }, eolas_v1_headers(self.base_url), self.timeout)
         text = (r.get("message") or {}).get("content", "")
         if not text:
@@ -299,7 +321,7 @@ class LlamaCppProvider(OpenAICompatProvider):
         msgs = [{"role": "system", "content": system}] + [
             {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])}
             for m in messages]
-        opts = llamacpp.request_options(self.cfg)
+        opts = determinista(llamacpp.request_options(self.cfg))
         # El modo asistido devuelve archivos enteros: la mitad del contexto como mínimo para la respuesta.
         opts["max_tokens"] = max(int(opts["max_tokens"]), int(self.cfg["ctx"]) // 2)
         r = _post(f"{self.base_url}/chat/completions", {
@@ -387,7 +409,7 @@ class EolasEngineProvider(Provider):
             if eolas_v2.is_mistral_profile(profile):
                 msgs = _mistral_chat_messages(system, msgs[1:])
                 reasoning = False
-            opts = llamacpp.request_options(c, reasoning=reasoning)
+            opts = determinista(llamacpp.request_options(c, reasoning=reasoning))
             # Contexto y límite de generación son distintos; no conviertas un contexto 32k
             # en permiso para emitir 16k tokens por cada fase del compuesto.
             opts["max_tokens"] = min(max(1, int(opts["max_tokens"])), max(1, int(c["ctx"])))

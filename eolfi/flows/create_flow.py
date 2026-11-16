@@ -123,7 +123,7 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                    ai_client=None, ai_provider: str = "eolas-v2", ai_model: str | None = None,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
                    progress: Callable[[str], None] | None = None, case_id: str | None = None,
-                   provenance: str = "", autofix: bool = False) -> dict[str, Any]:
+                   provenance: str = "", autofix: bool = False, juez: str | None = None) -> dict[str, Any]:
     """autofix: si la verificación falla, la IA (ai_provider) intenta corregir el proyecto (ver run_autofix).
     case_id: cada fuente analizada queda en el caso (con su propio registro «analysis») y la reconstrucción
     se registra como «reconstruction», con la verificación y sus pasos. Sin verificación verde: «partial»."""
@@ -131,13 +131,14 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
 
     params = {"sources": sources, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
               "force": force, "reanalyze": reanalyze, "db": db, "auth": auth, "ai": bool(ai_brief),
-              "ai_provider": ai_provider if (ai_brief or autofix) else None, "autofix": autofix}
+              "ai_provider": ai_provider if (ai_brief or autofix) else None, "autofix": autofix,
+              "juez": bool(juez)}
     with case_run(store, case_id, "create", params,
                   provenance or "fuentes indicadas por el operador para una reconstrucción") as run:
         rep = _create_project(sources, store, out, name=name, target=target, do_verify=do_verify, force=force,
                               reanalyze=reanalyze, workdir=workdir, ai_brief=ai_brief, ai_client=ai_client,
                               ai_provider=ai_provider, ai_model=ai_model, ai_base_url=ai_base_url, db=db,
-                              auth=auth, progress=progress, case_id=case_id, autofix=autofix)
+                              auth=auth, progress=progress, case_id=case_id, autofix=autofix, juez=juez)
         if run.active:
             for src in rep["sources"]:
                 run.associate(src["subject"])
@@ -164,7 +165,7 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
 
 def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str, target: str,
                     do_verify: bool, force: bool, reanalyze: bool, workdir: str, ai_brief: str | None,
-                    autofix: bool = False,
+                    autofix: bool = False, juez: str | None = None,
                     ai_client, ai_provider: str, ai_model: str | None, ai_base_url: str | None, db: str,
                     auth: bool, progress: Callable[[str], None] | None, case_id: str | None) -> dict[str, Any]:
     from eolfi.generador.generators import generate
@@ -320,6 +321,13 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
                     operation="project_verification", params={"target": spec["target"], "after": "autofix"},
                     result=final, authority=Authority.CONTROLLED_REPRO, confidence=Confidence.HIGH,
                     environment=env, limitations="Verificación aislada tras la corrección automática de la IA."))
+    if juez:
+        # Los criterios entran DESPUÉS de verificar la base y ANTES de la IA: la plantilla sin implementar no los
+        # cumple; lo que escriba la IA sí debe cumplirlos. El modelo no puede editarlos.
+        from eolfi.generador import juez as _juez
+
+        result["juez"] = {"comprobaciones": sum(1 for p in _juez.instalar(out_path, juez)["pasos"] if "comprobar" in p)}
+        log(f"criterios del juez funcional instalados ({result['juez']['comprobaciones']} comprobaciones)")
     if ai_brief:
         result["assist"] = run_assist(store, out_path, ai_brief, client=ai_client, provider=ai_provider,
                                       model=ai_model, base_url=ai_base_url, progress=log)

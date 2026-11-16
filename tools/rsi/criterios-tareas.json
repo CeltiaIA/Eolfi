@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "pagina": "index.html",
+  "pasos": [
+    {"comprobar": "hay un formulario de tareas", "selector": "form:not(:has(input[type=email], textarea)) :is(input[type=text], input:not([type]))", "cuenta": 1},
+    {"escribir": {"selector": "form:not(:has(input[type=email], textarea)) :is(input[type=text], input:not([type]))", "texto": "comprar pan", "intro": true}},
+    {"escribir": {"selector": "form:not(:has(input[type=email], textarea)) :is(input[type=text], input:not([type]))", "texto": "llamar a Ana", "intro": true}},
+    {"comprobar": "añade la primera tarea", "presente": "comprar pan"},
+    {"comprobar": "añade la segunda tarea", "presente": "llamar a Ana"},
+    {"comprobar": "el resumen cuenta 2 pendientes", "selector": "#resumen", "patron": "\\b2\\b"},
+    {"comprobar": "clic marca la tarea como hecha", "cambia_al_clic": "comprar pan"},
+    {"comprobar": "el resumen pasa a 1 pendiente", "selector": "#resumen", "patron": "\\b1\\b"},
+    {"clic": {"selector": "button", "en": "llamar a Ana"}},
+    {"comprobar": "borrar quita la tarea", "ausente": "llamar a Ana"},
+    {"recargar": true},
+    {"comprobar": "localStorage conserva las tareas al recargar", "presente": "comprar pan"},
+    {"comprobar": "lo borrado no vuelve al recargar", "ausente": "llamar a Ana"},
+    {"comprobar": "sin errores de JavaScript", "sin_errores_js": true}
+  ]
+}

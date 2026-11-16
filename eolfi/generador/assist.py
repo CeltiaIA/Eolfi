@@ -48,7 +48,7 @@ EDITABLE = {
 FORBIDDEN = re.compile(
     r"(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|"
     r"vite\.config\.[jt]s|next\.config\.[jt]s|svelte\.config\.js|tsconfig\.json|Dockerfile|"
-    r"settings\.py|manage\.py|conftest\.py|eolfi\.spec\.json)$|(^|/)(node_modules|\.venv|\.git|\.github|dist|\.next)(/|$)")
+    r"settings\.py|manage\.py|conftest\.py|eolfi\.spec\.json|eolfi\.juez\.json)$|(^|/)(node_modules|\.venv|\.git|\.github|dist|\.next)(/|$)")
 TEXT_EXT = {".ts", ".tsx", ".js", ".mjs", ".vue", ".svelte", ".py", ".html", ".css", ".json", ".md", ".sql", ".rs", ".cs"}
 
 OUTPUT_SCHEMA = {
@@ -298,7 +298,8 @@ _SETUP_STEP = re.compile(r"^(instalar|restaurar|crear entorno)", re.IGNORECASE)
 def _ver_summary(ver: dict[str, Any]) -> dict[str, Any]:
     return {"ok": bool(ver.get("ok")),
             "steps": [{k: s[k] for k in ("step", "exit", "seconds") if k in s} for s in ver.get("steps", [])],
-            **({"error": ver["error"]} if "error" in ver else {})}
+            **({"error": ver["error"]} if "error" in ver else {}),
+            **({"judge": {k: ver["judge"].get(k) for k in ("status", "passed", "total")}} if "judge" in ver else {})}
 
 
 def autofix(project: str | Path, *, client=None, effort: str = "high",

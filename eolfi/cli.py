@@ -334,6 +334,8 @@ def _parser() -> argparse.ArgumentParser:
     _case_args(cr)
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
+    cr.add_argument("--juez", default=None, metavar="ARCHIVO",
+                    help="Criterios del juez funcional (JSON): la app se prueba en Chrome y debe cumplirlos todos")
     cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
                     help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
@@ -856,13 +858,23 @@ def _dispatch(args, store: EvidenceStore) -> int:
         from eolfi.flows.create_flow import create_project
 
         ctx = {"proveedor": args.provider or "", "modelo": args.model or "", "destino": args.target}
+        if args.juez:
+            from pathlib import Path as _Path
+
+            from eolfi.generador import juez as _juez
+
+            try:
+                _juez.validar(json.loads(_Path(args.juez).read_text(encoding="utf-8")))
+            except (OSError, ValueError) as exc:
+                print(f"create: criterios del juez inválidos: {exc}", file=sys.stderr)
+                return 2
         try:
             rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
                                  do_verify=True, force=args.force, reanalyze=args.reanalyze,
                                  workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                                  ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
                                  progress=_progress, case_id=args.case_id, provenance=args.provenance,
-                                 autofix=args.autofix)
+                                 autofix=args.autofix, juez=args.juez)
         except Exception as exc:
             if args.ai_brief:
                 _rsi_observar("generador", "create_ai", {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ctx)
