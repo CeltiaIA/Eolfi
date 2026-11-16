@@ -521,6 +521,13 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
         raise RuntimeError(f"El perfil {name} está retirado (no aprobó la ronda de motores); su GGUF se conserva. "
                            f"Restáuralo con «eolfi eolas-v2 restore {name}» si lo necesitas.")
     c = profile_config(name, cfg)
+    # Lista de confianza (PLAN_DEFINITIVO.md, G2): si el titular la exige, un GGUF que no esté no se carga.
+    from eolfi import modelos
+
+    try:
+        modelos.comprobar_carga(c["model"])
+    except modelos.ModeloError as exc:
+        raise RuntimeError(str(exc)) from exc
     record = _runtime()
     if _record_alive(record):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):

@@ -485,6 +485,21 @@ def _parser() -> argparse.ArgumentParser:
     r4.add_argument("original")
     r4.add_argument("nueva")
 
+    mo = sub.add_parser("modelos", help="Confianza en los modelos locales: auditar GGUF, lista de confianza y conexiones")
+    mos = mo.add_subparsers(dest="modelos_action", required=True)
+    moa = mos.add_parser("auditar", help="Revisa GGUF sin cargarlos (sin rutas: los de los perfiles de Eolas V2)")
+    moa.add_argument("rutas", nargs="*")
+    moa.add_argument("--sin-sha256", action="store_true", help="No calcula el SHA-256 (más rápido)")
+    moc = mos.add_parser("confiar", help="Audita un GGUF y, si sale limpio, lo añade a la lista de confianza")
+    moc.add_argument("ruta")
+    moc.add_argument("--por", required=True, help="Quién lo acepta (queda en la lista)")
+    moc.add_argument("--aunque-haya-hallazgos", action="store_true")
+    mor = mos.add_parser("retirar", help="Quita un modelo de la lista por su SHA-256")
+    mor.add_argument("sha256")
+    moe = mos.add_parser("exigir", help="Con «si», Eolas V2 no carga modelos que no estén en la lista")
+    moe.add_argument("valor", choices=["si", "no"])
+    mos.add_parser("lista", help="Modelos aceptados y si la lista se exige")
+    mos.add_parser("conexiones", help="A qué escuchan y con quién hablan los motores en marcha")
     vz = sub.add_parser("voz", help="Voz local: voz a texto y texto a voz sin que el audio salga del equipo")
     vzs = vz.add_subparsers(dest="voz_action", required=True)
     vzs.add_parser("estado", help="Motores disponibles, idioma y voces")
@@ -1657,6 +1672,36 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 store.close()
         _print(result)
+        return 0
+    if args.cmd == "modelos":
+        from eolfi import modelos
+
+        try:
+            if args.modelos_action == "auditar":
+                rutas = args.rutas
+                if not rutas:
+                    from eolfi import eolas_v2
+
+                    cfg = eolas_v2.load_config()
+                    rutas = sorted({str(p["model"]) for p in cfg["profiles"].values() if os.path.isfile(str(p.get("model", "")))})
+                informes = [modelos.auditar(r, con_sha256=not args.sin_sha256) for r in rutas]
+                _print({"modelos": informes, "limpios": sum(1 for i in informes if i["limpio"]), "total": len(informes)})
+                return 0 if all(i["limpio"] for i in informes) else 1
+            if args.modelos_action == "confiar":
+                _print(modelos.confiar(args.ruta, por=args.por, aunque_haya_hallazgos=args.aunque_haya_hallazgos))
+            elif args.modelos_action == "retirar":
+                _print({"retirado": modelos.retirar(args.sha256)})
+            elif args.modelos_action == "exigir":
+                _print(modelos.exigir(args.valor == "si"))
+            elif args.modelos_action == "lista":
+                _print({"archivo": str(modelos.lista_path()), **modelos.lista()})
+            else:
+                res = modelos.conexiones()
+                _print(res)
+                return 0 if res.get("limpio", True) else 1
+        except (modelos.ModeloError, OSError) as exc:
+            print(f"modelos: {exc}", file=sys.stderr)
+            return 2
         return 0
     if args.cmd == "voz":
         from pathlib import Path
