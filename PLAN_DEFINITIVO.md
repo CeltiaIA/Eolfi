@@ -63,8 +63,8 @@ navegador dé permiso a la página (en `127.0.0.1` lo permite).
 
 | # | Pieza | Estado |
 |---|---|---|
-| B1 | Juez funcional dentro de `verify` (prueba la app en Chrome; las reparaciones ven qué falla) | Pendiente |
-| B2 | Determinismo: semilla y `temperature` 0 en la generación evaluada; el banco pasa la semilla | Pendiente (el banco ya la recibe) |
+| B1 | Juez funcional dentro de `verify` (prueba la app en Chrome; las reparaciones ven qué falla) | Hecho en local para `static` (rama `vas-b1-b2`): `eolfi.juez.json`, `create --juez`. Falta: otros destinos y probarlo con un modelo real |
+| B2 | Determinismo: semilla y `temperature` 0 en la generación evaluada; el banco pasa la semilla | Hecho en local (`EOLFI_SEMILLA`, rama `vas-b1-b2`). NO VERIFICADO que dos corridas con la misma semilla den lo mismo en el motor real |
 | B3 | Evaluador estadístico y prueba A/A del RSI | Hecho en local (`73afd36`); A/A real en curso |
 | B4 | Telemetría por fase en JSONL (carga, tokens/s, verificación, juez) | Pendiente |
 | B5 | Más encargos en el banco (hoy uno solo, «tareas») | Pendiente |
