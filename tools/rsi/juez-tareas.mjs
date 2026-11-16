@@ -25,6 +25,9 @@ function serve(root) {
 }
 
 const browser = await chromium.launch({ headless: true, channel: process.env.EOLFI_E2E_CHANNEL || 'chrome' });
+// Siempre las mismas 9 comprobaciones: si la página falla antes, las no ejecutadas cuentan como no superadas
+// (16/11/2026: un proyecto roto puntuaba 1/4 = 0,25 en vez de 1/9 = 0,11).
+const TOTAL = 9;
 const results = {};
 for (const dir of process.argv.slice(2)) {
   const name = path.basename(dir);
@@ -69,7 +72,8 @@ for (const dir of process.argv.slice(2)) {
   }
   server.close();
   const passed = checks.filter((c) => c[1]).length;
-  results[name] = { passed, total: checks.length, checks, errors: errors.slice(0, 3) };
+  const ejecutadas = checks.filter((c) => c[0] !== 'carga de la página').length;
+  results[name] = { passed, total: TOTAL, ejecutadas, checks, errors: errors.slice(0, 3) };
 }
 await browser.close();
 console.log(JSON.stringify(results, null, 1));

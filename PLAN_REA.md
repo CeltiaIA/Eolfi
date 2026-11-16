@@ -173,8 +173,16 @@ SHA-256 (`eolfi rsi verificar` detecta cualquier edición, borrado o reordenaci�
 en `tests/e2e/panel.test.mjs` (Chrome real, axe sin problemas graves); antes, 13 pruebas: registro y manipulación, superficies cerradas, propuestas con
 repetición, evaluación con restauración y margen, aprobación y reversión, ajuste del umbral, ganchos de la CLI y banco
 con juez simulado). El juez funcional da 9/9 y 8/9 sobre los proyectos reales de V1 Q5 y V2 Q4 de la competición.
-**NO VERIFICADO:** una evaluación completa con el banco y el modelo local (carga el modelo durante varios minutos por
-muestra).
+**Evaluación real (16/11/2026, titular: «haz la evaluacion R.S.I»):** aislada (registro propio y copia de
+`eolas-v2.json` en el scratchpad; dos observaciones de salida cortada sembradas y marcadas para crear la propuesta),
+banco «tareas» con Eolas V2 `gemma_q4`, 3 muestras por lado, 11:33–12:50 (unos 13 min por muestra). Propuesta
+`eolas_v2.max_tokens` 8192 → 16384: base 7/9, 5/9, 1/4 (media 0,53); candidata 5/9, 1/4, 5/9 (0,45) → **suspendida**,
+no aprobable; el valor se restauró (8192) y el registro verifica (10 eventos). Lecciones:
+- El ruido del modelo domina (7/9 a 1/4 con la MISMA configuración): 3 muestras no bastan para cambios pequeños.
+- El juez contaba solo las comprobaciones ejecutadas (una página rota daba 1/4 = 0,25). Corregido: siempre sobre 9
+  (`total` fijo y `ejecutadas` aparte). Con ese criterio la evaluación da 0,48 frente a 0,41: misma conclusión.
+- La salida no se cortaba a 8192 tokens en esta tarea, así que duplicar `max_tokens` no podía ayudar: el RSI lo
+  rechazó por evidencia, que es lo que debe hacer.
 
 **Siguiente:** capas y contexto de V1 por petición como superficie (cuando se fusione la rama `eolas-plazo-local`),
 reglas a partir del juez funcional y de las incógnitas de REA, y la evaluación en vivo cuando el titular reanude las
