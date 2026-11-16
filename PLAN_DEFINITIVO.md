@@ -53,7 +53,7 @@ Todo local por defecto. El audio no sale del equipo salvo que el titular active 
 | A5 | **Modo conversación** | Manos libres: escucha → detecta el silencio → transcribe → envía → lee la respuesta → vuelve a escuchar. Se corta al hablar encima o con Esc | Tres turnos seguidos sin tocar el teclado |
 | A6 | **Órdenes por voz** | «Envía», «borra», «para», «nueva conversación», «lee la última» | Cada orden hace lo suyo y no se escribe como texto |
 | A7 | **Dictado en todo el panel** | El mismo micrófono en «Crear proyecto», casos y comparación | Funciona en los cuatro cuadros de texto |
-| A8 | **Whisper local** (opcional) | Instalar whisper.cpp y un modelo en `~/.eolfi/tools`, con SHA-256 registrado. **Pide permiso del titular** (descarga) | Mismo WAV, menos errores que el motor de Windows, medido |
+| A8 | **Whisper local** (hecho el 16/11, con permiso del titular) | whisper.cpp b5454 (CPU) y el modelo «small» en `~/.eolfi/tools/whisper-b5454`, con SHA-256 verificado; `motor: auto` lo elige | Hecho: 4 frases de prueba, Whisper 4 bien con tildes y puntuación (unos 6 s cada una); Windows 1 bien (1 s) |
 | A9 | **Voz en VS Code y en Fios** | Dictado en el chat `@eolfi` y en Fios, reutilizando la API | Dictar en los dos sitios |
 
 Límites que se declaran: el motor de Windows reconoce peor que Whisper y no puntúa; el micrófono exige que el
