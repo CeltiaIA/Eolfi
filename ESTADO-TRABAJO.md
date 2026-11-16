@@ -34,6 +34,12 @@
 
 ## 1. En curso ahora
 
+**16/11, tarde (titular: «para las pruebas por ahora e implementemos primero todo el plan»).** Pruebas en vivo en pausa (medición de VRAM, competición repetida, evaluación del RSI con el banco).
+- Rama `rea-automejora` (`D:\Eolfi-wt-rsi`): RSI (punto 12) y puntos 8 a 11 de PLAN_REA.
+  - Puntos 8 a 11: `mapa_app`, `analizar_movil`, `analizar_firmware` y `entorno_agente`, en la CLI (`eolfi rea mapa|movil|firmware|entorno`) y en el chat.
+  - Probado con REA real solo .NET/PE (`own.dll`). Hallazgo: `inspect_managed_artifact` exige rutas `/…` y el REA de Windows las resuelve en la unidad de su carpeta de trabajo; Eolfi convierte la ruta y comprueba qué archivo leyó.
+  - RSI: superficie y regla de lecciones de V2, observación de las herramientas del chat, API `/api/rsi` y tarjeta «Automejora» en el panel (e2e con axe). Las pruebas ya no escriben en `~/.eolfi/rsi`.
+
 **Cierre de la noche del 15/11 (titular: «sigue implementando el plan», «descarga las dependencias…», «compila e instala»).**
 - PR #42 (registros) **fusionada** (`1d766da`, CI 14/14). `D:\celtiaia` puesto al día con `origin/main` (`4cb6b78`) por avance rápido: antes se movieron las 5 copias sin seguimiento, idénticas, a `runtime\eolas\respaldo-2026-11-15\copias-sin-seguimiento`; se conserva el cambio del titular en `docs/audit/REA-BUNDLE-CONSOLIDADO-2026-11-05.md`. Tras actualizar: V1 401/200, web `ready`, `npm test` 99/99, smoke de Fios `live` y `local-keys` OK.
 - **Causa de las caídas de Gemma en Eolas V1:** la caché de prompts de llama-server en RAM (hasta 8 GiB por defecto, ~900 MiB por prompt de 7000 tokens) rebasa el Job de 9600 MiB: «bad allocation» y `GGML_ASSERT(batch.slot_batched …)`, 4 veces en `runtime\eolas\logs\runner-gemma-4-12b-it.log`. Arreglo: `launch-eolas.ps1` añade `--cache-ram 1024` salvo que `EOLAS_LLAMA_ARGS` ya lo fije. PR https://github.com/CeltiaIA/CeltiaIA/pull/6 (rama `eolas-cache-ram`, `2ab224e`), abierta; `npm test` 96/3 omitidas. **NO VERIFICADO en vivo** (exige reiniciar V1).
