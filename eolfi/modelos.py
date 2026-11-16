@@ -19,6 +19,10 @@ SCALARS = {0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i", 6: "f", 7: "?",
 BLOCKS = {0: (1, 4), 1: (1, 2), 2: (32, 18), 3: (32, 20), 6: (32, 22),
           7: (32, 24), 8: (32, 34),
           24: (1, 1), 25: (1, 2), 26: (1, 4), 27: (1, 8), 28: (1, 8), 30: (1, 2)}
+# Cuantizaciones K con superbloque de 256 (el formato actual). El identificador solo no distingue los formatos
+# históricos, así que estos tamaños NO se dan por buenos: se aceptan únicamente si los desplazamientos del propio
+# archivo los confirman (ver _confirm_k).
+K_STANDARD = {10: (256, 84), 11: (256, 110), 12: (256, 144), 13: (256, 176), 14: (256, 210), 15: (256, 292)}
 PATTERN = re.compile(r"https?://[^\s\"'<>]+|\b(?:curl|wget|socket|subprocess|powershell|eval|exec)\b", re.I)
 LIMIT = 256 * 1024 * 1024
 
@@ -69,6 +73,32 @@ class Reader:
         return self.number(SCALARS[kind])
 
 
+def _confirm_k(tensors, candidates, alignment):
+    """Confirma el tamaño de los tensores K con el archivo como testigo, sin adivinar.
+
+    ``tensors``: lista de (offset, longitud o None, nombre). ``candidates``: nombre -> (tipo, tamaño estándar).
+    Un tensor con sucesor es testigo: su tamaño estándar, alineado, debe acabar justo donde empieza el siguiente.
+    Un tipo queda confirmado si TODOS sus tensores tienen candidato, hay al menos un testigo y ninguno discrepa;
+    entonces se devuelve la longitud de todos sus tensores (también la del último, que no tiene sucesor).
+    Devuelve (longitudes por nombre, testigos por tipo)."""
+    ordered = sorted(tensors)
+    witnesses, failed, total = {}, set(), {}
+    for index, (offset, _length, name) in enumerate(ordered):
+        if name not in candidates:
+            continue
+        kind, size = candidates[name]
+        total[kind] = total.get(kind, 0) + 1
+        if index + 1 == len(ordered):
+            continue
+        end = (offset + size + alignment - 1) // alignment * alignment
+        if end == ordered[index + 1][0]:
+            witnesses[kind] = witnesses.get(kind, 0) + 1
+        else:
+            failed.add(kind)
+    confirmed = {kind: count for kind, count in witnesses.items() if kind not in failed}
+    return {name: size for name, (kind, size) in candidates.items() if kind in confirmed}, confirmed
+
+
 def audit(path):
     """Lectura acotada de estructura y hash completo, sin cargar el modelo."""
     path = Path(path).resolve()
@@ -111,6 +141,7 @@ def audit(path):
             if type(alignment) is not int or alignment < 1 or alignment > 4096 or alignment & (alignment - 1):
                 raise ValueError("Alineación GGUF inválida")
             tensors, names, uncovered, tensor_types, declarations = [], set(), {}, {}, []
+            k_candidates, k_without = {}, set()
             for _ in range(nt):
                 name, nd = reader.string(), reader.number("I")
                 if name in names or not 1 <= nd <= 4:
@@ -125,12 +156,27 @@ def audit(path):
                 if kind not in BLOCKS:
                     uncovered[str(kind)] = uncovered.get(str(kind), 0) + 1
                     tensors.append((offset, None, name))
+                    if kind in K_STANDARD and dims[0] % K_STANDARD[kind][0] == 0:
+                        k_candidates[name] = (kind, math.prod(dims) // K_STANDARD[kind][0] * K_STANDARD[kind][1])
+                    elif kind in K_STANDARD:
+                        k_without.add(kind)
                     continue
                 elements, size = BLOCKS[kind]
                 if dims[0] % elements:
                     raise ValueError(f"Bloque de cuantización incompleto: {name}")
                 tensors.append((offset, math.prod(dims) // elements * size, name))
             base = (stream.tell() + alignment - 1) // alignment * alignment
+            # Un tipo con algún tensor sin candidato (bloque incompleto) no se confirma.
+            k_candidates = {n: c for n, c in k_candidates.items() if c[0] not in k_without}
+            k_lengths, k_confirmed = _confirm_k(tensors, k_candidates, alignment)
+            if k_confirmed:
+                tensors = [(offset, k_lengths.get(name, length), name) for offset, length, name in tensors]
+                for kind in k_confirmed:
+                    uncovered.pop(str(kind), None)
+                result["tamanos_k"] = {"estado": "confirmados por los desplazamientos del archivo",
+                                       "testigos_por_tipo": {str(k): v for k, v in sorted(k_confirmed.items())}}
+                result["limites"].append("Tamaños K confirmados con los desplazamientos entre tensores, salvo el "
+                                         "relleno de alineación; el identificador solo no distingue formatos históricos")
             for kind, count in uncovered.items():
                 unknown.append(f"Tipo de tensor con tamaño no establecido: {kind} ({count} tensores)")
             result["tipos_no_cubiertos"] = uncovered
