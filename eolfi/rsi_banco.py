@@ -1,5 +1,5 @@
-"""Bancos de evaluación del RSI (PLAN_REA.md, punto 12). Un banco es una función sin argumentos que devuelve una
-puntuación entre 0 y 1; ``rsi.evaluar`` la llama varias veces con la configuración actual y con la candidata.
+"""Bancos de evaluación del RSI (PLAN_REA.md, punto 12). Un banco es una función que devuelve una puntuación
+entre 0 y 1 y puede recibir la semilla del par; ``rsi.evaluar`` la llama en pares alternados (actual y candidata).
 
 Banco «tareas»: el mismo encargo de la competición V1/V2 del 16/11/2026. Eolfi crea un sitio estático desde
 ``tools/rsi/fuente-tareas``, la IA local implementa una lista de tareas (``create --ai``) y el juez funcional de
@@ -37,8 +37,9 @@ def juzgar(proyecto: Path, *, timeout: float = 300) -> dict:
 
 
 def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str, str] | None = None,
-                 timeout: float = 3600, registro: Callable[[dict], None] | None = None) -> Callable[[], float]:
-    def correr() -> float:
+                 timeout: float = 3600, registro: Callable[[dict], None] | None = None) -> Callable[..., float]:
+    def correr(semilla: int | None = None) -> float:
+        # La semilla identifica el par de ``rsi.evaluar``; la generación aún no la usa (fase 1.2 de PLAN_VAS.md).
         work = Path(tempfile.mkdtemp(prefix="eolfi-rsi-tareas-"))
         try:
             proyecto = work / "tareas"
@@ -54,7 +55,7 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
                 j = juzgar(proyecto)
                 score, detalle = j["passed"] / max(1, j["total"]), {"juez": f'{j["passed"]}/{j["total"]}'}
             if registro:
-                registro({"banco": "tareas", "proveedor": proveedor, "puntuacion": score, **detalle})
+                registro({"banco": "tareas", "proveedor": proveedor, "semilla": semilla, "puntuacion": score, **detalle})
             return score
         finally:
             shutil.rmtree(work, ignore_errors=True)

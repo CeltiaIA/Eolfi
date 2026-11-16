@@ -77,7 +77,8 @@ def test_evaluar_restaura_y_exige_mejora_y_muestras():
         return 1.0 if tokens > BASE else 0.5
     r = rsi.evaluar(pid, banco)
     assert r["aprobada"] and r["media_base"] == 0.5 and r["media_candidata"] == 1.0
-    assert vistos == [BASE] * 3 + [2 * BASE] * 3
+    assert vistos == [BASE, 2 * BASE] * rsi.MUESTRAS_MINIMAS          # pares alternados
+    assert r["p_valor"] < 0.05 and r["ic95"][0] > 0
     assert eolas_v2.load_config()["max_tokens"] == BASE          # restaurado
     assert rsi.propuestas()[0]["estado"] == "evaluada"
 
@@ -293,3 +294,67 @@ def test_las_herramientas_rea_del_chat_se_observan(tmp_path):
     obs = [e["datos"] for e in rsi.eventos("observacion")]
     assert [(o["fuente"], o["operacion"], o["ok"]) for o in obs] == [
         ("chat", "revisar_modelo", False), ("chat", "revisar_modelo", True)]
+
+
+def test_comparar_exige_significacion_y_no_aprueba_con_pocos_pares():
+    assert rsi.comparar([0.5] * 5, [1.0] * 5)["aprobada"]                  # p = 1/32
+    assert not rsi.comparar([0.5] * 4, [1.0] * 4)["aprobada"]              # p = 1/16: imposible con 4
+    # Media mejor por 0,13 pero un par peor: el ejemplo real de 3 muestras del 16/11 no basta.
+    r = rsi.comparar([7 / 9, 5 / 9, 1 / 4, 0.5, 0.5], [5 / 9, 1 / 4, 5 / 9, 1.0, 1.0])
+    assert not r["aprobada"] and r["p_valor"] >= 0.05
+    assert rsi.comparar([0.2] * 5, [0.22] * 5)["aprobada"] is False         # significativa pero < margen
+    assert rsi.comparar([0.3, 0.4], [0.5, 0.6], semilla="x") == rsi.comparar([0.3, 0.4], [0.5, 0.6], semilla="x")
+    with pytest.raises(rsi.RSIError):
+        rsi.comparar([0.5], [0.5, 0.6])
+
+
+def test_evaluar_pide_cinco_pares_y_pasa_la_semilla_al_banco():
+    _cortes(2)
+    pid = rsi.proponer()[0]["id"]
+    with pytest.raises(rsi.RSIError):
+        rsi.evaluar(pid, lambda: 1.0, muestras=4)
+    semillas = []
+
+    def banco(semilla):
+        semillas.append(semilla)
+        return 0.5
+    r = rsi.evaluar(pid, banco)
+    assert semillas == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4] and r["aprobada"] is False
+    assert eolas_v2.load_config()["max_tokens"] == BASE
+
+
+def test_evaluar_restaura_aunque_el_banco_falle():
+    _cortes(2)
+    pid = rsi.proponer()[0]["id"]
+
+    def banco():
+        if eolas_v2.load_config()["max_tokens"] > BASE:
+            raise RuntimeError("caída del motor")
+        return 0.5
+    with pytest.raises(RuntimeError):
+        rsi.evaluar(pid, banco)
+    assert eolas_v2.load_config()["max_tokens"] == BASE
+    assert rsi.propuestas()[0]["estado"] == "pendiente"
+
+
+def test_aa_simulada_falsos_positivos_por_debajo_del_5_por_ciento():
+    # Varianza medida en el banco «tareas» (desviación ≈ 0,3): la regla anterior aprobaba mucho por azar.
+    r = rsi.calibrar_aa(desviacion=0.3, repeticiones=300, remuestreos=300)
+    assert r["falsos_positivos"] <= 0.05
+    assert r["falsos_positivos_regla_anterior"] > r["falsos_positivos"]
+
+
+def test_prueba_aa_real_queda_en_el_registro():
+    r = rsi.prueba_aa(lambda: 0.5)
+    assert r["falso_positivo"] is False and len(r["a"]) == rsi.MUESTRAS_MINIMAS
+    assert rsi.eventos("aa")[-1]["datos"]["falso_positivo"] is False
+    assert rsi.verificar_registro()["ok"]
+    with pytest.raises(rsi.RSIError):
+        rsi.prueba_aa(lambda: 0.5, muestras=3)
+
+
+def test_cli_aa_simulada(capsys):
+    from eolfi import cli
+
+    assert cli.main(["rsi", "aa", "--proveedor", "eolas-v2", "--simulada", "0.3"]) == 0
+    assert "falsos_positivos" in capsys.readouterr().out

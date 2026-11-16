@@ -139,9 +139,15 @@ mejorar a sí mismos.
    analizado ni el código: lo que devuelve REA es del objetivo.
 2. **Proponer** (`eolfi rsi proponer`). Una regla convierte un síntoma repetido en un cambio concreto sobre una
    **superficie** declarada; hay como mucho una propuesta abierta por regla.
-3. **Evaluar** (`eolfi rsi evaluar ID --proveedor …`). La línea base y la candidata pasan el mismo banco al menos 3
-   veces cada una; la candidata solo se aplica mientras dura la evaluación, y el valor anterior se restaura siempre.
-   Se aprueba si la media mejora al menos 0,05 y su peor muestra no empeora. Banco «tareas» (`eolfi/rsi_banco.py`):
+3. **Evaluar** (`eolfi rsi evaluar ID --proveedor …`). La línea base y la candidata pasan el mismo banco en al menos
+   5 pares alternados (base, candidata) con la misma semilla por par; la candidata solo se aplica durante sus
+   muestras, y el valor anterior se restaura siempre, también si el banco falla. Se aprueba solo si la prueba exacta
+   de signos sobre las diferencias da p < 0,05, el límite inferior del intervalo al 95 % (bootstrap de los pares) es
+   > 0 y la mejora media es ≥ 0,05 (fase 1.3 de `PLAN_VAS.md`). Con 4 pares o menos es imposible aprobar (p ≥ 1/16).
+   **A/A** del evaluador: `eolfi rsi aa --proveedor … [--simulada DESVIACION]`; la real queda en el registro como
+   evento `aa`. Simulada con la desviación medida del banco (0,3), 400 repeticiones: 2,5 % de falsos positivos con
+   5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. La A/A real con el banco
+   está **NO VERIFICADA** (unos 13 min por muestra, 10 muestras). Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
 4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,
@@ -179,6 +185,7 @@ banco «tareas» con Eolas V2 `gemma_q4`, 3 muestras por lado, 11:33–12:50 (un
 `eolas_v2.max_tokens` 8192 → 16384: base 7/9, 5/9, 1/4 (media 0,53); candidata 5/9, 1/4, 5/9 (0,45) → **suspendida**,
 no aprobable; el valor se restauró (8192) y el registro verifica (10 eventos). Lecciones:
 - El ruido del modelo domina (7/9 a 1/4 con la MISMA configuración): 3 muestras no bastan para cambios pequeños.
+  Resuelto con el evaluador estadístico (punto 3).
 - El juez contaba solo las comprobaciones ejecutadas (una página rota daba 1/4 = 0,25). Corregido: siempre sobre 9
   (`total` fijo y `ejecutadas` aparte). Con ese criterio la evaluación da 0,48 frente a 0,41: misma conclusión.
 - La salida no se cortaba a 8192 tokens en esta tarea, así que duplicar `max_tokens` no podía ayudar: el RSI lo

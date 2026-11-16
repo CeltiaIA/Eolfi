@@ -506,8 +506,16 @@ def _parser() -> argparse.ArgumentParser:
     rse.add_argument("--banco", choices=["tareas"], default="tareas")
     rse.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
     rse.add_argument("--modelo", default=None)
-    rse.add_argument("--muestras", type=int, default=3)
+    rse.add_argument("--muestras", type=int, default=5, help="Pares base/candidata (mínimo 5)")
     rse.add_argument("--margen", type=float, default=0.05)
+    rse.add_argument("--alfa", type=float, default=0.05, help="Nivel de la prueba exacta de signos")
+    rsa = rss.add_parser("aa", help="Prueba A/A del evaluador con el banco real (CARGA el modelo local)")
+    rsa.add_argument("--banco", choices=["tareas"], default="tareas")
+    rsa.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
+    rsa.add_argument("--modelo", default=None)
+    rsa.add_argument("--muestras", type=int, default=5)
+    rsa.add_argument("--simulada", type=float, default=None, metavar="DESVIACION",
+                     help="A/A simulada con esa desviación típica, sin cargar nada")
     for name, text in (("aprobar", "Aplica una propuesta evaluada con éxito"), ("rechazar", "Descarta una propuesta"),
                        ("revertir", "Devuelve una propuesta aplicada a su valor anterior")):
         r_ = rss.add_parser(name, help=text)
@@ -1632,12 +1640,17 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if res["ok"] else 1
             elif a == "proponer":
                 _print(rsi.proponer())
-            elif a == "evaluar":
+            elif a == "aa" and args.simulada is not None:
+                _print(rsi.calibrar_aa(desviacion=args.simulada, muestras=args.muestras))
+            elif a in ("evaluar", "aa"):
                 from eolfi import rsi_banco
 
                 banco = rsi_banco.banco_tareas(proveedor=args.proveedor, modelo=args.modelo,
                                                registro=lambda d: _progress(f"RSI muestra: {d}"))
-                _print(rsi.evaluar(args.id, banco, muestras=args.muestras, margen=args.margen))
+                if a == "aa":
+                    _print(rsi.prueba_aa(banco, muestras=args.muestras))
+                else:
+                    _print(rsi.evaluar(args.id, banco, muestras=args.muestras, margen=args.margen, alfa=args.alfa))
             elif a == "revertir":
                 _print(rsi.revertir(args.id, por=args.por))
             else:

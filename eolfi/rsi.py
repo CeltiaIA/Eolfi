@@ -18,18 +18,24 @@ Límites que no se pueden mejorar a sí mismos (invariantes):
 from __future__ import annotations
 
 import hashlib
+import inspect
+import itertools
 import json
 import os
+import random
 import re
 import statistics
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 SCHEMA = "eolfi-rsi/v1"
 MARGEN_DEFECTO = 0.05
-MUESTRAS_MINIMAS = 3
+ALFA = 0.05
+# Con la prueba exacta de signos el p mínimo es 1/2^n: con 4 pares o menos (≥ 0,0625) nunca se aprobaría nada.
+MUESTRAS_MINIMAS = 5
+REMUESTREOS = 10000
 UMBRAL_INICIAL = 2
 UMBRAL_MAXIMO = 10
 
@@ -330,34 +336,129 @@ def _propuesta(pid: str) -> dict[str, Any]:
 
 # ── Evaluar, decidir, aplicar, revertir ─────────────────────────────────────────────────────────────────────────
 
-Banco = Callable[[], float]
+Banco = Callable[..., float]
+"""Un banco devuelve una puntuación entre 0 y 1. Puede aceptar un argumento, la semilla del par (0, 1, 2…), que
+recibe igual la línea base y la candidata del mismo par."""
 
 
-def evaluar(pid: str, banco: Banco, *, muestras: int = MUESTRAS_MINIMAS, margen: float = MARGEN_DEFECTO) -> dict[str, Any]:
-    """Línea base y candidata con el MISMO banco, ``muestras`` veces cada una. La candidata se aplica solo durante
-    la evaluación y el valor anterior se restaura siempre. Aprueba si la media mejora al menos ``margen`` y la peor
-    muestra de la candidata no queda por debajo de la peor de la línea base."""
+def _p_signos(difs: Sequence[float], rng: random.Random) -> float:
+    """Valor p unilateral de la prueba de permutación de signos sobre diferencias pareadas (H0: la candidata no
+    mejora). Exacta hasta 16 pares; con más, Monte Carlo con 20 000 permutaciones."""
+    obs = sum(difs)
+    absd = [abs(d) for d in difs]
+    if len(difs) <= 16:
+        total = cuenta = 0
+        for signos in itertools.product((1, -1), repeat=len(difs)):
+            total += 1
+            cuenta += sum(s * a for s, a in zip(signos, absd)) >= obs - 1e-12
+        return cuenta / total
+    n = 20000
+    cuenta = sum(sum(a if rng.random() < 0.5 else -a for a in absd) >= obs - 1e-12 for _ in range(n))
+    return (cuenta + 1) / (n + 1)
+
+
+def _ic_bootstrap(difs: Sequence[float], rng: random.Random, remuestreos: int) -> tuple[float, float]:
+    """Intervalo al 95 % (percentiles) de la mejora media por bootstrap de los pares."""
+    if remuestreos <= 0:
+        m = statistics.fmean(difs)
+        return m, m
+    k = len(difs)
+    medias = sorted(sum(rng.choices(difs, k=k)) / k for _ in range(remuestreos))
+    return medias[int(0.025 * (remuestreos - 1))], medias[int(0.975 * (remuestreos - 1))]
+
+
+def comparar(base: Sequence[float], cand: Sequence[float], *, margen: float = MARGEN_DEFECTO, alfa: float = ALFA,
+             semilla: str = "rsi", remuestreos: int = REMUESTREOS) -> dict[str, Any]:
+    """Decisión estadística sobre pares (base[i], cand[i]). Se aprueba solo si las tres se cumplen: p < ``alfa``
+    (prueba exacta de signos), límite inferior del intervalo al 95 % > 0 y mejora media ≥ ``margen``. Determinista
+    para la misma ``semilla``."""
+    if len(base) != len(cand) or not base:
+        raise RSIError("hacen falta pares de muestras")
+    rng = random.Random(semilla)
+    difs = [c - b for b, c in zip(base, cand)]
+    mejora = statistics.fmean(difs)
+    p = _p_signos(difs, rng)
+    lo, hi = _ic_bootstrap(difs, rng, remuestreos)
+    return {"pares": len(difs), "mejora_media": round(mejora, 4), "ic95": [round(lo, 4), round(hi, 4)],
+            "p_valor": round(p, 4), "alfa": alfa, "margen": margen,
+            "aprobada": p < alfa and lo > 0 and mejora >= margen}
+
+
+def _llamar(banco: Banco, semilla: int) -> float:
+    try:
+        con_semilla = len(inspect.signature(banco).parameters) >= 1
+    except (TypeError, ValueError):
+        con_semilla = False
+    s = float(banco(semilla) if con_semilla else banco())
+    if not 0.0 <= s <= 1.0:
+        raise RSIError(f"el banco debe puntuar entre 0 y 1: {s}")
+    return s
+
+
+def evaluar(pid: str, banco: Banco, *, muestras: int = MUESTRAS_MINIMAS, margen: float = MARGEN_DEFECTO,
+            alfa: float = ALFA) -> dict[str, Any]:
+    """Línea base y candidata con el MISMO banco, en ``muestras`` pares ALTERNADOS (base, candidata) con la misma
+    semilla en cada par, para que la deriva (temperatura de la GPU, cachés) afecte igual a las dos. La candidata se
+    aplica solo durante sus muestras y el valor anterior se restaura siempre. Decide ``comparar``."""
     p = _propuesta(pid)
     if p["estado"] != "pendiente":
         raise RSIError(f"la propuesta {pid} está {p['estado']}")
     if muestras < MUESTRAS_MINIMAS:
-        raise RSIError(f"hacen falta al menos {MUESTRAS_MINIMAS} muestras")
+        raise RSIError(f"hacen falta al menos {MUESTRAS_MINIMAS} muestras (con menos, la prueba nunca aprueba)")
     anterior = _leer(p["superficie"])
-    base = [float(banco()) for _ in range(muestras)]
+    base: list[float] = []
+    cand: list[float] = []
     try:
-        _escribir(p["superficie"], p["propuesto"])
-        cand = [float(banco()) for _ in range(muestras)]
+        for i in range(muestras):
+            base.append(_llamar(banco, i))
+            _escribir(p["superficie"], p["propuesto"])
+            try:
+                cand.append(_llamar(banco, i))
+            finally:
+                _escribir(p["superficie"], anterior)
     finally:
-        _escribir(p["superficie"], anterior)
-    for s in base + cand:
-        if not 0.0 <= s <= 1.0:
-            raise RSIError(f"el banco debe puntuar entre 0 y 1: {s}")
-    media_b, media_c = statistics.fmean(base), statistics.fmean(cand)
-    aprobada = media_c >= media_b + margen and min(cand) >= min(base)
-    datos = {"id": pid, "base": base, "candidata": cand, "media_base": round(media_b, 4),
-             "media_candidata": round(media_c, 4), "margen": margen, "aprobada": aprobada}
+        if _leer(p["superficie"]) != anterior:
+            _escribir(p["superficie"], anterior)
+    est = comparar(base, cand, margen=margen, alfa=alfa, semilla=f"rsi:{pid}")
+    datos = {"id": pid, "base": base, "candidata": cand, "media_base": round(statistics.fmean(base), 4),
+             "media_candidata": round(statistics.fmean(cand), 4), **est}
     _anotar("evaluacion", datos)
     return datos
+
+
+def prueba_aa(banco: Banco, *, muestras: int = MUESTRAS_MINIMAS, margen: float = MARGEN_DEFECTO,
+              alfa: float = ALFA) -> dict[str, Any]:
+    """Prueba A/A del evaluador con el banco real: los dos lados con la MISMA configuración. Si ``comparar``
+    aprueba, es un falso positivo y queda en el registro. No cambia ninguna superficie."""
+    if muestras < MUESTRAS_MINIMAS:
+        raise RSIError(f"hacen falta al menos {MUESTRAS_MINIMAS} muestras")
+    a, b = [], []
+    for i in range(muestras):
+        a.append(_llamar(banco, i))
+        b.append(_llamar(banco, i))
+    est = comparar(a, b, margen=margen, alfa=alfa, semilla="rsi:aa")
+    datos = {"a": a, "b": b, **est, "falso_positivo": est["aprobada"]}
+    _anotar("aa", datos)
+    return datos
+
+
+def calibrar_aa(*, desviacion: float, media: float = 0.5, muestras: int = MUESTRAS_MINIMAS,
+                repeticiones: int = 400, margen: float = MARGEN_DEFECTO, alfa: float = ALFA,
+                semilla: int = 1, remuestreos: int = 1000) -> dict[str, Any]:
+    """A/A simulada: puntuaciones normales recortadas a [0, 1], sin diferencia real entre lados. Devuelve la tasa
+    de falsos positivos de ``comparar`` y, para comparar, la de la regla anterior (media + margen y peor muestra)."""
+    rng = random.Random(semilla)
+
+    def muestra() -> float:
+        return min(1.0, max(0.0, rng.gauss(media, desviacion)))
+    fp = fp_antes = 0
+    for r in range(repeticiones):
+        a = [muestra() for _ in range(muestras)]
+        b = [muestra() for _ in range(muestras)]
+        fp += comparar(a, b, margen=margen, alfa=alfa, semilla=f"aa:{r}", remuestreos=remuestreos)["aprobada"]
+        fp_antes += statistics.fmean(b) >= statistics.fmean(a) + margen and min(b) >= min(a)
+    return {"repeticiones": repeticiones, "muestras": muestras, "desviacion": desviacion,
+            "falsos_positivos": fp / repeticiones, "falsos_positivos_regla_anterior": fp_antes / repeticiones}
 
 
 def decidir(pid: str, decision: str, *, por: str) -> dict[str, Any]:
