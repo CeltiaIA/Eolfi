@@ -158,7 +158,10 @@ mejorar a sí mismos.
    respuesta cortada por longitud; la otra sacó **9/9** en 11,7 min (primera nota máxima del banco). El juez funciona
    con el modelo; la semilla NO hace iguales dos corridas. Corregido después: un corte por longitud es una ronda
    fallida (se pide una respuesta más corta), no el fin del trabajo, y el banco anota por qué falló `create`.
-   **NO VERIFICADO** en vivo tras esa corrección. Banco «tareas» (`eolfi/rsi_banco.py`):
+   **NO VERIFICADO** en vivo tras esa corrección. **Causa del no determinismo:** la caché de prompt de
+   llama-server. Medido con la misma petición, semilla 0 y temperatura 0: con la caché sale un texto en frío y otro
+   en caliente; con `cache_prompt: false` sale idéntico en frío, en caliente y tras reiniciar (7 de 7). Con
+   `EOLFI_SEMILLA`, Eolas V2 y llama.cpp ya envían `cache_prompt: false`. Eolas V1 (`/api/chat`) no: pendiente. Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
 4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,

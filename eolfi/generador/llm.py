@@ -223,10 +223,16 @@ def semilla() -> int | None:
     return n
 
 
-def determinista(opciones: dict[str, Any]) -> dict[str, Any]:
-    """Añade semilla y temperatura 0 a las opciones de una petición si hay ``EOLFI_SEMILLA``."""
+def determinista(opciones: dict[str, Any], *, llama_server: bool = True) -> dict[str, Any]:
+    """Añade semilla y temperatura 0 a las opciones de una petición si hay ``EOLFI_SEMILLA``.
+
+    Con ``llama_server`` (peticiones directas a llama-server: Eolas V2 y llama.cpp) también desactiva la caché de
+    prompt. Medido el 16/11/2026 con Gemma 4 Q4, semilla 0 y temperatura 0: con la caché, la misma petición da un
+    texto en frío y otro distinto en caliente; sin ella sale idéntica en frío, en caliente y tras reiniciar."""
     n = semilla()
-    return opciones if n is None else {**opciones, "temperature": 0, "seed": n}
+    if n is None:
+        return opciones
+    return {**opciones, "temperature": 0, "seed": n, **({"cache_prompt": False} if llama_server else {})}
 
 
 class OllamaProvider(Provider):
@@ -254,7 +260,7 @@ class OllamaProvider(Provider):
                 raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
-            "options": determinista({"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}),
+            "options": determinista({"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}, llama_server=False),
         }, eolas_v1_headers(self.base_url), self.timeout)
         text = (r.get("message") or {}).get("content", "")
         if not text:
