@@ -124,6 +124,52 @@ autorización.
 | 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
 | 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
 | 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
+| 12 | **Automejora recursiva (RSI), acotada** | Observaciones de `eolfi rea`, `create --ai` y el juez funcional; reglas síntoma → propuesta; banco «tareas»; registro encadenado | Eolfi mejora su propia configuración con pruebas repetidas y el titular decide qué se adopta | Núcleo hecho (16/11): `eolfi/rsi.py`, `eolfi/rsi_banco.py`, `eolfi rsi`. Falta: evaluación en vivo con el banco, más superficies y reglas, y conectarlo al chat y al panel |
+
+## Punto 12: automejora recursiva (RSI)
+
+Pedido por el titular el 16/11/2026 («incluye e implementa en el plan de REA un sistema recursive-self-improvement»).
+Eolfi aprende de sus propios resultados con REA y con la IA local, pero solo dentro de límites que no se pueden
+mejorar a sí mismos.
+
+**Ciclo** (`eolfi/rsi.py`, orden `eolfi rsi`):
+
+1. **Observar.** `eolfi rea …` y `create --ai` anotan cada resultado: fuente, operación, éxito y **síntomas**
+   (salida cortada por longitud, plazo de REA agotado, plazo local, sintaxis JS del sitio). No se guarda el contenido
+   analizado ni el código: lo que devuelve REA es del objetivo.
+2. **Proponer** (`eolfi rsi proponer`). Una regla convierte un síntoma repetido en un cambio concreto sobre una
+   **superficie** declarada; hay como mucho una propuesta abierta por regla.
+3. **Evaluar** (`eolfi rsi evaluar ID --proveedor …`). La línea base y la candidata pasan el mismo banco al menos 3
+   veces cada una; la candidata solo se aplica mientras dura la evaluación, y el valor anterior se restaura siempre.
+   Se aprueba si la media mejora al menos 0,05 y su peor muestra no empeora. Banco «tareas» (`eolfi/rsi_banco.py`):
+   el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
+   superadas / totales; si la creación falla, 0).
+4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,
+   o rechaza. Al aplicar se guarda el valor anterior; `eolfi rsi revertir` lo restaura.
+
+**Recursivo en dos niveles:** (a) el banco crece: cada fallo con síntomas y huella nueva queda en `casos.jsonl` como
+caso de regresión; (b) el mejorador se ajusta a sí mismo: una regla con tres rechazos o reversiones y ninguna
+adopción pide una repetición más antes de volver a proponer (hasta 10), y una adopción la devuelve a 2. Cada ajuste
+queda como evento `meta`.
+
+**Superficies (lo único que puede cambiar):** `eolas_v2.max_tokens` (1024–32768),
+`eolas_v2.perfil.<perfil>.ctx` (2048–131072) y `.gpu_layers` (0–999), y `rea.timeout`, el plazo de REA en la CLI
+(60–7200 s, en `~/.eolfi/rsi/ajustes.json`). Reglas actuales: `salida_cortada_v2` (duplica `max_tokens`) y
+`rea_plazo` (duplica el plazo de REA).
+
+**Invariantes:** no toca código, autorizaciones de REA, rutas permitidas, AGENTS.md, el juez ni el banco; nada se
+aplica sin evaluación aprobada y decisión del titular; registro en `~/.eolfi/rsi/registro.jsonl` encadenado por
+SHA-256 (`eolfi rsi verificar` detecta cualquier edición, borrado o reordenación); `EOLFI_RSI=0` lo apaga.
+
+**Verificado:** `tests/test_rsi.py` (13 pruebas: registro y manipulación, superficies cerradas, propuestas con
+repetición, evaluación con restauración y margen, aprobación y reversión, ajuste del umbral, ganchos de la CLI y banco
+con juez simulado). El juez funcional da 9/9 y 8/9 sobre los proyectos reales de V1 Q5 y V2 Q4 de la competición.
+**NO VERIFICADO:** una evaluación completa con el banco y el modelo local (carga el modelo durante varios minutos por
+muestra).
+
+**Siguiente:** más superficies (lecciones de los motores de V2, capas y contexto de V1 por petición), reglas a partir
+del juez funcional y de las incógnitas de REA, y la propuesta en el chat y el panel con su tarjeta de decisión, como
+las autorizaciones de REA.
 
 ## Lo que se aprendió de REA al construir
 

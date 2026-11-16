@@ -93,6 +93,16 @@ def _print(obj) -> None:
     _emit(text, ascii_fallback=json.dumps(obj, indent=2, ensure_ascii=True))
 
 
+def _rsi_observar(fuente: str, operacion: str, resultado, contexto: dict | None = None) -> None:
+    """Anota el resultado para la automejora (PLAN_REA.md, punto 12). Nunca rompe la orden que observa."""
+    try:
+        from eolfi import rsi
+
+        rsi.observar(fuente, operacion, resultado, contexto=contexto)
+    except Exception as exc:   # noqa: BLE001 — el registro es accesorio
+        print(f"(RSI: no se pudo anotar la observación: {exc})", file=sys.stderr)
+
+
 def _default_library() -> str:
     """Sin ruta fija de un equipo concreto: EOLFI_LIBRARY, ~/Alejandria o D:\\Alejandria si existe."""
     from pathlib import Path
@@ -485,6 +495,25 @@ def _parser() -> argparse.ArgumentParser:
     r4.add_argument("original")
     r4.add_argument("nueva")
 
+    # Automejora recursiva acotada (PLAN_REA.md, punto 12): observa, propone, evalúa y el titular decide.
+    rs = sub.add_parser("rsi", help="Automejora recursiva acotada: propuestas evaluadas que el titular aprueba o revierte")
+    rss = rs.add_subparsers(dest="rsi_action", required=True)
+    rss.add_parser("estado", help="Observaciones, casos de regresión, propuestas, reglas y registro")
+    rss.add_parser("verificar", help="Comprueba la cadena SHA-256 del registro")
+    rss.add_parser("proponer", help="Propone cambios a partir de los síntomas repetidos")
+    rse = rss.add_parser("evaluar", help="Línea base contra candidata con un banco de pruebas (CARGA el modelo local)")
+    rse.add_argument("id")
+    rse.add_argument("--banco", choices=["tareas"], default="tareas")
+    rse.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
+    rse.add_argument("--modelo", default=None)
+    rse.add_argument("--muestras", type=int, default=3)
+    rse.add_argument("--margen", type=float, default=0.05)
+    for name, text in (("aprobar", "Aplica una propuesta evaluada con éxito"), ("rechazar", "Descarta una propuesta"),
+                       ("revertir", "Devuelve una propuesta aplicada a su valor anterior")):
+        r_ = rss.add_parser(name, help=text)
+        r_.add_argument("id")
+        r_.add_argument("--por", required=True, help="Quién decide (queda en el registro)")
+
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
@@ -818,13 +847,24 @@ def _dispatch(args, store: EvidenceStore) -> int:
     elif args.cmd == "create":
         from eolfi.flows.create_flow import create_project
 
-        rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
-                             do_verify=True, force=args.force, reanalyze=args.reanalyze,
-                             workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
-                             ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
-                             progress=_progress, case_id=args.case_id, provenance=args.provenance,
-                             autofix=args.autofix)
+        ctx = {"proveedor": args.provider or "", "modelo": args.model or "", "destino": args.target}
+        try:
+            rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
+                                 do_verify=True, force=args.force, reanalyze=args.reanalyze,
+                                 workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
+                                 ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
+                                 progress=_progress, case_id=args.case_id, provenance=args.provenance,
+                                 autofix=args.autofix)
+        except Exception as exc:
+            if args.ai_brief:
+                _rsi_observar("generador", "create_ai", {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ctx)
+            raise
         rep.pop("spec", None)
+        if args.ai_brief and rep.get("assist"):
+            a = rep["assist"]
+            _rsi_observar("generador", "create_ai", {"ok": bool(a.get("ok")), "rondas": len(a.get("rounds") or []),
+                                                     "fallos": [r.get("failed_step") for r in a.get("rounds") or []
+                                                                if r.get("failed_step")]}, ctx)
         _print(rep)
         if rep.get("assist") and not rep["assist"]["ok"]:
             return 6
@@ -1579,6 +1619,33 @@ def main(argv: list[str] | None = None) -> int:
 
         _print(build(args.library, dry_run=args.dry_run))
         return 0
+    if args.cmd == "rsi":
+        from eolfi import rsi
+
+        a = args.rsi_action
+        try:
+            if a == "estado":
+                _print(rsi.estado())
+            elif a == "verificar":
+                res = rsi.verificar_registro()
+                _print(res)
+                return 0 if res["ok"] else 1
+            elif a == "proponer":
+                _print(rsi.proponer())
+            elif a == "evaluar":
+                from eolfi import rsi_banco
+
+                banco = rsi_banco.banco_tareas(proveedor=args.proveedor, modelo=args.modelo,
+                                               registro=lambda d: _progress(f"RSI muestra: {d}"))
+                _print(rsi.evaluar(args.id, banco, muestras=args.muestras, margen=args.margen))
+            elif a == "revertir":
+                _print(rsi.revertir(args.id, por=args.por))
+            else:
+                _print(rsi.decidir(args.id, a, por=args.por))
+        except rsi.RSIError as exc:
+            print(f"RSI: {exc}", file=sys.stderr)
+            return 2
+        return 0
     if args.cmd == "rea":
         from eolfi import rea_client, rea_compuestas as rc
 
@@ -1601,7 +1668,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.rea_action == "recuperar-js" and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
-        client = rea_client.ReaClient(cmd, timeout=900)
+        from eolfi import rsi
+
+        client = rea_client.ReaClient(cmd, timeout=rsi.ajuste("rea.timeout"))
+        op = args.rea_action
         try:
             if args.rea_action == "recuperar-js":
                 op, params = "recuperar_fuentes_js", {"ruta": args.ruta, "destino": args.destino}
@@ -1626,8 +1696,13 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
                 result = rc.comparar_versiones(client, args.original, args.nueva)
+        except Exception as exc:
+            _rsi_observar("rea", op, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            raise
         finally:
             client.close()
+        _rsi_observar("rea", op, {"ok": not result.get("error"), "error": str(result.get("error") or "")}
+                      if isinstance(result, dict) else result)
         if args.caso:   # plan REA, punto 6: lo analizado queda en el caso
             # Alias: un «import EvidenceStore» aquí lo haría local a TODA la función y rompería las demás órdenes.
             from eolfi import rea_caso
