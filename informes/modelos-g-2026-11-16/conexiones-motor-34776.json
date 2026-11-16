@@ -1,0 +1,49 @@
+{
+  "schema": "eolfi.modelos.conexiones/v1",
+  "pid": 34776,
+  "fecha_utc": "2026-11-16T21:17:23.360313+00:00",
+  "conexiones": [
+    {
+      "protocolo": "TCP",
+      "familia": 4,
+      "local": "127.0.0.1",
+      "puerto_local": 8090,
+      "remoto": "0.0.0.0",
+      "puerto_remoto": 0,
+      "estado": "LISTEN",
+      "remoto_no_loopback": false,
+      "escucha_no_loopback": false
+    },
+    {
+      "protocolo": "TCP",
+      "familia": 4,
+      "local": "127.0.0.1",
+      "puerto_local": 8090,
+      "remoto": "127.0.0.1",
+      "puerto_remoto": 64114,
+      "estado": "ESTABLISHED",
+      "remoto_no_loopback": false,
+      "escucha_no_loopback": false
+    }
+  ],
+  "incognitas": [],
+  "proveedor": {
+    "nombre": "Windows IP Helper API",
+    "version_windows": "10.0.26300"
+  },
+  "cobertura": {
+    "tcp_ipv4": "consultada",
+    "tcp_ipv6": "consultada",
+    "udp_ipv4": "consultada",
+    "udp_ipv6": "consultada"
+  },
+  "limites": [
+    "Instantánea: no descarta conexiones anteriores ni posteriores",
+    "No verifica que el PID esté vivo ni que haya cargado el GGUF indicado",
+    "Un remoto no loopback no distingue conexiones entrantes de salientes",
+    "UDP solo muestra enlaces locales; destinos e historial no observados"
+  ],
+  "tcp_remotos_no_loopback": 0,
+  "tcp_escuchas_no_loopback": 0,
+  "estado": "observado"
+}

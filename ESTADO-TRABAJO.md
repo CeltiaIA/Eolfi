@@ -1,7 +1,75 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-11 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-16 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
+
+## Continuación G4: reconstrucción por cuantización (16/11/2026)
+
+- Rama actual `codex/modelos-reconstruccion`, sin commits/publicación; conserva los cambios anteriores.
+- Nueva CLI `modelos reconstruir`: preparación sin ejecutar y conversión explícita con hashes de entrada
+  y paquete local, salida nueva, receta/log/auditorías y hash posterior del original. No adopta perfiles.
+  Entorno del hijo acotado, sin claves del cliente/proxies/registros privados; no implementa cortafuegos.
+- Seis presets ejecutados con cuantizador nativo y BF16 sintético propio; Q8 con decodificación numérica
+  independiente. Los layouts K siguen NO VERIFICADOS. Incluso con conversión 0, CLI 2 indica que faltan
+  inferencia y banco. Pruebas específicas: 99 pasadas, 48,50 s.
+- BF16 Gemma real de 23.832.066.656 bytes auditado íntegramente; receta base y seis derivadas preparadas,
+  sin conversión ni adopción. Motor activo preservado. Identidad del SDK fijada por ejecutable y 33 DLL;
+  procedencia oficial NO VERIFICADA. REA contrasta imports y estructura de la salida sintética Q8.
+- Validación completa final: **748 pasadas, 2 omitidas, 432,91 s**, con seis conversiones nativas activadas.
+  Bridge 63/4 omitidas; vscode-bridge 192; panel 19; todos salida 0. La primera suite dio 748/2 omitidas;
+  una posterior falló al recoger
+  temporales ajenos desde una prueba del proyecto generado. Corregida la raíz/directorio de ese pytest,
+  sin recortar pruebas: `tests/test_reconstruct.py`, 16 pasadas. Informe con resultados y límites:
+  `informes/modelos-g-2026-11-16/avance-g4-reconstruccion.md`. G4 parcial; G3/G5/G6 pendientes.
+- LIM-G-005 conserva muestras sintéticas y diagnósticos históricos hasta revisar la limpieza al cierre.
+
+## Continuación G1: chat y conexiones del motor (16/11/2026)
+
+- Misma rama `codex/modelos-bloque-g`, sin commits ni publicación; se conservan los cambios del avance previo.
+- `eolfi_modelos_auditar` disponible en MCP y chat: solo lectura, raíces respetadas, cabecera GGUF aun con
+  extensión `.bin`; resultados como datos, sin cargar pesos ni ejecutar plantilla. Contexto específico para
+  adjuntos/rutas `.gguf`, sin tratarlos como ejecutables nativos. La elección por un modelo real sigue
+  **NO VERIFICADA** (el motor activo tiene trabajo; no se lo ha interrumpido).
+- `modelos conexiones --pid PID` y `modelos auditar ARCHIVO --pid PID`: instantánea IP Helper TCP/UDP v4/v6
+  en Windows. Solo lectura; escuchas sin extremo remoto, IPv4 mapeada normalizada para clasificar loopback.
+  Linux/macOS devuelven NO VERIFICADO. La instantánea no demuestra aislamiento permanente ni pesos cargados.
+- CLI contra el motor real PID 34776: escucha `127.0.0.1:8090` y conexión establecida a loopback, sin filas
+  UDP en esa instantánea. Identidad de ejecutable/proveedor y límites en el informe. Auditor MCP real
+  contra Gemma Q4: hash coincide, 667 tensores, conserva NO VERIFICADO para 329 tensores K.
+- Específicas: 73 pasadas (incluye guía MCP y sockets loopback reales). Bridge 63/4 omitidas,
+  vscode-bridge 192, panel 19. Una suite completa terminó 721/1 fallo/2 omitidas: la guía todavía esperaba
+  12 herramientas, ahora son 13. Se actualizó la guía y se reforzó la prueba para exigir el auditor y su
+  carácter de solo lectura. Repetición completa: **722 pasadas, 2 omitidas**, 408,62 s, salida 0.
+  Panel real recargado y saludable: PID 32616, inicio 22:23:29, posterior al cambio del chat/MCP.
+- Evidencias y estado: `informes/modelos-g-2026-11-16/avance-g1-chat-conexiones.md`. Limpieza: LIM-G-003
+  (instantánea intermedia conservada) y LIM-G-004 (texto antiguo de modelo predeterminado en README).
+  G1 conserva límites pendientes; G2 sin activar/extender a todos los clientes y G3–G7 sin cerrar.
+
+## Reanudación 16/11/2026: bloque G y adjuntos de modelos grandes
+
+- Rama `codex/modelos-bloque-g`, en `D:\Eolfi`, desde `ca05ef4`. Sin commits ni publicación.
+- Plan definitivo copiado desde `D:\Eolfi-wt-voz\PLAN_DEFINITIVO.md` a esta copia de trabajo; el original de
+  voz no se ha modificado. G1/G2 actualizados como PARCIALES, no cerrados. G3–G7 siguen pendientes.
+- Nuevas órdenes `modelos auditar` y `modelos comprobar`. Auditor GGUF acotado, SHA-256 completo, plantilla,
+  datos del planificador y control opcional por manifiesto en arranque Python de V2/llama.cpp. No activado
+  en la configuración real ni extendido a Eolas Base. Documentación: `docs/modelos-confianza.md`.
+- Lectura real de Gemma Q4 y contraste REA: 667 tensores y hash completo; 329 tensores K con layout ambiguo.
+  Resultado **NO VERIFICADO** para sus tamaños y bytes sobrantes. No se afirma seguridad de pesos ni
+  ausencia de puertas traseras. Evidencias en `informes/modelos-g-2026-11-16/`.
+- Petición posterior del titular: adjuntar `.gguf` y cualquier otro formato con los tamaños de los modelos
+  locales. Se retira el tope fijo para subidas por bloques del chat/Analizar/Crear proyecto; memoria acotada
+  a bloques de 1 MiB y comprobación de espacio antes de leer. La ruta local existente evita duplicarlos.
+  El panel se recargó: PID 37764, inicio 21:32:41, posterior a `server.py` (21:32:38).
+- Pruebas específicas: 90 del auditor/proveedores y 65 de servidor/auditor; bridge 63/4 omitidas,
+  vscode-bridge 192 y e2e 19, con adjuntos en Chrome y axe. Prueba HTTP real de 257 MiB aprobada.
+  Subida HTTP real del BF16 local (23.832.066.656 bytes): 200 y hash comprobado por relectura de destino;
+  copia temporal eliminada, original intacto. Suite completa: 704 pasadas, 2 omitidas y un fallo móvil
+  (`test_estado_persistente_y_capturas_en_la_especificacion`, esperaba contradicted y obtuvo observed).
+  La prueba aislada pasó (44,56 s). Segunda suite completa sin la subida: **705 pasadas, 2 omitidas**,
+  411,83 s, salida 0. La causa del fallo inicial no está confirmada; el código móvil no se tocó ni se
+  ampliaron sus plazos. La incidencia inicial se conserva en el informe.
+- Informe de avance y límites: `informes/modelos-g-2026-11-16/avance.md`. Registro de limpieza ampliado
+  con LIM-G-001 y LIM-G-002; no se ha retirado nada.
 
 ## 0a. Fase 2: interfaz móvil Android (2026-11-11)
 

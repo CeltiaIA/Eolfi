@@ -1,6 +1,8 @@
 import http.client
 import json
 import threading
+import hashlib
+import io
 
 import pytest
 
@@ -44,6 +46,47 @@ def req(port, method, path, body=None, headers=None):
     c.close()
     ctype = r.getheader("Content-Type", "")
     return r.status, (json.loads(data) if "json" in ctype else data), dict(r.getheaders())
+
+
+@pytest.mark.parametrize("name", ["modelo.gguf", "pesos.safetensors", "archivo.xyz", "sin-extension"])
+@pytest.mark.parametrize("endpoint", ["/api/upload?store=1&name=", "/api/projects/upload?name="])
+def test_attachments_accept_any_format_above_legacy_limit(srv, monkeypatch, name, endpoint):
+    from eolfi import server
+
+    monkeypatch.setattr(server, "MAX_UPLOAD", 16)
+    monkeypatch.setattr(server, "MAX_JSON", 16)
+    payload = b"GGUF" + b"binary\x00" * 10
+    port, tmp = srv
+    st, result, _ = req(port, "POST", endpoint + name, body=payload, headers={"X-Eolfi": "1"})
+    assert st == 200, result
+    digest = hashlib.sha256(payload).hexdigest()
+    assert result.get("upload", result.get("sha256")) == digest
+    assert result["name"] == name
+    assert (tmp / "samples" / (digest + ".bin")).read_bytes() == payload
+
+
+def test_stored_upload_has_no_fixed_size_limit_and_checks_disk(srv):
+    port, _ = srv
+    for endpoint in ("/api/upload?store=1", "/api/projects/upload"):
+        # No se envía el cuerpo: el servidor comprueba espacio antes de leer. Un modelo mayor de 64 GiB
+        # no recibe 413 por un tope fijo; un tamaño mayor que cualquier disco local devuelve 507.
+        status, _, _ = req(port, "POST", endpoint, headers={"X-Eolfi": "1", "Content-Length": str(2**100)})
+        assert status == 507
+        status, _, _ = req(port, "POST", endpoint, headers={"X-Eolfi": "1", "Content-Length": "-1"})
+        assert status == 400
+
+
+def test_upload_insufficient_disk_leaves_no_partial(tmp_path, monkeypatch):
+    import shutil
+    from types import SimpleNamespace
+    from eolfi import server
+
+    app = server.EolfiApp(str(tmp_path / "s.db"), tmp_path / "samples")
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: SimpleNamespace(free=0))
+    with pytest.raises(server.ApiError) as caught:
+        app.store_upload(io.BytesIO(b"GGUF"), 4, "m.gguf")
+    assert caught.value.status == 507
+    assert not list(app.samples.iterdir())
 
 
 def test_static_and_health(srv):

@@ -105,6 +105,25 @@ test('la actividad del agente de VS Code aparece en la franja del panel', async 
   await page.reload();
 });
 
+test('adjuntar GGUF, safetensors y otros formatos desde el chat', async () => {
+  await page.goto(BASE + '/#chat');
+  await page.waitForSelector('#version:not(:empty)');
+  assert.equal(await page.getAttribute('#eolas-chat-files', 'accept'), null);
+  // Con texto pendiente, adjuntar no envía una tarea al motor del equipo.
+  await page.fill('#eolas-chat-input', 'Revisar adjuntos sin enviarlos');
+  await page.setInputFiles('#eolas-chat-files', [
+    { name: 'modelo.gguf', mimeType: 'application/octet-stream', buffer: Buffer.from('GGUF-test') },
+    { name: 'pesos.safetensors', mimeType: 'application/octet-stream', buffer: Buffer.from('safetensors-test') },
+    { name: 'datos.xyz', mimeType: '', buffer: Buffer.from('unknown-format-test') },
+  ]);
+  await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 3);
+  const names = await page.textContent('#eolas-chat-attachments');
+  for (const name of ['modelo.gguf', 'pesos.safetensors', 'datos.xyz']) assert.ok(names.includes(name));
+  await axe('adjuntos de cualquier formato en el chat');
+  for (let i = 0; i < 3; i++) await page.locator('#eolas-chat-attachments button').first().click();
+  await page.fill('#eolas-chat-input', '');
+});
+
 test('subir un binario: se analiza como trabajo y aparece como objetivo', async () => {
   await openTools('analyze');
   await page.setInputFiles('#file', join(tmp, 'muestra.elf'));

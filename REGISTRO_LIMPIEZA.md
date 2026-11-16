@@ -49,6 +49,40 @@ Registro vivo para la hoja de ruta de `PLAN_INGENIERIA_INVERSA_EOLFI.md`. Sirve 
 
 ## Registro de revisiones
 
+- **2026-11-16 — reconstrucción G4, LIM-G-005:** `generated/modelos/g4-smoke-2026-11-16/` (entrada y salida
+  sintéticas pequeñas, receta y log) e `informes/modelos-g-2026-11-16/g4-fixture-cero-capas.*` y `g4-q4-mixto.*`.
+  Evidencia: las recetas registran hashes y nombres de muestra «eolfi-sintetico-no-inferencia»; la primera
+  muestra de cero capas falló y el preset Q4_0 incluyó un tensor Q6_K. Pruebas actuales en
+  `tests/test_modelos_reconstruir.py`; builder reproducible en `tests/ggufgen.py`. Impacto: evidencias de
+  conversión y diagnóstico, **no modelos para adoptar**; no se han copiado pesos del titular a la muestra.
+  Estado: CONSERVADO, histórico/soporte de pruebas. Falta revisar al cierre qué muestras se mantienen y
+  qué logs se consolidan; no se han borrado ni movido.
+
+- **2026-11-16 — documentación de modelo, LIM-G-004:** `README.md`, sección de llama.cpp (~línea 307),
+  cita Gemma 4 E4B Q4 como predeterminado. Evidencia: `rg -n 'Gemma 4 E4B|active_profile|gemma_q4' README.md
+  eolfi/eolas_v2.py` y perfiles de `DEFAULT_PROFILES` (Gemma 12B Q4); el README también describe el arranque
+  antiguo. Impacto: guía de configuración de usuarios; no implica que haya que retirar modelos ni binarios.
+  Estado: CONSERVADO, pendiente de consolidar con la selección V1/V2 y comprobar los ejemplos de instalación.
+  No se ha modificado esa sección para resolver este cambio de G1.
+
+- **2026-11-16 — conexiones G1, LIM-G-003:** `informes/modelos-g-2026-11-16/conexiones-motor-34776.json`.
+  Instantánea intermedia anterior a representar como indefinido el extremo remoto de una escucha.
+  Evidencia: comparar `conexiones[].remoto` y la fecha con `conexiones-motor-34776-final.json`;
+  el informe `avance-g1-chat-conexiones.md` remite al archivo final. Impacto: historial de observaciones,
+  no repetir su interpretación como si fuera el código final. Estado: CONSERVADO, histórico.
+  Falta revisar al cierre si conviene consolidarlo con el informe; no se ha borrado ni movido.
+
+- **2026-11-16 — bloque G, LIM-G-001:** `D:\Eolfi-wt-voz\tools\modelos\auditar_gguf.py`.
+  Evidencia: comparar con `eolfi/modelos.py`; el guion calcula el final usando solo el tensor de mayor offset,
+  carece de presupuestos de cabecera y presupone layouts K. Impacto: guion usado en la auditoría histórica;
+  no sustituir ni borrar sus evidencias. Estado: CONSERVADO, candidato a consolidar tras revisar sus callers
+  y la referencia de `docs/auditoria-modelos-2026-11-16.md`. Falta confirmar qué sesiones lo siguen usando.
+- **2026-11-16 — adjuntos, LIM-G-002:** `eolfi/server.py`, método `project_upload` y rama POST tardía
+  de `/api/projects/upload`. Evidencia: la ruta se atiende ahora antes de `_read_body`, mediante
+  `store_upload`; `rg -n 'project_upload|/api/projects/upload' eolfi tests` localiza los usos que revisar.
+  Impacto: el método público aún puede tener callers directos; no borrar por la falta de alcance HTTP.
+  Estado: CONSERVADO, candidato a consolidar. Falta revisar compatibilidad y callers antes de retirarlo.
+
 - **2026-11-15 — auditoría Eolas (P2-8):** añadida LIM-030, copia duplicada de llama.cpp en `D:\HYDRA-BASE\llama` (idéntica a la de `D:\EOLAS-BASE\llama`, que es la que usan V1 y V2). Junto con LIM-027. No se borró ni movió nada.
 
 - **2026-11-06 — inicio:** se inspeccionaron estado de Git, inventario de directorios `generated/`, `backups/`, `samples/` y `.claude/`, referencias textuales de algunos artefactos y los planes activos/históricos. No se borró ni movió nada. Este barrido no es un análisis completo de código muerto.

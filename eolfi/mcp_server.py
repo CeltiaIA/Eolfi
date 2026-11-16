@@ -101,6 +101,12 @@ class EolfiMCP:
 
     # -- herramientas -------------------------------------------------------------
     def _register(self) -> None:
+        self._add("eolfi_modelos_auditar", "Auditar un modelo GGUF sin cargarlo",
+                  "Lee estructura GGUF, SHA-256 completo, plantilla y metadatos; no ejecuta el modelo. "
+                  "Los tamaños ambiguos quedan NO VERIFICADOS. No descarta puertas traseras en los pesos. "
+                  "Usa esta herramienta para archivos GGUF, incluidos adjuntos guardados con extensión .bin.",
+                  _obj({"ruta": {**_STR, "description": "Ruta del GGUF o del adjunto guardado"}}, ["ruta"]),
+                  self.t_modelos_auditar, data=True)
         self._add("eolfi_doctor", "Proveedores disponibles",
                   "Qué analizadores (stdlib, capa, rizin, Ghidra) y qué IA detecta Eolfi en este equipo.",
                   _obj({}), self.t_doctor)
@@ -186,6 +192,17 @@ class EolfiMCP:
                 p.version = p._tool_version()
             out[p.name] = {"available": ok, "version": getattr(p, "version", "?")}
         return out
+
+    def t_modelos_auditar(self, a):
+        from eolfi.modelos import audit
+
+        path = self._path(a.get("ruta"))
+        if not Path(path).is_file():
+            raise ToolError("la ruta no es un archivo")
+        result = audit(path)
+        if result["estado"] == "fallido":
+            raise ToolError("; ".join(result["errores"]))
+        return result
 
     def t_triage(self, a):
         from eolfi.flows import triage_flow as tf
