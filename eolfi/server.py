@@ -557,19 +557,6 @@ class EolfiApp:
                                                          lambda: self._recover_js(ruta(a), a.get("destino"))),
             "eolfi_analizar_app_js": lambda a: step("REA analiza la aplicación JavaScript (estático)…",
                                                     lambda: rc.analizar_app_js(rea.client, ruta(a))),
-            "eolfi_analizar_movil": lambda a: step("REA lee el paquete o ensamblado (estático)…",
-                                                   lambda: rc.analizar_movil(rea.client, ruta(a), ruta({"ruta": a["binario"]})
-                                                                             if a.get("binario") else None)),
-            "eolfi_analizar_firmware": lambda a: step("REA lee el firmware (estático)…",
-                                                      lambda: rc.analizar_firmware(rea.client, ruta(a))),
-            "eolfi_mapa_app": lambda a: step("REA construye el mapa de la aplicación (estático)…",
-                                             lambda: rc.mapa_app(rea.client, ruta(a), a.get("funcion"),
-                                                                 str(a.get("direccion") or "forward"))),
-            "eolfi_entorno_agente": lambda a: step("REA prepara el entorno de agente desde la captura…",
-                                                   lambda: rc.entorno_agente(rea.client, ruta(a),
-                                                                             ruta({"ruta": a.get("destino")}),
-                                                                             escribir=bool(a.get("escribir")),
-                                                                             nombre=a.get("nombre"))),
             "eolfi_verificar_comportamiento": lambda a: self._verify_behavior(
                 rea, checked_scenario(a.get("original")), checked_scenario(a.get("reconstruccion"))),
             "eolfi_comparar_versiones": lambda a: step("REA compara las dos versiones (estático, ~1-2 min)…",
@@ -580,9 +567,7 @@ class EolfiApp:
                  "eolfi_reimplementar_funcion": "reimplementar_funcion", "eolfi_comparar_versiones": "comparar_versiones",
                  "eolfi_inventario_dependencias": "inventario_dependencias",
                  "eolfi_verificar_comportamiento": "verificar_comportamiento", "eolfi_analizar_app_js": "analizar_app_js",
-                 "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura",
-                 "eolfi_analizar_movil": "analizar_movil", "eolfi_analizar_firmware": "analizar_firmware",
-                 "eolfi_mapa_app": "mapa_app", "eolfi_entorno_agente": "entorno_agente"}
+                 "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura"}
         return {name: in_case(names[name], fn) for name, fn in tools.items()}
 
     def _verify_behavior(self, rea: Any, original: dict[str, Any], reconstruccion: dict[str, Any]) -> dict[str, Any]:

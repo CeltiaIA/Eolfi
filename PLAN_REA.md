@@ -120,10 +120,10 @@ autorización.
 | 5 | **Apps JavaScript, Electron y web** (hecho, con recuperación de fuentes vía REA en WSL2) | `analyze_javascript_application`, `recover_javascript_sources`, `trace_javascript_semantics`, `compare_source_to_bundle` | Fuentes recuperadas y trazadas: base para regenerar la app | Hecho (ver «Hecho») |
 | 6 | **Evidencias e incógnitas compartidas** (hecho, salvo exportar el paquete completo de REA) | `export_evidence_bundle`, `import_evidence_bundle`, `record_unknown`, `update_unknown` | Un mismo caso de Eolfi con lo analizado en VS Code, en el chat o por Claude | Hecho, salvo exportar el paquete completo de REA |
 | 7 | **De captura de red a API** | `inspect_pcap_capture`, `inspect_packet_fields` y Eolas | Especificación de API (estilo OpenAPI) y un cliente generado por Eolfi | Hecho: `eolfi rea api`, `eolfi_api_desde_captura` (OpenAPI completo si hay tshark en WSL) |
-| 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Datos hechos (16/11): `mapa_app`, `eolfi rea mapa`, `eolfi_mapa_app` (componentes de un APK con `inspect_artifact` + `project_android_application_graph`; grafo de llamadas nativo con `get_call_graph`). Falta: el dibujo en el panel y `build_call_path`. NO VERIFICADO con REA real |
-| 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Hecho (16/11): `analizar_movil`, `eolfi rea movil`, `eolfi_analizar_movil` (APK: JADX, firmas, Flutter; .NET; Unity IL2CPP). Verificado con REA real solo .NET/PE (`own.dll`, nativo, bien clasificado); Android, IL2CPP y Flutter NO VERIFICADOS (sin JADX ni muestras). Apple (Mach-O, plist) pendiente |
-| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Hecho (16/11) sin extracción: `analizar_firmware`, `eolfi rea firmware`, `eolfi_analizar_firmware` (devicetree; regiones con Binwalk solo en el REA de Linux). NO VERIFICADO con REA real. `extract_firmware` (escribe) pendiente |
-| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Hecho (16/11) desde HAR: `entorno_agente`, `eolfi rea entorno` (simulación por defecto, `--escribir` para crear), `eolfi_entorno_agente`. NO VERIFICADO con REA real. Grabar con el navegador (autorización) pendiente |
+| 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Pendiente |
+| 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
+| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
+| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
 | 12 | **Automejora recursiva (RSI), acotada** | Observaciones de `eolfi rea`, `create --ai` y el juez funcional; reglas síntoma → propuesta; banco «tareas»; registro encadenado | Eolfi mejora su propia configuración con pruebas repetidas y el titular decide qué se adopta | Hecho (16/11): `eolfi/rsi.py`, `eolfi/rsi_banco.py`, `eolfi rsi`, lecciones de V2, observación del chat y tarjeta en el panel. Falta: evaluación en vivo con el banco |
 
 ## Punto 12: automejora recursiva (RSI)
@@ -169,8 +169,8 @@ puede decidir. En el chat, `eolfi_automejora` es solo lectura.
 aplica sin evaluación aprobada y decisión del titular; registro en `~/.eolfi/rsi/registro.jsonl` encadenado por
 SHA-256 (`eolfi rsi verificar` detecta cualquier edición, borrado o reordenación); `EOLFI_RSI=0` lo apaga.
 
-**Verificado:** `tests/test_rsi.py` (15 pruebas, incluidas la regla de lecciones y la API del panel), la tarjeta
-en `tests/e2e/panel.test.mjs` (Chrome real, axe sin problemas graves) y `tests/test_rea_puntos_8_11.py`; antes, 13 pruebas: registro y manipulación, superficies cerradas, propuestas con
+**Verificado:** `tests/test_rsi.py` (16 pruebas, incluidas la regla de lecciones, la API del panel y la observación del chat) y la tarjeta
+en `tests/e2e/panel.test.mjs` (Chrome real, axe sin problemas graves); antes, 13 pruebas: registro y manipulación, superficies cerradas, propuestas con
 repetición, evaluación con restauración y margen, aprobación y reversión, ajuste del umbral, ganchos de la CLI y banco
 con juez simulado). El juez funcional da 9/9 y 8/9 sobre los proyectos reales de V1 Q5 y V2 Q4 de la competición.
 **NO VERIFICADO:** una evaluación completa con el banco y el modelo local (carga el modelo durante varios minutos por

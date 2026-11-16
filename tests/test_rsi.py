@@ -273,3 +273,23 @@ def test_panel_muestra_y_decide_y_un_cliente_no_puede_aprobar(tmp_path):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_las_herramientas_rea_del_chat_se_observan(tmp_path):
+    from eolfi import server
+    from tests.test_rea_compuestas import FakeRea
+
+    app = server.EolfiApp(str(tmp_path / "r.db"))
+    app.roots = [tmp_path]
+
+    class Tools:
+        client = FakeRea(fail_on="inspect_model_artifact")
+
+    tools = app._chat_rea_composites(Tools())
+    with pytest.raises(RuntimeError):
+        tools["eolfi_revisar_modelo"]({"ruta": str(tmp_path / "m-Q5_K_M.gguf")})
+    Tools.client.fail_on = None
+    tools["eolfi_revisar_modelo"]({"ruta": str(tmp_path / "m-Q5_K_M.gguf")})
+    obs = [e["datos"] for e in rsi.eventos("observacion")]
+    assert [(o["fuente"], o["operacion"], o["ok"]) for o in obs] == [
+        ("chat", "revisar_modelo", False), ("chat", "revisar_modelo", True)]
