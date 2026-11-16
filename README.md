@@ -288,6 +288,15 @@ Proveedores (`--provider`, también en el panel):
 Retirados el 14/11/2026 (decisión del titular): `claude`, `openai`, `gemini`, `deepseek` (API), `gemma`,
 `nemo-moe`, `copilot-vscode`, `copilot-web`, `chatgpt-web` y `lechat-web`.
 
+Con `eolas` (Eolas V1), tres variables ajustan cada petición a la VRAM del equipo; sin ellas se piden 32768 de
+contexto, 12000 tokens de salida y el reparto automático de capas de Eolas:
+- `EOLFI_EOLAS_NUM_CTX`: el contexto.
+- `EOLFI_EOLAS_NUM_PREDICT`: los tokens de salida.
+- `EOLFI_EOLAS_NUM_GPU`: las capas en GPU.
+
+En una RTX 3060 Ti (8 GB), Gemma 4 12B Q4 cabe entero con 16384 de contexto (`EOLFI_EOLAS_NUM_CTX=16384
+EOLFI_EOLAS_NUM_GPU=99`). Q5_K_M no cabe entero: rinde mejor con 40 capas.
+
 `python -m eolfi doctor` indica cuáles están disponibles. Las claves se leen de variables de entorno o
 del archivo **`.env`** de la carpeta del proyecto (copia `.env.example`; también vale `~/.eolfi/.env` o
 `EOLFI_ENV_FILE`). `.env` está en `.gitignore`, no se sube nunca a git, no pisa variables ya definidas y

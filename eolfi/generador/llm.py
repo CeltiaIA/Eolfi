@@ -213,6 +213,25 @@ class Provider:
         raise NotImplementedError
 
 
+def eolas_v1_options() -> dict:
+    """Opciones de Eolas V1 por petición. EOLFI_EOLAS_NUM_CTX, EOLFI_EOLAS_NUM_PREDICT y
+    EOLFI_EOLAS_NUM_GPU (capas en GPU) las ajustan a la VRAM del equipo; sin ellas, 32768, 12000
+    y el reparto automático de Eolas."""
+    options = {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}
+    for env, key, low in (("EOLFI_EOLAS_NUM_CTX", "num_ctx", 1024), ("EOLFI_EOLAS_NUM_PREDICT", "num_predict", 1),
+                          ("EOLFI_EOLAS_NUM_GPU", "num_gpu", 0)):
+        value = os.environ.get(env, "").strip()
+        if value:
+            try:
+                number = int(value)
+            except ValueError as exc:
+                raise LLMError(f"{env} debe ser un número entero: {value!r}") from exc
+            if number < low:
+                raise LLMError(f"{env} debe ser al menos {low}: {number}")
+            options[key] = number
+    return options
+
+
 class EolasV1Provider(Provider):
     """Eolas V1 (CeltIA): POST /api/chat con `format` = esquema JSON."""
     name = "eolas"
@@ -238,7 +257,7 @@ class EolasV1Provider(Provider):
                 raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
-            "options": {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2},
+            "options": eolas_v1_options(),
         }, eolas_v1_headers(self.base_url), self.timeout, retry_timeouts=False)
         text = (r.get("message") or {}).get("content", "")
         if not text:

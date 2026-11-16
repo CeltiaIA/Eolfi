@@ -54,6 +54,26 @@ def test_configuracion_y_argumentos_por_perfil(tmp_path, monkeypatch):
     assert "--reasoning-format" not in args
 
 
+def test_gemma_lleva_el_reglaje_de_paridad_con_v1(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas.json"))
+    server = tmp_path / "llama-server.exe"
+    server.touch()
+    monkeypatch.setattr(eolas_v2, "_server_default", lambda: str(server))
+    cfg = eolas_v2.load_config()
+    assert cfg["max_tokens"] == 8192
+    for name, layers in (("gemma_q4", "99"), ("gemma", "40")):
+        model = tmp_path / f"{name}.gguf"
+        model.touch()
+        cfg["profiles"][name]["model"] = str(model)
+        args = eolas_v2.server_args(name, cfg)
+        assert args[args.index("-ngl") + 1] == layers and args[args.index("-c") + 1] == "16384"
+        assert args[args.index("-b") + 1] == "512" and args[args.index("-ub") + 1] == "512"
+        for flag, value in (("-fa", "on"), ("-ctk", "q8_0"), ("-ctv", "q8_0"), ("-np", "1"), ("--cache-ram", "1024")):
+            assert args[args.index(flag) + 1] == value
+
+
 def test_nemo_uses_mistral_template_and_not_deepseek_reasoning(tmp_path, monkeypatch):
     from eolfi import eolas_v2
 

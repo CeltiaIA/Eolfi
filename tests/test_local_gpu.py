@@ -370,3 +370,22 @@ def test_modelo_local_que_agota_el_plazo_no_se_reintenta(monkeypatch):
     finally:
         srv.shutdown()
     assert llm.EolasV1Provider("http://127.0.0.1:11435", "m").timeout == llm.LOCAL_TIMEOUT == 1800.0
+
+
+def test_opciones_de_eolas_v1_por_variables(monkeypatch):
+    from eolfi.generador.llm import LLMError, eolas_v1_options
+
+    for name in ("EOLFI_EOLAS_NUM_CTX", "EOLFI_EOLAS_NUM_PREDICT", "EOLFI_EOLAS_NUM_GPU"):
+        monkeypatch.delenv(name, raising=False)
+    assert eolas_v1_options() == {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_CTX", "16384")
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_PREDICT", "4096")
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_GPU", "99")
+    assert eolas_v1_options() == {"num_ctx": 16384, "num_predict": 4096, "temperature": 0.2, "num_gpu": 99}
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_GPU", "muchas")
+    with pytest.raises(LLMError, match="EOLFI_EOLAS_NUM_GPU"):
+        eolas_v1_options()
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_GPU", "0")
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_CTX", "10")
+    with pytest.raises(LLMError, match="al menos 1024"):
+        eolas_v1_options()
