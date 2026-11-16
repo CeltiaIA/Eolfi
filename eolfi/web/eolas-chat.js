@@ -2,6 +2,7 @@
 // Los adjuntos se suben por su huella; el modelo decide qué herramientas de Eolfi usar (triaje, web, repositorio,
 // Alejandría, Python en el contenedor) y cada llamada se ve en la conversación. Todo se pinta como texto.
 import { $, el, api, runJob } from "./runtime.js";
+import { initVoz, decir } from "./voz.js";
 
 const STORE_KEY = "eolfi.eolasChat";
 const AUTO_PROMPT = "Analiza lo que te adjunto y propón qué se podría generar con Eolfi a partir de ello.";
@@ -40,6 +41,9 @@ function bubble(m) {
   for (const t of m.tools || []) {
     if (t.proyecto) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => emit("eolfi:open-project", { caseId: t.proyecto }) }, "Revisar y aprobar el plan"));
     if (t.objetivo) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => emit("eolfi:open-subject", { subject: t.objetivo }) }, "Ver informe"));
+  }
+  if (m.role === "assistant" && !m.local && "speechSynthesis" in window) {
+    actions.push(el("button", { type: "button", class: "small-btn leer-btn", "aria-label": "Leer esta respuesta en voz alta", onclick: () => decir(m.content) }, "Leer"));
   }
   if (actions.length) node.append(el("div", { class: "msg-actions" }, ...actions));
   // Autorización por caso (plan REA, punto 2): solo el titular decide, aquí; el modelo nunca puede autorizarse.
@@ -198,6 +202,7 @@ async function send(text) {
     });
     chat.messages.push({ role: "assistant", content: result.text, model: result.model, tools: result.tools });
     chat.attachments = [];
+    emit("eolfi:chat-reply", { text: result.text });
     $("#eolas-chat-input").value = "";
     $("#eolas-chat-kind").value = "";
     $("#eolas-chat-target").value = "";
@@ -262,5 +267,10 @@ export function initEolasChat() {
     renderAttachments();
     save();
     render();
+  });
+  initVoz({
+    enviar: (texto) => send(texto),
+    nueva: () => $("#eolas-chat-clear").click(),
+    ultima: () => chat.messages.filter((m) => m.role === "assistant" && !m.local).pop()?.content || "",
   });
 }

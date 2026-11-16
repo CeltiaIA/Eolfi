@@ -409,3 +409,8 @@ body.chat-full .eolas-chat-form textarea { min-height: 7rem; }
 .jobs-live[hidden] { display: none; }
 .jobs-live-log { margin: var(--s2) 0 0; min-height: 45vh; max-height: 70vh; overflow: auto; resize: vertical;
   white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.55; }
+/* Voz (dictado y conversación) */
+#voz-mic.grabando, #voz-conversar[aria-pressed="true"] { border-color: var(--bad, #b3261e); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad, #b3261e) 35%, transparent); }
+#voz-estado { margin: var(--s1) 0 0; min-height: 1.2em; }
+#voz-estado.bad { color: var(--bad, #b3261e); }
+.msg .leer-btn { margin-left: var(--s2); }

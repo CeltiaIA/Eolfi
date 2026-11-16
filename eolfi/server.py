@@ -38,7 +38,7 @@ MAX_UPLOAD = 256 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
 _STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
            "/projects.js": "projects.js", "/eolas-chat.js": "eolas-chat.js",
-           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/style.css": "style.css",
+           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/voz.js": "voz.js", "/style.css": "style.css",
            "/favicon.svg": "favicon.svg",
            "/favicon.ico": "favicon.svg"}
 _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -1829,6 +1829,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/vscode/activity": app.vscode_activity,
                         "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
                         "/api/rea/autorizaciones": app.rea_authorizations,
+                        "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
                         "/api/eolas/perfiles": lambda _q: {"perfiles": __import__("eolfi.eolas_v2", fromlist=["x"]).available_evaluation_profiles()},
                         "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
@@ -1927,6 +1928,17 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     m = re.fullmatch(r"/api/rea/permisos/(perm_[0-9a-f]{16})/revocar", path)
                     if m:
                         return self._json(200, app.rea_revoke(m.group(1)))
+                    if path in ("/api/voz/transcribir", "/api/voz/hablar"):
+                        from eolfi import voz
+
+                        try:
+                            if path == "/api/voz/transcribir":   # cuerpo: el WAV tal cual; nada se guarda
+                                return self._json(200, voz.transcribir(self._body(), idioma=q.get("idioma")))
+                            body = self._obj()
+                            return self._send(200, voz.hablar(str(body.get("texto") or ""), idioma=body.get("idioma"),
+                                                              voz=body.get("voz")), "audio/wav")
+                        except voz.VozError as exc:
+                            raise ApiError(400, str(exc)) from exc
                     if path == "/api/chat/motor":
                         return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":
