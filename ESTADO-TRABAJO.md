@@ -34,6 +34,13 @@
 
 ## 1. En curso ahora
 
+**16/11, mediodía: VAS en marcha (titular: «implementar un sistema VAS…», «un solo V2 o V1 según necesites»).**
+- Plan y auditoría: rama `vas-plan` (`D:\Eolfi-wt-vas`, commit `c5f9cfc`, `PLAN_VAS.md` y `docs/vas/`), **sin subir**: el push se denegó en esta sesión; lo decide el titular.
+- Fase 2.1 hecha: planificador de V1 con ventana deslizante, PR https://github.com/CeltiaIA/CeltiaIA/pull/11 (rama `eolas-plan-swa`, apilada sobre #10). `go test ./...` en verde. A/B en vivo, backend `llama`, 32K: 13→39 de 49 capas; 3,59→10,46 t/s (prompt corto) y 1,95→9,82 t/s (prompt de 27.710 tokens); pico de VRAM 3,1→6,7 GB, sin caídas.
+- Hallazgo: el backend nativo `eolas` (en proceso) ignora `plan.Layers` y coloca capas por su cuenta (2,0 t/s a 32K). Pendiente para la fase 2.
+- V1 restaurado: binario instalado (`5d3b6dbd…`), backend `llama`.
+- La CI de Eolfi tampoco arranca ya (PR #46: «recent account payments have failed»): facturación de GitHub, la resuelve el titular.
+
 **16/11, tarde (titular: «para las pruebas por ahora e implementemos primero todo el plan»).** Pruebas en vivo en pausa (medición de VRAM, competición repetida, evaluación del RSI con el banco).
 - Rama `rea-automejora` (`D:\Eolfi-wt-rsi`, PR #46): solo el RSI (punto 12).
   - RSI: superficie y regla de lecciones de V2, observación de las herramientas del chat, API `/api/rsi` y tarjeta «Automejora» en el panel (e2e con axe). Las pruebas ya no escriben en `~/.eolfi/rsi`.
