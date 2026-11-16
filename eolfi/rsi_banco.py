@@ -51,6 +51,14 @@ def _ultima_linea(texto: str) -> str:
     return lineas[-1][-300:] if lineas else ""
 
 
+def _parcial(salida: str) -> bool:
+    """¿``create --ai`` conservó un mejor intento parcial? (campo ``assist.parcial`` de su informe)."""
+    try:
+        return bool((json.loads(salida[salida.index("{"):]).get("assist") or {}).get("parcial"))
+    except (ValueError, AttributeError):
+        return False
+
+
 def _mejor_intento(salida: str) -> dict:
     """Mejor resultado del juez de ``verify`` entre las rondas de un ``create --ai`` fallido (solo informativo)."""
     try:
@@ -122,8 +130,15 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
             fijo = {} if semilla is None else {"EOLFI_SEMILLA": str(int(semilla))}
             run = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                  timeout=timeout, cwd=ROOT, env={**os.environ, **fijo, **(entorno or {})}, check=False)
-            if run.returncode != 0:
-                # Sin verde no hay entrega (el proyecto se restaura): 0. Se anota hasta dónde llegó el mejor intento.
+            if run.returncode != 0 and _parcial(run.stdout) and proyecto.is_dir():
+                # Sin verde, pero se conservó el mejor intento (B6): lo puntúa el evaluador como a cualquier otro.
+                # No es una entrega en verde (queda anotado), pero da una nota graduada en vez de un cero.
+                j = _puntuar(e, proyecto)
+                score = j["passed"] / max(1, j["total"])
+                detalle = {"exit": run.returncode, "parcial": True, "juez": f'{j["passed"]}/{j["total"]}',
+                           **_mejor_intento(run.stdout)}
+            elif run.returncode != 0:
+                # Sin verde y sin nada que conservar (el proyecto se restaura): 0.
                 score, detalle = 0.0, {"exit": run.returncode, **_mejor_intento(run.stdout),
                                        "error": _ultima_linea(run.stderr)}
             else:
@@ -131,7 +146,8 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
                 score, detalle = j["passed"] / max(1, j["total"]), {"juez": f'{j["passed"]}/{j["total"]}'}
             telemetria.anotar("muestra", banco=e["nombre"], proveedor=proveedor, modelo=modelo, semilla=semilla,
                               puntuacion=float(score), minutos=(time.monotonic() - t0) / 60,
-                              exit=run.returncode, juez_en_verify=juez_en_verify)
+                              exit=run.returncode, juez_en_verify=juez_en_verify,
+                              parcial=bool(detalle.get("parcial")))
             if registro:
                 registro({"banco": e["nombre"], "proveedor": proveedor, "semilla": semilla, "puntuacion": score, **detalle})
             return score

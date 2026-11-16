@@ -166,6 +166,9 @@ mejorar a sí mismos.
    cada uno con `fuente/`, `encargo.txt`, `criterios.json` (los ve el proyecto) y `juez.json` (el evaluador, que el
    proyecto no ve y comprueba más casos). `--banco todos` reparte los encargos por semilla. Jueces validados con
    apps de referencia: la correcta saca la nota máxima y una página inerte, 1 de 8. **NO VERIFICADO** con un modelo.
+   **Mejor intento** (B6): el bucle guarda la ronda con mejor nota del juez; si una ronda empeora, vuelve a
+   esa versión y se lo dice al modelo; sin verde, conserva el mejor intento marcado como parcial (`ok` sigue
+   en falso) y el banco lo puntúa con el evaluador en vez de dar 0. **NO VERIFICADO** con un modelo.
    Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
