@@ -11,7 +11,7 @@ sí mismo. Quien puede conectarse es el programa que lo carga, así que se han r
 
 ## Qué se comprobó y cómo
 
-### 1. Los archivos de modelo (`eolfi modelos auditar`)
+### 1. Los archivos de modelo (`tools/modelos/auditar_gguf.py`)
 
 | Archivo | SHA-256 | Tensores | Bytes sobrantes | Cadenas sospechosas |
 |---|---|---|---|---|
@@ -60,6 +60,4 @@ descargas (`-hf`, `--model-url`) y exigen clave.
    sistema y pide administrador: **lo decide y lo ejecuta el titular**.
 2. **Modo sin red en Eolas** (`EOLAS_OFFLINE=1`): `pull` desactivado salvo que se pida expresamente.
 3. **Lista de modelos de confianza** con su SHA-256: Eolas y Eolfi se niegan a cargar un archivo que no esté.
-   **Hecho para Eolas V2**; falta Eolas V1 (está en el repositorio de CeltiaIA).
-4. `eolfi modelos auditar`: esta misma auditoría como orden, repetible y con informe. **Hecho** (`eolfi/modelos.py`),
-   junto con la lista de confianza (`eolfi modelos confiar`, `exigir`) y `eolfi modelos conexiones`.
+4. `eolfi modelos auditar`: esta misma auditoría como orden, repetible y con informe.

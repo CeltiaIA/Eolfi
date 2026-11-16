@@ -111,8 +111,8 @@ ni conexiones hacia fuera).
 
 | # | Pieza | Estado |
 |---|---|---|
-| G1 | `eolfi modelos auditar`: estructura GGUF, bytes sobrantes, plantilla, SHA-256 y conexiones del motor en vivo | Hecho en local: `eolfi/modelos.py`, `eolfi modelos auditar` y `eolfi modelos conexiones` |
-| G2 | Lista de modelos de confianza (SHA-256): Eolas y Eolfi no cargan lo que no esté | Hecho en local para Eolas V2 (`eolfi modelos confiar`, `exigir si`): con la lista exigida, V2 no arranca un GGUF que no esté. Falta Eolas V1 (repositorio de CeltiaIA). La lista está vacía y sin exigir hasta que el titular acepte los modelos |
+| G1 | `eolfi modelos auditar`: estructura GGUF, bytes sobrantes, plantilla, SHA-256 y conexiones del motor en vivo | Guion hecho (`tools/modelos/auditar_gguf.py`); falta la orden |
+| G2 | Lista de modelos de confianza (SHA-256): Eolas y Eolfi no cargan lo que no esté | Pendiente |
 | G3 | Modo sin red en Eolas (`EOLAS_OFFLINE=1`) y regla de cortafuegos de salida | Pendiente; el cortafuegos lo ejecuta el titular |
 | G4 | **Reconstruir modelos**: del original (BF16, ya en disco) a cada cuantización con `llama-quantize`, con receta, SHA-256 de entrada y salida y registro | Pendiente (hay BF16, Q3 a Q6 y `llama-quantize.exe`) |
 | G5 | **Actualizar modelos**: comprobar si hay versión nueva, descargar solo con permiso, auditar (G1) y comparar con el banco antes de adoptar | Pendiente |
