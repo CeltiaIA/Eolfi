@@ -410,5 +410,19 @@ test('voz: dictar escribe en el chat sin enviar, las órdenes no se escriben y t
   await page.keyboard.press('Alt+m');
   await page.waitForFunction(() => document.querySelector('#eolas-chat-input').value === '');
   assert.match(await page.textContent('#voz-estado'), /Orden por voz: borrar/);
+  // A7: el mismo dictado en otros cuadros del panel; ahí «Borra todo.» es texto, no una orden.
+  await openTools('create');
+  await page.waitForSelector('#proj-desc + .voz-junto .voz-dictar');
+  await page.fill('#proj-desc', 'Una web con');
+  await page.click('#proj-desc + .voz-junto .voz-dictar');
+  await page.waitForSelector('#proj-desc + .voz-junto .voz-dictar[aria-pressed=true]');
+  assert.equal(await page.isDisabled('#voz-mic'), true);                              // un solo dictado a la vez
+  await page.waitForTimeout(500);
+  await page.click('#proj-desc + .voz-junto .voz-dictar');
+  await page.waitForFunction(() => document.querySelector('#proj-desc').value === 'Una web con Borra todo.');
+  assert.match(await page.textContent('#proj-desc + .voz-junto .voz-nota'), /motor local «windows»/);
+  assert.equal(await page.inputValue('#eolas-chat-input'), '');
+  assert.equal(await page.locator('.voz-dictar').count(), 5);
+  await axe('dictado en crear proyecto');
   assert.deepEqual(errors, []);
 });

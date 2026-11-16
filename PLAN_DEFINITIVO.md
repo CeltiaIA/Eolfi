@@ -52,7 +52,7 @@ Todo local por defecto. El audio no sale del equipo salvo que el titular active 
 | A4 | **Texto a voz** | Leer en voz alta las respuestas: botón por mensaje y opción «leer siempre». Voz del sistema en el navegador (sin conexión); `POST /api/voz/hablar` y `eolfi voz decir` para la CLI | La respuesta se oye; se puede parar |
 | A5 | **Modo conversación** | Manos libres: escucha → detecta el silencio → transcribe → envía → lee la respuesta → vuelve a escuchar. Se corta al hablar encima o con Esc | Tres turnos seguidos sin tocar el teclado |
 | A6 | **Órdenes por voz** | «Envía», «borra», «para», «nueva conversación», «lee la última» | Cada orden hace lo suyo y no se escribe como texto |
-| A7 | **Dictado en todo el panel** | El mismo micrófono en «Crear proyecto», casos y comparación | Funciona en los cuatro cuadros de texto |
+| A7 | **Dictado en todo el panel** (hecho el 16/11) | Botón «Dictar» junto a «Crear proyecto», la petición para la IA, casos, chat web y comparación; Alt+M dicta en el cuadro con el foco. Ahí solo se escribe: sin órdenes ni conversación | Hecho: e2e con audio simulado en el chat y en «Crear proyecto», axe sin infracciones |
 | A8 | **Whisper local** (hecho el 16/11, con permiso del titular) | whisper.cpp b5454 (CPU) y el modelo «small» en `~/.eolfi/tools/whisper-b5454`, con SHA-256 verificado; `motor: auto` lo elige | Hecho: 4 frases de prueba, Whisper 4 bien con tildes y puntuación (unos 6 s cada una); Windows 1 bien (1 s) |
 | A9 | **Voz en VS Code y en Fios** | Dictado en el chat `@eolfi` y en Fios, reutilizando la API | Dictar en los dos sitios |
 

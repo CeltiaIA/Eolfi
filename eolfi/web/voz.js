@@ -17,14 +17,17 @@ const ORDENES = [
   [/^(lee|leer|repite) (la )?[uú]ltima( respuesta)?$/, "leer"],
 ];
 
-const voz = { estado: null, grabando: null, ocupado: false, conversacion: false, prefs: { leer: false }, hooks: null };
+const voz = { estado: null, grabando: null, ocupado: false, conversacion: false, prefs: { leer: false }, hooks: null,
+  destinos: [], destino: null };
+// Otros cuadros del panel donde también se puede dictar (A7). Ahí solo se escribe: sin órdenes ni conversación.
+const OTROS = ["#proj-desc", "#create-ai", "#case-desc", "#chat-input", "#compare-input"];
 
 function prefs() {
   try { Object.assign(voz.prefs, JSON.parse(localStorage.getItem(PREF_KEY) || "{}")); } catch { /* sin almacenamiento */ }
 }
 
 function aviso(msg, bad = false) {
-  const n = $("#voz-estado");
+  const n = voz.destino?.estado || $("#voz-estado");
   if (!n) return;
   n.textContent = msg;
   n.classList.toggle("bad", bad);
@@ -74,19 +77,22 @@ export async function transcribir(wav) {
 }
 
 function pintar() {
-  const mic = $("#voz-mic");
-  if (!mic) return;
-  const g = !!voz.grabando;
-  mic.setAttribute("aria-pressed", String(g));
-  mic.textContent = g ? "Parar dictado" : "Dictar";
-  mic.classList.toggle("grabando", g);
-  mic.disabled = voz.ocupado && !g;
+  if (!$("#voz-mic")) return;
+  for (const d of voz.destinos) {
+    const g = !!voz.grabando && voz.destino === d;
+    d.boton.setAttribute("aria-pressed", String(g));
+    d.boton.textContent = g ? "Parar dictado" : "Dictar";
+    d.boton.classList.toggle("grabando", g);
+    d.boton.disabled = (voz.ocupado || !!voz.grabando) && !g;
+  }
   $("#voz-conversar").setAttribute("aria-pressed", String(voz.conversacion));
   $("#voz-conversar").textContent = voz.conversacion ? "Salir de conversación" : "Conversación";
 }
 
-async function empezar() {
+async function empezar(destino = voz.destinos[0]) {
   if (voz.grabando || voz.ocupado) return;
+  voz.destino = destino;
+  if (!destino.chat) voz.conversacion = false;
   callar();
   let stream;
   try {
@@ -158,19 +164,20 @@ async function terminar(g) {
 
 function recibir(r) {
   const texto = (r.texto || "").trim();
-  const input = $("#eolas-chat-input");
+  const input = voz.destino.input;
+  const chat = voz.destino.chat;
   if (!texto) {
     aviso("No se entendió nada. Prueba otra vez, más cerca del micrófono.", true);
     if (voz.conversacion) empezar();
     return;
   }
-  const orden = ordenDe(texto);
+  const orden = chat ? ordenDe(texto) : null;
   if (orden) return ejecutar(orden);
   input.value = (input.value.trim() ? `${input.value.trim()} ` : "") + texto;
   input.dispatchEvent(new Event("input", { bubbles: true }));
   const conf = typeof r.confianza === "number" ? ` · confianza ${Math.round(r.confianza * 100)} %` : "";
   aviso(`Dictado con el motor local «${r.motor}»${conf}. Revisa el texto antes de enviar.`);
-  if (voz.conversacion) voz.hooks.enviar(input.value.trim());
+  if (chat && voz.conversacion) voz.hooks.enviar(input.value.trim());
   else input.focus();
 }
 
@@ -216,6 +223,28 @@ function alResponder(e) {
   else if (voz.prefs.leer) decir(texto);
 }
 
+// Botón «Dictar» y línea de estado junto a un cuadro de texto del panel.
+function anadirDictado(sel) {
+  const input = $(sel);
+  if (!input) return;
+  const nombre = input.getAttribute("aria-label") || input.closest("label")?.querySelector("span")?.textContent || "este cuadro";
+  const boton = document.createElement("button");
+  boton.type = "button";
+  boton.className = "small-btn voz-dictar";
+  boton.setAttribute("aria-pressed", "false");
+  boton.setAttribute("aria-label", `Dictar en «${nombre.trim()}»`);
+  boton.title = "Dictar con el micrófono (Alt+M con el cursor en el cuadro). El audio se transcribe en este equipo.";
+  boton.textContent = "Dictar";
+  const estado = document.createElement("span");
+  estado.className = "muted small voz-nota";
+  estado.setAttribute("role", "status");
+  const caja = document.createElement("span");
+  caja.className = "voz-junto";
+  caja.append(boton, estado);
+  input.insertAdjacentElement("afterend", caja);
+  voz.destinos.push({ input, boton, estado, chat: false });
+}
+
 export async function initVoz(hooks) {
   if (!$("#voz-mic")) return;
   voz.hooks = hooks;
@@ -227,9 +256,12 @@ export async function initVoz(hooks) {
   $("#voz-conversar").hidden = !stt || !("speechSynthesis" in window);
   $("#voz-leer").checked = !!voz.prefs.leer;
   $("#voz-leer").closest("label").hidden = !("speechSynthesis" in window);
+  voz.destinos = [{ input: $("#eolas-chat-input"), boton: $("#voz-mic"), estado: $("#voz-estado"), chat: true }];
+  voz.destino = voz.destinos[0];
+  if (stt) for (const sel of OTROS) anadirDictado(sel);
   if (!stt) aviso(puede ? "Voz a texto no disponible: no hay motor local (mira «eolfi voz estado»)." : "Este navegador no permite grabar audio.");
   else aviso(`Voz local lista (motor «${voz.estado.motor_activo}», ${voz.estado.idioma}). Alt+M para dictar.`);
-  $("#voz-mic").addEventListener("click", () => (voz.grabando ? parar() : empezar()));
+  for (const d of voz.destinos) d.boton.addEventListener("click", () => (voz.grabando ? parar() : empezar(d)));
   $("#voz-conversar").addEventListener("click", () => {
     voz.conversacion = !voz.conversacion;
     if (voz.conversacion) empezar(); else { parar(); callar(); aviso("Conversación terminada."); }
@@ -242,7 +274,12 @@ export async function initVoz(hooks) {
   });
   window.addEventListener("eolfi:chat-reply", alResponder);
   window.addEventListener("keydown", (e) => {
-    if (e.altKey && e.key.toLowerCase() === "m" && stt) { e.preventDefault(); voz.grabando ? parar() : empezar(); }
+    if (e.altKey && e.key.toLowerCase() === "m" && stt) {
+      // Alt+M dicta en el cuadro que tiene el foco; si no es ninguno de los conocidos, en el chat.
+      e.preventDefault();
+      const d = voz.destinos.find((x) => x.input === document.activeElement) || voz.destinos[0];
+      if (voz.grabando) parar(); else empezar(d);
+    }
     else if (e.key === "Escape" && (voz.conversacion || voz.grabando || speechSynthesis?.speaking)) {
       voz.conversacion = false; parar(); callar(); pintar(); aviso("Voz detenida.");
     }
