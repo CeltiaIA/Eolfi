@@ -76,6 +76,12 @@ async function openTools(section) {
   if (section) await page.click(`.tools-switch [data-panel-action="${section}"]`);
 }
 
+const ADJUNTOS = [
+  { name: 'modelo.gguf', mimeType: 'application/octet-stream', buffer: Buffer.from('GGUF-test') },
+  { name: 'pesos.safetensors', mimeType: 'application/octet-stream', buffer: Buffer.from('safetensors-test') },
+  { name: 'datos.xyz', mimeType: '', buffer: Buffer.from('unknown-format-test') },
+];
+
 async function axe(label) {
   await page.addScriptTag({ content: AXE });
   const r = await page.evaluate(async () => (await window.axe.run(document, {
@@ -139,20 +145,38 @@ test('automejora: tarjeta por propuesta, aprobar solo si está evaluada y la dec
 test('adjuntar GGUF, safetensors y otros formatos desde el chat', async () => {
   await page.goto(BASE + '/#chat');
   await page.waitForSelector('#version:not(:empty)');
+  // El módulo del chat se importa aparte: #version puede estar listo antes que él (fallaba a veces en la CI).
+  await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
   assert.equal(await page.getAttribute('#eolas-chat-files', 'accept'), null);
   // Con texto pendiente, adjuntar no envía una tarea al motor del equipo.
   await page.fill('#eolas-chat-input', 'Revisar adjuntos sin enviarlos');
-  await page.setInputFiles('#eolas-chat-files', [
-    { name: 'modelo.gguf', mimeType: 'application/octet-stream', buffer: Buffer.from('GGUF-test') },
-    { name: 'pesos.safetensors', mimeType: 'application/octet-stream', buffer: Buffer.from('safetensors-test') },
-    { name: 'datos.xyz', mimeType: '', buffer: Buffer.from('unknown-format-test') },
-  ]);
+  await page.setInputFiles('#eolas-chat-files', ADJUNTOS);
   await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 3);
   const names = await page.textContent('#eolas-chat-attachments');
   for (const name of ['modelo.gguf', 'pesos.safetensors', 'datos.xyz']) assert.ok(names.includes(name));
   await axe('adjuntos de cualquier formato en el chat');
   for (let i = 0; i < 3; i++) await page.locator('#eolas-chat-attachments button').first().click();
   await page.fill('#eolas-chat-input', '');
+});
+
+test('adjuntar antes de que cargue el módulo del chat no pierde los archivos', async () => {
+  // Reproduce el runner lento: el módulo llega 1,5 s tarde y los archivos se eligen antes de que haya listener.
+  await page.route('**/eolas-chat.js', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
+  try {
+    await page.reload();
+    await page.waitForSelector('#version:not(:empty)');
+    assert.equal(await page.locator('#eolas-chat-form[data-ready]').count(), 0, 'el módulo debería llegar tarde');
+    await page.fill('#eolas-chat-input', 'Revisar adjuntos sin enviarlos');
+    await page.setInputFiles('#eolas-chat-files', ADJUNTOS);
+    await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 3);
+    for (let i = 0; i < 3; i++) await page.locator('#eolas-chat-attachments button').first().click();
+    assert.equal(await page.locator('#eolas-chat-log .msg.user').count(), 0);   // con texto pendiente no se envía
+    await page.fill('#eolas-chat-input', '');
+  } finally {
+    await page.unroute('**/eolas-chat.js');
+  }
+  await page.reload();
+  await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
 });
 
 test('subir un binario: se analiza como trabajo y aparece como objetivo', async () => {
