@@ -457,3 +457,14 @@ def test_plantillas_con_servidor_reales_pasan_el_juez_y_axe(tmp_path, destino, m
     p = juez.paso(out, destino)
     assert (p["exit"], p["step"]) == (0, "juez funcional (3/3)"), p["tail"]
 
+
+def test_el_resumen_del_servidor_conserva_el_error_aunque_la_traza_sea_larga(tmp_path):
+    """CI de Windows (17/11): con las rutas largas del runner, «Error: arranque roto» quedaba fuera de los últimos
+    400 caracteres y el mensaje solo mostraba la traza."""
+    log = tmp_path / "s.log"
+    log.write_text("file:///C:/x/src/server.js:1\nthrow new Error('arranque roto');\n\nError: arranque roto\n"
+                   + "".join(f"    at file:///C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/"
+                             f"muy/larga/{i}/src/server.js:1:7\n" for i in range(12)) + "\nNode.js v22.23.4\n",
+                   encoding="utf-8")
+    resumen = juez._resumen_salida(log)
+    assert "Error: arranque roto" in resumen.splitlines()[0] and resumen.endswith("Node.js v22.23.4\n")

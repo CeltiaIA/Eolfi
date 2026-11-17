@@ -252,6 +252,16 @@ def _puerto_libre() -> int:
         return s.getsockname()[1]
 
 
+def _resumen_salida(salida: Path) -> str:
+    """Las líneas de error primero y luego el final: una traza larga (rutas largas del runner de la CI) dejaba el
+    mensaje del error fuera de los últimos 400 caracteres."""
+    texto = salida.read_text(encoding="utf-8", errors="replace")
+    errores = [ln.strip() for ln in texto.splitlines()
+               if re.search(r"\b\w*(Error|Exception)\b|^Traceback", ln.strip()) and not ln.strip().startswith("at ")]
+    cabeza = " | ".join(dict.fromkeys(errores))[:300]
+    return (cabeza + "\n" if cabeza else "") + texto[-400:]
+
+
 @contextlib.contextmanager
 def servido(proyecto: Path, target: str, *, env: dict[str, str] | None = None, plazo: float | None = None):
     """Arranca la app y devuelve su URL base; al salir, mata el árbol de procesos. JuezError si no responde."""
@@ -274,7 +284,7 @@ def servido(proyecto: Path, target: str, *, env: dict[str, str] | None = None, p
         while True:
             if proc.poll() is not None:
                 raise JuezError(f"el servidor terminó con salida {proc.returncode} antes de responder: "
-                                + salida.read_text(encoding="utf-8", errors="replace")[-400:])
+                                + _resumen_salida(salida))
             try:
                 with urllib.request.urlopen(url, timeout=3):
                     break
@@ -284,8 +294,7 @@ def servido(proyecto: Path, target: str, *, env: dict[str, str] | None = None, p
             except (urllib.error.URLError, OSError):
                 pass
             if time.monotonic() > fin:
-                raise JuezError(f"el servidor no respondió en {plazo:.0f} s: "
-                                + salida.read_text(encoding="utf-8", errors="replace")[-400:])
+                raise JuezError(f"el servidor no respondió en {plazo:.0f} s: " + _resumen_salida(salida))
             time.sleep(0.5)
         yield url
     finally:
