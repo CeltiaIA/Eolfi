@@ -97,7 +97,27 @@ def _anotar(tipo: str, datos: dict[str, Any]) -> dict[str, Any]:
     _registro().parent.mkdir(parents=True, exist_ok=True)
     with _registro().open("a", encoding="utf-8") as fh:
         fh.write(_canon(evento) + "\n")
+    if tipo in TIPOS_REFLEJADOS:
+        _reflejar(evento)
     return evento
+
+
+# Eventos del RSI que son acciones (proponer, evaluar, decidir, aplicar, revertir, ajustar umbrales). Cada uno se
+# refleja en el registro único de acciones (B8, ``eolfi/acciones.py``) con su número y su SHA-256: así hay un solo
+# registro de todo lo que cambia estado y la cadena del RSI queda anclada en él (``acciones.verificar_rsi``). Las
+# observaciones no se reflejan, son muchas y no cambian nada; pero reescribir una cambia el SHA-256 de todo lo
+# posterior y el siguiente evento reflejado deja de coincidir.
+TIPOS_REFLEJADOS = ("propuesta", "evaluacion", "aa", "decision", "aplicacion", "reversion", "meta")
+_CAMPOS_REFLEJO = ("id", "superficie", "decision", "por", "regla", "aprueba", "umbral")
+
+
+def _reflejar(evento: dict[str, Any]) -> None:
+    from eolfi import acciones
+
+    datos = evento.get("datos") or {}
+    params = {"rsi_seq": evento["seq"], "rsi_sha256": evento["sha256"],
+              **{k: datos[k] for k in _CAMPOS_REFLEJO if isinstance(datos.get(k), (str, int, float, bool))}}
+    acciones.anotar_seguro(f"rsi.{evento['tipo']}", params=params, origen="rsi")
 
 
 def verificar_registro() -> dict[str, Any]:
