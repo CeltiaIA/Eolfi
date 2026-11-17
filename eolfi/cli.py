@@ -132,6 +132,13 @@ def _parser() -> argparse.ArgumentParser:
     acc_cmd = acc.add_subparsers(dest="acciones_action", required=True)
     acc_ver = acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
     acc_ver.add_argument("--ancla", help="Archivo de anclas externo: comprueba también que cada ancla sigue en la cadena")
+    acc_ver.add_argument("--clave", help="Archivo de clave (o EOLFI_ACCIONES_CLAVE): comprueba también las firmas")
+    acc_ver.add_argument("--rsi", action="store_true",
+                         help="Comprueba también la cadena del RSI y que cada evento reflejado coincide")
+    acc_cla = acc_cmd.add_parser("clave", help="Crea una clave de firma de 32 bytes (guárdala fuera del equipo)")
+    acc_cla.add_argument("--destino", required=True, help="Archivo nuevo, fuera del alcance de quien escribe el registro")
+    acc_fir = acc_cmd.add_parser("firmar", help="Firma con HMAC-SHA256 la cabeza de la cadena")
+    acc_fir.add_argument("--clave", help="Archivo de clave (o EOLFI_ACCIONES_CLAVE)")
     acc_anc = acc_cmd.add_parser("anclar", help="Copia la cabeza de la cadena a un archivo externo")
     acc_anc.add_argument("--destino", required=True, help="Archivo fuera del alcance de quien escribe el registro")
     acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
@@ -1709,8 +1716,28 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.acciones_action == "verificar":
             result = acciones.verificar_anclas(args.ancla) if args.ancla else acciones.verificar()
+            try:
+                if args.clave or os.environ.get("EOLFI_ACCIONES_CLAVE"):
+                    firmas = acciones.verificar_firmas(args.clave)
+                    result = {**result, "firmas": {k: firmas.get(k) for k in (
+                        "ok", "firmas", "firmas_de_otra_clave", "firmado_hasta", "sin_firmar_al_final", "clave_id",
+                        "firma_rota", "motivo", "aviso") if k in firmas}, "ok": result["ok"] and firmas["ok"]}
+            except (OSError, ValueError) as exc:
+                result = {**result, "ok": False, "firmas": {"ok": False, "error": str(exc)}}
+            if args.rsi:
+                rsi = acciones.verificar_rsi()
+                result = {**result, "rsi": {k: v for k, v in rsi.items() if k not in ("archivo", "ultimo", "eventos")},
+                          "ok": result["ok"] and rsi["ok"]}
             _print(result)
             return 0 if result["ok"] else 2
+        if args.acciones_action in ("clave", "firmar"):
+            try:
+                _print(acciones.generar_clave(args.destino) if args.acciones_action == "clave"
+                       else acciones.firmar(args.clave))
+            except (OSError, ValueError) as exc:
+                _print({"ok": False, "error": str(exc)})
+                return 2
+            return 0
         if args.acciones_action == "anclar":
             try:
                 _print(acciones.anclar(args.destino))

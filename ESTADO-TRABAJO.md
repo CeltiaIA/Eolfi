@@ -13,6 +13,11 @@
   Python del sistema dentro del ejecutable. `eolfi acceso-directo` (vista previa; `--aplicar`/`--quitar`), `.lnk`
   probado en carpeta temporal. No se creó ningún acceso en el escritorio real. Sin firma; pipx real, Linux real y
   macOS NO VERIFICADOS.
+- **B8 unión y firma (17/11, rama `luis/b8-firma`):** las acciones del RSI se reflejan en `acciones.jsonl` como
+  `rsi.<tipo>` (número y SHA-256 de su evento); `eolfi acciones verificar --rsi` detecta una reescritura del registro
+  del RSI. Firma HMAC-SHA256: `eolfi acciones clave --destino`, `firmar --clave` y `verificar --clave` detectan una
+  reescritura coherente o una firma inventada. 10 pruebas nuevas. No se ha creado ninguna clave real ni firmado el
+  registro real: la clave debe guardarla el titular fuera del equipo. Límites: HMAC simétrico, cola sin firmar.
 - **Integración en `main` (17/11):** la PR #55 (`luis/integracion-17nov`, commit de fusión `1a26bf3`) ha llevado
   a `main`, en orden, las 29 PR abiertas (#19–#35, #39 y #43–#54), y GitHub las marca todas como MERGED.
   Resoluciones: los conflictos REA, por suma, se fusionaron por bloques; en la #39, superada, se conservó `main`;
