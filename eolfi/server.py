@@ -534,6 +534,9 @@ class EolfiApp:
             "eolfi_reimplementar_funcion": lambda a: step("REA descompila la función…",
                                                           lambda: rc.reimplementar_funcion(rea.client, ruta(a), str(a.get("funcion") or ""))),
             "eolfi_inventario_dependencias": lambda a: rc.inventario_dependencias(rea.client, ruta(a)),
+            "eolfi_modulo_wasm": lambda a: rc.modulo_wasm(
+                rea.client, ruta(a), ruta({"ruta": a["frente"]}) if a.get("frente") else None,
+                js=[ruta({"ruta": j}) for j in a.get("js") or [] if isinstance(j, str)][:10]),
             "eolfi_api_desde_captura": lambda a: step("REA lee la captura de red…",
                                                       lambda: self._api_from_capture(rea.client, ruta(a))),
             "eolfi_recuperar_fuentes_js": lambda a: step("REA (WSL2) reconstruye las fuentes con Wakaru…",
@@ -548,7 +551,7 @@ class EolfiApp:
         }
         names = {"eolfi_revisar_modelo": "revisar_modelo", "eolfi_explicar_binario": "explicar_binario",
                  "eolfi_reimplementar_funcion": "reimplementar_funcion", "eolfi_comparar_versiones": "comparar_versiones",
-                 "eolfi_inventario_dependencias": "inventario_dependencias",
+                 "eolfi_inventario_dependencias": "inventario_dependencias", "eolfi_modulo_wasm": "modulo_wasm",
                  "eolfi_verificar_comportamiento": "verificar_comportamiento", "eolfi_analizar_app_js": "analizar_app_js",
                  "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura"}
         return {name: in_case(names[name], fn) for name, fn in tools.items()}

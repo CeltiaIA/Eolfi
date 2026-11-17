@@ -86,6 +86,13 @@ APP_TOOLS = {
                        "certificados, recursos y, si es Go o Rust, su versión y dependencias declaradas. Segundos.",
         "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}}, "required": ["ruta"],
                        "additionalProperties": False}},
+    "eolfi_modulo_wasm": {
+        "description": "Módulo WebAssembly (.wasm) con REA y WABT, sin ejecutarlo: si es válido, secciones, "
+                       "importaciones y exportaciones. Con «frente» (otra versión) compara sus interfaces; con «js» "
+                       "(los JavaScript que lo cargan) dice dónde lo nombran. Segundos.",
+        "parameters": {"type": "object", "properties": {"ruta": {"type": "string"}, "frente": {"type": "string"},
+                                                        "js": {"type": "array", "items": {"type": "string"}}},
+                       "required": ["ruta"], "additionalProperties": False}},
     "eolfi_verificar_comportamiento": {
         "description": "Compara el COMPORTAMIENTO de un programa original y su reconstrucción ejecutando ambos con el mismo "
                        "escenario (REA): salida, código de salida y global. Con «modulo» (el archivo de código de la "

@@ -93,3 +93,22 @@ def test_wsl_rea_command_pasa_binwalk_y_unblob_si_estan(monkeypatch):
         else:  # sin instalar, o fuera de ~/.local/eolfi-rea: no se pasa
             assert envs == []
         assert cmd[-1] == "mcp"
+
+
+def test_rea_env_pasa_wabt_si_esta_instalado(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.delenv("REA_WABT_BIN_DIRECTORY", raising=False)
+    assert "REA_WABT_BIN_DIRECTORY" not in rea_client.rea_env()
+    bin_ = tmp_path / ".eolfi" / "tools" / rea_client.WABT_DIR / "bin"
+    bin_.mkdir(parents=True)
+    exe = ".exe" if os.name == "nt" else ""
+    (bin_ / f"wasm-validate{exe}").write_bytes(b"")
+    assert "REA_WABT_BIN_DIRECTORY" not in rea_client.rea_env()  # falta wasm-objdump
+    (bin_ / f"wasm-objdump{exe}").write_bytes(b"")
+    assert "REA_WABT_BIN_DIRECTORY" not in rea_client.rea_env()  # falta wasm2wat
+    (bin_ / f"wasm2wat{exe}").write_bytes(b"")
+    assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == str(bin_)
+    monkeypatch.setenv("REA_WABT_BIN_DIRECTORY", "/otra")
+    assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == "/otra"  # la del usuario manda
