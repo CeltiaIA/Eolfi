@@ -28,6 +28,7 @@ criterios se anotan como no ejecutados y la verificación NO queda en verde: un 
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -42,6 +43,12 @@ ARCHIVO = "eolfi.juez.json"
 DRIVER = Path(__file__).with_name("juez_web.mjs")
 # Carpeta que se sirve en cada destino: el proyecto tal cual o la compilación de Vite.
 DESTINOS = {"static": ".", "react": "dist", "vue": "dist", "svelte": "dist"}
+# Destinos con servidor propio (C4, 17/11/2026): se arranca la app en un puerto local (127.0.0.1), se espera a que
+# responda, se juzga por URL y se para el árbol de procesos. Usa lo que verify ya instaló (.venv, node_modules,
+# compilación de Next); no instala nada.
+SERVIDORES = ("next", "express", "fastapi", "django")
+CUBIERTOS = (*DESTINOS, *SERVIDORES)
+ARRANQUE = 90
 MAX_PASOS = 100
 PLAZO = 180
 _PAGINA = re.compile(r"[\w][\w./-]{0,120}\.html?")
@@ -208,8 +215,100 @@ def _axe() -> str | None:
     return str(local) if local.is_file() else None
 
 
+def _venv_python(proyecto: Path) -> Path:
+    return proyecto / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def arranque(proyecto: Path, target: str, puerto: int) -> tuple[list[str], dict[str, str]]:
+    """Orden y variables para servir la app en 127.0.0.1:puerto. JuezError si falta lo que instala verify."""
+    p = str(puerto)
+    if target in ("fastapi", "django"):
+        py = _venv_python(proyecto)
+        if not py.is_file():
+            raise JuezError("no está el entorno virtual .venv (lo crea la verificación)")
+        if target == "fastapi":
+            return [str(py), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", p], {}
+        return [str(py), "manage.py", "runserver", f"127.0.0.1:{p}", "--noreload"], {}
+    node = shutil.which("node")
+    if node is None:
+        raise JuezError("Node.js no está instalado")
+    if target == "express":
+        return [node, "src/server.js"], {"PORT": p, "HOST": "127.0.0.1"}
+    if target == "next":
+        binario = proyecto / "node_modules" / "next" / "dist" / "bin" / "next"
+        if not binario.is_file():
+            raise JuezError("no está node_modules/next (lo instala la verificación)")
+        if not (proyecto / ".next").is_dir():
+            raise JuezError("no está la compilación .next (npm run build)")
+        return [node, str(binario), "start", "-p", p, "-H", "127.0.0.1"], {"PORT": p}
+    raise JuezError(f"destino sin servidor conocido: {target}")
+
+
+def _puerto_libre() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _resumen_salida(salida: Path) -> str:
+    """Las líneas de error primero y luego el final: una traza larga (rutas largas del runner de la CI) dejaba el
+    mensaje del error fuera de los últimos 400 caracteres."""
+    texto = salida.read_text(encoding="utf-8", errors="replace")
+    errores = [ln.strip() for ln in texto.splitlines()
+               if re.search(r"\b\w*(Error|Exception)\b|^Traceback", ln.strip()) and not ln.strip().startswith("at ")]
+    cabeza = " | ".join(dict.fromkeys(errores))[:300]
+    return (cabeza + "\n" if cabeza else "") + texto[-400:]
+
+
+@contextlib.contextmanager
+def servido(proyecto: Path, target: str, *, env: dict[str, str] | None = None, plazo: float | None = None):
+    """Arranca la app y devuelve su URL base; al salir, mata el árbol de procesos. JuezError si no responde."""
+    import urllib.error
+    import urllib.request
+
+    from eolfi.generador.verify import _kill_tree
+
+    plazo = plazo or ARRANQUE
+    puerto = _puerto_libre()
+    cmd, extra = arranque(proyecto, target, puerto)
+    url = f"http://127.0.0.1:{puerto}/"
+    salida = Path(tempfile.mkstemp(prefix="eolfi-servidor-", suffix=".log")[1])
+    with salida.open("wb") as log:
+        proc = subprocess.Popen(cmd, cwd=proyecto, env={**(env or os.environ), **extra}, stdout=log, stderr=log,
+                                stdin=subprocess.DEVNULL, start_new_session=os.name != "nt",
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        fin = time.monotonic() + plazo
+        while True:
+            if proc.poll() is not None:
+                raise JuezError(f"el servidor terminó con salida {proc.returncode} antes de responder: "
+                                + _resumen_salida(salida))
+            try:
+                with urllib.request.urlopen(url, timeout=3):
+                    break
+            except urllib.error.HTTPError as exc:
+                if exc.code < 500:
+                    break                      # responde (p. ej. 404 en «/»): los criterios dirán si basta
+            except (urllib.error.URLError, OSError):
+                pass
+            if time.monotonic() > fin:
+                raise JuezError(f"el servidor no respondió en {plazo:.0f} s: " + _resumen_salida(salida))
+            time.sleep(0.5)
+        yield url
+    finally:
+        _kill_tree(proc)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        with contextlib.suppress(OSError):
+            salida.unlink()
+
+
 def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, str] | None = None,
-           plazo: float = PLAZO) -> dict[str, Any]:
+           plazo: float = PLAZO, url: str | None = None) -> dict[str, Any]:
     """Ejecuta los criterios. Devuelve ``status`` ok (con passed/total/checks), unavailable o error."""
     total = sum(1 for p in criterios["pasos"] if "comprobar" in p)
     node = shutil.which("node")
@@ -234,7 +333,7 @@ def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, st
         req = Path(tmp, "peticion.json")
         req.write_text(json.dumps({"raiz": str(Path(proyecto).resolve()), "pagina": criterios["pagina"],
                                    "pasos": criterios["pasos"], "espera_ms": 5000, "asentar_ms": 200,
-                                   "axe": _axe()}),
+                                   "axe": _axe(), "url": url}),
                        encoding="utf-8")
         try:
             proc = subprocess.run([node, str(DRIVER), str(req)], capture_output=True, timeout=plazo, env=run_env,
@@ -267,7 +366,13 @@ def paso(proyecto: str | Path, target: str, *, env: dict[str, str] | None = None
         return {"step": "juez funcional (desactivado con EOLFI_JUEZ=0: NO VERIFICADO)", "exit": 0, "seconds": 0,
                 "tail": "", "judge": {"status": "omitido"}}
     raiz = Path(proyecto) / DESTINOS[target] if target in DESTINOS else None
-    if raiz is None:
+    if target in SERVIDORES:
+        try:
+            with servido(Path(proyecto), target, env=env) as url:
+                j = juzgar(proyecto, criterios, env=env, url=url)
+        except JuezError as exc:
+            j = {"status": "error", "error": str(exc)}
+    elif raiz is None:
         j = {"status": "unavailable", "error": f"el juez funcional aún no cubre el destino «{target}»"}
     elif not (raiz / criterios["pagina"]).is_file():
         j = {"status": "error", "error": f"no está {DESTINOS[target]}/{criterios['pagina']}: falta la compilación "

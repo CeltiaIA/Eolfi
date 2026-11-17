@@ -77,7 +77,7 @@ def test_paso_sin_criterios_invalidos_destino_y_desactivado(tmp_path, monkeypatc
     p = juez.paso(tmp_path, "static")
     assert p["exit"] == 1 and "inválidos" in p["tail"]
     (tmp_path / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
-    p = juez.paso(tmp_path, "fastapi")
+    p = juez.paso(tmp_path, "dotnet")
     assert p["exit"] == 1 and "aún no cubre" in p["tail"]              # un juez que no corre no aprueba
     monkeypatch.setattr(juez.shutil, "which", lambda _n: None)
     assert juez.paso(tmp_path, "static")["exit"] == 1
@@ -359,7 +359,7 @@ def test_destinos_vite_sin_compilacion_no_aprueban(tmp_path):
     for destino in ("react", "vue", "svelte"):
         p = juez.paso(tmp_path, destino)
         assert p["exit"] == 1 and "falta la compilación" in p["tail"] and "dist/index.html" in p["tail"]
-    assert "aún no cubre" in juez.paso(tmp_path, "fastapi")["tail"]
+    assert "aún no cubre" in juez.paso(tmp_path, "dotnet")["tail"]
 
 
 @con_navegador
@@ -378,3 +378,93 @@ def test_destinos_vite_juzgan_la_compilacion_de_dist(tmp_path):
         p = juez.paso(proyecto, destino)
         assert (p["exit"], p["step"]) == (0, "juez funcional (7/7)"), p["tail"]
 
+
+# Modo servidor (C4): un servidor Node sin dependencias con la forma de la plantilla express (src/server.js, PORT).
+SERVIDOR_JS = """import http from 'node:http';
+import { readFileSync } from 'node:fs';
+const html = readFileSync(new URL('../public/index.html', import.meta.url));
+const js = readFileSync(new URL('../public/app.js', import.meta.url));
+http.createServer((req, res) => {
+  if (req.url === '/' || req.url === '/index.html') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(html); }
+  if (req.url === '/app.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(js); }
+  res.writeHead(404); res.end();
+}).listen(Number(process.env.PORT), process.env.HOST || '127.0.0.1');
+"""
+
+
+def _servidor(d: Path, js: str = SERVIDOR_JS) -> Path:
+    _app(d / "public")
+    (d / "public" / juez.ARCHIVO).unlink()
+    (d / "src").mkdir(parents=True)
+    (d / "src" / "server.js").write_text(js, encoding="utf-8")
+    (d / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+    return _con_a11y(d)
+
+
+@con_navegador
+def test_juez_arranca_el_servidor_juzga_por_url_y_lo_para(tmp_path, monkeypatch):
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core")
+    import socket
+
+    puertos = []
+    real = juez._puerto_libre
+    monkeypatch.setattr(juez, "_puerto_libre", lambda: puertos.append(real()) or puertos[-1])
+    p = juez.paso(_servidor(tmp_path / "srv"), "express")
+    assert (p["exit"], p["step"]) == (0, "juez funcional (7/7)"), p["tail"]
+    with socket.socket() as s:                                     # el servidor ya no escucha
+        assert s.connect_ex(("127.0.0.1", puertos[0])) != 0
+
+
+def test_servidor_que_no_arranca_o_no_responde(tmp_path, monkeypatch):
+    if not shutil.which("node"):
+        pytest.skip("requiere Node.js")
+    roto = juez.paso(_servidor(tmp_path / "roto", "throw new Error('arranque roto');\n"), "express")
+    assert roto["exit"] == 1 and "terminó con salida" in roto["tail"] and "arranque roto" in roto["tail"]
+    monkeypatch.setattr(juez, "ARRANQUE", 2)
+    mudo = juez.paso(_servidor(tmp_path / "mudo", "setInterval(() => {}, 1000);\n"), "express")
+    assert mudo["exit"] == 1 and "no respondió en 2 s" in mudo["tail"]
+    sin_venv = tmp_path / "py"
+    sin_venv.mkdir()
+    (sin_venv / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    for destino in ("fastapi", "django"):
+        assert "no está el entorno virtual .venv" in juez.paso(sin_venv, destino)["tail"]
+    assert "no está node_modules/next" in juez.paso(sin_venv, "next")["tail"]
+
+
+def test_create_mide_por_defecto_los_destinos_con_servidor():
+    assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django"}
+
+
+@con_navegador
+@pytest.mark.parametrize("destino,modulo", [("fastapi", "uvicorn"), ("django", "django")])
+def test_plantillas_con_servidor_reales_pasan_el_juez_y_axe(tmp_path, destino, modulo):
+    # Sin red: el .venv del proyecto ve los paquetes de este Python (--system-site-packages).
+    import importlib.util
+    import sys
+
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    if juez._axe() is None or importlib.util.find_spec(modulo) is None:
+        pytest.skip(f"requiere axe-core y {modulo}")
+    out = tmp_path / destino
+    create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Bicis",
+                   target=destino, do_verify=False)
+    subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(out / ".venv")], check=True)
+    juez.instalar_accesibilidad(out)
+    p = juez.paso(out, destino)
+    assert (p["exit"], p["step"]) == (0, "juez funcional (3/3)"), p["tail"]
+
+
+def test_el_resumen_del_servidor_conserva_el_error_aunque_la_traza_sea_larga(tmp_path):
+    """CI de Windows (17/11): con las rutas largas del runner, «Error: arranque roto» quedaba fuera de los últimos
+    400 caracteres y el mensaje solo mostraba la traza."""
+    log = tmp_path / "s.log"
+    log.write_text("file:///C:/x/src/server.js:1\nthrow new Error('arranque roto');\n\nError: arranque roto\n"
+                   + "".join(f"    at file:///C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/"
+                             f"muy/larga/{i}/src/server.js:1:7\n" for i in range(12)) + "\nNode.js v22.23.4\n",
+                   encoding="utf-8")
+    resumen = juez._resumen_salida(log)
+    assert "Error: arranque roto" in resumen.splitlines()[0] and resumen.endswith("Node.js v22.23.4\n")
