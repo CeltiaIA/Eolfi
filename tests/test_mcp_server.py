@@ -113,3 +113,26 @@ def test_consulta_biblioteca_es_solo_referencia(tmp_path):
     assert not read["isError"]
     assert "Una referencia de configuración local" in read["structuredContent"]["contenido"]
     assert _call(srv, "eolfi_biblioteca_leer", {"ruta": "../secret.md"})["isError"]
+
+
+def test_carpeta_de_modelos_se_lista_sin_leer_los_pesos(tmp_path):
+    # 17/11/2026: el chat recibió «D:\AI\Hydra\gguf» y eolfi_triage solo decía «la ruta no es un archivo».
+    srv = EolfiMCP(str(tmp_path / "e.db"))
+    carpeta = tmp_path / "gguf"
+    (carpeta / "sub").mkdir(parents=True)
+    (carpeta / "b-Q4.gguf").write_bytes(b"GGUF" + b"\0" * 60)
+    (carpeta / "a-Q5.gguf").write_bytes(b"GGUF" + b"\0" * 10)
+    sha = "ab" * 32
+    (carpeta / "a-Q5.sha256").write_text(f"{sha.upper()}  a-Q5.gguf\n", encoding="utf-8")
+    (carpeta / "LEEME.txt").write_text("hola", encoding="utf-8")
+    r = _call(srv, "eolfi_modelos_auditar", {"ruta": str(carpeta)})
+    assert r["isError"] is False
+    c = r["structuredContent"]
+    assert [m["nombre"] for m in c["modelos_gguf"]] == ["a-Q5.gguf", "b-Q4.gguf"]
+    assert c["modelos_gguf"][0]["sha256_publicado"] == sha and c["modelos_gguf"][0]["bytes"] == 14
+    assert "sha256_publicado" not in c["modelos_gguf"][1]
+    assert c["subcarpetas"] == ["sub"] and set(c["otros_archivos"]) == {"a-Q5.sha256", "LEEME.txt"}
+    t = _call(srv, "eolfi_triage", {"ruta": str(carpeta)})
+    assert t["isError"] is True
+    texto = t["content"][0]["text"]
+    assert "es una carpeta" in texto and "2 modelos .gguf" in texto and "eolfi_modelos_auditar" in texto
