@@ -9,22 +9,36 @@ smoke). Las llame la CLI, el panel o un agente, el evento se escribe en el mismo
 (``eolfi/bridge/acciones.mjs``) escribe en la misma cadena, con el mismo JSON canónico y el mismo cerrojo, cada
 envío a un chat web (aprobado, denegado, caducado o cancelado), comparativa, permiso temporal, revocación y reinicio.
 
+Las acciones del RSI (``eolfi/rsi.py``: proponer, evaluar, decidir, aplicar, revertir, ajustar umbrales) se reflejan
+aquí como ``rsi.<tipo>`` con el número y el SHA-256 de su evento en la cadena propia del RSI, que sigue existiendo
+porque de ella se reconstruye el estado de las propuestas. ``verificar_rsi`` comprueba las dos cadenas y que cada
+reflejo coincide: reescribir el registro del RSI ya no pasa desapercibido.
+
+Firma: ``firmar`` añade un evento ``acciones.firma`` con el HMAC-SHA256 de la cabeza de la cadena, hecho con una clave
+de 32 bytes (``generar_clave``) que el titular guarda fuera del alcance de quien escribe el registro (otra unidad,
+un medio extraíble) y solo aporta al firmar o verificar. ``verificar_firmas`` recalcula cada HMAC: sin la clave no se
+puede reescribir ni recortar lo firmado sin que se note.
+
 Límites:
-- La cadena detecta cambios de un registro que se conserva, pero quien puede escribir el archivo puede
-  reescribirlo entero con una cadena nueva; no está firmado. ``anclar`` copia la cabeza a un archivo externo
-  y ``verificar_anclas`` detecta una reescritura anterior a la última ancla, solo si ese archivo se guarda
-  fuera del alcance de quien escribe el registro.
+- Lo posterior a la última firma o ancla solo tiene la protección de la cadena: quien escribe el archivo puede
+  reescribir esa cola, o quitar los últimos eventos junto con la última firma (``verificar_firmas`` informa de
+  cuántos eventos quedan sin firmar; para saber si faltan firmas hay que conservar su número fuera).
+- HMAC es simétrico: quien tenga la clave puede firmar. Si la clave queda en el mismo equipo y cuenta que el
+  registro, la firma no protege más que la cadena.
+- ``anclar`` copia la cabeza a un archivo externo y ``verificar_anclas`` detecta una reescritura anterior a la última
+  ancla, solo si ese archivo se guarda fuera del alcance de quien escribe el registro.
 - Si escribir el evento falla, la acción ya hecha no se deshace: se avisa por stderr y ``verificar()`` no lo verá.
 - Solo se guardan los campos declarados para cada operación (nombres, hashes, estados), nunca prompts ni código.
-- El registro RSI de la rama ``vas-b1-b2`` (``eolfi/rsi.py``) es otra cadena; unificarlas queda pendiente.
 """
 from __future__ import annotations
 
 import functools
 import hashlib
+import hmac
 import inspect
 import json
 import os
+import secrets
 import sys
 import time
 from collections.abc import Callable, Iterable
@@ -256,6 +270,128 @@ def _seguro(operacion: str, **kw: Any) -> None:
         anotar(operacion, **kw)
     except Exception as exc:  # noqa: BLE001 — la acción ya ocurrió: se avisa, no se oculta ni se deshace
         print(f"[eolfi] AVISO: no se pudo registrar la acción {operacion}: {exc}", file=sys.stderr)
+
+
+anotar_seguro = _seguro   # para otros módulos (RSI, instalador): registra o avisa por stderr, nunca lanza
+
+
+# ── Unión con la cadena del RSI ───────────────────────────────────────────────────────────────────────────────────
+
+def verificar_rsi() -> dict[str, Any]:
+    """Las dos cadenas íntegras y cada reflejo ``rsi.<tipo>`` presente en la del RSI con el mismo SHA-256.
+
+    Los eventos reflejables del RSI anteriores al primer reflejo son de antes de unir los registros y se cuentan
+    aparte; uno posterior sin reflejo indica que escribir aquí falló (o que se borró su reflejo)."""
+    from eolfi import rsi
+
+    estado = verificar()
+    rsi_estado = rsi.verificar_registro()
+    out: dict[str, Any] = {**estado, "rsi": rsi_estado}
+    if not estado["ok"] or not rsi_estado["ok"]:
+        return {**out, "ok": False}
+    rsi_eventos = rsi.eventos()
+    por_seq = {e["seq"]: e for e in rsi_eventos}
+    reflejos = [e for e in eventos() if str(e.get("operacion", "")).startswith("rsi.")]
+    for r in reflejos:
+        params = r.get("params") or {}
+        original = por_seq.get(params.get("rsi_seq"))
+        if not original or original["sha256"] != params.get("rsi_sha256") or r["operacion"] != f"rsi.{original['tipo']}":
+            return {**out, "ok": False, "reflejo_roto": r["seq"],
+                    "motivo": f"el evento {r['seq']} refleja el {params.get('rsi_seq')} del RSI, que ya no coincide: "
+                              "registro del RSI reescrito o truncado"}
+    reflejados = {(r.get("params") or {}).get("rsi_seq") for r in reflejos}
+    primero = min(reflejados) if reflejados else None
+    reflejables = [e["seq"] for e in rsi_eventos if e["tipo"] in rsi.TIPOS_REFLEJADOS]
+    previos = [s for s in reflejables if primero is None or s < primero]
+    sin_reflejo = [s for s in reflejables if primero is not None and s > primero and s not in reflejados]
+    return {**out, "reflejos": len(reflejos), "rsi_anteriores_a_la_union": len(previos),
+            "rsi_sin_reflejo": sin_reflejo[:50], "ok": not sin_reflejo}
+
+
+# ── Firma (HMAC-SHA256 con una clave guardada fuera) ──────────────────────────────────────────────────────────────
+
+def generar_clave(destino: str | Path) -> dict[str, Any]:
+    """Crea una clave aleatoria de 32 bytes (hex) en ``destino``; nunca sustituye una existente."""
+    destino = Path(destino)
+    if destino.exists():
+        raise ValueError(f"{destino} ya existe: no se sustituye una clave")
+    if destino.resolve().parent == registro_file().resolve().parent:
+        raise ValueError("la clave no puede guardarse junto al registro: guárdala fuera de su alcance")
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    clave = secrets.token_hex(32)
+    fd = os.open(destino, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, "w", encoding="ascii") as fh:
+        fh.write(clave + "\n")
+    return {"clave": str(destino), "clave_id": _clave_id(bytes.fromhex(clave))}
+
+
+def _clave_id(clave: bytes) -> str:
+    return hashlib.sha256(b"eolfi-acciones-clave|" + clave).hexdigest()[:16]
+
+
+def _leer_clave(archivo: str | Path | None) -> bytes:
+    archivo = archivo or os.environ.get("EOLFI_ACCIONES_CLAVE")
+    if not archivo:
+        raise ValueError("falta la clave: --clave ARCHIVO o EOLFI_ACCIONES_CLAVE")
+    texto = Path(archivo).read_text(encoding="ascii").strip()
+    try:
+        clave = bytes.fromhex(texto)
+    except ValueError:
+        raise ValueError(f"{archivo} no contiene una clave hexadecimal") from None
+    if len(clave) < 32:
+        raise ValueError(f"{archivo}: la clave debe tener al menos 32 bytes")
+    return clave
+
+
+def _hmac(clave: bytes, seq: int, sha: str) -> str:
+    return hmac.new(clave, f"{SCHEMA}|{seq}|{sha}".encode(), hashlib.sha256).hexdigest()
+
+
+def firmar(clave_archivo: str | Path | None = None) -> dict[str, Any]:
+    """Firma la cabeza de una cadena íntegra con un evento ``acciones.firma``."""
+    clave = _leer_clave(clave_archivo)
+    estado = verificar()
+    if not estado["ok"]:
+        raise ValueError(f"no se firma una cadena rota (evento {estado['roto_en']})")
+    if not estado["eventos"]:
+        raise ValueError("no hay eventos que firmar")
+    seq, cabeza = estado["eventos"], estado["ultimo"]
+    evento = anotar("acciones.firma", params={"hasta_seq": seq, "cabeza": cabeza, "clave_id": _clave_id(clave)},
+                    resultado={"hmac": _hmac(clave, seq, cabeza)}, origen="titular")
+    if evento is None:
+        raise ValueError("el registro de acciones está desactivado (EOLFI_ACCIONES=0)")
+    return {"ok": True, "firmado_hasta": seq, "cabeza": cabeza, "evento": evento["seq"], "clave_id": _clave_id(clave)}
+
+
+def verificar_firmas(clave_archivo: str | Path | None = None) -> dict[str, Any]:
+    """Cadena íntegra y cada firma hecha con esta clave válida para el evento que firmó."""
+    clave = _leer_clave(clave_archivo)
+    kid = _clave_id(clave)
+    estado = verificar()
+    if not estado["ok"]:
+        return {**estado, "firmas": 0}
+    todos = eventos()
+    por_seq = {e["seq"]: e["sha256"] for e in todos}
+    validas, otras, firmado = 0, 0, 0
+    for e in todos:
+        if e.get("operacion") != "acciones.firma":
+            continue
+        p, r = e.get("params") or {}, e.get("resultado") or {}
+        if p.get("clave_id") != kid:
+            otras += 1
+            continue
+        seq, cabeza = p.get("hasta_seq"), p.get("cabeza")
+        if (not isinstance(seq, int) or por_seq.get(seq) != cabeza
+                or not hmac.compare_digest(str(r.get("hmac", "")), _hmac(clave, seq, str(cabeza)))):
+            return {**estado, "ok": False, "firma_rota": e["seq"], "firmas": validas,
+                    "motivo": f"la firma del evento {e['seq']} no corresponde al evento {seq}: registro reescrito "
+                              "o firma falsificada"}
+        validas += 1
+        firmado = max(firmado, seq)
+    cola = [e for e in todos if e["seq"] > firmado and e.get("operacion") != "acciones.firma"]
+    return {**estado, "firmas": validas, "firmas_de_otra_clave": otras, "firmado_hasta": firmado,
+            "sin_firmar_al_final": len(cola), "clave_id": kid,
+            **({"aviso": "ninguna firma con esta clave"} if not validas else {})}
 
 
 def anclar(destino: str | Path) -> dict[str, Any]:
