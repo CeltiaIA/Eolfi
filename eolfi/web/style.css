@@ -221,6 +221,34 @@ details.ev summary { padding: var(--s2) var(--s3); display: flex; gap: var(--s2)
 details.ev summary .op { font-family: var(--mono); font-weight: 600; }
 details.ev .body { padding: 0 var(--s3) var(--s3); }
 
+/* -- mapa de la app (C5) ------------------------------------------------------- */
+figure.mapa { margin: var(--s2) 0 var(--s3); padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); }
+figure.mapa figcaption { margin-bottom: var(--s2); }
+.mapa-scroll { overflow: auto; max-height: 480px; border-radius: var(--r-sm); background: var(--panel); border: 1px solid var(--line); }
+.mapa-svg { display: block; font-family: var(--mono); font-size: 12px; }
+.mapa-nivel { fill: var(--muted); font-family: var(--sans); font-size: 11px; }
+.mapa-arista { fill: none; stroke: var(--line-strong); stroke-width: 1.4; }
+.mapa-punta { fill: var(--line-strong); }
+.mapa-nodo rect { stroke-width: 1.2; }
+.mapa-nodo text { fill: var(--text); }
+.mapa-nodo.interna rect { fill: var(--panel); stroke: var(--accent); }
+.mapa-nodo.raiz rect { fill: var(--accent-soft); stroke: var(--accent-2); stroke-width: 2; }
+.mapa-nodo.externa rect { fill: var(--bg-2); stroke: var(--muted); stroke-dasharray: 4 3; }
+.mapa-nodo.externa text { fill: var(--muted); }
+.mapa-leyenda { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); align-items: center; margin: 0 0 var(--s2); color: var(--muted); }
+.mapa-marca { display: inline-block; width: 14px; height: 10px; border-radius: 3px; border: 1.5px solid var(--accent); vertical-align: middle; }
+.mapa-marca.raiz { background: var(--accent-soft); border-color: var(--accent-2); }
+.mapa-marca.externa { border-style: dashed; border-color: var(--muted); background: var(--bg-2); }
+.mapa-lista { margin-top: var(--s2); }
+.mapa-lista ul { margin: var(--s1) 0 0; padding-left: var(--s4); font-family: var(--mono); font-size: 12px; max-height: 240px; overflow: auto; }
+.mapa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s2); }
+.mapa-tarjeta { padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); min-width: 0; }
+.mapa-tarjeta.abierta { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.mapa-tarjeta h4 { margin: 0 0 var(--s1); font-size: 13px; }
+.mapa-tarjeta p { margin: 0 0 var(--s1); }
+.mapa-tarjeta ul { margin: 0; padding-left: var(--s4); font-size: 12px; }
+.mapa-tarjeta li { overflow-wrap: anywhere; margin: 2px 0; }
+
 /* -- crear -------------------------------------------------------------------- */
 #create-result .step { display: flex; gap: 6px; }
 #create-result pre { max-height: 200px; }

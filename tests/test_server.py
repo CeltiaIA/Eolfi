@@ -96,7 +96,7 @@ def test_static_and_health(srv):
     assert b'id="create-verify" checked disabled' in body
     assert "script-src 'self'" in hdrs["Content-Security-Policy"]
     assert req(port, "GET", "/app.js")[0] == 200
-    for path in ("/runtime.js", "/subjects.js"):
+    for path in ("/runtime.js", "/subjects.js", "/mapa.js"):
         status, body, headers = req(port, "GET", path)
         assert status == 200 and body
         assert headers["Content-Type"].startswith("text/javascript")

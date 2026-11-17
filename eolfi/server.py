@@ -38,7 +38,8 @@ MAX_UPLOAD = 256 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
 _STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
            "/projects.js": "projects.js", "/eolas-chat.js": "eolas-chat.js",
-           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/voz.js": "voz.js", "/style.css": "style.css",
+           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/voz.js": "voz.js", "/mapa.js": "mapa.js",
+           "/style.css": "style.css",
            "/favicon.svg": "favicon.svg", "/i18n.js": "i18n.js", "/i18n-en.json": "i18n-en.json",
            "/favicon.ico": "favicon.svg"}
 _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
