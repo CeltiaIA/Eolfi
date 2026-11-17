@@ -444,6 +444,16 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r18 = rps.add_parser("senal", help="Decodifica una grabación de analizador lógico (.sr, VCD, CSV) con sigrok en el REA de WSL")
+    r18.add_argument("ruta")
+    r18.add_argument("--decodificadores", required=True,
+                     help="pila de sigrok, p. ej. uart:rx=TX:baudrate=9600 o i2c:scl=scl:sda=sda,edid")
+    r18.add_argument("--anotaciones", help="clases de anotación, p. ej. uart=rx-data")
+    r18.add_argument("--formato", help="formato de entrada de sigrok (por defecto lo detecta)")
+    r18.add_argument("--limite", type=int, default=40, help="máximo de la muestra (40)")
+    r19 = rps.add_parser("decodificadores", help="Decodificadores de sigrok instalados, o la ayuda de uno (--ayuda ID)")
+    r19.add_argument("consulta", nargs="?", help="texto que buscar en el identificador o el nombre")
+    r19.add_argument("--ayuda", metavar="ID", help="canales, opciones y anotaciones de un decodificador")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1534,6 +1544,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.rea_action == "recuperar-js" and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
+        if args.rea_action in ("senal", "decodificadores"):
+            cmd = rea_client.wsl_rea_sigrok_command()
+            if not cmd:
+                print("sigrok en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh) y "
+                      "sigrok-cli 0.7.2 (tools/instalar-sigrok-wsl.sh)", file=sys.stderr)
+                return 2
         client = rea_client.ReaClient(cmd, timeout=900)
         try:
             if args.rea_action == "recuperar-js":
@@ -1544,6 +1560,13 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "senal":
+                op, params = "decodificar_senal", {"ruta": args.ruta, "decodificadores": args.decodificadores}
+                result = rc.decodificar_senal(client, args.ruta, args.decodificadores, anotaciones=args.anotaciones,
+                                              formato=args.formato, limite=args.limite, ruta_rea=rea_client.wsl_path)
+            elif args.rea_action == "decodificadores":
+                op, params = "decodificadores_senal", {"consulta": args.consulta, "decodificador": args.ayuda}
+                result = rc.decodificadores_senal(client, args.consulta, decodificador=args.ayuda)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

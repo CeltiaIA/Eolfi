@@ -68,3 +68,28 @@ def test_sin_rea_instalado_el_chat_sigue(monkeypatch):
     assert rea_client.rea_command() is None
     assert rea_client.blocked("capture_process_scenario") and rea_client.blocked("install_adb_package")
     assert not rea_client.blocked("decompile_all") and not rea_client.blocked("inspect_adb_client")
+
+
+def test_wsl_rea_sigrok_command_anade_sigrok_o_none(monkeypatch):
+    import subprocess
+
+    base = ["wsl.exe", "-e", "env", "REA_WAKARU_COMMAND=/h/w", "/h/node", "/h/rea.mjs", "mcp"]
+    launcher = "/home/u/.local/eolfi-rea/" + rea_client.WSL_SIGROK
+    out = launcher + "\n"
+    scripts = []
+
+    def run(argv, **kw):
+        scripts.append(argv[-1])
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: list(base))
+    monkeypatch.setattr(rea_client.subprocess, "run", run)
+    cmd = rea_client.wsl_rea_sigrok_command()
+    assert cmd == [*base[:3], f"REA_SIGROK_COMMAND={launcher}", *base[3:]]
+    assert "/usr/bin/prlimit" in scripts[-1]
+    out = ""   # falta el lanzador o prlimit
+    assert rea_client.wsl_rea_sigrok_command() is None
+    out = "/tmp/otro\n"
+    assert rea_client.wsl_rea_sigrok_command() is None
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: None)
+    assert rea_client.wsl_rea_sigrok_command() is None

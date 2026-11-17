@@ -143,7 +143,7 @@ autorización.
 |---|---|---|---|
 | WABT 1.0.42 | Análisis completo de WASM (`inspect_wasm_artifact`, `compare_wasm_interfaces`) | Libre | Pendiente |
 | Npcap | Captura de red en vivo (ahora solo se leen capturas) | Libre | Pendiente; instala un controlador de sistema |
-| sigrok | Grabaciones de señales | Libre | Pendiente |
+| sigrok | Grabaciones de señales | Libre | Instalado en WSL (sigrok-cli 0.7.2, `tools/instalar-sigrok-wsl.sh`) |
 | Cutter | Interfaz visual de rizin | Libre | Pendiente |
 | JEB, IDA | Descompiladores alternativos | Comerciales | Solo si el titular lo decide |
 
@@ -152,3 +152,16 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Grabaciones de señales con sigrok (15/11/2026)
+
+`eolfi rea senal <grabación> --decodificadores PILA [--anotaciones A] [--formato F]` (compuesta `decodificar_senal`) y `eolfi rea decodificadores [consulta] [--ayuda ID]` (`decodificadores_senal`). REA solo decodifica en Linux con sigrok-cli 0.7.2 y `prlimit`: se usa el REA de WSL con `REA_SIGROK_COMMAND` (`wsl_rea_sigrok_command`).
+- `tools/instalar-sigrok-wsl.sh`: descarga con `apt-get download` sigrok-cli y las bibliotecas que falten, las desempaqueta sin sudo en `~/.local/eolfi-rea/sigrok` y crea el lanzador `eolfi-sigrok` (`LD_LIBRARY_PATH` y `SIGROKDECODE_DIR`). Instala 112 decodificadores.
+- Eolfi reúne todas las páginas de `decode_signal_recording` (hasta 20.000 líneas), cuenta las anotaciones por decodificador, junta los bytes de datos (UART, «Data read/write» de I2C…) en hexadecimal y texto, y da una muestra del último decodificador de la pila.
+- Solo lee el archivo: REA lo marca con `hardware_acquisition: not-performed` y lo limita con `prlimit` (1 GiB de memoria, 30 s de CPU).
+
+Verificado en vivo con grabaciones oficiales de `sigrokproject/sigrok-dumps` (blob de Git igual al publicado):
+- `uart/hello_world/8n1/hello_world_8n1_9600.sr` (SHA-256 `b87f1f63…f8ea`), pila `uart:rx=TX:baudrate=9600`: 56 bytes, «Hello World!» cuatro veces.
+- `i2c/edid/samsung_syncmaster203b.sr` (SHA-256 `4bc8721f…63d6`), pila `i2c:scl=scl:sda=sda,edid`: 1.416 líneas, los 130 bytes del EDID (texto «SyncMaster» y el número de serie) y, del decodificador EDID, fabricante SAM, producto `0x021b`, fabricado en la semana 45 de 2006.
+
+NO VERIFICADO: formatos distintos de `.sr` (VCD, CSV, binario con `--formato`), grabaciones grandes cerca de los 32 MiB y pilas de más de dos decodificadores.

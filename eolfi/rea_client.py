@@ -294,6 +294,28 @@ def wsl_rea_command() -> list[str] | None:
             f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
 
 
+WSL_SIGROK = "sigrok/eolfi-sigrok"   # tools/instalar-sigrok-wsl.sh
+
+
+def wsl_rea_sigrok_command() -> list[str] | None:
+    """Orden del REA de WSL con sigrok-cli 0.7.2 (REA_SIGROK_COMMAND) para decodificar grabaciones de señales: REA
+    solo lo hace en Linux y con prlimit de util-linux. None si falta el REA de WSL, el lanzador o prlimit."""
+    base_cmd = wsl_rea_command()
+    if not base_cmd:
+        return None
+    script = f'S="$HOME/.local/eolfi-rea/{WSL_SIGROK}"; test -x "$S" -a -x /usr/bin/prlimit && echo "$S"'
+    try:
+        out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    launcher = out.splitlines()[-1] if out else ""
+    if not launcher.startswith("/") or not launcher.endswith("/" + WSL_SIGROK):
+        return None
+    i = base_cmd.index("env") + 1
+    return [*base_cmd[:i], f"REA_SIGROK_COMMAND={launcher}", *base_cmd[i:]]
+
+
 def wsl_has_tshark() -> bool:
     """¿Hay tshark en WSL? (análisis de campos de capturas: REA lo exige en Linux con prlimit)."""
     if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe"):
