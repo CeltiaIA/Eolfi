@@ -498,6 +498,10 @@ def _parser() -> argparse.ArgumentParser:
     r12.add_argument("--atras", action="store_true", help="quién la llama, en vez de a quién llama")
     r12.add_argument("--profundidad", type=int, default=3, help="niveles (1-10, 3 por defecto)")
     r12.add_argument("--max-nodos", type=int, default=60, help="máximo de nodos (2-300, 60 por defecto)")
+    r13 = rps.add_parser("dotnet", help="Qué hay en un ensamblado .NET: identidad, referencias, tipos, cadenas y P/Invoke (REA de WSL2)")
+    r13.add_argument("ruta")
+    r13.add_argument("--limite", type=int, default=30, help="máximo de elementos por lista (30)")
+    r13.add_argument("--salida", help="ruta .json nueva para el volcado completo (tipos, métodos, cadenas, P/Invoke)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1614,8 +1618,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             finally:
                 check.close()
-        cmd = rea_client.wsl_rea_command() if args.rea_action in ("recuperar-js", "firmware") else None
-        if args.rea_action in ("recuperar-js", "firmware") and not cmd:
+        cmd = rea_client.wsl_rea_command() if args.rea_action in ("recuperar-js", "firmware", "dotnet") else None
+        if args.rea_action in ("recuperar-js", "firmware", "dotnet") and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
         if args.rea_action == "firmware" and not any(c.startswith("REA_BINWALK_COMMAND=") for c in cmd):
@@ -1654,6 +1658,9 @@ def main(argv: list[str] | None = None) -> int:
                 params = {"ruta": args.ruta, "funcion": args.funcion, "hacia": hacia, "profundidad": args.profundidad}
                 result = rc.grafo_llamadas(client, args.ruta, args.funcion, hacia=hacia, profundidad=args.profundidad,
                                            max_nodos=args.max_nodos)
+            elif args.rea_action == "dotnet":
+                op, params = "ensamblado_dotnet", {"ruta": args.ruta, "limite": args.limite, "salida": args.salida}
+                result = rc.ensamblado_dotnet(client, args.ruta, args.limite, args.salida)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
