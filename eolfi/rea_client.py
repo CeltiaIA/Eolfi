@@ -285,14 +285,17 @@ def wsl_path(path: str | Path) -> str:
 
 def wsl_rea_command() -> list[str] | None:
     """Orden para arrancar el REA de WSL con Wakaru, si está instalado (EOLFI_NO_REA lo desactiva en pruebas). Si está
-    Binwalk 3.1.0 (tools/instalar-binwalk-wsl.sh), se le pasa en REA_BINWALK_COMMAND para el análisis de firmware, y si
-    está Unblob 26.6.4 (tools/instalar-unblob-wsl.sh), su lanzador en REA_UNBLOB_COMMAND para la extracción."""
+    Binwalk 3.1.0 (tools/instalar-binwalk-wsl.sh), se le pasa en REA_BINWALK_COMMAND para el análisis de firmware; si
+    está Unblob 26.6.4 (tools/instalar-unblob-wsl.sh), su lanzador en REA_UNBLOB_COMMAND para la extracción, y si está
+    Kuna (instalar-rea-wsl.sh deja $B/kuna), en REA_KUNA_COMMAND. Cada herramienta se reconoce por su ruta dentro de
+    ~/.local/eolfi-rea, no por su posición en la salida."""
     if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe"):
         return None
     script = ("B=$HOME/.local/eolfi-rea; N=$(ls -d $B/node-*-linux-x64 2>/dev/null | tail -1); "
+              "K=; test -x $B/kuna && K=kuna; "
               "test -x \"$N/bin/node\" -a -x $B/wakaru/wakaru -a -f $B/npm/node_modules/rea-agents/scripts/rea.mjs "
               "&& echo \"$N|$HOME|$(test -x $B/binwalk-3.1.0/bin/binwalk && echo $B/binwalk-3.1.0/bin/binwalk)"
-              "|$(test -x $B/unblob-26.6.4/eolfi-unblob && echo $B/unblob-26.6.4/eolfi-unblob)\"")
+              "|$(test -x $B/unblob-26.6.4/eolfi-unblob && echo $B/unblob-26.6.4/eolfi-unblob)|$K\"")
     try:
         out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
@@ -302,10 +305,13 @@ def wsl_rea_command() -> list[str] | None:
         return None
     node_dir, home, *rest = out.splitlines()[-1].split("|")
     base = f"{home}/.local/eolfi-rea"
-    binwalk = [f"REA_BINWALK_COMMAND={rest[0]}"] if rest and rest[0].startswith(base + "/") else []
-    unblob = [f"REA_UNBLOB_COMMAND={rest[1]}"] if len(rest) > 1 and rest[1].startswith(base + "/") else []
-    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", *binwalk, *unblob, f"{node_dir}/bin/node",
-            f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
+    propias = [r for r in rest if r.startswith(base + "/")]
+    binwalk = [f"REA_BINWALK_COMMAND={r}" for r in propias if r.endswith("/bin/binwalk")][:1]
+    unblob = [f"REA_UNBLOB_COMMAND={r}" for r in propias if r.endswith("/eolfi-unblob")][:1]
+    # Kuna (15/11/2026): REA solo lo admite en Linux/macOS; instalar-rea-wsl.sh deja $B/kuna → kuna-1.833.
+    kuna = [f"REA_KUNA_COMMAND={base}/kuna"] if "kuna" in rest else []
+    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", *binwalk, *unblob, *kuna,
+            f"{node_dir}/bin/node", f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
 
 
 def wsl_run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
@@ -390,6 +396,9 @@ def wsl_swift_demangle(names: list[str], timeout: float = 120) -> list[str] | No
         return None
     out = r.stdout.splitlines()
     return out if r.returncode == 0 and len(out) == len(clean) else None
+def wsl_has_kuna(cmd: list[str] | None) -> bool:
+    """¿La orden del REA de WSL trae Kuna configurado?"""
+    return bool(cmd) and any(a.startswith("REA_KUNA_COMMAND=") for a in cmd)
 
 
 def wsl_has_tshark() -> bool:

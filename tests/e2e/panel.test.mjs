@@ -39,7 +39,8 @@ before(async () => {
   // puente de VS Code) y la prueba fallaba con 502 según lo que estuviera haciendo el equipo. Así ve lo mismo que la CI.
   const home = join(tmp, 'home');
   mkdirSync(home);
-  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json') };
+  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json'),
+    EOLFI_VSCODE_BRIDGE_FILE: join(home, '.eolfi', 'vscode-bridge.json') };
   server = spawn(PY, ['-m', 'eolfi', '--db', join(tmp, 'e.db'), 'serve', '--port', String(PORT), '--samples', join(tmp, 's')],
     { cwd: ROOT, stdio: 'ignore', env: { ...process.env, ...isolated, PYTHONIOENCODING: 'utf-8' } });
   await waitHealth();
