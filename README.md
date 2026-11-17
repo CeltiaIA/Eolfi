@@ -61,6 +61,11 @@ es una implementación propia.
 - Python 3.10+ (el núcleo no necesita dependencias externas).
 - Opcional: capa, rizin/radare2, Ghidra (define `GHIDRA_INSTALL_DIR`).
   `python -m eolfi doctor` dice cuáles detecta.
+- `python -m eolfi update --check` muestra la versión instalada, cómo se instaló (copia del repositorio,
+  pipx, entorno virtual o ejecutable) y la versión del puente y de la extensión. Con `--red` consulta la
+  última publicación o etiqueta de `CeltiaIA/Eolfi` en api.github.com, sin credenciales. Con
+  `EOLAS_OFFLINE=1` no consulta la red. Nunca instala nada: solo indica cómo actualizar. Sale con 0 si está al día, 1 si hay una
+  versión nueva y 2 si no se pudo comprobar.
 
 ## Uso rápido
 

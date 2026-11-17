@@ -126,6 +126,10 @@ def _parser() -> argparse.ArgumentParser:
     acc_anc.add_argument("--destino", required=True, help="Archivo fuera del alcance de quien escribe el registro")
     acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
     acc_list.add_argument("-n", type=int, default=20)
+    upd = sub.add_parser("update", help="Versión instalada y si hay otra publicada (solo comprueba, no instala)")
+    upd.add_argument("--check", action="store_true", required=True, help="Comprobar; Eolfi nunca se actualiza solo")
+    upd.add_argument("--red", action="store_true", help="Permite consultar api.github.com (sin credenciales)")
+    upd.add_argument("--repo", help="propietario/nombre (por defecto CeltiaIA/Eolfi o EOLFI_UPDATE_REPO)")
     models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
     model_commands = models.add_subparsers(dest="modelos_action", required=True)
     ma = model_commands.add_parser("auditar", help="Comprueba estructura GGUF y SHA-256")
@@ -1560,6 +1564,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         _print(acciones.listar(args.n))
         return 0
+    if args.cmd == "update":
+        from eolfi.actualizacion import ActualizacionError, comprobar as comprobar_version
+
+        try:
+            result = comprobar_version(red=args.red, repo=args.repo)
+        except ActualizacionError as exc:
+            _print({"ok": False, "error": str(exc)})
+            return 2
+        _print(result)
+        return {"al_dia": 0, "instalada_mas_reciente": 0, "sin_publicaciones": 0, "nueva_version": 1}.get(
+            result["estado"], 2)
     if args.cmd == "modelos":
         from eolfi.modelos import audit, check_trust
 

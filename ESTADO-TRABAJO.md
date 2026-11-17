@@ -32,6 +32,12 @@
   playwright-core, solo el mismo origen, robots.txt, rutas `pushState`, otros hosts bloqueados, DOM renderizado
   analizado e indicio de SPA. `tests/test_web_render.py`: 9 pasadas, una con Chrome real sobre una SPA servida en
   127.0.0.1. Sin interacciones; no probado contra un sitio público (NO VERIFICADO).
+- **C2 parcial (17/11):** `eolfi update --check [--red] [--repo]` (`eolfi/actualizacion.py`): versión, modo de
+  instalación, commit y versiones del puente y de la extensión; con `--red` compara con la última publicación o
+  etiqueta de CeltiaIA/Eolfi en api.github.com (sin credenciales; rechaza `EOLAS_OFFLINE=1`). No instala nada.
+  `tests/test_actualizacion.py`: 11 pasadas. Consulta real NO VERIFICADA (no hay publicaciones ni etiquetas).
+  Falta el empaquetado pipx o ejecutable y el acceso directo.
+- **Subidas (17/11):** por indicación del titular, mientras dure la cola los commits nuevos se quedan en local.
 - **G5 parcial (17/11):** `eolfi/modelos_actualizar.py`. `modelos actualizar --fuentes F --red` compara con Hugging Face
   y `modelos descargar ... --red` baja un archivo fijado por commit y SHA-256, sin sobrescribir; después lo
   audita (G1), deja el recibo `descarga.json` y lo registra en B8. Rechaza `EOLAS_OFFLINE=1`, hosts ajenos a HF
