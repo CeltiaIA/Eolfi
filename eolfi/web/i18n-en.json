@@ -115,6 +115,7 @@
  "VS Code": "VS Code",
  "Opciones avanzadas": "Advanced options",
  "base de datos SQLite": "SQLite database",
+ "medir la accesibilidad (axe, tema claro y oscuro)": "measure accessibility (axe, light and dark theme)",
  "inicio de sesión": "sign-in",
  "volver a analizar las fuentes (aunque ya estén analizadas)": "re-analyze the sources (even if already analyzed)",
  "Modelo de IA (opcional, p. ej. claude-opus-5-5)": "AI model (optional, e.g. claude-opus-5-5)",

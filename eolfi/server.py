@@ -1308,7 +1308,9 @@ class EolfiApp:
                                      reanalyze=bool(body.get("reanalyze")),
                                      db="sqlite" if body.get("db") == "sqlite" else "memory",
                                      auth=bool(body.get("auth")), progress=self._progress, case_id=case_id,
-                                     autofix=body.get("autofix") is not False)
+                                     autofix=body.get("autofix") is not False,
+                                     accesibilidad=(body["accesibilidad"] if isinstance(body.get("accesibilidad"), bool)
+                                                    else None))
             except FileExistsError as exc:
                 raise ApiError(409, str(exc)) from exc
             except OverwriteSourceError as exc:

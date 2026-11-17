@@ -149,6 +149,11 @@ def _parser() -> argparse.ArgumentParser:
     upd.add_argument("--check", action="store_true", required=True, help="Comprobar; Eolfi nunca se actualiza solo")
     upd.add_argument("--red", action="store_true", help="Permite consultar api.github.com (sin credenciales)")
     upd.add_argument("--repo", help="propietario/nombre (por defecto CeltiaIA/Eolfi o EOLFI_UPDATE_REPO)")
+    nav = sub.add_parser("navegador", help="Navegador, Playwright y axe propios de Eolfi para el juez funcional "
+                                           "(en ~/.eolfi/navegador)")
+    nav.add_argument("accion", nargs="?", choices=("estado", "instalar"), default="estado",
+                     help="estado (por defecto) o instalar (descarga unos 100 MB de npm y cdn.playwright.dev)")
+    nav.add_argument("--comprobar", action="store_true", help="Con estado: recalcula el SHA-256 del ejecutable")
     acd = sub.add_parser("acceso-directo", help="Lanzador de «eolfi up» en el escritorio o el menú (vista previa "
                                                 "salvo con --aplicar)")
     acd.add_argument("--donde", choices=("escritorio", "menu"), default="escritorio")
@@ -413,8 +418,12 @@ def _parser() -> argparse.ArgumentParser:
                     help="Descripción para que la IA implemente la lógica de negocio")
     cr.add_argument("--juez", default=None, metavar="ARCHIVO",
                     help="Criterios del juez funcional (JSON): la app se prueba en Chrome y debe cumplirlos todos")
-    cr.add_argument("--accesibilidad", action="store_true",
-                    help="Añade al juez funcional axe (WCAG A/AA) en tema claro y oscuro; la verificación lo incluye")
+    cr_a11y = cr.add_mutually_exclusive_group()
+    cr_a11y.add_argument("--accesibilidad", dest="accesibilidad", action="store_const", const=True, default=None,
+                         help="Exige axe (WCAG A/AA) en tema claro y oscuro también en destinos que el juez no "
+                              "cubre (por defecto ya se mide en static, react, vue y svelte)")
+    cr_a11y.add_argument("--sin-accesibilidad", dest="accesibilidad", action="store_const", const=False,
+                         help="No mide la accesibilidad con axe al verificar")
     cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
                     help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
@@ -1766,6 +1775,19 @@ def main(argv: list[str] | None = None) -> int:
         _print(result)
         return {"al_dia": 0, "instalada_mas_reciente": 0, "sin_publicaciones": 0, "nueva_version": 1}.get(
             result["estado"], 2)
+    if args.cmd == "navegador":
+        from eolfi import navegador
+
+        if args.accion == "instalar":
+            try:
+                _print(navegador.instalar())
+            except navegador.NavegadorError as exc:
+                _print({"ok": False, "error": str(exc)})
+                return 1
+            return 0
+        info = navegador.estado(comprobar_hash=args.comprobar)
+        _print(info)
+        return 0 if info["instalado"] and info.get("sha256_coincide", True) else 1
     if args.cmd == "acceso-directo":
         from eolfi import instalador
 

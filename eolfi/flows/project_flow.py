@@ -278,8 +278,9 @@ def _revise(plan: dict[str, Any], edits: dict[str, Any]) -> dict[str, Any]:
         new["target"] = edits["target"]
     if "options" in edits:
         o = edits["options"]
-        if not isinstance(o, dict) or not set(o) <= {"sqlite", "auth"} or not all(isinstance(v, bool) for v in o.values()):
-            raise PlanError("options admite sqlite y auth (booleanos)")
+        if not isinstance(o, dict) or not set(o) <= {"sqlite", "auth", "accesibilidad"} \
+                or not all(isinstance(v, bool) for v in o.values()):
+            raise PlanError("options admite sqlite, auth y accesibilidad (booleanos)")
         new["options"] = {**plan["options"], **o}
         if new["options"] != plan["options"]:
             changes.append(f"opciones {plan['options']} → {new['options']}")
@@ -414,6 +415,7 @@ def _execute(store: EvidenceStore, case_id: str, plan: dict[str, Any], step: dic
         rep = create_project(subjects, store, plan["out"], name=plan["name"], target=plan["target"], do_verify=True,
                              workdir=workdir, db="sqlite" if plan["options"].get("sqlite") else "memory",
                              auth=bool(plan["options"].get("auth")), progress=log, case_id=case_id,
+                             accesibilidad=plan["options"].get("accesibilidad"),
                              provenance="plan aprobado de crear proyecto")
         ver = rep.get("verification") or {}
         verified = bool(ver.get("ok"))

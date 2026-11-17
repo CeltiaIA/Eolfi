@@ -8,7 +8,9 @@ no puede desfasarse sin que falle una prueba.
 «Crear proyecto» genera desde cero un proyecto **nuevo** inspirado en la fuente: no copia su código y no es una
 reconstrucción (para eso está la guía de [caja negra](../caja-negra/GUIA.md)). El proyecto solo cuenta como
 terminado si su verificación (instalación, compilación, pruebas y prueba de humo, según el destino) pasa. Aquí el
-destino es `static` y la verificación usa `node --test`, así que hace falta Node.js. No se usa red ni IA.
+destino es `static` y la verificación usa `node --test`, así que hace falta Node.js. Desde el 17/11/2026 también
+mide la accesibilidad con axe, así que hace falta el navegador propio de Eolfi (`eolfi navegador instalar`, una sola
+vez) o un Chrome con Playwright. No se usa red ni IA.
 
 ## 0. Arrancar Eolfi
 
@@ -83,8 +85,9 @@ detiene tras cada paso hasta que lo continúes.
 En `result.results.generar.verification`:
 
 - `ok` es `true`.
-- `steps` lista cada comprobación con su código de salida: `sintaxis JS del sitio (js/main.js)` y
-  `pruebas (node --test)`, las dos con `exit: 0`.
+- `steps` lista cada comprobación con su código de salida: `sintaxis JS del sitio (js/main.js)`,
+  `pruebas (node --test)` y `juez funcional (3/3)` (sin errores de JavaScript y axe en el tema claro y en el
+  oscuro), las tres con `exit: 0`. Sin navegador el juez no puede correr y la verificación no queda en verde.
 
 **Si un paso falla o la verificación no se pudo ejecutar** (por ejemplo, sin Node.js), `generar` queda `partial`,
 `verified: false`, el plan termina en `done_unverified` y `note` dice «NO VERIFICADO»: el proyecto no es un
@@ -110,7 +113,7 @@ python -m eolfi --db guia.db create --from fuente --out nuevo-cli --name "Receta
 ```
 
 Genera y verifica en un solo paso, sin plan ni aprobación. **Aceptación:** código de salida `0`, `target: static`
-y el mismo objeto `verification` (`ok: true`, dos pasos con `exit: 0`). Si la verificación falla, el código de
+y el mismo objeto `verification` (`ok: true`, tres pasos con `exit: 0`). Si la verificación falla, el código de
 salida es `5`.
 
 ## Limpieza

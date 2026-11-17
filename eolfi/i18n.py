@@ -349,6 +349,8 @@ CLI_EN: dict[str, str] = {
     "Texto a voz: escribe un WAV": "Text-to-speech: writes a WAV",
     "Elige motor, idioma o voz": "Chooses engine, language or voice",
     # Comandos de las ramas de C2 y B8 (luis/c2-instalador, luis/b8-firma), cubiertos antes de fusionarse.
+    "Navegador, Playwright y axe propios de Eolfi para el juez funcional (en ~/.eolfi/navegador)":
+        "Eolfi's own browser, Playwright and axe for the functional judge (in ~/.eolfi/navegador)",
     "Lanzador de «eolfi up» en el escritorio o el menú (vista previa salvo con --aplicar)":
         "Launcher for \"eolfi up\" on the desktop or the menu (preview unless --aplicar)",
     "Crea una clave de firma de 32 bytes (guárdala fuera del equipo)": "Creates a 32-byte signing key (keep it off the computer)",
