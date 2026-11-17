@@ -515,6 +515,10 @@ def _parser() -> argparse.ArgumentParser:
     r16 = rps.add_parser("apple", help="Mapa de una app de Apple (.app, .zip, .ipa o .dmg): bundles, ejecutables e Info.plist, sin ejecutarla")
     r16.add_argument("ruta")
     r16.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r17 = rps.add_parser("devicetree", help="Mapa del hardware de un devicetree (.dtb): placa, CPU, memoria y dispositivos")
+    r17.add_argument("ruta")
+    r17.add_argument("--filtro", help="texto en la ruta o en compatible para acotar los dispositivos")
+    r17.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1686,6 +1690,9 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "apple":
                 op, params = "mapa_app_apple", {"ruta": args.ruta}
                 result = rc.mapa_app_apple(client, args.ruta, args.limite)
+            elif args.rea_action == "devicetree":
+                op, params = "devicetree_hw", {"ruta": args.ruta, "filtro": args.filtro}
+                result = rc.devicetree_hw(client, args.ruta, args.limite, args.filtro)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
