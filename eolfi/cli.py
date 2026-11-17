@@ -136,6 +136,18 @@ def _parser() -> argparse.ArgumentParser:
     mt = model_commands.add_parser("comprobar", help="Comprueba un hash contra un manifiesto autorizado")
     mt.add_argument("archivo")
     mt.add_argument("--manifiesto", required=True)
+    mu = model_commands.add_parser("actualizar", help="G5: compara los modelos locales con lo publicado (abre la red con --red)")
+    mu.add_argument("--fuentes", required=True, help="JSON eolfi.modelos.fuentes/v1 con repo, archivo y SHA-256 local")
+    mu.add_argument("--nombre", help="Solo esta fuente")
+    mu.add_argument("--red", action="store_true", help="Autoriza la consulta a la API pública de Hugging Face")
+    md = model_commands.add_parser("descargar", help="G5: descarga un GGUF fijado por commit y SHA-256 y lo audita")
+    md.add_argument("--repo", required=True)
+    md.add_argument("--archivo", required=True)
+    md.add_argument("--revision", required=True, help="Commit completo revisado con «modelos actualizar»")
+    md.add_argument("--sha256", required=True, help="SHA-256 publicado y revisado")
+    md.add_argument("--bytes", type=int, help="Tamaño publicado: se exige igual y se comprueba el espacio libre")
+    md.add_argument("--out", required=True, help="Carpeta de destino; nunca se sobrescribe")
+    md.add_argument("--red", action="store_true", help="Autoriza la descarga")
     mr = model_commands.add_parser("reconstruir", help="Prepara una receta de cuantización; ejecutar exige opción y hashes")
     mr.add_argument("archivo")
     mr.add_argument("--out", required=True, help="Carpeta nueva; nunca sobrescribe una anterior")
@@ -1548,6 +1560,21 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi.modelos import audit, check_trust
 
         try:
+            if args.modelos_action == "actualizar":
+                from eolfi.modelos_actualizar import comprobar
+
+                result = comprobar(args.fuentes, nombre=args.nombre, red=args.red)
+                _print(result)
+                # 0 solo si todo está al día; una versión nueva o un dato no verificado piden revisión.
+                return 0 if result["estado"] == "al_dia" else 2
+            if args.modelos_action == "descargar":
+                from eolfi.modelos_actualizar import descargar
+
+                result = descargar(args.repo, args.archivo, args.revision, args.sha256, args.out, red=args.red,
+                                   bytes_esperados=args.bytes)
+                _print(result)
+                # Descargado y auditado no significa adoptado: banco y G6 siguen pendientes.
+                return 0 if result["estado"] == "descargado" else 2
             if args.modelos_action == "reconstruir":
                 from eolfi.modelos_reconstruir import prepare, execute
 
