@@ -33,6 +33,10 @@ class LLMError(Exception):
     pass
 
 
+class RespuestaCortada(LLMError):
+    """El modelo agotó su límite de salida. No es un fallo del motor: la ronda no sirve, pero se puede pedir otra."""
+
+
 @dataclass
 class Reply:
     data: dict[str, Any]
@@ -232,6 +236,35 @@ def eolas_v1_options() -> dict:
     return options
 
 
+
+def semilla() -> int | None:
+    """Generación reproducible (PLAN_DEFINITIVO.md, B2): con ``EOLFI_SEMILLA`` (entero ≥ 0) los motores locales
+    reciben esa semilla y ``temperature`` 0. Sin ella, todo sigue como antes. La usa el banco del RSI para que la
+    línea base y la candidata de un mismo par partan de lo mismo."""
+    raw = os.environ.get("EOLFI_SEMILLA", "").strip()
+    if not raw:
+        return None
+    try:
+        n = int(raw)
+    except ValueError as exc:
+        raise LLMError("EOLFI_SEMILLA debe ser un entero") from exc
+    if not 0 <= n < 2**31:
+        raise LLMError("EOLFI_SEMILLA debe estar entre 0 y 2147483647")
+    return n
+
+
+def determinista(opciones: dict[str, Any], *, llama_server: bool = True) -> dict[str, Any]:
+    """Añade semilla y temperatura 0 a las opciones de una petición si hay ``EOLFI_SEMILLA``.
+
+    Con ``llama_server`` (peticiones directas a llama-server: Eolas V2 y llama.cpp) también desactiva la caché de
+    prompt. Medido el 16/11/2026 con Gemma 4 Q4, semilla 0 y temperatura 0: con la caché, la misma petición da un
+    texto en frío y otro distinto en caliente; sin ella sale idéntica en frío, en caliente y tras reiniciar."""
+    n = semilla()
+    if n is None:
+        return opciones
+    return {**opciones, "temperature": 0, "seed": n, **({"cache_prompt": False} if llama_server else {})}
+
+
 class EolasV1Provider(Provider):
     """Eolas V1 (CeltIA): POST /api/chat con `format` = esquema JSON."""
     name = "eolas"
@@ -257,7 +290,7 @@ class EolasV1Provider(Provider):
                 raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
-            "options": eolas_v1_options(),
+            "options": determinista(eolas_v1_options(), llama_server=False),
         }, eolas_v1_headers(self.base_url), self.timeout, retry_timeouts=False)
         text = (r.get("message") or {}).get("content", "")
         if not text:
@@ -299,7 +332,7 @@ class OpenAICompatProvider(Provider):
         }, {"Authorization": f"Bearer {key}"} if key else {}, self.timeout)
         choice = (r.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
-            raise LLMError("La respuesta se cortó por longitud: pide un cambio más acotado")
+            raise RespuestaCortada("La respuesta se cortó por longitud: pide un cambio más acotado")
         text = (choice.get("message") or {}).get("content") or ""
         u = r.get("usage") or {}
         return Reply(parse_json_text(text), text,
@@ -328,7 +361,7 @@ class LlamaCppProvider(OpenAICompatProvider):
         msgs = [{"role": "system", "content": system}] + [
             {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])}
             for m in messages]
-        opts = llamacpp.request_options(self.cfg)
+        opts = determinista(llamacpp.request_options(self.cfg))
         # El modo asistido devuelve archivos enteros: la mitad del contexto como mínimo para la respuesta.
         opts["max_tokens"] = max(int(opts["max_tokens"]), int(self.cfg["ctx"]) // 2)
         r = _post(f"{self.base_url}/chat/completions", {
@@ -337,7 +370,7 @@ class LlamaCppProvider(OpenAICompatProvider):
         }, {}, self.timeout)
         choice = (r.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
-            raise LLMError("La respuesta se cortó por longitud: sube «ctx» o «max_tokens» en " + str(llamacpp.config_file()))
+            raise RespuestaCortada("La respuesta se cortó por longitud: sube «ctx» o «max_tokens» en " + str(llamacpp.config_file()))
         msg = choice.get("message") or {}
         self.last_reasoning = msg.get("reasoning_content") or ""
         text = msg.get("content") or ""
@@ -424,7 +457,7 @@ class EolasEngineProvider(Provider):
             if eolas_v2.is_mistral_profile(profile):
                 msgs = _mistral_chat_messages(system, msgs[1:])
                 reasoning = False
-            opts = llamacpp.request_options(c, reasoning=reasoning)
+            opts = determinista(llamacpp.request_options(c, reasoning=reasoning))
             # Contexto y límite de generación son distintos; no conviertas un contexto 32k
             # en permiso para emitir 16k tokens por cada fase del compuesto.
             opts["max_tokens"] = min(max(1, int(opts["max_tokens"])), max(1, int(c["ctx"])))
@@ -437,7 +470,7 @@ class EolasEngineProvider(Provider):
         self.last_server_timings = dict(response.get("timings") or {})
         choice = (response.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
-            raise LLMError("La respuesta de Eolas V2 se cortó por longitud; revisa ctx/max_tokens en " + str(eolas_v2.config_file()))
+            raise RespuestaCortada("La respuesta de Eolas V2 se cortó por longitud; revisa ctx/max_tokens en " + str(eolas_v2.config_file()))
         msg = choice.get("message") or {}
         self.last_reasoning = msg.get("reasoning_content") or ""
         text = msg.get("content") or ""

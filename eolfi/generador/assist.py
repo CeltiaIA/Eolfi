@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from eolfi.generador.llm import LLMError, Provider, make_provider
+from eolfi.generador.llm import LLMError, Provider, RespuestaCortada, make_provider
 from eolfi.acciones import registrada
 
 MAX_FILE_BYTES = 200_000
@@ -51,7 +51,7 @@ EDITABLE = {
 FORBIDDEN = re.compile(
     r"(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|"
     r"vite\.config\.[jt]s|next\.config\.[jt]s|svelte\.config\.js|tsconfig\.json|Dockerfile|"
-    r"settings\.py|manage\.py|conftest\.py|eolfi\.spec\.json)$|(^|/)(node_modules|\.venv|\.git|\.github|dist|\.next)(/|$)")
+    r"settings\.py|manage\.py|conftest\.py|eolfi\.spec\.json|eolfi\.juez\.json)$|(^|/)(node_modules|\.venv|\.git|\.github|dist|\.next)(/|$)")
 TEXT_EXT = {".ts", ".tsx", ".js", ".mjs", ".vue", ".svelte", ".py", ".html", ".css", ".json", ".md", ".sql", ".rs", ".cs"}
 
 OUTPUT_SCHEMA = {
@@ -181,6 +181,10 @@ Reglas:
 - En "notes" explica en una línea cada decisión importante o limitación."""
 
 
+CORTE_NOTA = ("\n\nTu respuesta anterior se cortó por longitud y no se pudo usar. Responde más corto: devuelve SOLO los "
+              "archivos que cambian, sin comentarios largos ni código repetido.")
+
+
 class AssistError(Exception):
     pass
 
@@ -300,6 +304,32 @@ def _apply(root: Path, target: str, files: list[dict[str, Any]], backup: dict[st
     return written, rejected
 
 
+def _nota(ver: dict[str, Any]) -> float | None:
+    """Nota del juez funcional (0 a 1) de una ronda. Solo existe si todo lo anterior pasó (el juez corre al final),
+    así que una ronda con nota compila y pasa sus pruebas. None: sin juez, o la ronda falló antes."""
+    j = ver.get("judge")
+    if not isinstance(j, dict) or j.get("status") != "ok" or not j.get("total"):
+        return None
+    return j["passed"] / j["total"]
+
+
+def _foto(root: Path, backup: dict[str, str | None]) -> dict[str, str | None]:
+    """Contenido actual de todos los archivos tocados hasta ahora (None: no existe)."""
+    return {rel: (root / rel).read_text(encoding="utf-8") if (root / rel).is_file() else None for rel in backup}
+
+
+def _volver(root: Path, foto: dict[str, str | None], backup: dict[str, str | None]) -> None:
+    """Deja el proyecto como en ``foto``; lo tocado después de la foto vuelve a su original."""
+    for rel, original in backup.items():
+        contenido = foto.get(rel, original)
+        p = root / rel
+        if contenido is None:
+            p.unlink(missing_ok=True)
+        else:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(contenido, encoding="utf-8", newline="\n")
+
+
 def _restore(root: Path, backup: dict[str, str | None]) -> None:
     for rel, old in backup.items():
         p = root / rel
@@ -358,15 +388,25 @@ def assist(project: str | Path, brief: str, *, client=None, effort: str = "high"
     summary, notes = "", []
     ok = False
     best: dict[str, Any] = {}
+    mejor: dict[str, Any] = {}
     try:
         ok, summary, notes = _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, token_budget,
-                                     best)
+                                     best, mejor)
     except BaseException:
         # Excepción, respuesta inválida o Ctrl+C a mitad de una ronda: nunca se deja el proyecto a medias.
         _restore(root, backup)
         _rollback_provider(llm, log)
         raise
-    if not ok:
+    # Mejor intento (PLAN_DEFINITIVO.md, B6): sin verde, pero una ronda pasó las pruebas y parte del juez. Se
+    # conserva ESA versión, marcada como parcial; «ok» sigue en False y la verificación no queda en verde.
+    parcial = not ok and bool(mejor) and mejor["nota"] > 0
+    cambiados = sorted(backup)
+    if parcial:
+        log(f"no se logró el verde: se conserva el mejor intento (ronda {mejor['ronda']}, juez {mejor['juez']})")
+        _volver(root, mejor["foto"], backup)
+        cambiados = sorted(rel for rel, original in backup.items() if mejor["foto"].get(rel, original) != original)
+        _rollback_provider(llm, log)
+    elif not ok:
         log("no se logró un estado verde: restaurando los archivos originales")
         _restore(root, backup)
         _rollback_provider(llm, log)
@@ -380,7 +420,9 @@ def assist(project: str | Path, brief: str, *, client=None, effort: str = "high"
                      "conserved_in_rounds": True} if best else None)
     return {"ok": ok, "provider": llm.name, "model": getattr(llm, "model", None), "summary": summary, "notes": notes,
             "rounds": rounds, "best_attempt": best_attempt, "verified_memory_saved": memory_saved,
-            "files_changed": sorted(backup) if ok else [], "usage": usage, "restored": not ok}
+            "files_changed": cambiados if (ok or parcial) else [], "usage": usage, "restored": not ok and not parcial,
+            "parcial": parcial,
+            **({"mejor_intento": {k: mejor[k] for k in ("ronda", "juez", "nota")}} if mejor else {})}
 
 
 FIX_BRIEF = """Corrige los errores de la verificación del proyecto (compilación, pruebas o prueba de humo) para que
@@ -390,10 +432,26 @@ no añadas dependencias. Toca solo los archivos necesarios. Salida de la verific
 _SETUP_STEP = re.compile(r"^(instalar|restaurar|crear entorno)", re.IGNORECASE)
 
 
+def _tiempos(llm) -> dict[str, Any]:
+    """Tiempos que da el motor (tokens/s…): el proveedor de Eolas V2 los deja en ``last_server_timings``."""
+    return dict(getattr(llm, "last_timings", None) or getattr(llm, "last_server_timings", None) or {})
+
+
+def _medir(llm, target: str, r: dict[str, Any]) -> None:
+    """Telemetría local de la ronda (PLAN_DEFINITIVO.md, B4): solo números y nombres."""
+    from eolfi import telemetria
+
+    telemetria.ronda(proveedor=str(llm.name), modelo=str(getattr(llm, "model", "") or ""), destino=target,
+                     numero=r["round"], generacion_s=r["generation_seconds"], verificacion_s=r["verification_seconds"],
+                     uso=r["usage"], tiempos=r["provider_timings"], ok=r["ok"], paso_fallido=r["failed_step"],
+                     juez=r["verification"].get("judge"))
+
+
 def _ver_summary(ver: dict[str, Any]) -> dict[str, Any]:
     return {"ok": bool(ver.get("ok")),
             "steps": [{k: s[k] for k in ("step", "exit", "seconds") if k in s} for s in ver.get("steps", [])],
-            **({"error": ver["error"]} if "error" in ver else {})}
+            **({"error": ver["error"]} if "error" in ver else {}),
+            **({"judge": {k: ver["judge"].get(k) for k in ("status", "passed", "total")}} if "judge" in ver else {})}
 
 
 def autofix(project: str | Path, *, client=None, effort: str = "high",
@@ -478,7 +536,11 @@ def _rollback_provider(llm, log) -> None:
             log(f"no se pudo deshacer lo escrito por {llm.name}: {exc}")
 
 
-def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, token_budget, best):
+def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, token_budget, best,
+            mejor: dict[str, Any] | None = None):
+    """``best`` guarda la ronda con mejor verificación (pasos superados), sin tocar el disco. ``mejor`` (si se pasa)
+    guarda la ronda con mejor nota del juez: ronda, nota, juez «k/n», foto de los archivos y lo que le faltaba. Una
+    ronda que empeora según el juez no se queda en disco: se vuelve a la mejor y se le dice al modelo."""
     from eolfi.generador.verify import verify
 
     summary, notes = "", []
@@ -490,6 +552,20 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
         generation_started = time.monotonic()
         try:
             reply = llm.complete(SYSTEM, messages, OUTPUT_SCHEMA, effort)
+        except RespuestaCortada as exc:
+            # 16/11/2026: un corte por longitud abortaba todo el trabajo (banco «tareas», 23 min perdidos). Ahora
+            # es una ronda fallida más: no se escribe nada y se pide una respuesta más corta. La nota va en el
+            # último turno del usuario para no romper la alternancia de turnos.
+            log(f"  la respuesta se cortó por longitud: ronda {n} sin cambios")
+            rounds.append({"round": n, "written": [], "rejected": [], "ok": False,
+                           "generation_seconds": time.monotonic() - generation_started, "writing_seconds": 0.0,
+                           "verification_seconds": 0.0, "provider_timings": _tiempos(llm),
+                           "usage": {}, "failed_output": str(exc), "failed_step": "respuesta cortada por longitud",
+                           "verification": {"ok": False, "steps": []}})
+            _medir(llm, target, rounds[-1])
+            if CORTE_NOTA not in messages[-1]["content"]:
+                messages[-1] = {**messages[-1], "content": messages[-1]["content"] + CORTE_NOTA}
+            continue
         except LLMError as exc:
             raise AssistError(str(exc)) from exc
         content = reply.history_content
@@ -510,7 +586,7 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
         rounds.append({"round": n, "written": written, "rejected": rejected, "ok": ver["ok"],
                        "generation_seconds": generation_seconds, "writing_seconds": writing_seconds,
                        "verification_seconds": verification_seconds,
-                       "provider_timings": dict(getattr(llm, "last_timings", {})),
+                       "provider_timings": _tiempos(llm),
                        "usage": dict(reply.usage),
                        "failed_output": (failed or {}).get("tail", "")[-4000:],
                        "failed_step": failed["step"] if failed else None,
@@ -523,6 +599,7 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
             best.update(round=n, score=score, verified=ver["ok"], files=[
                 {"path": rel, "sha256": hashlib.sha256((root / rel).read_bytes()).hexdigest()}
                 for rel in written if (root / rel).is_file()])
+        _medir(llm, target, rounds[-1])
         if failed:
             log("detalle de verificación: " + str(failed.get("tail", ""))[-1800:])
             # Guardar el candidato que falló antes del rollback, fuera de los
@@ -536,10 +613,31 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
             ]
         if ver["ok"]:
             return True, summary, notes
+        salida = (failed or {}).get("tail", "")[-4000:]
+        aviso = (f"La verificación falló en '{failed['step'] if failed else '?'}'. Salida (final):\n"
+                 f"<error>\n{salida}\n</error>\n"
+                 "Corrige el problema. Devuelve de nuevo el contenido completo de cada archivo que cambies.")
+        if mejor is not None:
+            nota = _nota(ver)
+            if nota is not None:
+                rounds[-1]["nota"] = round(nota, 4)
+            if nota is not None and (not mejor or nota > mejor["nota"]):
+                j = ver["judge"]
+                mejor.clear()
+                mejor.update(ronda=n, nota=round(nota, 4), juez=f'{j["passed"]}/{j["total"]}',
+                             foto=_foto(root, backup), pendiente=salida)
+            elif mejor and (nota is None or nota < mejor["nota"]):
+                # Empeoró (menos comprobaciones, o dejó de pasar las pruebas): no se repara sobre algo peor.
+                _volver(root, mejor["foto"], backup)
+                rounds[-1]["volvio_a_ronda"] = mejor["ronda"]
+                log(f"  la ronda {n} empeoró: se vuelve a la versión de la ronda {mejor['ronda']} ({mejor['juez']})")
+                aviso = (f"Ese cambio EMPEORÓ el resultado: falló en '{failed['step'] if failed else '?'}'.\n"
+                         f"<error>\n{salida[-1500:]}\n</error>\n"
+                         f"He devuelto los archivos a como quedaron tras tu respuesta de la ronda {mejor['ronda']}, que "
+                         f"superaba {mejor['juez']} comprobaciones del juez. Parte de ESA versión y corrige solo lo "
+                         f"que le faltaba:\n<pendiente>\n{mejor['pendiente'][-2500:]}\n</pendiente>\n"
+                         "Devuelve el contenido completo de cada archivo que cambies.")
         # Mantener el resultado de la ronda y el error como nuevos turnos.
         messages.append({"role": "assistant", "content": content})
-        messages.append({"role": "user", "content": (
-            f"La verificación falló en '{failed['step'] if failed else '?'}'. Salida (final):\n"
-            f"<error>\n{(failed or {}).get('tail', '')[-4000:]}\n</error>\n"
-            "Corrige el problema. Devuelve de nuevo el contenido completo de cada archivo que cambies.")})
+        messages.append({"role": "user", "content": aviso})
     return False, summary, notes

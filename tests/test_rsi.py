@@ -153,9 +153,8 @@ def test_cli_rea_anota_el_plazo_agotado_y_usa_el_ajuste(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rea_client, "ReaClient", Lento)
     monkeypatch.setattr("eolfi.rea_compuestas.inventario_dependencias", inventario)
-    for _ in range(2):
-        with pytest.raises(RuntimeError):
-            cli.main(["--db", str(tmp_path / "e.db"), "rea", "inventario", str(tmp_path / "x.exe")])
+    for _ in range(2):   # el error de REA se muestra sin traza (código 1) y el RSI lo anota igual
+        assert cli.main(["--db", str(tmp_path / "e.db"), "rea", "inventario", str(tmp_path / "x.exe")]) == 1
     assert vistos == [900, 900]
     obs = rsi.eventos("observacion")
     assert [(e["datos"]["fuente"], e["datos"]["operacion"], e["datos"]["sintomas"]) for e in obs] == [
@@ -165,8 +164,7 @@ def test_cli_rea_anota_el_plazo_agotado_y_usa_el_ajuste(tmp_path, monkeypatch):
     assert cli.main(["rsi", "aprobar", pid, "--por", "titular"]) == 2      # sin evaluar
     rsi.evaluar(pid, lambda: 1.0 if rsi.ajuste("rea.timeout") > 900 else 0.0)
     assert cli.main(["rsi", "aprobar", pid, "--por", "titular"]) == 0
-    with pytest.raises(RuntimeError):
-        cli.main(["--db", str(tmp_path / "e.db"), "rea", "inventario", str(tmp_path / "x.exe")])
+    assert cli.main(["--db", str(tmp_path / "e.db"), "rea", "inventario", str(tmp_path / "x.exe")]) == 1
     assert vistos[-1] == 1800
     assert cli.main(["rsi", "verificar"]) == 0
 

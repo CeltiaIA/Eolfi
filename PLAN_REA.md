@@ -163,8 +163,30 @@ mejorar a sí mismos.
    > 0 y la mejora media es ≥ 0,05 (fase 1.3 de `PLAN_VAS.md`). Con 4 pares o menos es imposible aprobar (p ≥ 1/16).
    **A/A** del evaluador: `eolfi rsi aa --proveedor … [--simulada DESVIACION]`; la real queda en el registro como
    evento `aa`. Simulada con la desviación medida del banco (0,3), 400 repeticiones: 2,5 % de falsos positivos con
-   5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. La A/A real con el banco
-   está **NO VERIFICADA** (unos 13 min por muestra, 10 muestras). Banco «tareas» (`eolfi/rsi_banco.py`):
+   5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. **A/A real** (16/11, 14:01–17:14, V2
+   `gemma_q4`, 5 pares): A 5/9, 5/9, 7/9, 1/9, 5/9; B 5/9, 7/9, 7/9, 5/9, 1/9; diferencia +0,04, intervalo
+   [−0,22, +0,31], p = 0,5 → no aprueba, sin falso positivo. Es una sola corrida.
+   **Juez dentro de `verify` y semilla** (`PLAN_DEFINITIVO.md`, B1 y B2): el banco crea el proyecto con
+   `create --juez tools/rsi/criterios-tareas.json` (10 comprobaciones declaradas), así que `verify` prueba la app en
+   Chrome, un proyecto que no funciona ya no sale en verde y cada ronda de reparación recibe qué comprobación falla.
+   El modelo no puede escribir `eolfi.juez.json`. La semilla del par llega a la generación por `EOLFI_SEMILLA`
+   (semilla y `temperature` 0 en los motores locales). Sin verde, la muestra puntúa 0 y se anota el mejor intento.
+   **Corrida real** (16/11, V2 `gemma_q4`, dos muestras con la misma semilla): una abortó a los 23 min por una
+   respuesta cortada por longitud; la otra sacó **9/9** en 11,7 min (primera nota máxima del banco). El juez funciona
+   con el modelo; la semilla NO hace iguales dos corridas. Corregido después: un corte por longitud es una ronda
+   fallida (se pide una respuesta más corta), no el fin del trabajo, y el banco anota por qué falló `create`.
+   **NO VERIFICADO** en vivo tras esa corrección. **Causa del no determinismo:** la caché de prompt de
+   llama-server. Medido con la misma petición, semilla 0 y temperatura 0: con la caché sale un texto en frío y otro
+   en caliente; con `cache_prompt: false` sale idéntico en frío, en caliente y tras reiniciar (7 de 7). Con
+   `EOLFI_SEMILLA`, Eolas V2 y llama.cpp ya envían `cache_prompt: false`. Eolas V1 (`/api/chat`) no: pendiente.
+   **Más encargos** (`PLAN_DEFINITIVO.md`, B5): además de «tareas», «contador» y «filtro» en `tools/rsi/bancos/`,
+   cada uno con `fuente/`, `encargo.txt`, `criterios.json` (los ve el proyecto) y `juez.json` (el evaluador, que el
+   proyecto no ve y comprueba más casos). `--banco todos` reparte los encargos por semilla. Jueces validados con
+   apps de referencia: la correcta saca la nota máxima y una página inerte, 1 de 8. **NO VERIFICADO** con un modelo.
+   **Mejor intento** (B6): el bucle guarda la ronda con mejor nota del juez; si una ronda empeora, vuelve a
+   esa versión y se lo dice al modelo; sin verde, conserva el mejor intento marcado como parcial (`ok` sigue
+   en falso) y el banco lo puntúa con el evaluador en vez de dar 0. **NO VERIFICADO** con un modelo.
+   Banco «tareas» (`eolfi/rsi_banco.py`):
    el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
    superadas / totales; si la creación falla, 0).
 4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,

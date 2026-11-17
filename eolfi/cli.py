@@ -394,6 +394,8 @@ def _parser() -> argparse.ArgumentParser:
     _case_args(cr)
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
+    cr.add_argument("--juez", default=None, metavar="ARCHIVO",
+                    help="Criterios del juez funcional (JSON): la app se prueba en Chrome y debe cumplirlos todos")
     cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
                     help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
@@ -637,14 +639,14 @@ def _parser() -> argparse.ArgumentParser:
     rss.add_parser("proponer", help="Propone cambios a partir de los síntomas repetidos")
     rse = rss.add_parser("evaluar", help="Línea base contra candidata con un banco de pruebas (CARGA el modelo local)")
     rse.add_argument("id")
-    rse.add_argument("--banco", choices=["tareas"], default="tareas")
+    rse.add_argument("--banco", choices=["tareas", "contador", "filtro", "todos"], default="tareas")
     rse.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
     rse.add_argument("--modelo", default=None)
     rse.add_argument("--muestras", type=int, default=5, help="Pares base/candidata (mínimo 5)")
     rse.add_argument("--margen", type=float, default=0.05)
     rse.add_argument("--alfa", type=float, default=0.05, help="Nivel de la prueba exacta de signos")
     rsa = rss.add_parser("aa", help="Prueba A/A del evaluador con el banco real (CARGA el modelo local)")
-    rsa.add_argument("--banco", choices=["tareas"], default="tareas")
+    rsa.add_argument("--banco", choices=["tareas", "contador", "filtro", "todos"], default="tareas")
     rsa.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
     rsa.add_argument("--modelo", default=None)
     rsa.add_argument("--muestras", type=int, default=5)
@@ -656,6 +658,8 @@ def _parser() -> argparse.ArgumentParser:
         r_.add_argument("id")
         r_.add_argument("--por", required=True, help="Quién decide (queda en el registro)")
 
+    tl = sub.add_parser("telemetria", help="Telemetría local: tiempos y rendimiento por fase (no sale del equipo)")
+    tl.add_argument("telemetria_action", choices=["resumen", "ruta"], nargs="?", default="resumen")
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
@@ -991,13 +995,23 @@ def _dispatch(args, store: EvidenceStore) -> int:
         from eolfi.flows.create_flow import create_project
 
         ctx = {"proveedor": args.provider or "", "modelo": args.model or "", "destino": args.target}
+        if args.juez:
+            from pathlib import Path as _Path
+
+            from eolfi.generador import juez as _juez
+
+            try:
+                _juez.validar(json.loads(_Path(args.juez).read_text(encoding="utf-8")))
+            except (OSError, ValueError) as exc:
+                print(f"create: criterios del juez inválidos: {exc}", file=sys.stderr)
+                return 2
         try:
             rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
                                  do_verify=True, force=args.force, reanalyze=args.reanalyze,
                                  workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                                  ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
                                  progress=_progress, case_id=args.case_id, provenance=args.provenance,
-                                 autofix=args.autofix)
+                                 autofix=args.autofix, juez=args.juez)
         except Exception as exc:
             if args.ai_brief:
                 _rsi_observar("generador", "create_ai", {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ctx)
@@ -1893,7 +1907,7 @@ def main(argv: list[str] | None = None) -> int:
             elif a in ("evaluar", "aa"):
                 from eolfi import rsi_banco
 
-                banco = rsi_banco.banco_tareas(proveedor=args.proveedor, modelo=args.modelo,
+                banco = rsi_banco.banco(args.banco, proveedor=args.proveedor, modelo=args.modelo,
                                                registro=lambda d: _progress(f"RSI muestra: {d}"))
                 if a == "aa":
                     _print(rsi.prueba_aa(banco, muestras=args.muestras))
@@ -1947,16 +1961,16 @@ def main(argv: list[str] | None = None) -> int:
                 print("Ghidra en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh), "
                       "Java 21 (tools/instalar-java-wsl.sh) y GHIDRA_INSTALL_DIR con Ghidra 12.1", file=sys.stderr)
                 return 2
-        client = rea_client.ReaClient(
-            cmd, timeout=rea_client.GHIDRA_CLIENT_TIMEOUT if args.rea_action == "swift" else 900)
+        from eolfi import rsi
+
+        # Plazo del cliente: el de Ghidra en WSL para Swift; si no, el ajuste del RSI (900 s salvo propuesta aprobada).
+        plazo = rea_client.GHIDRA_CLIENT_TIMEOUT if args.rea_action == "swift" else rsi.ajuste("rea.timeout")
+        client = rea_client.ReaClient(cmd, timeout=plazo)
         if motor == "kuna":   # el REA de WSL ve las rutas de Windows como /mnt/<unidad>/…
             from eolfi.server import _WslPaths
 
             raw, client = client, _WslPaths(client)
             client.close = raw.close
-        from eolfi import rsi
-
-        client = rea_client.ReaClient(cmd, timeout=rsi.ajuste("rea.timeout"))
         op = args.rea_action
         try:
             if args.rea_action == "recuperar-js":
@@ -2037,7 +2051,9 @@ def main(argv: list[str] | None = None) -> int:
                 op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
                 result = rc.comparar_versiones(client, args.original, args.nueva)
         except (ValueError, RuntimeError) as exc:
-            # Error de REA o ruta no válida: el mensaje, sin traza (EOLFI_DEBUG la muestra).
+            # Error de REA o ruta no válida: el mensaje, sin traza (EOLFI_DEBUG la muestra). El RSI lo anota igual
+            # (un plazo agotado es el síntoma que propone ampliar rea.timeout).
+            _rsi_observar("rea", op, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
             if os.environ.get("EOLFI_DEBUG"):
                 raise
             hint = (" Kuna solo admite ELF y Mach-O de una arquitectura; para PE usa --motor ghidra."
@@ -2065,6 +2081,12 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 store.close()
         _print(result)
+        return 0
+    if args.cmd == "telemetria":
+        from eolfi import telemetria
+
+        _print({"carpeta": str(telemetria.carpeta()), "activa": telemetria.activa()}
+               if args.telemetria_action == "ruta" else telemetria.resumen())
         return 0
     if args.cmd == "mcp":
         from eolfi import mcp_server
