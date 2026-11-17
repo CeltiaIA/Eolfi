@@ -5,6 +5,16 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Integración en `main` (17/11):** la PR #55 (`luis/integracion-17nov`, commit de fusión `1a26bf3`) ha llevado
+  a `main`, en orden, las 29 PR abiertas (#19–#35, #39 y #43–#54), y GitHub las marca todas como MERGED.
+  Resoluciones: los conflictos REA, por suma, se fusionaron por bloques; en la #39, superada, se conservó `main`;
+  la #50 entró con cherry-pick del commit de tensores K; en la #49 se combinaron los dos diseños de B6 y se dejó un
+  único `ReaClient` con plazo del RSI; en la #52 `cli.py` pasó de CRLF a LF; se quitaron filas duplicadas de
+  `PLAN_REA.md` y LIM-017–021. Las cuatro suites en local (hook pre-push) dieron pytest 1012/8 omitidas, puente,
+  puente VS Code y e2e en verde. La CI de la #55 dio 14/14 en verde. `main` local actualizado.
+  Pendiente: las 8 PR abiertas de CeltiaIA/CeltiaIA (#6–#13), sin fusionar; el autor del commit de CeltiaIA#12
+  no se ha corregido, porque reescribir un commit ya subido no está autorizado; `D:\Eolfi-sim34` (borrador
+  superado, sin subir). La retirada de los worktrees integrados está en LIM-045.
 - Preferencia del titular: autoría **Luis**, ramas `luis/`, sin atribuciones a agentes en nuevas entregas.
   Configuración local de Git aplicada. Rama actual `luis/modelos-reconstruccion`; los tres commits locales
   del bloque G (`f4ecd58`, `5b21787`, `7552c6a`) tienen autor y confirmador Luis; sin publicación.
