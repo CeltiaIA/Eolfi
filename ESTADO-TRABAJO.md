@@ -5,6 +5,16 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Honestidad del chat (17/11, rama `luis/chat-honesto`):** los defectos de una conversación real con
+  gemma-4-12b (acciones «en curso» sin ejecutar, «RSI» inventado como arquitectura —RSI es Recursive
+  Self-Improvement, la automejora supervisada—, fusión de pesos, licencia propia sobre pesos derivados, negar VS
+  Code con el puente activo, pedir crear archivos a mano, herramientas inexistentes) son casos repetibles en
+  `tests/chat_deriva_casos.json`. `eolfi/chat_honestidad.py`: el modelo recibe el estado real (puente de VS Code
+  comprobado al empezar el turno) y los límites; la respuesta final pasa un detector; si falla, una ronda de
+  corrección sin herramientas y, si sigue fallando, un aviso visible. `tools/medir_deriva_chat.py` mide con el
+  motor real cuántas respuestas fallan antes y después y cuántas variantes hay (con el motor real: NO VERIFICADO,
+  carga la GPU). Detector de patrones: no garantiza que no invente otras cosas. Pendiente: chat ↔ @eolfi en VS
+  Code con cola de aprobaciones.
 - **C4 accesibilidad de los proyectos generados (17/11, rama `luis/c4-juez-accesibilidad`):** el juez funcional admite
   `{"comprobar": …, "sin_problemas_accesibilidad": true}` (axe-core inyectado desde Playwright, sin tocar la CSP;
   sin axe = NO VERIFICADO). Encontró y se corrigieron dos fallos de contraste de la plantilla `static`

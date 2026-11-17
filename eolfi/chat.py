@@ -127,7 +127,8 @@ APP_TOOLS = {
         "description": "Lista los casos de Eolfi (cada uno agrupa artefactos, evidencias, incógnitas y proyectos).",
         "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     "eolfi_automejora": {
-        "description": "Estado de la automejora de Eolfi (RSI): propuestas, su evaluación y el registro. Solo lectura: "
+        "description": "Estado de la automejora de Eolfi (RSI, Recursive Self-Improvement, supervisada): propuestas, "
+                       "su evaluación y el registro. Solo lectura: "
                        "aprobar, rechazar o revertir lo hace el titular en el panel; tú no puedes decidir.",
         "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
 }
@@ -307,13 +308,38 @@ def template_safe(schema: Any) -> Any:
 def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, progress: Callable[[str], None], *,
                request: Callable[..., dict[str, Any]] = _request,
                run_python: Callable[[str], tuple[str, bool]] = _run_python,
-               max_rounds: int = MAX_ROUNDS) -> dict[str, Any]:
-    """El modelo resuelve la petición llamando a herramientas reales de Eolfi. Devuelve la respuesta y las llamadas."""
+               max_rounds: int = MAX_ROUNDS, estado: dict[str, Any] | None = None) -> dict[str, Any]:
+    """El modelo resuelve la petición llamando a herramientas reales de Eolfi. Devuelve la respuesta y las llamadas.
+
+    `estado` es lo comprobado por Eolfi al empezar el turno (p. ej. si responde el puente de VS Code). La respuesta
+    final pasa por la revisión de honestidad (chat_honestidad): si falla, una ronda de corrección sin herramientas y,
+    si aún falla, un aviso visible. `revision` dice qué se detectó antes y después."""
+    from eolfi import chat_honestidad as hon
+
     tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                 "parameters": template_safe(t["inputSchema"])}}
              for n, (t, _f) in mcp.tools.items() if n in CHAT_TOOLS or n in APP_TOOLS or n.startswith("rea_")] + [PYTHON_TOOL]
-    convo: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}, *messages]
+    convo: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT + "\n\n" + hon.contexto(estado)},
+                                   *messages]
     calls: list[dict[str, Any]] = []
+    ofrecidas = {t["function"]["name"] for t in tools}
+
+    def final(text: str) -> dict[str, Any]:
+        inicial = hon.revisar(text, calls, ofrecidas, estado)
+        hallazgos = inicial
+        if inicial:
+            progress("Eolfi revisa la respuesta: " + ", ".join(h["codigo"] for h in inicial))
+            convo.extend([{"role": "assistant", "content": text}, {"role": "user", "content": hon.correccion(inicial)}])
+            nuevo = str(request(c, convo, []).get("content") or "").strip()
+            if nuevo:
+                text = nuevo
+                hallazgos = hon.revisar(text, calls, ofrecidas, estado)
+            if hallazgos:
+                text = hon.aviso(hallazgos) + text
+        return {"text": text, "tools": calls,
+                "revision": {"inicial": [h["codigo"] for h in inicial], "final": [h["codigo"] for h in hallazgos],
+                             "hallazgos": hallazgos}}
+
     for turn in range(max_rounds):
         msg = request(c, convo, tools)
         tool_calls = safe_tool_calls(msg.get("tool_calls") or [], turn)
@@ -321,7 +347,7 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
             text = str(msg.get("content") or "").strip()
             if not text:
                 raise RuntimeError("el motor terminó sin respuesta de texto")
-            return {"text": text, "tools": calls}
+            return final(text)
         convo.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tool_calls})
         for tc in tool_calls:
             fn = tc.get("function") or {}
@@ -351,5 +377,4 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
     # Se agotaron las rondas: se pide una respuesta final con lo que ya tiene, sin más herramientas.
     convo.append({"role": "user", "content": "Responde ya con lo que has obtenido, sin llamar a más herramientas."})
     msg = request(c, convo, [])
-    return {"text": str(msg.get("content") or "").strip() or "No llegué a una respuesta con las herramientas disponibles.",
-            "tools": calls}
+    return final(str(msg.get("content") or "").strip() or "No llegué a una respuesta con las herramientas disponibles.")

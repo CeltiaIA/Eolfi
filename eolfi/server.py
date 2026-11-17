@@ -697,19 +697,32 @@ class EolfiApp:
         except rsi.RSIError as exc:
             raise ApiError(404 if "desconocida" in str(exc) else 400, str(exc)) from exc
 
+    def _chat_estado(self) -> dict[str, Any]:
+        """Lo que el chat debe saber como HECHO al empezar el turno (honestidad, 17/11/2026): si responde el puente de
+        VS Code y con qué carpetas. Así no niega poder conectarse cuando sí puede, ni lo afirma cuando no."""
+        from eolfi.generador.llm import LLMError
+        from eolfi.vscode_tools import vscode_action
+
+        try:
+            ws = vscode_action("workspace", timeout=4)
+            return {"vscode": {"activo": True, "carpetas": [str(f) for f in (ws.get("folders") or [])][:5]}}
+        except (LLMError, OSError, ValueError):
+            return {"vscode": {"activo": False}}
+
     def _chat_answer(self, context: list[dict[str, str]], remote: Any, mcp: Any) -> dict[str, Any]:
         from eolfi import chat, eolas_v2
 
+        estado = self._chat_estado()
         try:
             if remote:
                 self._progress(f"Consultando {remote['label']}…")
-                return {**chat.agent_turn(context, remote, mcp, self._progress), "model": remote["label"]}
+                return {**chat.agent_turn(context, remote, mcp, self._progress, estado=estado), "model": remote["label"]}
             profile = str(eolas_v2.load_config()["active_profile"])
             self._progress(f"Cargando el motor Eolas V2 ({profile})…")
             with eolas_v2.inference_profile(profile) as c:
                 engine = chat.local_engine(c)
                 self._progress(f"Eolas ({c['alias']}) está pensando…")
-                return {**chat.agent_turn(context, engine, mcp, self._progress), "model": engine["label"]}
+                return {**chat.agent_turn(context, engine, mcp, self._progress, estado=estado), "model": engine["label"]}
         except RuntimeError as exc:
             raise ApiError(502, str(exc)) from exc
 
