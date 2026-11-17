@@ -474,3 +474,35 @@ test('voz: dictar escribe en el chat sin enviar, las órdenes no se escriben y t
   await axe('dictado en crear proyecto');
   assert.deepEqual(errors, []);
 });
+
+test('idioma: el panel en inglés con ?lang=en, sin tocar el contenido, y vuelta al castellano (C1)', async () => {
+  // Contexto propio: la elección se guarda en localStorage y no debe afectar a las otras pruebas.
+  const ctx = await browser.newContext({ bypassCSP: true, locale: 'en-US' });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(String(e)));
+  await p.goto(BASE + '/');                                                        // sin elegir: castellano
+  await p.waitForSelector('#version:not(:empty)');
+  assert.equal(await p.textContent('#open-analysis'), 'Análisis');
+  await p.goto(BASE + '/?lang=en');
+  await p.waitForFunction(() => document.querySelector('#open-analysis').textContent === 'Analysis');
+  assert.equal(await p.getAttribute('html', 'lang'), 'en');
+  assert.equal(await p.title(), 'Eolfi — evidence panel');
+  assert.equal(await p.getAttribute('#eolas-chat-input', 'placeholder'), 'Write to Eolfi… (Ctrl+Enter to send)');
+  assert.equal(await p.getAttribute('#chat-log', 'aria-label'), 'Chat history');
+  // Lo que añade el JS después también se traduce; el contenido marcado (evidencias), no.
+  const r = await p.evaluate(async () => {
+    const a = document.createElement('span'); a.textContent = 'Exportar'; document.querySelector('.tools').append(a);
+    const b = document.createElement('p'); b.textContent = 'Exportar'; document.getElementById('evidence').append(b);
+    await new Promise((ok) => setTimeout(ok, 50));
+    return [a.textContent, b.textContent];
+  });
+  assert.deepEqual(r, ['Export', 'Exportar']);
+  assert.match(await p.evaluate(() => document.cookie), /eolfi_idioma=en/);
+  // Volver al castellano con el selector: se guarda y la página se recarga.
+  await p.selectOption('#idioma', 'es');
+  await p.waitForFunction(() => document.querySelector('#open-analysis').textContent === 'Análisis');
+  assert.equal(await p.evaluate(() => localStorage.getItem('eolfi.idioma')), 'es');
+  assert.deepEqual(errs, []);
+  await ctx.close();
+});

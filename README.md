@@ -73,6 +73,10 @@ es una implementación propia.
 - `python -m eolfi acceso-directo [--donde escritorio|menu] [--port N]` muestra el lanzador de `eolfi up` que
   crearía (`Eolfi.lnk` en Windows, `eolfi.desktop` en Linux); `--aplicar` lo crea y `--quitar` lo retira.
   Nunca sustituye un archivo que no sea un lanzador de Eolfi. macOS aún no está soportado.
+- Idioma (es/en): el panel tiene un selector ES/EN en la cabecera (o `?lang=en`); la CLI muestra la ayuda en
+  inglés con `--idioma en` delante del subcomando o `EOLFI_IDIOMA=en`; la API responde sus errores en inglés con
+  `?lang=en`, la cookie del panel o `Accept-Language: en`. Por defecto, castellano. La traducción es parcial: ver C1
+  en `PLAN_DEFINITIVO.md`.
 
 ## Uso rápido
 

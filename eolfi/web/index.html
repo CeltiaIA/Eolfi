@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="/theme.js"></script>
+  <script src="/i18n.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#detail">Saltar al contenido</a>
@@ -37,6 +38,12 @@
           <option value="auto">Tema: sistema</option>
           <option value="light">Tema: claro</option>
           <option value="dark">Tema: oscuro</option>
+        </select>
+      </label>
+      <label class="theme-pick"><span class="visually-hidden">Idioma</span>
+        <select id="idioma" aria-label="Idioma del panel">
+          <option value="es" lang="es">ES · Español</option>
+          <option value="en" lang="en">EN · English</option>
         </select>
       </label>
       <button type="button" id="open-help" class="icon-btn" aria-haspopup="dialog" title="Atajos de teclado (?)">?</button>
@@ -134,7 +141,7 @@
               <label id="proj-file-label" class="proj-file small-btn">Elegir archivos<input id="proj-file" type="file" multiple aria-label="Archivos a adjuntar"></label>
               <button type="button" id="proj-add" class="small-btn">Añadir</button>
             </div>
-            <ul id="proj-list" class="plain proj-list" aria-live="polite" aria-label="Fuentes añadidas"></ul>
+            <ul id="proj-list" data-i18n-no class="plain proj-list" aria-live="polite" aria-label="Fuentes añadidas"></ul>
           </fieldset>
           <fieldset class="proj-fieldset row">
             <legend class="small">Modo</legend>
@@ -275,7 +282,7 @@
               usa la rueda y, con la vista seleccionada, escribe (Intro, Retroceso, Tab, Esc y flechas incluidas)</figcaption>
           </figure>
           <div class="chat-side">
-            <div id="chat-log" class="chat-log" role="log" aria-label="Historial del chat"></div>
+            <div id="chat-log" data-i18n-no class="chat-log" role="log" aria-label="Historial del chat"></div>
             <p id="chat-live" class="visually-hidden" aria-live="polite"></p>
             <form id="chat-form" class="stack">
               <textarea id="chat-input" rows="3" aria-label="Mensaje"
@@ -299,7 +306,7 @@
                 <div class="row between"><span id="compare-status" class="muted" role="status"></span>
                   <button type="submit" id="compare-go">Comparar</button></div>
               </form>
-              <div id="compare-results" class="compare-grid"></div>
+              <div id="compare-results" data-i18n-no class="compare-grid"></div>
             </details>
           </div>
         </div>
@@ -314,7 +321,7 @@
           </div>
         </div>
         <p class="muted">Tú le pides a Eolas y Eolas manda hacer a Eolfi: el modelo cargado en el motor Eolas V2 decide qué herramientas usar (analizar archivos y binarios, webs, repositorios, consultar Alejandría o probar código) y verás cada paso aquí. Al adjuntar un archivo, lo analiza y te propone qué se podría generar.</p>
-        <div id="eolas-chat-log" class="chat-log eolas-chat-log" role="log" aria-live="polite" aria-label="Conversación con Eolfi"></div>
+        <div id="eolas-chat-log" data-i18n-no class="chat-log eolas-chat-log" role="log" aria-live="polite" aria-label="Conversación con Eolfi"></div>
         <form id="eolas-chat-form" class="eolas-chat-form">
           <label for="eolas-chat-input" class="visually-hidden">Mensaje para Eolfi</label>
           <textarea id="eolas-chat-input" maxlength="8000" rows="6" placeholder="Escribe a Eolfi… (Ctrl+Intro para enviar)"></textarea>
@@ -366,7 +373,7 @@
             <button type="submit">Enviar a VS Code</button>
           </form>
           <pre id="local-chat-answer" role="status"></pre>
-          <div id="local-chat-runs"></div>
+          <div id="local-chat-runs" data-i18n-no></div>
           <p><a href="vscode://eolfi.eolfi-vscode-bridge/chat">Abrir el chat de Eolfi en VS Code</a></p>
         </details>
       </section>
@@ -386,8 +393,8 @@
           <fieldset><legend class="small">Modelos locales</legend><div id="eolas-e2e-profiles" class="choice-list"></div></fieldset>
           <div class="row between"><span id="eolas-e2e-status" class="muted small" role="status"></span><button id="eolas-e2e-go" type="submit">Ejecutar comparación justa</button></div>
         </form>
-        <div id="eolas-e2e-live" class="chat-log" role="log" aria-live="polite" aria-label="Progreso de la evaluación"></div>
-        <div id="eolas-e2e-results" class="compare-grid" aria-live="polite"></div>
+        <div id="eolas-e2e-live" data-i18n-no class="chat-log" role="log" aria-live="polite" aria-label="Progreso de la evaluación"></div>
+        <div id="eolas-e2e-results" data-i18n-no class="compare-grid" aria-live="polite"></div>
         <!-- Lecciones aprendidas: fuera de la pantalla (titular, 13/11/2026); se siguen guardando y aplicando por motor
              en eolas-v2-lecciones.json y se borran al desinstalar un motor. -->
       </section>
@@ -451,7 +458,7 @@
           <input id="case-link-prov" placeholder="Procedencia declarada" aria-label="Procedencia declarada del objetivo">
           <button type="button" id="case-link" class="small-btn">Asociar</button>
         </div>
-        <div id="case-body" aria-live="polite"></div>
+        <div id="case-body" data-i18n-no aria-live="polite"></div>
       </div>
       <nav id="tracking-index" class="card row" hidden aria-label="Secciones de seguimiento">
         <strong>Seguimiento</strong>
@@ -504,11 +511,11 @@
         <div id="summary" class="tiles"></div>
 
         <h3>Incógnitas <label class="muted small"><input type="checkbox" id="show-resolved"> ver resueltas</label></h3>
-        <ul id="incognitas" class="plain"></ul>
+        <ul id="incognitas" data-i18n-no class="plain"></ul>
 
         <h3>Evidencias</h3>
         <input id="filter" placeholder="Filtrar por operación o proveedor" aria-label="Filtro">
-        <div id="evidence"></div>
+        <div id="evidence" data-i18n-no></div>
       </div>
     </section>
   </main>
