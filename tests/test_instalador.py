@@ -110,7 +110,14 @@ def test_la_rueda_declara_los_scripts_mjs():
 
 def test_paquete_instalado_en_entorno_nuevo():
     """Construye la rueda sin red, la instala en un entorno virtual nuevo (como pipx) y arranca el panel."""
-    pytest.importorskip("setuptools")
+    sys.path.insert(0, str(RAIZ / "tools"))
+    try:
+        import verificar_paquete
+    finally:
+        sys.path.remove(str(RAIZ / "tools"))
+    motivo = verificar_paquete.sin_constructor()
+    if motivo:
+        pytest.skip(f"NO VERIFICADO: {motivo}")
     p = subprocess.run([sys.executable, str(RAIZ / "tools" / "verificar_paquete.py")], capture_output=True,
                        text=True, encoding="utf-8", timeout=900)
     assert p.returncode == 0, p.stdout[-3000:] + p.stderr[-2000:]

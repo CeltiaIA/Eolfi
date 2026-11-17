@@ -143,14 +143,35 @@ def cerrar(out: dict, pasos: list, limites: str) -> dict:
     return out
 
 
+def sin_constructor() -> str | None:
+    """Motivo por el que este Python no puede construir la rueda sin red, o None si puede.
+
+    Sin aislamiento hace falta setuptools con ``bdist_wheel`` propio (70.1 o posterior) o el paquete ``wheel``."""
+    try:
+        import setuptools
+    except ImportError:
+        return "setuptools no está instalado en este Python"
+    try:
+        partes = tuple(int(x) for x in setuptools.__version__.split(".")[:2])
+    except ValueError:
+        partes = (0, 0)
+    if partes >= (70, 1):
+        return None
+    try:
+        import wheel  # noqa: F401
+    except ImportError:
+        return (f"setuptools {setuptools.__version__} no trae bdist_wheel y falta el paquete wheel: "
+                "no se puede construir la rueda sin red")
+    return None
+
+
 def verificar(tmp: Path) -> dict:
     pasos: list[dict] = []
     version = version_codigo()
     out = {"schema": "eolfi.verificar_paquete/v1", "version_codigo": version, "carpeta": str(tmp), "pasos": pasos}
-    try:
-        import setuptools  # noqa: F401
-    except ImportError:
-        out.update(ok=False, estado="NO VERIFICADO", motivo="setuptools no está instalado en este Python")
+    motivo = sin_constructor()
+    if motivo:
+        out.update(ok=False, estado="NO VERIFICADO", motivo=motivo)
         return out
 
     fuente = tmp / "fuente"
