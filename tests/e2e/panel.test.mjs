@@ -535,7 +535,7 @@ test('mapa de la app (C5): grafo de llamadas y componentes de REA dibujados y ac
   // Resultados con la forma real: las funciones de Eolfi con los dobles de REA de las pruebas de Python.
   const res = JSON.parse(execFileSync(PY, ['-c', [
     'import json, sys, tempfile, zipfile', 'from pathlib import Path', 'from eolfi import rea_compuestas as rc',
-    'from tests.test_rea_compuestas import FakeAndroid, FakeApple, FakeCallGraph, _info_plist',
+    'from tests.rea_fakes import FakeAndroid, FakeApple, FakeCallGraph, _info_plist',
     'd = Path(tempfile.mkdtemp()); apk = d / "a.apk"; apk.write_bytes(b"PK"); z = d / "X.app.zip"',
     'zipfile.ZipFile(z, "w").writestr("X.app/Contents/Info.plist", _info_plist())',
     'g = rc.grafo_llamadas(FakeCallGraph(), "x.exe", "entry"); v = dict(g); v.pop("enlaces")',
