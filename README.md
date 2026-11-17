@@ -66,6 +66,13 @@ es una implementación propia.
   última publicación o etiqueta de `CeltiaIA/Eolfi` en api.github.com, sin credenciales. Con
   `EOLAS_OFFLINE=1` no consulta la red. Nunca instala nada: solo indica cómo actualizar. Sale con 0 si está al día, 1 si hay una
   versión nueva y 2 si no se pudo comprobar.
+- Instalación aislada con pipx desde la copia: `pipx install .` (o `python -m pip install .` en un entorno
+  virtual). `python tools/verificar_paquete.py` construye la rueda sin red en una copia temporal, la instala
+  en un entorno virtual nuevo y comprueba la versión, que estén todos los archivos del panel y los scripts
+  `.mjs`, y que el panel responda.
+- `python -m eolfi acceso-directo [--donde escritorio|menu] [--port N]` muestra el lanzador de `eolfi up` que
+  crearía (`Eolfi.lnk` en Windows, `eolfi.desktop` en Linux); `--aplicar` lo crea y `--quitar` lo retira.
+  Nunca sustituye un archivo que no sea un lanzador de Eolfi. macOS aún no está soportado.
 
 ## Uso rápido
 
