@@ -521,6 +521,10 @@ def _parser() -> argparse.ArgumentParser:
     r17.add_argument("ruta")
     r17.add_argument("--filtro", help="texto en la ruta o en compatible para acotar los dispositivos")
     r17.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r17 = rps.add_parser("swift", help="Tipos Swift y clases Objective-C de una app de Apple (Ghidra en el REA de WSL), sin macOS")
+    r17.add_argument("ruta", help=".app, .zip, .ipa o ejecutable Mach-O")
+    r17.add_argument("--arquitectura", help="porción del ejecutable universal (arm64 por defecto)")
+    r17.add_argument("--limite", type=int, default=60, help="máximo de elementos por lista (60)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1655,7 +1659,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.rea_action == "firmware" and not args.extraer and not any(c.startswith("REA_BINWALK_COMMAND=") for c in cmd):
             print("Binwalk 3.1.0 no instalado en WSL2: ejecuta tools/instalar-binwalk-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
-        client = rea_client.ReaClient(cmd, timeout=900)
+        if args.rea_action == "swift":
+            cmd = rea_client.wsl_rea_ghidra_command()
+            if not cmd:
+                print("Ghidra en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh), "
+                      "Java 21 (tools/instalar-java-wsl.sh) y GHIDRA_INSTALL_DIR con Ghidra 12.1", file=sys.stderr)
+                return 2
+        client = rea_client.ReaClient(
+            cmd, timeout=rea_client.GHIDRA_CLIENT_TIMEOUT if args.rea_action == "swift" else 900)
         try:
             if args.rea_action == "recuperar-js":
                 op, params = "recuperar_fuentes_js", {"ruta": args.ruta, "destino": args.destino}
@@ -1710,6 +1721,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "devicetree":
                 op, params = "devicetree_hw", {"ruta": args.ruta, "filtro": args.filtro}
                 result = rc.devicetree_hw(client, args.ruta, args.limite, args.filtro)
+            elif args.rea_action == "swift":
+                op, params = "tipos_swift_apple", {"ruta": args.ruta, "arquitectura": args.arquitectura}
+                result = rc.tipos_swift_apple(client, args.ruta, arquitectura=args.arquitectura, limite=args.limite,
+                                              ruta_rea=rea_client.wsl_path, demangle=rea_client.wsl_swift_demangle)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

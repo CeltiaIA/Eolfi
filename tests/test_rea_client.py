@@ -112,3 +112,59 @@ def test_rea_env_pasa_wabt_si_esta_instalado(tmp_path, monkeypatch):
     assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == str(bin_)
     monkeypatch.setenv("REA_WABT_BIN_DIRECTORY", "/otra")
     assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == "/otra"  # la del usuario manda
+
+
+def test_wsl_rea_ghidra_command_anade_ghidra_y_java_o_none(monkeypatch):
+    import subprocess
+
+    base = ["wsl.exe", "-e", "env", "REA_WAKARU_COMMAND=/h/w", "/h/node", "/h/rea.mjs", "mcp"]
+    jdk = "/home/u/.local/eolfi-rea/jdk21/usr/lib/jvm/java-21-openjdk-amd64"
+    scripts = []
+
+    def run(argv, **kw):
+        scripts.append(argv[-1])
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: list(base))
+    monkeypatch.setattr(rea_client.subprocess, "run", run)
+    out = jdk + "\n"
+    cmd = rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra_12.1.4_PUBLIC")
+    assert cmd[:6] == ["wsl.exe", "-e", "env", "GHIDRA_INSTALL_DIR=/mnt/d/tools/ghidra_12.1.4_PUBLIC",
+                       f"JAVA_HOME={jdk}", f"PATH={jdk}/bin:/usr/bin:/bin"]
+    assert cmd[6] == f"REA_GHIDRA_STARTUP_TIMEOUT_MS={rea_client.GHIDRA_STARTUP_MS}"
+    assert cmd[7] == f"GHIDRA_MAXMEM={rea_client.GHIDRA_MAX_HEAP}"
+    assert cmd[8] == f"REA_MCP_MAX_RESPONSE_BYTES={rea_client.GHIDRA_MAX_RESPONSE_BYTES}"
+    assert cmd[9:] == base[3:] and "linux_x86_64/decompile" in scripts[-1]
+    out = ""   # falta Java o Ghidra en WSL
+    assert rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra") is None
+    out = "/tmp/otro-java\n"
+    assert rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra") is None
+    monkeypatch.delenv("GHIDRA_INSTALL_DIR", raising=False)
+    assert rea_client.wsl_rea_ghidra_command() is None
+    monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: None)
+    assert rea_client.wsl_rea_ghidra_command(r"D:\tools\ghidra") is None
+
+
+def test_wsl_swift_demangle_una_salida_por_nombre_o_none(monkeypatch):
+    import subprocess
+
+    seen = {}
+
+    def run(argv, **kw):
+        seen["input"], seen["script"] = kw["input"], argv[-1]
+        lines = kw["input"].splitlines()
+        return subprocess.CompletedProcess(argv, code, stdout="".join(f"D:{n}\n" for n in lines[:keep]), stderr="")
+
+    monkeypatch.delenv("EOLFI_NO_REA", raising=False)
+    monkeypatch.setattr(rea_client.shutil, "which", lambda name: "wsl.exe")
+    monkeypatch.setattr(rea_client.subprocess, "run", run)
+    code, keep = 0, 9
+    assert rea_client.wsl_swift_demangle(["$sA", "$sB\nC"]) == ["D:$sA", "D:$sB C"]
+    assert seen["input"] == "$sA\n$sB C\n" and rea_client.WSL_SWIFT_DEMANGLE in seen["script"]
+    keep = 1   # falta una salida: no se emparejan mal
+    assert rea_client.wsl_swift_demangle(["$sA", "$sB"]) is None
+    code, keep = 1, 9   # no instalado
+    assert rea_client.wsl_swift_demangle(["$sA"]) is None
+    assert rea_client.wsl_swift_demangle([]) == []
+    monkeypatch.setenv("EOLFI_NO_REA", "1")
+    assert rea_client.wsl_swift_demangle(["$sA"]) is None
