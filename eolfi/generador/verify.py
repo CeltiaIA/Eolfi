@@ -18,6 +18,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+def python_base() -> str:
+    """Python con el que se crean los entornos de los proyectos generados. Dentro del ejecutable de Eolfi
+    (PyInstaller), ``sys.executable`` es ``eolfi.exe`` y no sirve para ``-m venv``: se usa el Python del sistema;
+    si no hay ninguno, el paso falla y la verificación queda en rojo."""
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    return shutil.which("python3") or shutil.which("python") or "python"
+
+
 # Variables que necesitan npm, pip, node y Python para funcionar (sistema, rutas, proxy y certificados).
 # Todo lo demás (ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, tokens…) NO llega a las pruebas del proyecto,
 # que pueden incluir código escrito por una IA a partir de datos no confiables.
@@ -272,7 +281,7 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
         py = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         ok = True
         if install or not py.is_file():
-            ok = step([sys.executable, "-m", "venv", str(venv)], "crear entorno virtual")
+            ok = step([python_base(), "-m", "venv", str(venv)], "crear entorno virtual")
             if ok:
                 ok = step([str(py), "-m", "pip", "install", "-q", "-e", ".[test]"], "instalar el comando (pip install -e .)")
         if ok:
@@ -390,7 +399,7 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
         fresh = install or not py.is_file()
         ok = True
         if fresh:
-            ok = step([sys.executable, "-m", "venv", str(venv)], "crear entorno virtual")
+            ok = step([python_base(), "-m", "venv", str(venv)], "crear entorno virtual")
             if ok:
                 ok = step([str(py), "-m", "pip", "install", "-q", "-r", "requirements.txt"],
                           "instalar dependencias (latest)")

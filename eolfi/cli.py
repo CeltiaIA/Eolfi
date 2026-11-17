@@ -134,6 +134,13 @@ def _parser() -> argparse.ArgumentParser:
     acc_cmd = acc.add_subparsers(dest="acciones_action", required=True)
     acc_ver = acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
     acc_ver.add_argument("--ancla", help="Archivo de anclas externo: comprueba también que cada ancla sigue en la cadena")
+    acc_ver.add_argument("--clave", help="Archivo de clave (o EOLFI_ACCIONES_CLAVE): comprueba también las firmas")
+    acc_ver.add_argument("--rsi", action="store_true",
+                         help="Comprueba también la cadena del RSI y que cada evento reflejado coincide")
+    acc_cla = acc_cmd.add_parser("clave", help="Crea una clave de firma de 32 bytes (guárdala fuera del equipo)")
+    acc_cla.add_argument("--destino", required=True, help="Archivo nuevo, fuera del alcance de quien escribe el registro")
+    acc_fir = acc_cmd.add_parser("firmar", help="Firma con HMAC-SHA256 la cabeza de la cadena")
+    acc_fir.add_argument("--clave", help="Archivo de clave (o EOLFI_ACCIONES_CLAVE)")
     acc_anc = acc_cmd.add_parser("anclar", help="Copia la cabeza de la cadena a un archivo externo")
     acc_anc.add_argument("--destino", required=True, help="Archivo fuera del alcance de quien escribe el registro")
     acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
@@ -142,6 +149,14 @@ def _parser() -> argparse.ArgumentParser:
     upd.add_argument("--check", action="store_true", required=True, help="Comprobar; Eolfi nunca se actualiza solo")
     upd.add_argument("--red", action="store_true", help="Permite consultar api.github.com (sin credenciales)")
     upd.add_argument("--repo", help="propietario/nombre (por defecto CeltiaIA/Eolfi o EOLFI_UPDATE_REPO)")
+    acd = sub.add_parser("acceso-directo", help="Lanzador de «eolfi up» en el escritorio o el menú (vista previa "
+                                                "salvo con --aplicar)")
+    acd.add_argument("--donde", choices=("escritorio", "menu"), default="escritorio")
+    acd.add_argument("--carpeta", help="Otra carpeta para el lanzador (en lugar del escritorio o el menú)")
+    acd.add_argument("--port", type=int, default=8777, help="Puerto del panel que abre el lanzador")
+    acd_modo = acd.add_mutually_exclusive_group()
+    acd_modo.add_argument("--aplicar", action="store_true", help="Crea el acceso directo")
+    acd_modo.add_argument("--quitar", action="store_true", help="Retira el acceso directo de Eolfi")
     models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
     model_commands = models.add_subparsers(dest="modelos_action", required=True)
     ma = model_commands.add_parser("auditar", help="Comprueba estructura GGUF y SHA-256")
@@ -1707,8 +1722,28 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.acciones_action == "verificar":
             result = acciones.verificar_anclas(args.ancla) if args.ancla else acciones.verificar()
+            try:
+                if args.clave or os.environ.get("EOLFI_ACCIONES_CLAVE"):
+                    firmas = acciones.verificar_firmas(args.clave)
+                    result = {**result, "firmas": {k: firmas.get(k) for k in (
+                        "ok", "firmas", "firmas_de_otra_clave", "firmado_hasta", "sin_firmar_al_final", "clave_id",
+                        "firma_rota", "motivo", "aviso") if k in firmas}, "ok": result["ok"] and firmas["ok"]}
+            except (OSError, ValueError) as exc:
+                result = {**result, "ok": False, "firmas": {"ok": False, "error": str(exc)}}
+            if args.rsi:
+                rsi = acciones.verificar_rsi()
+                result = {**result, "rsi": {k: v for k, v in rsi.items() if k not in ("archivo", "ultimo", "eventos")},
+                          "ok": result["ok"] and rsi["ok"]}
             _print(result)
             return 0 if result["ok"] else 2
+        if args.acciones_action in ("clave", "firmar"):
+            try:
+                _print(acciones.generar_clave(args.destino) if args.acciones_action == "clave"
+                       else acciones.firmar(args.clave))
+            except (OSError, ValueError) as exc:
+                _print({"ok": False, "error": str(exc)})
+                return 2
+            return 0
         if args.acciones_action == "anclar":
             try:
                 _print(acciones.anclar(args.destino))
@@ -1729,6 +1764,22 @@ def main(argv: list[str] | None = None) -> int:
         _print(result)
         return {"al_dia": 0, "instalada_mas_reciente": 0, "sin_publicaciones": 0, "nueva_version": 1}.get(
             result["estado"], 2)
+    if args.cmd == "acceso-directo":
+        from eolfi import instalador
+
+        try:
+            if args.quitar:
+                result = instalador.quitar(args.donde, carpeta=args.carpeta)
+            elif args.aplicar:
+                result = instalador.crear(args.donde, port=args.port, carpeta=args.carpeta)
+            else:
+                result = {**instalador.plan(args.donde, port=args.port, carpeta=args.carpeta),
+                          "vista_previa": True, "nota": "Nada creado; repite con --aplicar para crearlo."}
+        except instalador.AccesoDirectoError as exc:
+            _print({"ok": False, "error": str(exc)})
+            return 1
+        _print(result)
+        return 0 if result.get("comprobado", True) else 1
     if args.cmd == "modelos":
         from eolfi.modelos import audit, check_trust
 
