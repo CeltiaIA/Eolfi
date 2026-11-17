@@ -227,7 +227,7 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
       const runtime = opts() || {};
       const { num_ctx, num_gpu, num_thread, ...requestOptions } = runtime;
       if (at.api === 'eolas') {
-        // API de Eolas (como la de Ollama): argumentos como objeto y resultados de herramienta sin id.
+        // API de Eolas (/api/chat): argumentos como objeto y resultados de herramienta sin id.
         const msgs = messages.map((m) => (m.tool_calls ? { role: 'assistant', content: m.content || '', tool_calls: m.tool_calls.map((c) => ({ function: { name: c.function.name, arguments: safeJson(c.function.arguments) } })) }
           : m.role === 'tool' ? { role: 'tool', content: m.content, tool_name: m.name } : m));
         [endpoint, body] = [`${at.url}/api/chat`, { model: at.model, stream: false, messages: msgs, tools: fns, ...eolasThink(runtime), options: eolasOptions(runtime) }];

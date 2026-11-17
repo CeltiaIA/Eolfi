@@ -1,6 +1,6 @@
 """Un solo modelo local en la GPU a la vez.
 
-Eolfi puede usar dos servidores de modelos locales: **Eolas** (CeltIA, API tipo Ollama en 127.0.0.1:11435, que carga
+Eolfi puede usar dos servidores de modelos locales: **Eolas** (CeltIA, API propia en 127.0.0.1:11435, que carga
 el modelo al recibir una petición y lo descarga solo tras un rato sin uso) y **Eolas V2** (`eolfi eolas-v2`,
 llama-server propio con perfiles Gemma/Mistral). Con 8 GB de VRAM no caben los dos: el 11 y el 12 de noviembre de
 2026 un Mistral-Nemo de Eolas V2 olvidado junto al Gemma de Eolas dio «bad allocation» y dejó el agente casi
@@ -31,7 +31,7 @@ POLL_SECONDS = 30.0
 
 
 # Motor local de Eolfi (15/11/2026, decisión del titular: poder trabajar con Eolas V1 o Eolas V2).
-#   eolas-v1: Eolas de CELTIAIA (11435, API tipo Ollama), lo arranca launch-eolas.ps1 y lo comparten Fios y la web.
+#   eolas-v1: Eolas de CELTIAIA (11435, API propia /api/*), lo arranca launch-eolas.ps1 y lo comparten Fios y la web.
 #   eolas-v2: llama-server que gestiona Eolfi (8090, API de OpenAI), con perfiles y vigilante de inactividad.
 # Se elige con EOLFI_LOCAL_ENGINE o con «eolfi motor-local <motor>», que lo guarda en ~/.eolfi/motor-local.json;
 # lo leen la CLI, el panel, el generador y la extensión de VS Code. Sin elección: eolas-v2, que no depende de
@@ -138,7 +138,7 @@ def eolas_loaded(url: str = EOLAS_URL) -> list[str]:
 
 
 def release_eolas(url: str = EOLAS_URL) -> list[str]:
-    """Pide a Eolas que descargue sus modelos (``keep_alive: 0``, como Ollama). Devuelve los que descargó."""
+    """Pide a Eolas que descargue sus modelos (``keep_alive: 0``). Devuelve los que descargó."""
     released = []
     for name in eolas_loaded(url):
         body = json.dumps({"model": name, "keep_alive": 0}).encode("utf-8")

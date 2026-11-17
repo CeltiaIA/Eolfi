@@ -50,7 +50,7 @@ def test_proveedor_eolas_v2_usa_perfil_activo_sin_cargar_modelo_doble(monkeypatc
     monkeypatch.setattr(eolas_v2, "switch", lambda *a, **k: calls.append(("switch", a)))
     sent = {}
 
-    def fake_post(url, body, headers, timeout):
+    def fake_post(url, body, headers, timeout, **kwargs):
         sent.update(url=url, body=body, headers=headers)
         return {"choices": [{"finish_reason": "stop", "message": {"content": '{"ok": true}'}}],
                 "usage": {"prompt_tokens": 5, "completion_tokens": 3}}

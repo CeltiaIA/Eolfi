@@ -29,18 +29,20 @@ DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
     # Los cinco perfiles de la comparación se mantienen en el mismo almacén de
     # GGUF.  No implican cinco servidores: Eolas siempre arranca uno y detiene
     # el anterior antes de pasar al siguiente.
+    # Gemma 4 12B, reglaje de la competición V1/V2 del 16/11/2026 (RTX 3060 Ti, 8 GB): atención flash, caché KV
+    # en q8_0, una sola ranura y lote 512, como Eolas V1. Q4 cabe entero con 16k (41,6 tok/s frente a 5,3 sin
+    # este reglaje); Q5 rinde mejor con 40 capas (con 44 desborda la VRAM). Con menos VRAM, baja gpu_layers.
     "gemma_q4": {
         "alias": "gemma-4-12b-it-q4_k_m:latest",
         "model": r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q4_K_M.gguf",
-        "ctx": 32000, "gpu_layers": 8, "batch": 128, "ubatch": 64,
+        "ctx": 16384, "gpu_layers": 99, "batch": 512, "ubatch": 512,
+        "extra_args": ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"],
     },
     "gemma": {
         "alias": "gemma-4-12b-it-q5_k_m:latest",
         "model": r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q5_K_M.gguf",
-        "ctx": 32000,
-        "gpu_layers": 8,
-        "batch": 128,
-        "ubatch": 64,
+        "ctx": 16384, "gpu_layers": 40, "batch": 512, "ubatch": 512,
+        "extra_args": ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"],
     },
     "mistral": {
         "alias": "mistral-7b-instruct-v0.3-q4_k_m:latest",
@@ -139,7 +141,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "threads": 0,
     "temperature": 0.2,
     "top_p": 0.95,
-    "max_tokens": 4096,
+    # Gemma escribe ~3600-3900 tokens en una ronda sencilla de create --ai: con 4096 se cortaba (16/11/2026).
+    "max_tokens": 8192,
     "reasoning": True,
     "review_reasoning": False,
     "show_reasoning": True,
