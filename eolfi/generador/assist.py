@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from eolfi.generador.llm import LLMError, Provider, make_provider
+from eolfi.acciones import registrada
 
 MAX_FILE_BYTES = 200_000
 MAX_FILES_OUT = 40
@@ -308,6 +309,11 @@ def _restore(root: Path, backup: dict[str, str | None]) -> None:
             p.write_text(old, encoding="utf-8", newline="\n")
 
 
+@registrada("generador.assist", campos=("project", "provider", "model", "effort"), huellas=("brief",),
+            resultado=lambda r: {"ok": r.get("ok"), "provider": r.get("provider"), "model": r.get("model"),
+                                 "rondas": len(r.get("rounds") or []), "files_changed": r.get("files_changed"),
+                                 "restored": r.get("restored"),
+                                 "mejor": (r.get("best_attempt") or {}).get("score")})
 def assist(project: str | Path, brief: str, *, client=None, effort: str = "high",
            provider: str | Provider = "eolas-v2", model: str | None = None, base_url: str | None = None,
            progress: Callable[[str], None] | None = None,

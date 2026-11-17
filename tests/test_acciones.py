@@ -166,3 +166,117 @@ def test_cli_verificar_y_listar(capsys):
     path = acciones.registro_file()
     path.write_text(path.read_text(encoding="utf-8").replace("prueba.cli", "otra"), encoding="utf-8")
     assert main(["acciones", "verificar"]) == 2
+
+
+def test_huellas_guardan_hash_y_no_el_texto():
+    @acciones.registrada("prueba.huella", huellas=("brief",))
+    def f(brief):
+        return {"ok": True}
+
+    f("encargo secreto")
+    e = acciones.eventos()[0]
+    assert "encargo secreto" not in json.dumps(e, ensure_ascii=False)
+    assert e["params"]["brief"] == acciones.huella("encargo secreto")
+    assert e["params"]["brief"]["bytes"] == len(b"encargo secreto")
+
+
+def test_resumen_calculado_y_ok_desde_resumen():
+    @acciones.registrada("prueba.resumen", resultado=lambda r: {"ok": r["verification"]["ok"], "n": len(r["files"])})
+    def f(ok):
+        return {"verification": {"ok": ok}, "files": [1, 2, 3]}
+
+    f(True)
+    f(False)
+    a, b = acciones.eventos()
+    assert a["resultado"] == {"ok": True, "n": 3} and a["ok"] is True
+    assert b["resultado"] == {"ok": False, "n": 3} and b["ok"] is False
+
+
+def test_resumen_roto_no_oculta_la_accion():
+    @acciones.registrada("prueba.resumen_roto", resultado=lambda r: r["no_existe"])
+    def f():
+        return {"x": 1}
+
+    assert f() == {"x": 1}
+    assert "KeyError" in acciones.eventos()[0]["resultado"]["resumen_error"]
+
+
+def test_assist_y_create_estan_registrados():
+    from eolfi.flows.create_flow import create_project
+    from eolfi.generador.assist import assist
+
+    assert assist.__eolfi_accion__ == "generador.assist"
+    assert create_project.__eolfi_accion__ == "generador.create"
+
+
+def test_assist_fallido_queda_en_la_cadena_sin_el_encargo(tmp_path):
+    from eolfi.generador.assist import AssistError, assist
+
+    with pytest.raises(AssistError):
+        assist(tmp_path, "haz la lista de tareas privada", provider="eolas-v2")
+    [e] = acciones.eventos()
+    assert e["operacion"] == "generador.assist" and e["ok"] is False
+    assert e["params"]["brief"] == acciones.huella("haz la lista de tareas privada")
+    assert "tareas privada" not in json.dumps(e, ensure_ascii=False)
+    assert "AssistError" in e["error"]
+
+
+def test_anclas_detectan_reescritura_y_truncado(tmp_path):
+    ancla = tmp_path / "fuera" / "anclas.jsonl"
+    for i in range(3):
+        acciones.anotar(f"prueba.{i}")
+    a = acciones.anclar(ancla)
+    assert a["seq"] == 3 and acciones.verificar_anclas(ancla)["ok"] is True
+    acciones.anotar("prueba.posterior")
+    assert acciones.verificar_anclas(ancla) == {**acciones.verificar_anclas(ancla), "ok": True, "anclas": 1}
+
+    # Reescritura completa con una cadena nueva y válida: la cadena sola no lo ve, el ancla sí.
+    path = acciones.registro_file()
+    path.unlink()
+    for i in range(4):
+        acciones.anotar(f"falsa.{i}")
+    assert acciones.verificar()["ok"] is True
+    res = acciones.verificar_anclas(ancla)
+    assert res["ok"] is False and res["ancla_rota"] == 1
+
+    # Truncado por debajo del ancla.
+    path.unlink()
+    acciones.anotar("solo.uno")
+    assert acciones.verificar_anclas(ancla)["ok"] is False
+
+
+def test_anclar_rechaza_cadena_rota_vacia_o_el_propio_registro(tmp_path):
+    with pytest.raises(ValueError, match="no hay eventos"):
+        acciones.anclar(tmp_path / "a.jsonl")
+    acciones.anotar("prueba")
+    with pytest.raises(ValueError, match="propio registro"):
+        acciones.anclar(acciones.registro_file())
+    path = acciones.registro_file()
+    path.write_text(path.read_text(encoding="utf-8").replace("prueba", "otra"), encoding="utf-8")
+    with pytest.raises(ValueError, match="cadena rota"):
+        acciones.anclar(tmp_path / "a.jsonl")
+    assert not (tmp_path / "a.jsonl").exists()
+
+
+def test_verificar_anclas_sin_archivo_o_ilegible(tmp_path):
+    acciones.anotar("prueba")
+    assert acciones.verificar_anclas(tmp_path / "no.jsonl")["ok"] is False
+    malo = tmp_path / "malo.jsonl"
+    malo.write_text("{roto\n", encoding="utf-8")
+    assert "ilegible" in acciones.verificar_anclas(malo)["motivo"]
+
+
+def test_cli_anclar_y_verificar_con_ancla(tmp_path, capsys):
+    from eolfi.cli import main
+
+    ancla = tmp_path / "anclas.jsonl"
+    assert main(["acciones", "anclar", "--destino", str(ancla)]) == 2
+    capsys.readouterr()
+    acciones.anotar("prueba.cli")
+    assert main(["acciones", "anclar", "--destino", str(ancla)]) == 0
+    assert json.loads(capsys.readouterr().out)["seq"] == 1
+    assert main(["acciones", "verificar", "--ancla", str(ancla)]) == 0
+    capsys.readouterr()
+    acciones.registro_file().unlink()
+    acciones.anotar("otra")
+    assert main(["acciones", "verificar", "--ancla", str(ancla)]) == 2

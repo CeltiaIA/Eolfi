@@ -119,7 +119,10 @@ def _parser() -> argparse.ArgumentParser:
 
     acc = sub.add_parser("acciones", help="Registro encadenado de acciones que cambian estado (B8)")
     acc_cmd = acc.add_subparsers(dest="acciones_action", required=True)
-    acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
+    acc_ver = acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
+    acc_ver.add_argument("--ancla", help="Archivo de anclas externo: comprueba también que cada ancla sigue en la cadena")
+    acc_anc = acc_cmd.add_parser("anclar", help="Copia la cabeza de la cadena a un archivo externo")
+    acc_anc.add_argument("--destino", required=True, help="Archivo fuera del alcance de quien escribe el registro")
     acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
     acc_list.add_argument("-n", type=int, default=20)
     models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
@@ -1492,9 +1495,16 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi import acciones
 
         if args.acciones_action == "verificar":
-            result = acciones.verificar()
+            result = acciones.verificar_anclas(args.ancla) if args.ancla else acciones.verificar()
             _print(result)
             return 0 if result["ok"] else 2
+        if args.acciones_action == "anclar":
+            try:
+                _print(acciones.anclar(args.destino))
+            except (OSError, ValueError) as exc:
+                _print({"ok": False, "error": str(exc)})
+                return 2
+            return 0
         _print(acciones.listar(args.n))
         return 0
     if args.cmd == "modelos":

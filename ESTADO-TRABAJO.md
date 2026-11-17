@@ -28,6 +28,13 @@
   Validación final con B6, B7 y B8 juntos: pytest **790 pasadas, 8 omitidas, 412,40 s**, salida 0 (6 omitidas son
   nativas sin opt-in); bridge 63/4 omitidas; vscode-bridge 192; e2e 19; todas salida 0; `git diff --check` 0.
   No se creó el `~/.eolfi/acciones.jsonl` real. La suite anterior, solo B6/B7, dio 774/8 con salida 0.
+- **B8, continuación (17/11):** se registran `generador.assist` y `generador.create`; el encargo se guarda
+  solo como huella (SHA-256 y bytes) y el resultado como resumen (ok, archivos, rondas, mejor intento). Anclas
+  externas: `eolfi acciones anclar --destino F` y `eolfi acciones verificar --ancla F`, que detectan reescritura
+  o truncado anteriores al ancla. `tests/test_acciones.py`: 25 pasadas. Suite completa: 798 pasadas, 8 omitidas
+  y 1 fallo intermitente, `test_observe.py::test_desktop_scenario_windows_uia` (maneja el escritorio real y
+  coincidió con las suites node/e2e en paralelo). Repetida sola y con su archivo: 40/40. Bridge 63/4,
+  vscode-bridge 192 y e2e 19, salida 0. Pendiente B8: cadena RSI de `vas-b1-b2`, puente Node y firma.
 - **Smoke CPU de la reconstrucción real: superado (17/11).** Los dos intentos con `llama-completion` fallaron
   porque b11968 mete `<|think|>` aunque se pida `-rea off`; el ejecutor pasa a `llama-cli` con
   `--chat-template-kwargs '{"enable_thinking":false}'` y la respuesta se extrae entre el eco `> pregunta` y

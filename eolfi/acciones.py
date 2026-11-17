@@ -9,7 +9,9 @@ smoke). Las llame la CLI, el panel o un agente, el evento se escribe en el mismo
 
 Límites:
 - La cadena detecta cambios de un registro que se conserva, pero quien puede escribir el archivo puede
-  reescribirlo entero con una cadena nueva; no es un registro firmado ni externo.
+  reescribirlo entero con una cadena nueva; no está firmado. ``anclar`` copia la cabeza a un archivo externo
+  y ``verificar_anclas`` detecta una reescritura anterior a la última ancla, solo si ese archivo se guarda
+  fuera del alcance de quien escribe el registro.
 - Si escribir el evento falla, la acción ya hecha no se deshace: se avisa por stderr y ``verificar()`` no lo verá.
 - Solo se guardan los campos declarados para cada operación (nombres, hashes, estados), nunca prompts ni código.
 - El registro RSI de la rama ``vas-b1-b2`` (``eolfi/rsi.py``) es otra cadena; unificarlas queda pendiente.
@@ -167,13 +169,26 @@ def verificar(path: Path | None = None) -> dict[str, Any]:
     return {"ok": True, "eventos": len(lines), "ultimo": prev, "archivo": str(path)}
 
 
-def registrada(operacion: str, *, campos: Iterable[str] = (), resultado: Iterable[str] = (),
+def huella(value: Any) -> dict[str, Any] | None:
+    """SHA-256 y longitud de un texto que no se guarda (encargos, prompts)."""
+    if value is None:
+        return None
+    data = str(value).encode("utf-8")
+    return {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+
+def registrada(operacion: str, *, campos: Iterable[str] = (), huellas: Iterable[str] = (),
+               resultado: Iterable[str] | Callable[[Any], Any] = (),
                si: Callable[[dict[str, Any]], bool] | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorador: registra la llamada si ``si(argumentos)`` es verdadero (por defecto, siempre).
 
-    ``campos`` elige qué argumentos se guardan y ``resultado`` qué claves de un resultado dict. Los fallos se
-    registran con ``ok: false`` y se vuelven a lanzar sin cambiarlos."""
-    campos, claves = tuple(campos), tuple(resultado)
+    ``campos`` elige qué argumentos se guardan tal cual y ``huellas`` cuáles se guardan solo como SHA-256 y
+    longitud. ``resultado`` son las claves de un resultado dict o una función que lo resume; ``ok`` se deduce del
+    resultado y, si la función devuelve un dict con ``ok``, de ese resumen. Los fallos se registran con
+    ``ok: false`` y se vuelven a lanzar sin cambiarlos."""
+    campos, huellas = tuple(campos), tuple(huellas)
+    resumir = resultado if callable(resultado) else None
+    claves = () if resumir else tuple(resultado)  # type: ignore[arg-type]
 
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         firma = inspect.signature(fn)
@@ -188,17 +203,24 @@ def registrada(operacion: str, *, campos: Iterable[str] = (), resultado: Iterabl
                 return fn(*args, **kwargs)
             if si is not None and not si(argumentos):
                 return fn(*args, **kwargs)
-            params = {k: argumentos.get(k) for k in campos if k in argumentos}
+            params: dict[str, Any] = {k: argumentos.get(k) for k in campos if k in argumentos}
+            params.update({k: huella(argumentos.get(k)) for k in huellas if k in argumentos})
             try:
                 out = fn(*args, **kwargs)
             except BaseException as exc:
                 _seguro(operacion, params=params, ok=False, error=f"{type(exc).__name__}: {exc}")
                 raise
-            if isinstance(out, dict):
-                resumen: Any = {k: out.get(k) for k in claves if k in out}
+            if resumir is not None:
+                try:
+                    resumen: Any = resumir(out)
+                except Exception as exc:  # noqa: BLE001 — un resumen roto no oculta la acción
+                    resumen = {"resumen_error": f"{type(exc).__name__}: {exc}"}
+            elif isinstance(out, dict):
+                resumen = {k: out.get(k) for k in claves if k in out}
             else:
                 resumen = out if not claves else None
-            _seguro(operacion, params=params, resultado=resumen, ok=_ok(out))
+            ok = _ok(out) and (_ok(resumen) if resumir is not None else True)
+            _seguro(operacion, params=params, resultado=resumen, ok=ok)
             return out
 
         envoltura.__eolfi_accion__ = operacion  # type: ignore[attr-defined]
@@ -222,6 +244,52 @@ def _seguro(operacion: str, **kw: Any) -> None:
         anotar(operacion, **kw)
     except Exception as exc:  # noqa: BLE001 — la acción ya ocurrió: se avisa, no se oculta ni se deshace
         print(f"[eolfi] AVISO: no se pudo registrar la acción {operacion}: {exc}", file=sys.stderr)
+
+
+def anclar(destino: str | Path) -> dict[str, Any]:
+    """Copia la cabeza actual de la cadena (seq y SHA-256) a ``destino``, un archivo que el titular conserva
+    fuera del alcance de quien escribe el registro (otra unidad, otra cuenta, un medio extraíble).
+
+    Solo ancla una cadena íntegra. Reescribir después el registro entero con una cadena nueva ya no coincide con
+    las anclas guardadas antes; lo posterior a la última ancla sigue sin esa protección."""
+    estado = verificar()
+    if not estado["ok"]:
+        raise ValueError(f"no se ancla una cadena rota (evento {estado['roto_en']})")
+    if not estado["eventos"]:
+        raise ValueError("no hay eventos que anclar")
+    destino = Path(destino)
+    if destino.resolve() == registro_file().resolve():
+        raise ValueError("el ancla no puede ser el propio registro")
+    ancla = {"schema": SCHEMA + "#ancla", "fecha": datetime.now(timezone.utc).isoformat(),
+             "registro": str(registro_file()), "seq": estado["eventos"], "sha256": estado["ultimo"]}
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    with destino.open("a", encoding="utf-8", newline="\n") as fh:
+        fh.write(_canon(ancla) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    return {**ancla, "destino": str(destino)}
+
+
+def verificar_anclas(ancla: str | Path) -> dict[str, Any]:
+    """Cadena íntegra y cada ancla guardada presente en ella con el mismo SHA-256 y número de evento."""
+    estado = verificar()
+    try:
+        lineas = [ln for ln in Path(ancla).read_text(encoding="utf-8").splitlines() if ln.strip()]
+    except FileNotFoundError:
+        return {**estado, "ok": False, "anclas": 0, "motivo": f"no existe el archivo de anclas {ancla}"}
+    if not estado["ok"]:
+        return {**estado, "anclas": len(lineas)}
+    por_seq = {e["seq"]: e["sha256"] for e in eventos()}
+    for i, linea in enumerate(lineas, 1):
+        try:
+            a = json.loads(linea)
+            seq, sha = int(a["seq"]), str(a["sha256"])
+        except (ValueError, KeyError, TypeError):
+            return {**estado, "ok": False, "anclas": i - 1, "motivo": f"ancla {i} ilegible"}
+        if por_seq.get(seq) != sha:
+            return {**estado, "ok": False, "anclas": i - 1, "ancla_rota": i,
+                    "motivo": f"el evento {seq} no coincide con el ancla {i}: registro reescrito o truncado"}
+    return {**estado, "anclas": len(lineas)}
 
 
 def listar(n: int = 20) -> list[dict[str, Any]]:

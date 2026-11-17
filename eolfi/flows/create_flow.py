@@ -15,6 +15,7 @@ from typing import Any, Callable
 from eolfi.core.evidence import EvidenceStore
 from eolfi.core.models import Authority, Confidence, Evidence, Incognita
 from eolfi.flows.triage_flow import environment_string
+from eolfi.acciones import registrada
 
 MANIFESTS = ("package.json", "pyproject.toml", "requirements.txt", "Cargo.toml", "go.mod", "pom.xml",
              "build.gradle", "build.gradle.kts", "composer.json", "Gemfile", "pubspec.yaml", "setup.py")
@@ -117,6 +118,11 @@ def backup_folder(folder: Path) -> Path:
     return dst
 
 
+@registrada("generador.create", campos=("sources", "out", "name", "target", "do_verify", "force", "ai_provider"),
+            huellas=("ai_brief",),
+            resultado=lambda r: {"out": r.get("out"), "target": r.get("target"), "files": r.get("files"),
+                                 "ok": (r.get("verification") or {}).get("ok") if r.get("verification") else None,
+                                 "assist_ok": (r.get("assist") or {}).get("ok")})
 def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str = "nuevo-proyecto",
                    target: str = "auto", do_verify: bool = True, force: bool = False,
                    reanalyze: bool = False, workdir: str = "samples/repos", ai_brief: str | None = None,
