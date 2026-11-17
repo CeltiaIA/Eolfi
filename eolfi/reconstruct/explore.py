@@ -129,14 +129,14 @@ def explore(store: EvidenceStore, case_id: str, candidate: str | Path, *, author
             base_dir = Path(params.get("base_dir") or Path.cwd())
 
             def run_one(path: str, data: bytes) -> dict[str, Any]:
-                sc = json.loads(json.dumps(params["script"]))
-                sc["steps"] = [{**step, "stdin": {"base64": base64.b64encode(data).decode("ascii")}}]
+                sc = json.loads(json.dumps(params["script"]))  # noqa: B023 — se llama dentro de esta misma vuelta
+                sc["steps"] = [{**step, "stdin": {"base64": base64.b64encode(data).decode("ascii")}}]  # noqa: B023 — se llama dentro de esta misma vuelta
                 sc["target"] = {**{k: v for k, v in sc["target"].items() if k != "sha256"}, "path": path}
-                return execute(validate_script(sc), base_dir)
+                return execute(validate_script(sc), base_dir)  # noqa: B023 — se llama dentro de esta misma vuelta
 
             def diverges(data: bytes) -> list[str]:
                 budget[0] -= 2
-                a, b = run_one(tgt["path"], data), run_one(str(cand), data)
+                a, b = run_one(tgt["path"], data), run_one(str(cand), data)  # noqa: B023 — se llama dentro de esta misma vuelta
                 cmp = compare_sessions(a, b)
                 return sorted({d["aspect"] for d in cmp["differences"]
                                if not any(fnmatch.fnmatchcase(d["aspect"], t) for t in tolerances)})
