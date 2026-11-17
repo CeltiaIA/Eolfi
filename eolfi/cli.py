@@ -492,6 +492,12 @@ def _parser() -> argparse.ArgumentParser:
     r11 = rps.add_parser("mapa-app", help="Mapa de una app Android (.apk): permisos, componentes exportados y estructura (JADX)")
     r11.add_argument("ruta")
     r11.add_argument("--limite", type=int, default=40, help="máximo de componentes y bibliotecas listados (40)")
+    r12 = rps.add_parser("llamadas", help="Grafo de llamadas de una función (Ghidra), con nombres y en Mermaid")
+    r12.add_argument("ruta")
+    r12.add_argument("funcion", help="nombre (p. ej. entry) o dirección (0x140001cb0)")
+    r12.add_argument("--atras", action="store_true", help="quién la llama, en vez de a quién llama")
+    r12.add_argument("--profundidad", type=int, default=3, help="niveles (1-10, 3 por defecto)")
+    r12.add_argument("--max-nodos", type=int, default=60, help="máximo de nodos (2-300, 60 por defecto)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1642,6 +1648,12 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "mapa-app":
                 op, params = "mapa_app_android", {"ruta": args.ruta, "limite": args.limite}
                 result = rc.mapa_app_android(client, args.ruta, args.limite)
+            elif args.rea_action == "llamadas":
+                hacia = "atras" if args.atras else "adelante"
+                op = "grafo_llamadas"
+                params = {"ruta": args.ruta, "funcion": args.funcion, "hacia": hacia, "profundidad": args.profundidad}
+                result = rc.grafo_llamadas(client, args.ruta, args.funcion, hacia=hacia, profundidad=args.profundidad,
+                                           max_nodos=args.max_nodos)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
