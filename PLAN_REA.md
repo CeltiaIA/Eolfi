@@ -199,3 +199,18 @@ Punto 9, parte JADX: `eolfi rea clase <apk> <consulta> [--metodo M] [--sobrecarg
 Verificado en vivo con ApiDemos 6.0.18 (SHA-256 `6e5eacf5…ff75`, 2.876 clases, JADX headless 0.7.1), unos 10 s por llamada, en cinco casos: varias coincidencias, clase única, `onCreate` de `ReversingAnimation`, `getData` de `ApiDemos` y una consulta sin resultados.
 
 NO VERIFICADO: APK ofuscados (R8/ProGuard), métodos que fallan en JADX y caen a smali, y paquetes .aab/.xapk.
+
+## Apps Flutter/Dart (14/11/2026)
+
+Punto 9, parte Flutter: `eolfi rea flutter <apk> [--abi A]` (compuesto `app_flutter`, REA de Windows). Funciona sin instalar ni ejecutar la app.
+- Por cada ABI da `libapp.so` (Dart AOT) con su hash de snapshot, y `libflutter.so` (el motor) con su build-id y toolchain.
+- Del snapshot de una ABI da sus secciones, los paquetes Dart agrupados desde las URI `package:` y las librerías del SDK (`dart:`). Los nombres mal formados que dejan los patrones de bytes se filtran.
+
+Verificado en vivo con Flutter Gallery 2.9.2 (APK oficial de `flutter-team-archive/gallery`, 117.817.550 bytes, SHA-256 `659b5fc6…0e29`; la release no publica hash y el tamaño coincide con el de GitHub). Resultado:
+- 3 ABI con el mismo hash de snapshot `65817c30…`.
+- Snapshot de tipo 3 (Dart 2.14 FullAOT).
+- 201 URI `dart:`.
+
+Límite de REA: devuelve 500 de al menos 756 URI `package:`, aparentemente por orden alfabético. Por eso faltan paquetes del final, entre ellos el de la propia app, y el resultado lo marca con `paquetes_incompletos`.
+
+NO VERIFICADO: snapshots unificados (`_kDartSnapshotData`/`_kDartSnapshotText`), que REA no admite, la versión del SDK a partir del hash (necesita una tabla externa) y la recuperación de clases y funciones (necesita un analizador por versión del SDK).
