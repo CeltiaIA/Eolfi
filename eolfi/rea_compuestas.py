@@ -880,3 +880,91 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     out["aviso"] = ("Borrador inferido solo de lo observado: faltan las operaciones que no aparecen y los tipos se "
                     "deducen de ejemplos. Revisa credenciales o datos personales antes de compartirlo.")
     return out
+
+
+GO_SETTINGS = ("GOOS", "GOARCH", "GOAMD64", "GOARM64", "CGO_ENABLED", "-buildmode", "-trimpath", "-ldflags", "-tags",
+               "vcs", "vcs.revision", "vcs.time", "vcs.modified")
+
+
+def _native_target(path: str) -> Path:
+    src = Path(path)
+    if not src.is_file():
+        raise ValueError(f"no existe el ejecutable: {path}")
+    return src
+
+
+def binario_go(client: Any, path: str, limite: int = 60) -> dict[str, Any]:
+    """Qué hay dentro de un ejecutable Go (plan REA, punto 9): versión del compilador, módulo principal, dependencias
+    con versión, suma y reemplazos, y ajustes de compilación (GOOS/GOARCH, CGO, -trimpath, -ldflags, revisión de
+    VCS). REA `inspect_go_binary` lee la información de compilación que Go incrusta (ELF, PE o Mach-O fino), sin
+    ejecutar nada. No recupera funciones ni comportamiento."""
+    src = _native_target(path)
+    limite = max(1, min(int(limite or 60), 2000))
+    v = _call(client, "inspect_go_binary", {"path": str(src)})
+    art = v.get("artifact") or {}
+    info = v.get("build_info")
+    base = {"archivo": str(src), "sha256": art.get("sha256"), "bytes": art.get("bytes"), "formato": v.get("format"),
+            "arquitectura": v.get("architecture"), "bits": v.get("bits")}
+    if not isinstance(info, dict):
+        return {**base, "es_go": None,
+                "aviso": "No se encontró información de compilación de Go: puede no ser Go o venir sin ella "
+                         "(no prueba que no lo sea)."}
+    mod = info.get("module") or {}
+    deps = [d for d in mod.get("dependencies") or [] if isinstance(d, dict)]
+    settings = {str(s.get("key")): s.get("value") for s in mod.get("settings") or [] if isinstance(s, dict)}
+    main = mod.get("main") or {}
+    replaced = [d for d in deps if d.get("replacement")]
+    return {**base, "es_go": True, "go": info.get("go_version"),
+            "paquete": mod.get("path"),
+            "modulo": {"ruta": main.get("path"), "version": main.get("version")} if main else None,
+            "dependencias_total": len(deps),
+            "dependencias": [{"ruta": d.get("path"), "version": d.get("version"),
+                              **({"reemplazo": d["replacement"]} if d.get("replacement") else {})}
+                             for d in deps][:limite],
+            "reemplazos": len(replaced),
+            "sin_suma": sum(1 for d in deps if not d.get("sum") and not d.get("replacement")),
+            "compilacion": {k: settings[k] for k in GO_SETTINGS if k in settings},
+            "otros_ajustes": sorted(k for k in settings if k not in GO_SETTINGS),
+            "lineas_sin_interpretar": len(mod.get("unparsed_lines") or []),
+            "completo": bool(mod.get("complete")),
+            "aviso": "Metadatos incrustados en el archivo: no autentican versiones ni dependencias (se pueden "
+                     "alterar) y no dicen qué código se usa en ejecución. No se ejecutó el programa."}
+
+
+def binario_rust(client: Any, path: str, limite: int = 60) -> dict[str, Any]:
+    """Crates de un ejecutable Rust compilado con cargo-auditable (plan REA, punto 9): paquetes con versión y origen,
+    el paquete raíz y sus dependencias directas, y el commit de rustc si aparece su ruta. REA `inspect_rust_binary`
+    lee la sección .dep-v0 (ELF, PE o Mach-O fino) sin ejecutar nada. Sin esa sección no hay lista (no prueba que
+    no tenga dependencias)."""
+    src = _native_target(path)
+    limite = max(1, min(int(limite or 60), 2000))
+    v = _call(client, "inspect_rust_binary", {"path": str(src)})
+    art = v.get("artifact") or {}
+    meta = v.get("auditable_metadata")
+    base = {"archivo": str(src), "sha256": art.get("sha256"), "bytes": art.get("bytes"), "formato": v.get("format"),
+            "arquitectura": v.get("architecture"), "rustc_commit": v.get("rustc_commit")}
+    if not isinstance(meta, dict):
+        return {**base, "cargo_auditable": False,
+                "aviso": "Sin sección .dep-v0: el binario no se compiló con cargo-auditable, así que no lleva su "
+                         "lista de crates (no prueba que no los use)."}
+    pkgs = [p for p in meta.get("packages") or [] if isinstance(p, dict)]
+    idx = meta.get("root_package_index")
+    if not isinstance(idx, int):  # sin raíz declarada: el único paquete local, si lo hay
+        local = [i for i, p in enumerate(pkgs) if p.get("root") or p.get("source") == "local"]
+        idx = local[0] if len(local) == 1 else None
+    root = pkgs[idx] if isinstance(idx, int) and 0 <= idx < len(pkgs) else None
+
+    def ref(i: Any) -> str | None:
+        return f"{pkgs[i].get('name')} {pkgs[i].get('version')}" if isinstance(i, int) and 0 <= i < len(pkgs) else None
+
+    return {**base, "cargo_auditable": True, "version_formato": meta.get("format_version"),
+            "raiz": {"nombre": root.get("name"), "version": root.get("version"), "origen": root.get("source")}
+            if root else None,
+            "dependencias_directas": [r for r in (ref(i) for i in (root or {}).get("dependencies") or []) if r],
+            "paquetes_total": len(pkgs),
+            "paquetes": [{"nombre": p.get("name"), "version": p.get("version"), "origen": p.get("source"),
+                          **({"tipo": p["kind"]} if p.get("kind") else {})} for p in pkgs][:limite],
+            "por_origen": dict(Counter(str(p.get("source")) for p in pkgs)),
+            "ciclos": len(meta.get("cyclic_dependency_indices") or []),
+            "aviso": "Lista incrustada por cargo-auditable: no autentica nombres, versiones ni el compilador, y no "
+                     "dice qué código se usa en ejecución. No se ejecutó el programa."}

@@ -444,6 +444,12 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r18 = rps.add_parser("go", help="Ejecutable Go: versión de Go, módulo, dependencias y ajustes de compilación, sin ejecutarlo")
+    r18.add_argument("ruta")
+    r18.add_argument("--limite", type=int, default=60, help="máximo de dependencias listadas (60)")
+    r19 = rps.add_parser("rust", help="Ejecutable Rust con cargo-auditable: crates, raíz y dependencias directas, sin ejecutarlo")
+    r19.add_argument("ruta")
+    r19.add_argument("--limite", type=int, default=60, help="máximo de paquetes listados (60)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1544,6 +1550,11 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+            elif args.rea_action == "go":
+                op, params, result = "binario_go", {"ruta": args.ruta}, rc.binario_go(client, args.ruta, args.limite)
+            elif args.rea_action == "rust":
+                op, params = "binario_rust", {"ruta": args.ruta}
+                result = rc.binario_rust(client, args.ruta, args.limite)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

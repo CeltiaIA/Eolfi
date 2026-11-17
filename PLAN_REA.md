@@ -152,3 +152,19 @@ autorización.
 Actualizados: Codex y VS Code. Cursor: restaurado a su estado anterior a petición del titular. Sin tocar: GitHub
 Copilot CLI y Grok Build. Claude Code: lo actualiza el titular (`rea setup --client claude_code --yes`). Claude
 Desktop: REA no reconoce la identidad del paquete instalado.
+
+## Binarios Go y Rust (15/11/2026)
+
+Punto 9: `eolfi rea go <ejecutable>` (`binario_go`, REA `inspect_go_binary`) y `eolfi rea rust <ejecutable>` (`binario_rust`, REA `inspect_rust_binary`). Leen metadatos incrustados en ELF, PE o Mach-O fino, sin ejecutar nada ni instalar Go o Rust.
+- **Go:** versión del compilador, paquete y módulo principal, dependencias con versión (y reemplazos o falta de suma), y ajustes de compilación: GOOS/GOARCH, CGO, `-ldflags`, `-trimpath`, revisión y fecha de VCS.
+- **Rust:** la lista de crates de cargo-auditable (sección `.dep-v0`): paquetes con versión y origen, raíz (declarada o el único paquete local) y sus dependencias directas, y el commit de rustc si aparece su ruta.
+
+Verificado en vivo, sin descargas, con copias de binarios ya instalados:
+- `gh.exe` de GitHub CLI (SHA-256 `2ae2b350…3cfb`): go1.26.8, `github.com/cli/cli/v2` v2.100.0, 165 dependencias, Windows/amd64 con CGO, `-ldflags -s -w`, revisión `45437bc7…`.
+- `sudo-rs` de Ubuntu 26.04 (paquete 0.2.13-0ubuntu1.2, SHA-256 `2eb5d31f…2afb`): raíz `sudo-rs 0.2.13` con `glob 0.3.3` y `libc 0.2.183` de crates.io.
+- `rg.exe` de VS Code (SHA-256 `56c1ed75…18c3`): sin `.dep-v0` (no usa cargo-auditable) y sin información de Go; se informa así, sin concluir que no tenga dependencias.
+
+NO VERIFICADO:
+- Mach-O universal (REA pide `architecture`; la orden aún no la pasa) y binarios Go antiguos con el formato de punteros.
+- El commit de rustc: ninguna muestra conserva la ruta `/rustc/<hash>/`.
+- Funciones, tipos y comportamiento: estas herramientas no los recuperan (para eso, Ghidra).

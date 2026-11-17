@@ -371,3 +371,67 @@ def test_bytes_cambiados_por_seccion_y_direccion_del_codigo(tmp_path):
     txt = tmp_path / "x.txt"
     txt.write_text("no es un PE")
     assert pe_section_diff(str(a), str(txt)) is None
+
+
+class FakeNative:
+    """REA simulado para inspect_go_binary / inspect_rust_binary con la forma real de REA (gh.exe, sudo-rs)."""
+
+    def __init__(self, result):
+        self.result, self.calls = result, []
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, args))
+        return json.dumps({"normalized_result": self.result}), True
+
+
+def _exe(tmp_path, name="x.exe"):
+    f = tmp_path / name
+    f.write_bytes(b"MZ" + b"\0" * 62)
+    return f
+
+
+def test_binario_go_modulo_dependencias_y_compilacion(tmp_path):
+    exe = _exe(tmp_path)
+    deps = [{"path": "example.com/a", "version": "v1.2.0", "sum": "h1:x", "replacement": None},
+            {"path": "example.com/b", "version": "v0.1.0", "sum": "", "replacement": None},
+            {"path": "example.com/c", "version": "v2.0.0", "sum": "", "replacement": {"path": "../c", "version": ""}}]
+    fake = FakeNative({"artifact": {"sha256": "aa" * 32, "bytes": 64}, "format": "pe", "architecture": "amd64",
+                       "bits": 64, "build_info": {"go_version": "go1.26.8", "module": {
+                           "path": "example.com/app/cmd/app", "complete": True, "unparsed_lines": [],
+                           "main": {"path": "example.com/app", "version": "v1.0.0"}, "dependencies": deps,
+                           "settings": [{"key": "GOOS", "value": "windows"}, {"key": "CGO_ENABLED", "value": "0"},
+                                        {"key": "vcs.revision", "value": "abc"}, {"key": "-compiler", "value": "gc"}]}}})
+    r = rc.binario_go(fake, str(exe), limite=2)
+    assert fake.calls == [("inspect_go_binary", {"path": str(exe)})]
+    assert r["es_go"] is True and r["go"] == "go1.26.8" and r["paquete"] == "example.com/app/cmd/app"
+    assert r["modulo"] == {"ruta": "example.com/app", "version": "v1.0.0"}
+    assert r["dependencias_total"] == 3 and len(r["dependencias"]) == 2
+    assert r["reemplazos"] == 1 and r["sin_suma"] == 1
+    assert r["compilacion"] == {"GOOS": "windows", "CGO_ENABLED": "0", "vcs.revision": "abc"}
+    assert r["otros_ajustes"] == ["-compiler"] and r["completo"] is True and r["sha256"] == "aa" * 32
+
+
+def test_binario_go_sin_informacion_y_ruta_invalida(tmp_path):
+    r = rc.binario_go(FakeNative({"format": "pe", "build_info": None}), str(_exe(tmp_path)))
+    assert r["es_go"] is None and "no prueba" in r["aviso"]
+    with pytest.raises(ValueError, match="no existe"):
+        rc.binario_go(FakeNative({}), str(tmp_path / "nada.exe"))
+
+
+def test_binario_rust_raiz_dependencias_y_sin_cargo_auditable(tmp_path):
+    exe = _exe(tmp_path, "sudo-rs")
+    pkgs = [{"name": "glob", "version": "0.3.3", "source": "crates.io", "dependencies": [], "root": False},
+            {"name": "libc", "version": "0.2.183", "source": "crates.io", "dependencies": [], "root": False},
+            {"name": "sudo-rs", "version": "0.2.13", "source": "local", "dependencies": [0, 1], "root": False}]
+    meta = {"format_version": 8, "packages": pkgs, "root_package_index": None, "dependency_edges": [],
+            "cyclic_dependency_indices": []}
+    r = rc.binario_rust(FakeNative({"artifact": {"sha256": "bb" * 32}, "format": "elf", "auditable_metadata": meta,
+                                    "rustc_commit": None}), str(exe))
+    assert r["cargo_auditable"] is True and r["raiz"] == {"nombre": "sudo-rs", "version": "0.2.13", "origen": "local"}
+    assert r["dependencias_directas"] == ["glob 0.3.3", "libc 0.2.183"]
+    assert r["paquetes_total"] == 3 and r["por_origen"] == {"crates.io": 2, "local": 1}
+    meta["root_package_index"] = 0
+    r = rc.binario_rust(FakeNative({"auditable_metadata": meta}), str(exe))
+    assert r["raiz"]["nombre"] == "glob" and r["dependencias_directas"] == []
+    r = rc.binario_rust(FakeNative({"format": "pe", "auditable_metadata": None}), str(exe))
+    assert r["cargo_auditable"] is False and ".dep-v0" in r["aviso"]
