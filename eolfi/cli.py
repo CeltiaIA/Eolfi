@@ -484,6 +484,11 @@ def _parser() -> argparse.ArgumentParser:
     r8.add_argument("--cliente", metavar="ARCHIVO.py", help="genera además un cliente Python (solo biblioteca estándar) con las operaciones observadas; no sobrescribe")
     r10 = rps.add_parser("firmware", help="Desglose de una imagen de firmware: firmas, regiones y huecos (Binwalk 3.1.0 en WSL2)")
     r10.add_argument("ruta")
+    r9 = rps.add_parser("entorno", help="De una captura web (.har) a un entorno para agentes de REA (AgentEnv); ensayo salvo --escribir")
+    r9.add_argument("ruta")
+    r9.add_argument("destino", help="carpeta nueva (ruta absoluta) donde escribir el paquete")
+    r9.add_argument("--nombre", help="nombre del entorno (obligatorio si el origen es localhost o una IP)")
+    r9.add_argument("--escribir", action="store_true", help="escribe el paquete; sin esto solo informa de lo que contendría")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1627,6 +1632,10 @@ def main(argv: list[str] | None = None) -> int:
                         result["cliente_error"] = str(exc)
             elif args.rea_action == "firmware":
                 op, params, result = "firmware_regiones", {"ruta": args.ruta}, rc.firmware_regiones(client, args.ruta)
+            elif args.rea_action == "entorno":
+                op = "entorno_agente"
+                params = {"ruta": args.ruta, "destino": args.destino, "nombre": args.nombre, "escribir": args.escribir}
+                result = rc.entorno_agente(client, args.ruta, args.destino, args.nombre, escribir=args.escribir)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
