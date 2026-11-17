@@ -280,3 +280,13 @@ def test_cli_anclar_y_verificar_con_ancla(tmp_path, capsys):
     acciones.registro_file().unlink()
     acciones.anotar("otra")
     assert main(["acciones", "verificar", "--ancla", str(ancla)]) == 2
+
+
+def test_separadores_unicode_no_rompen_la_cadena(tmp_path, monkeypatch):
+    """U+2028 y U+0085 van sin escapar en el JSON; str.splitlines los trataría como fin de línea."""
+    from eolfi import acciones
+
+    monkeypatch.setenv("EOLFI_ACCIONES_FILE", str(tmp_path / "a.jsonl"))
+    acciones.anotar("x", params={"nota": "a" + chr(0x2028) + "b" + chr(0x85) + "c"})
+    acciones.anotar("y")
+    assert acciones.verificar()["ok"] is True and len(acciones.eventos()) == 2

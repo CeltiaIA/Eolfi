@@ -5,7 +5,9 @@ evento anterior. Editar, borrar o reordenar una línea rompe la cadena y ``verif
 
 Qué cubre: las funciones decoradas con ``@registrada`` (adoptar, quitar o recomendar perfil con aplicación,
 arrancar, cambiar y parar el motor, retirar, desinstalar o restaurar perfiles, ejecutar una reconstrucción o un
-smoke). Las llame la CLI, el panel o un agente, el evento se escribe en el mismo sitio.
+smoke). Las llame la CLI, el panel o un agente, el evento se escribe en el mismo sitio. El puente Node
+(``eolfi/bridge/acciones.mjs``) escribe en la misma cadena, con el mismo JSON canónico y el mismo cerrojo, cada
+envío a un chat web (aprobado, denegado, caducado o cancelado), comparativa, permiso temporal, revocación y reinicio.
 
 Límites:
 - La cadena detecta cambios de un registro que se conserva, pero quien puede escribir el archivo puede
@@ -142,9 +144,15 @@ def anotar(operacion: str, *, params: dict[str, Any] | None = None, resultado: A
     return evento
 
 
+def _lineas(texto: str) -> list[str]:
+    """Separa solo por saltos de línea: ``str.splitlines`` también corta en U+2028, U+0085 y otros, que JSON deja
+    sin escapar dentro de un texto y romperían un evento legítimo en dos."""
+    return [ln.rstrip("\r") for ln in texto.split("\n")]
+
+
 def eventos(path: Path | None = None) -> list[dict[str, Any]]:
     try:
-        lines = (path or registro_file()).read_text(encoding="utf-8").splitlines()
+        lines = _lineas((path or registro_file()).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
     return [json.loads(line) for line in lines if line.strip()]
@@ -154,7 +162,7 @@ def verificar(path: Path | None = None) -> dict[str, Any]:
     """Recalcula la cadena completa. Una línea ilegible también cuenta como rotura."""
     path = path or registro_file()
     try:
-        lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        lines = [ln for ln in _lineas(path.read_text(encoding="utf-8")) if ln.strip()]
     except FileNotFoundError:
         return {"ok": True, "eventos": 0, "archivo": str(path), "nota": "sin registro todavía"}
     prev = CERO
@@ -274,7 +282,7 @@ def verificar_anclas(ancla: str | Path) -> dict[str, Any]:
     """Cadena íntegra y cada ancla guardada presente en ella con el mismo SHA-256 y número de evento."""
     estado = verificar()
     try:
-        lineas = [ln for ln in Path(ancla).read_text(encoding="utf-8").splitlines() if ln.strip()]
+        lineas = [ln for ln in _lineas(Path(ancla).read_text(encoding="utf-8")) if ln.strip()]
     except FileNotFoundError:
         return {**estado, "ok": False, "anclas": 0, "motivo": f"no existe el archivo de anclas {ancla}"}
     if not estado["ok"]:

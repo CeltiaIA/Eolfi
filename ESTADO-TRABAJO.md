@@ -37,6 +37,11 @@
   etiqueta de CeltiaIA/Eolfi en api.github.com (sin credenciales; rechaza `EOLAS_OFFLINE=1`). No instala nada.
   `tests/test_actualizacion.py`: 11 pasadas. Consulta real NO VERIFICADA (no hay publicaciones ni etiquetas).
   Falta el empaquetado pipx o ejecutable y el acceso directo.
+- **B8 en el puente Node (17/11):** `eolfi/bridge/acciones.mjs` añade a la misma cadena `puente.chat`,
+  `puente.comparativa`, `puente.permiso`, `puente.revocar` y `puente.reiniciar` (prompt y respuesta solo como hash).
+  Prueba cruzada Python/Node en `tests/test_acciones_puente.py` y 7 pruebas Node en `test/acciones.test.mjs`.
+  Arreglado: `verificar` usaba `splitlines` y daba por rota una cadena con U+2028 en un texto. No probado con
+  Electron real (el registro se conecta en `main.mjs`, que las pruebas no arrancan): NO VERIFICADO.
 - **Subidas (17/11):** por indicación del titular, mientras dure la cola los commits nuevos se quedan en local.
 - **G5 parcial (17/11):** `eolfi/modelos_actualizar.py`. `modelos actualizar --fuentes F --red` compara con Hugging Face
   y `modelos descargar ... --red` baja un archivo fijado por commit y SHA-256, sin sobrescribir; después lo

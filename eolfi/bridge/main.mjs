@@ -17,6 +17,7 @@ import { GEMINI_ORIGIN, GeminiAdapter } from './adapters/gemini.mjs';
 import { META_ORIGIN, MetaAdapter } from './adapters/meta.mjs';
 import { startBridgeServer } from './server.mjs';
 import { createApprover } from './approval.mjs';
+import { anotarSeguro } from './acciones.mjs';
 import { loadSites, makeDeclarativeAdapter } from './adapters/declarative.mjs';
 import { ChromeEngine, findBrowser } from './engine/chrome.mjs';
 
@@ -160,6 +161,7 @@ const approver = createApprover({
   titleOf: (p) => SITES[p]?.title || p,
   beforeShow: (p) => { if (ENGINE !== 'electron') return null; const w = openWindow(p); w.show(); return w; },
   showMessageBox: (win, options) => (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options)),
+  audit: (op, datos) => anotarSeguro(op, datos),
 });
 const { approve, grants, revoke } = approver;
 
@@ -190,6 +192,7 @@ app.whenReady().then(async () => {
     revoke,
     inputs: Object.fromEntries(Object.keys(SITES).map((n) => [n, (ev) => input(n, ev)])),
     approve, token, panelToken, log: (m) => console.log(m),
+    audit: (op, datos) => anotarSeguro(op, datos),   // B8: misma cadena que eolfi/acciones.py
     screens: Object.fromEntries(Object.keys(SITES).map((n) => [n, () => screen(n)])),
   });
   mkdirSync(dirname(BRIDGE_FILE), { recursive: true });
