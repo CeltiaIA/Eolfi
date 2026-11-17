@@ -110,6 +110,9 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
     if spec["conventions"].get("docker") and spec["target"] not in ("expo", "desktop", "tauri", "cli", "dotnet"):
         _docker(spec, w)
     w("README.md", _readme(spec))
+    from eolfi.generador.despliegue import receta
+
+    w("DESPLIEGUE.md", receta(spec, SECURITY_HEADERS, docker=".dockerignore" in written or "Dockerfile" in written))
     return written
 
 
@@ -155,7 +158,7 @@ def _static_page(spec: dict[str, Any], slug: str, title: str, routes, content, c
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{tpl.html.escape(title if slug != "home" else spec["title"])}</title>
   <meta name="description" content="{tpl.html.escape(spec["title"])}: proyecto generado con Eolfi.">
-  <link rel="stylesheet" href="{css_prefix}css/tokens.css">
+{_pwa_head(spec, css_prefix)}  <link rel="stylesheet" href="{css_prefix}css/tokens.css">
   <link rel="stylesheet" href="{css_prefix}css/base.css">
   <script src="{css_prefix}js/main.js" defer></script>
 </head>
@@ -178,6 +181,14 @@ def _static_page(spec: dict[str, Any], slug: str, title: str, routes, content, c
   </footer>
 </body>
 </html>"""
+
+
+def _pwa_head(spec: dict[str, Any], prefix: str) -> str:
+    if spec["target"] != "static":
+        return ""
+    return (f'  <link rel="manifest" href="{prefix}manifest.webmanifest">\n'
+            f'  <link rel="icon" href="{prefix}icon.svg" type="image/svg+xml">\n'
+            f'  <meta name="theme-color" content="{spec["design"]["palette"]["primary"]}">\n')
 
 
 def _api_demo_html(resources: list[str], auth: bool = False) -> str:
@@ -230,6 +241,12 @@ STATIC_JS = """// Comportamiento del sitio: tema claro/oscuro, formulario y dato
   function loginStatus(text) {
     var el = document.querySelector("[data-login-status]");
     if (el) el.textContent = text;
+  }
+
+  // PWA (destino static): registra el service worker si la página enlaza un manifiesto y se sirve por HTTP(S).
+  var manifiesto = document.querySelector('link[rel="manifest"]');
+  if (manifiesto && "serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register(new URL("sw.js", manifiesto.href)).catch(function () { /* sin PWA */ });
   }
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -317,7 +334,8 @@ const root = resolve(process.argv[2] ?? ".");
 const security = __SECURITY__;
 const port = Number(process.env.PORT ?? 5173);
 const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript",
-  ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json" };
+  ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".json": "application/json",
+  ".webmanifest": "application/manifest+json" };
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -346,8 +364,60 @@ def _write_static_site(spec: dict[str, Any], w: Writer, base: str, resources: li
     w(f"{base}js/main.js", STATIC_JS)
 
 
+SW_JS = """// Service worker de la PWA (generado por Eolfi). Solo guarda en caché los archivos PROPIOS del sitio (mismo
+// origen, GET): nada de terceros ni de la API. Cambia VERSION al publicar archivos nuevos para renovar la caché.
+const VERSION = "__VERSION__";
+const PROPIOS = __ARCHIVOS__;
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(PROPIOS)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(caches.keys()
+    .then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
+self.addEventListener("fetch", (e) => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  // Red primero (contenido al día) y caché si no hay conexión.
+  e.respondWith(fetch(e.request).then((r) => {
+    if (r.ok) { const copia = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copia)); }
+    return r;
+  }).catch(() => caches.match(e.request, { ignoreSearch: true })
+    .then((r) => r || (e.request.mode === "navigate" ? caches.match("./index.html") : Response.error()))));
+});
+"""
+
+
+def _pwa(spec: dict[str, Any], w: Writer, paginas: list[str]) -> None:
+    """PWA del destino static (C4, 17/11/2026): manifiesto, icono y service worker para funcionar sin conexión."""
+    import hashlib
+
+    p = spec["design"]["palette"]
+    titulo = spec["title"]
+    w("manifest.webmanifest", json.dumps({
+        "name": titulo, "short_name": titulo[:12], "lang": "es", "start_url": "./index.html", "scope": "./",
+        "display": "standalone", "background_color": p["background"], "theme_color": p["primary"],
+        "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}],
+    }, indent=2, ensure_ascii=False))
+    inicial = tpl.html.escape((titulo.strip()[:1] or "E").upper())
+    w("icon.svg", f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="{tpl.html.escape(titulo)}">
+  <rect width="512" height="512" rx="96" fill="{p['primary']}"/>
+  <text x="256" y="330" font-family="system-ui, sans-serif" font-size="260" font-weight="700" text-anchor="middle" fill="{p.get('on_primary', '#ffffff')}">{inicial}</text>
+</svg>
+""")
+    archivos = ["./" + x for x in (*paginas, "css/tokens.css", "css/base.css", "js/main.js", "manifest.webmanifest",
+                                   "icon.svg")]
+    version = "v-" + hashlib.sha256(json.dumps([titulo, archivos, p], sort_keys=True).encode()).hexdigest()[:12]
+    w("sw.js", SW_JS.replace("__VERSION__", version).replace("__ARCHIVOS__", json.dumps(archivos)))
+
+
 def gen_static(spec: dict[str, Any], w: Writer) -> None:
     _write_static_site(spec, w, "", [])
+    _pwa(spec, w, [("index.html" if s == "home" else f"{s}.html") for s, _p, _t in _routes(spec)])
     w("scripts/serve.mjs", SERVE_MJS.replace("__SECURITY__", json.dumps(SECURITY_HEADERS)))
     w("package.json", json.dumps({
         "name": spec["name"], "version": "0.1.0", "private": True, "type": "module",
