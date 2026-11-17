@@ -335,11 +335,15 @@
             <label class="visually-hidden" for="eolas-chat-target">Ruta, URL o repositorio</label>
             <input id="eolas-chat-target" type="text" hidden placeholder="Ruta, URL o repositorio">
             <label class="small eolas-chat-binary"><input id="eolas-chat-as-binary" type="checkbox"> Adjuntos como binarios (análisis profundo)</label>
+            <button type="button" id="voz-mic" class="ghost-btn" aria-pressed="false" hidden title="Dictar con el micrófono (Alt+M). El audio se transcribe en este equipo.">Dictar</button>
+            <button type="button" id="voz-conversar" class="ghost-btn" aria-pressed="false" hidden title="Hablar con Eolfi sin teclado: escucha, envía y lee la respuesta (Esc para salir)">Conversación</button>
+            <label class="small eolas-chat-binary" hidden><input id="voz-leer" type="checkbox"> Leer las respuestas en voz alta</label>
             <span class="eolas-chat-spacer"></span>
             <button type="button" id="eolas-chat-clear" class="ghost-btn">Nueva conversación</button>
             <button type="submit" id="eolas-chat-send">Enviar</button>
           </div>
           <p id="eolas-chat-files-help" class="small muted">Todos los formatos: .gguf, .safetensors, código, documentos, imágenes y binarios. Sin límite fijo de tamaño; se necesita espacio para guardar una copia en el equipo. Para usar tus modelos locales sin copiarlos, elige «Archivo (ruta local)».</p>
+          <p id="voz-estado" class="muted small" role="status"></p>
         </form>
         <details class="eolas-chat-vscode">
           <summary>Permisos de REA (lo que ejecuta o abre algo vivo)</summary>

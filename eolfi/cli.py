@@ -660,6 +660,21 @@ def _parser() -> argparse.ArgumentParser:
 
     tl = sub.add_parser("telemetria", help="Telemetría local: tiempos y rendimiento por fase (no sale del equipo)")
     tl.add_argument("telemetria_action", choices=["resumen", "ruta"], nargs="?", default="resumen")
+    vz = sub.add_parser("voz", help="Voz local: voz a texto y texto a voz sin que el audio salga del equipo")
+    vzs = vz.add_subparsers(dest="voz_action", required=True)
+    vzs.add_parser("estado", help="Motores disponibles, idioma y voces")
+    vzt = vzs.add_parser("transcribir", help="Voz a texto de un WAV (PCM de 16 bits)")
+    vzt.add_argument("archivo")
+    vzt.add_argument("--idioma", default=None, help="Por ejemplo es-ES")
+    vzd = vzs.add_parser("decir", help="Texto a voz: escribe un WAV")
+    vzd.add_argument("texto")
+    vzd.add_argument("--out", required=True, help="Archivo WAV de salida")
+    vzd.add_argument("--idioma", default=None)
+    vzd.add_argument("--voz", default=None)
+    vzc = vzs.add_parser("configurar", help="Elige motor, idioma o voz")
+    vzc.add_argument("--motor", choices=["auto", "windows", "whisper"], default=None)
+    vzc.add_argument("--idioma", default=None)
+    vzc.add_argument("--voz", default=None)
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
@@ -2087,6 +2102,27 @@ def main(argv: list[str] | None = None) -> int:
 
         _print({"carpeta": str(telemetria.carpeta()), "activa": telemetria.activa()}
                if args.telemetria_action == "ruta" else telemetria.resumen())
+        return 0
+    if args.cmd == "voz":
+        from pathlib import Path
+
+        from eolfi import voz
+
+        try:
+            if args.voz_action == "estado":
+                _print(voz.estado())
+            elif args.voz_action == "transcribir":
+                _print(voz.transcribir(Path(args.archivo).read_bytes(), idioma=args.idioma))
+            elif args.voz_action == "decir":
+                data = voz.hablar(args.texto, idioma=args.idioma, voz=args.voz)
+                Path(args.out).write_bytes(data)
+                _print({"archivo": args.out, "bytes": len(data)})
+            else:
+                _print(voz.guardar({k: v for k, v in (("motor", args.motor), ("idioma", args.idioma),
+                                                      ("voz", args.voz)) if v is not None}))
+        except (voz.VozError, OSError) as exc:
+            print(f"voz: {exc}", file=sys.stderr)
+            return 2
         return 0
     if args.cmd == "mcp":
         from eolfi import mcp_server

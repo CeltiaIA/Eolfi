@@ -46,6 +46,8 @@ before(async () => {
   await waitHealth();
   browser = await chromium.launch({
     headless: true,
+    // Micrófono simulado (un tono) y permiso concedido: para la prueba de dictado, sin audio real.
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
     ...(process.env.EOLFI_E2E_BROWSER ? { executablePath: process.env.EOLFI_E2E_BROWSER }
       : { channel: process.env.EOLFI_E2E_CHANNEL || 'chrome' }),
   });
@@ -421,4 +423,54 @@ test('crear proyecto: modo guiado se detiene, la instrucción que cambia el plan
   await page.click('#proj-continue');
   await page.waitForFunction(() => document.querySelectorAll('.proj-step .badge.ok').length === 2, null, { timeout: 60000 });
   assert.match(await page.textContent('#proj-view'), /Especificación v1/);
+});
+
+test('voz: dictar escribe en el chat sin enviar, las órdenes no se escriben y todo es accesible', async () => {
+  let recibido = null;
+  let texto = 'analiza este archivo';
+  await page.route('**/api/voz/estado', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+    motor_activo: 'windows', idioma: 'es-ES', voz_a_texto: true, texto_a_voz: true, local: true }) }));
+  await page.route('**/api/voz/transcribir', async (route) => {
+    const body = route.request().postDataBuffer();
+    recibido = { cabecera: body.subarray(0, 4).toString('latin1'), formato: body.readUInt16LE(20), canales: body.readUInt16LE(22),
+      hz: body.readUInt32LE(24), bits: body.readUInt16LE(34), bytes: body.length, xeolfi: route.request().headers()['x-eolfi'] };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ texto, motor: 'windows', confianza: 0.8 }) });
+  });
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#voz-mic:not([hidden])');
+  assert.match(await page.textContent('#voz-estado'), /Voz local lista/);
+  await axe('chat con voz');
+  await page.fill('#eolas-chat-input', 'Hola,');
+  await page.click('#voz-mic');
+  await page.waitForSelector('#voz-mic[aria-pressed=true]');
+  await page.waitForTimeout(700);
+  await page.click('#voz-mic');
+  await page.waitForFunction(() => /analiza este archivo/.test(document.querySelector('#eolas-chat-input').value));
+  assert.equal(await page.inputValue('#eolas-chat-input'), 'Hola, analiza este archivo');
+  // Lo que sale del navegador es un WAV PCM de 16 bits, mono, a 16 kHz, y solo hacia el propio servidor.
+  assert.deepEqual({ ...recibido, bytes: recibido.bytes > 44 }, { cabecera: 'RIFF', formato: 1, canales: 1, hz: 16000, bits: 16, bytes: true, xeolfi: '1' });
+  assert.equal(await page.locator('#eolas-chat-log .msg.user').count(), 0);          // dictar no envía
+  assert.match(await page.textContent('#voz-estado'), /motor local «windows»/);
+  texto = 'Borra todo.';                                                                // orden, no texto
+  await page.keyboard.press('Alt+m');
+  await page.waitForSelector('#voz-mic[aria-pressed=true]');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Alt+m');
+  await page.waitForFunction(() => document.querySelector('#eolas-chat-input').value === '');
+  assert.match(await page.textContent('#voz-estado'), /Orden por voz: borrar/);
+  // A7: el mismo dictado en otros cuadros del panel; ahí «Borra todo.» es texto, no una orden.
+  await openTools('create');
+  await page.waitForSelector('#proj-desc + .voz-junto .voz-dictar');
+  await page.fill('#proj-desc', 'Una web con');
+  await page.click('#proj-desc + .voz-junto .voz-dictar');
+  await page.waitForSelector('#proj-desc + .voz-junto .voz-dictar[aria-pressed=true]');
+  assert.equal(await page.isDisabled('#voz-mic'), true);                              // un solo dictado a la vez
+  await page.waitForTimeout(500);
+  await page.click('#proj-desc + .voz-junto .voz-dictar');
+  await page.waitForFunction(() => document.querySelector('#proj-desc').value === 'Una web con Borra todo.');
+  assert.match(await page.textContent('#proj-desc + .voz-junto .voz-nota'), /motor local «windows»/);
+  assert.equal(await page.inputValue('#eolas-chat-input'), '');
+  assert.equal(await page.locator('.voz-dictar').count(), 5);
+  await axe('dictado en crear proyecto');
+  assert.deepEqual(errors, []);
 });
