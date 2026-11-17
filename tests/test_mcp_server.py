@@ -1,11 +1,9 @@
 """Servidor MCP de Eolfi (sustituto del participante @eolfi en el modo agente de VS Code)."""
-import io
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from eolfi.mcp_server import EolfiMCP
 

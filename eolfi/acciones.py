@@ -107,7 +107,11 @@ class _Cerrojo:
                 os.write(fd, str(os.getpid()).encode())
                 os.close(fd)
                 return self
-            except FileExistsError:
+            except (FileExistsError, PermissionError) as exc:
+                # En Windows, crear el archivo mientras otro proceso lo está borrando da «acceso denegado»
+                # (ERROR_DELETE_PENDING), no «ya existe»: también es un cerrojo ocupado. En otros sistemas sí es un error.
+                if isinstance(exc, PermissionError) and os.name != "nt":
+                    raise
                 try:
                     if time.time() - self.path.stat().st_mtime > 30:
                         self.path.unlink(missing_ok=True)

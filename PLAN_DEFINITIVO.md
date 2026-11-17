@@ -99,7 +99,7 @@ positivos A/A ≤ 5 %, p50 por muestra ≤ 5 min).
 
 | # | Pieza | Estado |
 |---|---|---|
-| E1 | Fusionar las PR de REA #20 a #35 en una rama de integración, en orden | Pendiente; decide el titular |
+| E1 | Fusionar las PR de REA #20 a #35 en una rama de integración, en orden | Hecho (17/11): la PR #55 llevó a `main`, en orden, las 29 PR abiertas, entre ellas #20–#35 |
 | E2 | Probar en vivo la autorización por caso con un modelo | NO VERIFICADO |
 | E3 | Exportar el paquete completo de evidencias de REA | Pendiente |
 | E4 | Herramientas: Npcap, sigrok, Cutter (cada una pide permiso; Npcap instala un controlador) | Pendiente |
@@ -124,10 +124,10 @@ traseras en los pesos ni demuestran aislamiento de red permanente**.
 
 | # | Pieza | Estado |
 |---|---|---|
-| F1 | Facturación de GitHub Actions: la CI no arranca en Eolfi ni en CeltiaIA | **Bloqueado**, lo resuelve el titular |
-| F2 | Fusionar las PR abiertas (22 en Eolfi) en el orden de `docs/vas/VAS-auditoria-eolfi.md` | Pendiente |
+| F1 | Facturación de GitHub Actions: la CI no arranca en Eolfi ni en CeltiaIA | Resuelto en Eolfi (17/11: la CI de las PR #55 y #56 corrió en Ubuntu y Windows); CeltiaIA sin comprobar |
+| F2 | Fusionar las PR abiertas (22 en Eolfi) en el orden de `docs/vas/VAS-auditoria-eolfi.md` | Hecho en Eolfi (17/11, PR #55: 29 PR). En CeltiaIA/CeltiaIA quedan abiertas #6–#13 |
 | F3 | Revisar `REGISTRO_LIMPIEZA.md` con el titular (LIM-040, copia de una clave, primero) | Pendiente |
-| F4 | Ruff F sin avisos (PR #19, rehacer desde `main`) | Pendiente |
+| F4 | Ruff F sin avisos (PR #19, rehacer desde `main`) | Hecho (17/11): la #19 entró con la #55 y se corrigieron los 12 avisos que dejaron las fusiones; `ruff check --select F eolfi tests tools` sin avisos (ruff 0.16.8) |
 
 ## Orden de ejecución
 

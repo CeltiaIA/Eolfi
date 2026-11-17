@@ -322,7 +322,6 @@ def test_build_vsix_empaqueta_la_extension(tmp_path):
 
 def test_vscode_login_no_muestra_el_codigo(monkeypatch, capsys):
     import io
-    import json
     import os
 
     from eolfi import cli

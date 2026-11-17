@@ -1,5 +1,4 @@
 """Configuración local llama.cpp y compatibilidad de Gemma con el proveedor Eolas."""
-import contextlib
 import json
 
 

@@ -31,7 +31,7 @@ def auditar(path, con_hash=True):
                     hallazgos.append((k, m.group(0)[:100]))
         tensores = []
         for _ in range(nt):
-            n = rs(f); nd = rd(f,'I'); dims = [rd(f,'Q') for _ in range(nd)]; tp = rd(f,'I'); off = rd(f,'Q')
+            _nombre = rs(f); nd = rd(f,'I'); dims = [rd(f,'Q') for _ in range(nd)]; tp = rd(f,'I'); off = rd(f,'Q')
             tensores.append((off, tp, dims))
         ali = meta.get("general.alignment", 32)
         base = (f.tell() + ali - 1) // ali * ali
