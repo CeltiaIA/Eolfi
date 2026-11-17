@@ -233,7 +233,12 @@ class FakeLedger(FakeBehavior):
         if name == "capture_process_scenario":
             text, ok = super().call(name, args, limit)
             data = json.loads(text)
-            data["normalized_result"] = {"manifest": {"executable_sha256": "a" * 64, "normalization_sha256": "b" * 64}}
+            first = self.calls.count(name) % 2 == 1                  # original y reconstrucción van por parejas
+            data["normalized_result"] = {"manifest": {"executable_sha256": ("a" if first else "c") * 64,
+                                                      "normalization_sha256": "b" * 64},
+                                         "process_samples": [{"pid": 1, "command": " ".join(
+                                             [args["executable"], *args.get("arguments", [])])}],
+                                         "truncation_details": {"process": {"sampling_partial": False}}}
             data["environment"] = {"id": "linux-x64"}
             return json.dumps(data), ok
         if name == "evaluate_reconstruction_coverage":
@@ -305,7 +310,12 @@ def test_libro_de_obligaciones_ata_la_obligacion_al_modulo(connect, tmp_path):
     assert all(r["status"] == "pass" and "ev_cap1" in r["evidence_ids"] for r in cov["verifier_results"])
     own = cov["owners"][0]["ownership"]
     assert own["owner_sha256"] == hashlib.sha256(mod.read_bytes()).hexdigest()
-    assert own["authority_route"] == "unknown" and own["package_state"] == "unknown"
+    # Independencia: el módulo no lanza programas y en la captura solo está python3 → «pass», citando la captura.
+    assert own["authority_route"] == "none" and own["package_state"] == "unknown"
+    proof = cov["package_proofs"][0]
+    assert proof["kind"] == "authority-independence" and proof["status"] == "pass"
+    assert proof["evidence_ids"] == ["ev_cap2"] and "a" * 64 in proof["artifact_sha256s"]
+    assert cob["independencia"]["estado"] == "pass"
     assert cov["artifacts"][0]["artifact_sha256"] == "a" * 64
     # Sin «modulo» no se intenta el libro y se dice por qué.
     rec2 = dict(rec, argumentos=["otro"])
@@ -314,3 +324,76 @@ def test_libro_de_obligaciones_ata_la_obligacion_al_modulo(connect, tmp_path):
     for p in ra.overview(connect, "caso-l")["pendientes"]:
         ra.decide(connect, p["id"], "once")
     assert "no generado" in rc.verificar_comportamiento(rea, a, orig, rec2)["libro_obligaciones"]
+
+
+def _indep_caps(rec_command, *, partial=False, rec_sha="c" * 64):
+    def cap(sha, command):
+        return {"normalized_result": {"manifest": {"executable_sha256": sha},
+                                      "process_samples": [{"pid": 1, "command": c} for c in command],
+                                      "truncation_details": {"process": {"sampling_partial": partial}}}}
+    return {"original": cap("a" * 64, ["/usr/bin/whoami"]), "reconstruccion": cap(rec_sha, rec_command)}
+
+
+def test_independencia_pasa_solo_con_las_dos_partes_limpias(tmp_path):
+    from eolfi import rea_compuestas as rc
+
+    orig = {"executable": "/usr/bin/whoami"}
+    mod = tmp_path / "whoami_rec.py"
+    # Nombrar al original en un comentario o en un texto no basta para llamarlo: sin primitivas, «pass».
+    mod.write_text("# hace lo mismo que whoami\nimport os, pwd\nprint(pwd.getpwuid(os.geteuid()).pw_name)\n",
+                   encoding="utf-8")
+    rec = {"executable": "/usr/bin/python3", "arguments": [str(mod)]}
+    ok = rc.prueba_independencia(_indep_caps([f"/usr/bin/python3 {mod}"]), str(mod), orig, rec)
+    assert (ok["estado"], ok["ruta_al_original"]) == ("pass", "none"), ok
+    # Muestreo parcial → no se sabe.
+    assert rc.prueba_independencia(_indep_caps([f"/usr/bin/python3 {mod}"], partial=True), str(mod), orig,
+                                   rec)["estado"] == "unknown"
+    # El original aparece entre los procesos de la reconstrucción → «fail».
+    seen = rc.prueba_independencia(_indep_caps([f"/usr/bin/python3 {mod}", "/usr/bin/whoami"]), str(mod), orig, rec)
+    assert (seen["estado"], seen["ruta_al_original"]) == ("fail", "detected")
+    assert seen["ejecucion"]["procesos_del_original"] == ["/usr/bin/whoami"]
+    # La «reconstrucción» es el propio original (mismo SHA-256) → «fail».
+    assert rc.prueba_independencia(_indep_caps(["/usr/bin/whoami"], rec_sha="a" * 64), str(mod), orig,
+                                   rec)["estado"] == "fail"
+
+
+def test_independencia_estatica_ve_primitivas_y_nombres(tmp_path):
+    from eolfi import rea_compuestas as rc
+
+    orig = {"executable": "/usr/bin/whoami"}
+    caps = lambda mod: _indep_caps([f"/usr/bin/python3 {mod}"])
+
+    def run(name, source):
+        mod = tmp_path / name
+        mod.write_text(source, encoding="utf-8")
+        return rc.prueba_independencia(caps(mod), str(mod), orig,
+                                       {"executable": "/usr/bin/python3", "arguments": [str(mod)]})
+
+    # Lanza el original por su nombre: «fail» aunque el muestreo no lo haya visto (hijos breves).
+    llama = run("llama.py", "import subprocess\nprint(subprocess.run(['whoami'], capture_output=True).stdout)\n")
+    assert llama["estado"] == "fail" and llama["estatica"]["estado"] == "detected"
+    assert run("ossys.py", "from os import system\nsystem('/usr/bin/whoami')\n")["estado"] == "fail"
+    # Puede lanzar programas pero no se sabe cuál, o código dinámico, o importa código propio → «unknown».
+    for name, source in (("dyn.py", "import subprocess\nsubprocess.run([input()])\n"),
+                         ("ev.py", "eval(input())\n"),
+                         ("ga.py", "import os\ngetattr(os, 'sys' + 'tem')('x')\n"),
+                         ("nat.py", "import ctypes\nctypes.windll.secur32\n"),
+                         ("ajeno.py", "import ayudante\nprint(ayudante.x)\n"),
+                         ("rel.py", "from . import ayudante\n")):
+        out = run(name, source)
+        assert (out["estado"], out["ruta_al_original"]) == ("unknown", "unknown"), (name, out)
+    # JavaScript: child_process es una primitiva.
+    js = run("rec.js", "const {execSync} = require('child_process');\nconsole.log(execSync('whoami').toString())\n")
+    assert js["estado"] == "fail"
+    # El módulo declarado no es lo que se ejecuta → no se puede atribuir el análisis estático.
+    mod = tmp_path / "otro.py"
+    mod.write_text("print(1)\n", encoding="utf-8")
+    out = rc.prueba_independencia(caps(tmp_path / "x.py"), str(mod), orig,
+                                  {"executable": "/usr/bin/python3", "arguments": [str(tmp_path / "x.py")]})
+    assert out["estado"] == "unknown" and "no aparece" in out["estatica"]["motivo"]
+    # Un programa de Windows como reconstrucción: sus hijos no se ven desde WSL.
+    win = tmp_path / "w.py"
+    win.write_text("print(1)\n", encoding="utf-8")
+    out = rc.prueba_independencia(_indep_caps(["/init"]), str(win), {"executable": "/mnt/c/Windows/System32/whoami.exe"},
+                                  {"executable": "/mnt/c/Python312/python.exe", "arguments": [r"D:\r\w.py"]})
+    assert out["estado"] == "unknown" and "Windows" in out["ejecucion"]["motivo"]

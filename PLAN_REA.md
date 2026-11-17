@@ -105,15 +105,32 @@ autorización.
   canónico RFC 8785 sin `contract_sha256` (sin espacios; con los separadores por defecto de Python REA lo rechaza).
   REA solo cuenta como comparable la evidencia `controlled-replay` con confianza `observed`, así que se citan las dos
   capturas además de la comparación y la verificación. Lo no demostrado se declara `unknown` (si el módulo se
-  distribuye y si llama al original) y la frontera exige la prueba de independencia, que Eolfi aún no genera: no
-  puede salir «ready». En vivo con `whoami.exe`: «failed» (el verificador de REA falla) con 5 razones y sus
+  distribuye) y la frontera exige la prueba de independencia (ver abajo): no puede salir «ready». En vivo con `whoami.exe`: «failed» (el verificador de REA falla) con 5 razones y sus
   siguientes pruebas.
+- **Prueba de independencia** (14/11/2026, `prueba_independencia`, `kind: authority-independence`): ¿la
+  reconstrucción llama al original? Dos partes y las dos tienen que salir limpias para «pass»: (1) estática, el
+  módulo (Python por AST, JavaScript por patrones) no tiene primitivas para lanzar programas (`subprocess`, `os.system`,
+  `os.exec*`, `ctypes`, `child_process`…), ni código dinámico (`eval`, `exec`, `getattr` con nombre construido), ni
+  importa código fuera de la biblioteca estándar, y es lo que se ejecuta en el escenario; (2) en ejecución, en el
+  muestreo de procesos de REA de la reconstrucción no aparece el original y el muestreo no es parcial. «fail» si se
+  ve el original, si la reconstrucción tiene el mismo SHA-256 que el original o si el módulo tiene primitivas y
+  nombra al original; todo lo demás, «unknown». La prueba cita la captura observada de la reconstrucción (REA solo
+  admite `shipped-artifact` o `live-observation`) y fija `authority_route` del propietario. En vivo: `whoami` contra
+  `whoami_rec.py` → «pass» y REA deja de pedir la independencia; contra una reconstrucción que hace
+  `subprocess.run(["whoami"])` → «fail» por la parte estática, porque **el muestreo de REA no vio el hijo** (dura
+  muy poco): el muestreo solo no basta para dar «pass»; `whoami.exe` contra Python de Windows con `ctypes` →
+  «unknown» (primitiva nativa y, desde WSL, no se ven los hijos de un programa de Windows). Con una reconstrucción
+  ajena, escrita fuera de Eolfi sin ver las anteriores (con `os.geteuid` + `pwd`; procedencia, probablemente asistida
+  por IA, pendiente de confirmar), el 14/11: comportamiento «igual» e independencia «pass». Siguen sin «ready»:
+  la distribución del módulo (`owner-distribution-unknown`) y el verificador de REA, que falla en `exit` por el
+  tiempo de cierre. NO VERIFICADO: red y servicios (solo procesos), módulos en otros lenguajes, rutas construidas
+  dentro de la biblioteca estándar.
 
 ## Lo que crearemos, por orden
 
 | # | Pieza | Qué combina | Qué da | Estado |
 |---|---|---|---|---|
-| 1 | **Cobertura de reconstrucción** | `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction` | Qué parte del original cubre el proyecto que generó Eolfi y qué falta, con evidencias (fase 4) | Estructural hecha (con el punto 3). Comportamiento hecho: `verificar_comportamiento` ejecuta original y reconstrucción con el mismo escenario (`capture_process_scenario`), compara (`compare_process_captures`) y verifica afirmaciones `behavioral` (overall, terminal, exit), siempre con permiso del titular. Probado en vivo el 14/11 (ver arriba), también con programas de Windows vía el REA de WSL. Libro de obligaciones hecho (`build_reconstruction_obligation_ledger`, con propietario), limitado a «implemented» por REA. Cobertura por frontera hecha (`evaluate_reconstruction_coverage`). Falta: la prueba de independencia (que la reconstrucción no llama al original) |
+| 1 | **Cobertura de reconstrucción** | `build_reconstruction_obligation_ledger`, `evaluate_reconstruction_coverage`, `verify_reconstruction` | Qué parte del original cubre el proyecto que generó Eolfi y qué falta, con evidencias (fase 4) | Estructural hecha (con el punto 3). Comportamiento hecho: `verificar_comportamiento` ejecuta original y reconstrucción con el mismo escenario (`capture_process_scenario`), compara (`compare_process_captures`) y verifica afirmaciones `behavioral` (overall, terminal, exit), siempre con permiso del titular. Probado en vivo el 14/11 (ver arriba), también con programas de Windows vía el REA de WSL. Libro de obligaciones hecho (`build_reconstruction_obligation_ledger`, con propietario), limitado a «implemented» por REA. Cobertura por frontera hecha (`evaluate_reconstruction_coverage`). Prueba de independencia hecha (estática + muestreo de procesos; en vivo «pass», «fail» y «unknown»). Falta: cómo se distribuye el módulo, para que la cobertura pueda salir «ready» |
 | 2 | **Autorización por caso en el chat** (hecho) | Petición del modelo y decisión del titular («una vez», «en este caso», «rechazar»), con registro y revocación | Habilita el análisis dinámico (Frida, gdb, capturas, `observe_*`) solo con permiso expreso | Hecho; falta probarlo en vivo con un modelo |
 | 3 | **Diferencias entre versiones** (hecho) | `compare_artifacts`, `compare_functions`, `find_changed_behavior`, `compare_application_versions`, `compare_wasm_interfaces` | Informe «qué cambió entre A y B» | Pendiente |
 | 4 | **Inventario de dependencias** (hecho) | `inspect_pe_imports`, `inspect_native_exports`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_pe_certificates` | Librerías, versiones, firmas y certificados | Pendiente |
