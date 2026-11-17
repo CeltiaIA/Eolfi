@@ -625,6 +625,16 @@ def _parser() -> argparse.ArgumentParser:
     r19 = rps.add_parser("rust", help="Ejecutable Rust con cargo-auditable: crates, raíz y dependencias directas, sin ejecutarlo")
     r19.add_argument("ruta")
     r19.add_argument("--limite", type=int, default=60, help="máximo de paquetes listados (60)")
+    r18 = rps.add_parser("senal", help="Decodifica una grabación de analizador lógico (.sr, VCD, CSV) con sigrok en el REA de WSL")
+    r18.add_argument("ruta")
+    r18.add_argument("--decodificadores", required=True,
+                     help="pila de sigrok, p. ej. uart:rx=TX:baudrate=9600 o i2c:scl=scl:sda=sda,edid")
+    r18.add_argument("--anotaciones", help="clases de anotación, p. ej. uart=rx-data")
+    r18.add_argument("--formato", help="formato de entrada de sigrok (por defecto lo detecta)")
+    r18.add_argument("--limite", type=int, default=40, help="máximo de la muestra (40)")
+    r19 = rps.add_parser("decodificadores", help="Decodificadores de sigrok instalados, o la ayuda de uno (--ayuda ID)")
+    r19.add_argument("consulta", nargs="?", help="texto que buscar en el identificador o el nombre")
+    r19.add_argument("--ayuda", metavar="ID", help="canales, opciones y anotaciones de un decodificador")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1966,6 +1976,12 @@ def main(argv: list[str] | None = None) -> int:
         if wsl and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
+        if args.rea_action in ("senal", "decodificadores"):
+            cmd = rea_client.wsl_rea_sigrok_command()
+            if not cmd:
+                print("sigrok en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh) y "
+                      "sigrok-cli 0.7.2 (tools/instalar-sigrok-wsl.sh)", file=sys.stderr)
+                return 2
         if motor == "kuna" and not rea_client.wsl_has_kuna(cmd):
             print("Kuna no instalado en WSL2: vuelve a ejecutar tools/instalar-rea-wsl.sh dentro de Ubuntu "
                   "(REA solo admite Kuna en Linux y macOS)", file=sys.stderr)
@@ -2056,6 +2072,13 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "rust":
                 op, params = "binario_rust", {"ruta": args.ruta}
                 result = rc.binario_rust(client, args.ruta, args.limite)
+            elif args.rea_action == "senal":
+                op, params = "decodificar_senal", {"ruta": args.ruta, "decodificadores": args.decodificadores}
+                result = rc.decodificar_senal(client, args.ruta, args.decodificadores, anotaciones=args.anotaciones,
+                                              formato=args.formato, limite=args.limite, ruta_rea=rea_client.wsl_path)
+            elif args.rea_action == "decodificadores":
+                op, params = "decodificadores_senal", {"consulta": args.consulta, "decodificador": args.ayuda}
+                result = rc.decodificadores_senal(client, args.consulta, decodificador=args.ayuda)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

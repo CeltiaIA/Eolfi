@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from pathlib import Path
 
 import pytest
 
@@ -1704,3 +1705,81 @@ def test_binario_rust_raiz_dependencias_y_sin_cargo_auditable(tmp_path):
     assert r["raiz"]["nombre"] == "glob" and r["dependencias_directas"] == []
     r = rc.binario_rust(FakeNative({"format": "pe", "auditable_metadata": None}), str(exe))
     assert r["cargo_auditable"] is False and ".dep-v0" in r["aviso"]
+
+
+class FakeSigrok:
+    """REA simulado: decode_signal_recording en dos páginas (I2C + EDID) e inspect_signal_decoders."""
+
+    LINES = ["139-139 i2c-1: Start", "149-221 i2c-1: Address write: 50", "242-326 i2c-1: Data write: 00",
+             "326-400 i2c-1: Data read: 53", "149-326 edid-1: Offset: 0", "400-480 i2c-1: Data read: 0A",
+             "480-560 edid-1: Product 0x021b", "basura sin formato"]
+
+    def __init__(self, page=5):
+        self.calls, self.page = [], page
+
+    def call(self, name, args, limit=None):
+        self.calls.append((name, dict(args)))
+        if name == "inspect_signal_decoders":
+            if args.get("decoder"):
+                out = {"help_lines": [{"line_number": 1, "text": "ID: uart"}, {"line_number": 2, "text": "Name: UART"}],
+                       "output_window": {"examined": 81, "matching": 81, "returned": 2, "has_more": False}}
+            else:
+                out = {"decoders": [{"id": "edid", "name": "Extended Display Identification Data"}],
+                       "output_window": {"examined": 111, "matching": 1, "returned": 1, "has_more": False}}
+            return json.dumps({"normalized_result": out}), True
+        assert name == "decode_signal_recording" and args["line_limit"] == rc.SIGNAL_PAGE
+        start = args["line_offset"]
+        chunk = self.LINES[start:start + self.page]
+        out = {"artifact": {"sha256": "ab" * 32, "bytes": 10}, "annotations_text": "\n".join(chunk),
+               "output_window": {"total_lines": len(self.LINES), "returned_lines": len(chunk),
+                                 "has_more": start + len(chunk) < len(self.LINES)},
+               "tool": {"version_banner": "sigrok-cli 0.7.2\n\nLibraries", "sha256": "cd" * 32},
+               "diagnostics": "", "hardware_acquisition": "not-performed"}
+        return json.dumps({"normalized_result": out}), True
+
+
+def test_decodificar_senal_junta_paginas_bytes_y_ultimo_decodificador(tmp_path):
+    rec = tmp_path / "edid.sr"
+    rec.write_bytes(b"PK\x03\x04")
+    fake = FakeSigrok()
+    r = rc.decodificar_senal(fake, str(rec), "i2c:scl=scl:sda=sda,edid", ruta_rea=lambda p: "/mnt/x/" + Path(p).name)
+    assert [c[1]["line_offset"] for c in fake.calls] == [0, 5]          # dos páginas
+    assert fake.calls[0][1]["path"] == "/mnt/x/edid.sr" and fake.calls[0][1]["annotations"] is None
+    assert r["lineas"] == 8 and r["lineas_leidas"] == 8 and not r["cortado"] and r["lineas_sin_formato"] == 1
+    assert r["por_decodificador"] == {"i2c": 5, "edid": 2}
+    assert r["datos"] == {"i2c": {"bytes": 3, "hex": "00 53 0A", "texto": ".S\n"}}
+    assert r["superior"] == {"decodificador": "edid", "muestra": ["Offset: 0", "Product 0x021b"]}
+    assert r["herramienta"] == {"version": "sigrok-cli 0.7.2", "sha256": "cd" * 32}
+    assert r["sha256"] == "ab" * 32 and r["adquisicion_de_hardware"] == "not-performed"
+
+
+def test_decodificar_senal_valida_antes_de_llamar_a_rea(tmp_path, monkeypatch):
+    fake = FakeSigrok()
+    with pytest.raises(ValueError, match="no existe"):
+        rc.decodificar_senal(fake, str(tmp_path / "nada.sr"), "uart:rx=TX")
+    rec = tmp_path / "x.sr"
+    rec.write_bytes(b"x")
+    with pytest.raises(ValueError, match="pila de decodificadores"):
+        rc.decodificar_senal(fake, str(rec), "  ")
+    monkeypatch.setattr(rc, "MAX_SIGNAL_FILE", 0)
+    with pytest.raises(ValueError, match="mayor de"):
+        rc.decodificar_senal(fake, str(rec), "uart:rx=TX")
+    assert fake.calls == []
+
+
+def test_decodificar_senal_respeta_el_maximo_de_lineas(tmp_path, monkeypatch):
+    rec = tmp_path / "x.sr"
+    rec.write_bytes(b"x")
+    monkeypatch.setattr(rc, "MAX_SIGNAL_LINES", 6)
+    r = rc.decodificar_senal(FakeSigrok(page=3), str(rec), "i2c:scl=scl:sda=sda,edid")
+    assert r["lineas_leidas"] == 6 and r["lineas"] == 8 and r["cortado"]
+
+
+def test_decodificadores_senal_lista_o_ayuda():
+    fake = FakeSigrok()
+    assert rc.decodificadores_senal(fake, "edid") == {
+        "examinados": 111, "coinciden": 1, "hay_mas": False,
+        "decodificadores": {"edid": "Extended Display Identification Data"}}
+    assert fake.calls[-1] == ("inspect_signal_decoders", {"limit": 200, "query": "edid"})
+    r = rc.decodificadores_senal(fake, decodificador="uart")
+    assert r["ayuda"] == ["ID: uart", "Name: UART"] and fake.calls[-1][1] == {"limit": 200, "decoder": "uart"}

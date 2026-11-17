@@ -2897,3 +2897,104 @@ def binario_rust(client: Any, path: str, limite: int = 60) -> dict[str, Any]:
             "ciclos": len(meta.get("cyclic_dependency_indices") or []),
             "aviso": "Lista incrustada por cargo-auditable: no autentica nombres, versiones ni el compilador, y no "
                      "dice qué código se usa en ejecución. No se ejecutó el programa."}
+
+
+MAX_SIGNAL_FILE = 32 * 1024 * 1024    # REA no lee grabaciones mayores (limits.input_bytes)
+MAX_SIGNAL_LINES = 20000              # líneas de anotaciones que Eolfi reúne como mucho
+SIGNAL_PAGE = 5000
+SIGNAL_LINE = re.compile(r"^(\d+)-(\d+) ([\w+.-]+)-\d+: (.*)$")
+SIGNAL_BYTE = re.compile(r"^(?:Data (?:read|write): )?([0-9A-Fa-f]{2})$")
+
+
+def _signal_text(data: bytes) -> str:
+    return "".join(chr(b) if 32 <= b < 127 or b in (9, 10, 13) else "." for b in data)
+
+
+def decodificar_senal(client: Any, path: str, decodificadores: str, *, anotaciones: str | None = None,
+                      formato: str | None = None, limite: int = 40, ruta_rea: Any = None) -> dict[str, Any]:
+    """Decodifica una grabación de un analizador lógico (.sr de sigrok, VCD, CSV…) con sigrok-cli 0.7.2 en el REA
+    de WSL: `decode_signal_recording` con la pila de decodificadores (p. ej. «uart:rx=TX:baudrate=9600» o
+    «i2c:scl=scl:sda=sda,edid»). Eolfi reúne todas las páginas, cuenta las anotaciones por decodificador, junta los
+    bytes de datos (UART, I2C, SPI…) en hexadecimal y texto, y da una muestra del último decodificador de la pila.
+    Solo lee el archivo: no toca hardware ni se comunica con ningún dispositivo."""
+    src = Path(path)
+    if not src.is_file():
+        raise ValueError(f"no existe la grabación: {path}")
+    if src.stat().st_size > MAX_SIGNAL_FILE:
+        raise ValueError(f"grabación mayor de {MAX_SIGNAL_FILE // 2**20} MiB (límite de REA): {path}")
+    stack = (decodificadores or "").strip()
+    if not stack:
+        raise ValueError("indica la pila de decodificadores, p. ej. uart:rx=TX:baudrate=9600")
+    limite = max(1, min(int(limite or 40), 500))
+    target = (ruta_rea or str)(str(src))
+    lines: list[str] = []
+    last: dict[str, Any] = {}
+    total = None
+    while True:
+        last = _call(client, "decode_signal_recording", {
+            "path": target, "decoders": stack, "annotations": anotaciones, "input_format": formato,
+            "line_offset": len(lines), "line_limit": SIGNAL_PAGE})
+        chunk = str(last.get("annotations_text") or "").splitlines()
+        lines.extend(chunk)
+        window = last.get("output_window") or {}
+        total = window.get("total_lines", total)
+        if not window.get("has_more") or not chunk or len(lines) >= MAX_SIGNAL_LINES:
+            break
+    lines = lines[:MAX_SIGNAL_LINES]
+    per: Counter[str] = Counter()
+    data: dict[str, bytearray] = {}
+    values: dict[str, list[str]] = {}
+    unparsed = 0
+    for line in lines:
+        m = SIGNAL_LINE.match(line)
+        if not m:
+            unparsed += 1
+            continue
+        dec, value = m.group(3), m.group(4)
+        per[dec] += 1
+        values.setdefault(dec, []).append(value)
+        b = SIGNAL_BYTE.match(value)
+        if b:
+            data.setdefault(dec, bytearray()).append(int(b.group(1), 16))
+    top = stack.split(",")[-1].split(":", 1)[0].strip()
+    tool = last.get("tool") or {}
+    artifact = last.get("artifact") or {}
+    return {
+        "archivo": str(src), "sha256": artifact.get("sha256"), "bytes": artifact.get("bytes"),
+        "decodificadores": stack, "anotaciones": anotaciones,
+        "lineas": total, "lineas_leidas": len(lines), "cortado": bool(total and len(lines) < total),
+        "lineas_sin_formato": unparsed,
+        "por_decodificador": dict(per.most_common()),
+        "datos": {dec: {"bytes": len(buf), "hex": buf[:256].hex(" ").upper(), "texto": _signal_text(bytes(buf[:1024]))}
+                  for dec, buf in data.items()},
+        "superior": {"decodificador": top,
+                     "muestra": [v for v in values.get(next((d for d in values if d.split("-")[0] == top), ""), [])
+                                 ][:limite]},
+        "herramienta": {"version": str(tool.get("version_banner") or "").split("\n", 1)[0],
+                        "sha256": tool.get("sha256")},
+        "diagnosticos": str(last.get("diagnostics") or "")[:1000],
+        "adquisicion_de_hardware": last.get("hardware_acquisition"),
+        "aviso": ("Decodificación de un archivo con sigrok (REA en WSL, con prlimit): no se tocó hardware. Una "
+                  "salida vacía no prueba que no hubiera tráfico; revisa canales, velocidad y opciones del "
+                  "decodificador. El texto junta los bytes de datos y sustituye por «.» los no imprimibles.")}
+
+
+def decodificadores_senal(client: Any, consulta: str | None = None, *, decodificador: str | None = None,
+                          limite: int = 200) -> dict[str, Any]:
+    """Decodificadores de sigrok instalados (o la ayuda de uno: canales, opciones y clases de anotación) con
+    `inspect_signal_decoders`; sin grabación ni hardware."""
+    args: dict[str, Any] = {"limit": max(1, min(int(limite or 200), 2000))}
+    if decodificador:
+        args["decoder"] = decodificador
+    if consulta:
+        args["query"] = consulta
+    r = _call(client, "inspect_signal_decoders", args)
+    window = r.get("output_window") or {}
+    out: dict[str, Any] = {"examinados": window.get("examined"), "coinciden": window.get("matching"),
+                           "hay_mas": bool(window.get("has_more"))}
+    if decodificador:
+        out["ayuda"] = [str(h.get("text")) for h in r.get("help_lines") or [] if isinstance(h, dict)]
+    else:
+        out["decodificadores"] = {str(d.get("id")): d.get("name") for d in r.get("decoders") or []
+                                  if isinstance(d, dict)}
+    return out
