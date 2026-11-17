@@ -1373,6 +1373,8 @@ def grafo_llamadas(client: Any, path: str, funcion: str, *, hacia: str = "adelan
     return {
         "archivo": path, "funcion": names.get(address, address), "direccion": address, "hacia": hacia,
         "profundidad": profundidad, "nodos": list(nodes.values()), "aristas": len(dict.fromkeys(edges)),
+        # Origen → destino por dirección, siempre en el sentido de la llamada: lo dibuja el mapa del panel (C5).
+        "enlaces": [[a, b] for a, b in dict.fromkeys(edges)],
         "nodos_en_rea": total, "nodos_omitidos": max(0, total - len(nodes)), "nodos_con_error": errors,
         "apis_externas": {dll: sorted(set(apis)) for dll, apis in sorted(externas.items())},
         "mermaid": "\n".join(mermaid),

@@ -530,3 +530,60 @@ test('idioma: el panel en inglés con ?lang=en, sin tocar el contenido, y vuelta
   assert.deepEqual(errs, []);
   await ctx.close();
 });
+
+test('mapa de la app (C5): grafo de llamadas y componentes de REA dibujados y accesibles', async () => {
+  // Resultados con la forma real: las funciones de Eolfi con los dobles de REA de las pruebas de Python.
+  const res = JSON.parse(execFileSync(PY, ['-c', [
+    'import json, sys, tempfile, zipfile', 'from pathlib import Path', 'from eolfi import rea_compuestas as rc',
+    'from tests.test_rea_compuestas import FakeAndroid, FakeApple, FakeCallGraph, _info_plist',
+    'd = Path(tempfile.mkdtemp()); apk = d / "a.apk"; apk.write_bytes(b"PK"); z = d / "X.app.zip"',
+    'zipfile.ZipFile(z, "w").writestr("X.app/Contents/Info.plist", _info_plist())',
+    'g = rc.grafo_llamadas(FakeCallGraph(), "x.exe", "entry"); v = dict(g); v.pop("enlaces")',
+    'print(json.dumps({"grafo": g, "antiguo": v, "android": rc.mapa_app_android(FakeAndroid(), str(apk)),',
+    '                  "apple": rc.mapa_app_apple(FakeApple(), str(z))}))'].join('\n')],
+  { cwd: ROOT, encoding: 'utf-8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }));
+  const ev = (operation, result, id) => ({ evidence_id: id.repeat(64), subject: 'mapa-demo', provider: 'rea', provider_version: 'prueba',
+    operation, params: {}, result, authority: 'distributed_artifact', confidence: 'medium', limitations: result.aviso,
+    environment: 'e2e', created_at: '2026-11-17T20:00:00Z' });
+  const evidencias = [ev('grafo_llamadas', res.grafo, 'a'), ev('mapa_app_android', res.android, 'b'),
+    ev('mapa_app_apple', res.apple, 'c'), ev('grafo_llamadas', res.antiguo, 'd')];
+  await page.route('**/api/evidence?subject=mapa-demo*', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ evidence: evidencias, total: evidencias.length }) }));
+  try {
+    await page.goto(BASE + '/#objetivo/mapa-demo');
+    await page.waitForSelector('#evidence details.ev');
+    for (const d of await page.locator('#evidence details.ev').all()) await d.locator('summary').click();
+    // Grafo: 5 funciones por niveles, 4 llamadas, las importaciones diferenciadas y la alternativa en texto.
+    const grafo = page.locator('figure.mapa').first();
+    assert.match(await grafo.locator('figcaption').textContent(), /5 funciones y 4 llamadas desde «entry»/);
+    assert.equal(await grafo.locator('.mapa-nodo').count(), 5);
+    assert.equal(await grafo.locator('.mapa-nodo.externa').count(), 2);
+    assert.equal(await grafo.locator('.mapa-nodo.raiz').count(), 1);
+    assert.equal(await grafo.locator('.mapa-arista').count(), 4);
+    assert.match(await grafo.locator('svg').getAttribute('aria-label'), /^Grafo de llamadas: 5 funciones/);
+    assert.deepEqual(await grafo.locator('.mapa-lista li').allTextContents(),
+      ['entry → FUN_20', 'entry → raro"[x]', 'FUN_20 → KERNEL32.DLL::Sleep', 'FUN_20 → MSVCRT.DLL::exit']);
+    // Un nombre del binario con comillas y corchetes es texto, no marcado.
+    assert.equal(await grafo.locator('.mapa-nodo text', { hasText: 'raro"[x]' }).count(), 1);
+    // Android: pantallas y componentes, la de inicio y lo exportado sin permiso, cada componente una vez.
+    const app = page.locator('figure.mapa').nth(1);
+    assert.match(await app.locator('figcaption').textContent(), /a 1\.0 · SDK 26–33/);
+    const pantallas = app.locator('section[aria-label="Pantallas (actividades)"]');
+    assert.deepEqual(await pantallas.locator('li').allTextContents(), ['Main inicio exportado sin permiso']);
+    assert.match(await pantallas.textContent(), /2 en total · 1 exportados · 1 sin permiso/);
+    assert.match(await app.textContent(), /Permisos peligrosos: CAMERA/);
+    // Apple: bundles por papel, con su nombre de archivo.
+    const apple = page.locator('figure.mapa').nth(2);
+    assert.deepEqual(await apple.locator('li').allTextContents(), ['X.app firmado', 'H.xpc sin firma']);
+    // Una evidencia anterior a C5 (solo Mermaid) se dibuja igual.
+    assert.equal(await page.locator('figure.mapa').nth(3).locator('.mapa-arista').count(), 4);
+    await axe('mapa de la app');
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await axe('mapa de la app (oscuro)');
+    await page.evaluate(() => { delete document.documentElement.dataset.theme; });
+  } finally {
+    await page.unroute('**/api/evidence?subject=mapa-demo*');
+  }
+  await page.goto(BASE + '/');
+  assert.deepEqual(errors, []);
+});

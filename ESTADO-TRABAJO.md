@@ -5,6 +5,12 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C5 mapa de la app (17/11, rama `luis/c5-mapa-app`):** `eolfi/web/mapa.js` dibuja en la evidencia de REA el
+  grafo de llamadas (SVG por niveles, importaciones diferenciadas, lista en texto) y el mapa de pantallas y
+  componentes de Android y de bundles de Apple. `grafo_llamadas` devuelve `enlaces`; las evidencias antiguas se
+  dibujan desde su Mermaid. e2e con resultados reales de las funciones (dobles de REA) y axe en claro y oscuro;
+  los `<pre>` de las evidencias pasan a ser enfocables. Con una app real: NO VERIFICADO.
+
 - **C6 guías (17/11, rama `luis/c6-guias`):** `ejemplos/crear-proyecto/GUIA.md` (plan → aprobación → trabajo
   `project` → `verification`, y `create` de la CLI) completa las siete guías de O13. Guías breves con prueba:
   `registro-acciones` (B8), `instalador` (C2) e `idioma` (C1). Pruebas `tests/test_guia_crear_proyecto.py`,

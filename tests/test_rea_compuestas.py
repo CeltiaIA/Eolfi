@@ -630,6 +630,7 @@ def test_grafo_llamadas_resuelve_nombres_recorta_y_da_mermaid():
     assert out["apis_externas"] == {"KERNEL32.DLL": ["Sleep"], "MSVCRT.DLL": ["exit"]}
     assert out["aristas"] == 4 and out["nodos_con_error"] == 1 and out["nodos_omitidos"] == 0
     assert 'n2["raro__x_"]' in out["mermaid"] and "n0 --> n1" in out["mermaid"] and "n1 --> n3" in out["mermaid"]
+    assert out["enlaces"] == [["0x10", "0x20"], ["0x10", "0x30"], ["0x20", "EXTERNAL:0x1"], ["0x20", "0x40"]]
     corto = rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "entry", profundidad=1, max_nodos=2)
     assert len(corto["nodos"]) == 2 and corto["nodos_omitidos"] == 3 and corto["aristas"] == 1
 
@@ -637,6 +638,7 @@ def test_grafo_llamadas_resuelve_nombres_recorta_y_da_mermaid():
 def test_grafo_llamadas_hacia_atras_y_errores():
     out = rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "0x20", hacia="atras", profundidad=1)
     assert out["funcion"] == "FUN_20" and "n1 --> n0" in out["mermaid"]
+    assert out["enlaces"] == [["0x10", "0x20"]]          # quien llama → la llamada, también hacia atrás
     with pytest.raises(ValueError, match="parecidas: FUN_20"):
         rc.grafo_llamadas(FakeCallGraph(), r"C:\x.exe", "fun")
     with pytest.raises(ValueError, match="adelante"):

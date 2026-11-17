@@ -3,6 +3,7 @@ import { $, el, api, runJob, setStatus, fmtTime, short } from "./runtime.js";
 import { createSubjectView } from "./subjects.js";
 import { createCaseView } from "./cases.js";
 import { createProjectView } from "./projects.js";
+import { mapaDeEvidencia } from "./mapa.js";
 
 const STORE = { ai: "eolfi.ai", analysis: "eolfi.analysis", theme: "eolfi.theme", boot: "eolfi.boot", panel: "eolfi.panel" };
 const state = { subject: null, subjects: [], kind: "binary", selected: new Set(), req: 0, view: "empty", panel: "create" };
@@ -290,8 +291,10 @@ function renderEvidence() {
       if (!d.open || body.childElementCount) return;
       body.append(
         e.limitations ? el("p", { class: "muted small" }, "Límites: ", e.limitations) : "",
-        Object.keys(e.params || {}).length ? el("pre", {}, JSON.stringify(e.params, null, 2)) : "",
-        el("pre", {}, JSON.stringify(e.result, null, 2)),
+        mapaDeEvidencia(e) || "",   // C5: grafo de llamadas y mapa de la app de REA, antes del JSON
+        // tabindex: un bloque con desplazamiento tiene que poder recorrerse con el teclado (axe).
+        Object.keys(e.params || {}).length ? el("pre", { tabindex: "0" }, JSON.stringify(e.params, null, 2)) : "",
+        el("pre", { tabindex: "0" }, JSON.stringify(e.result, null, 2)),
         el("p", { class: "muted small" }, `id ${e.evidence_id} · ${fmtTime(e.created_at)} · ${e.environment}`));
     });
     return d;
