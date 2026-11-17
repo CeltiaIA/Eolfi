@@ -36,6 +36,10 @@ No declares terminado, correcto, compilable, seguro ni equivalente un cambio o a
 
 ## Entrega
 
+En entregas, autoría y ramas nuevas usa el nombre **Luis** y el prefijo `luis/`; no añadas nombres de
+agentes ni atribuciones automáticas a commits, títulos o mensajes destinados a publicación. Conserva
+los identificadores técnicos de integraciones y las evidencias históricas que los necesiten.
+
 Resume qué cambió, por qué, qué comandos se ejecutaron y sus resultados. Enlaza informes y evidencias. No hagas commits ni publiques/instales artefactos salvo instrucción expresa.
 
 ## Registro de mantenimiento

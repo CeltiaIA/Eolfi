@@ -1,0 +1,49 @@
+{
+  "schema": "eolfi.modelos.perfil/v1",
+  "estado": "perfil_preparado_con_limites",
+  "adoptado": false,
+  "fecha_utc": "2026-11-17T08:24:23.867175+00:00",
+  "perfil": "gemma4_recon_q4",
+  "modelo": "D:\\Eolfi\\generated\\modelos\\gemma4-q4_k_m-2026-11-17\\modelo.gguf",
+  "modelo_sha256": "d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054",
+  "receta": "D:\\Eolfi\\generated\\modelos\\gemma4-q4_k_m-2026-11-17\\receta.json",
+  "smoke": "D:\\Eolfi\\generated\\modelos\\gemma4-q4_k_m-2026-11-17\\inferencia-20261117T033621135898Z.json",
+  "arquitectura": "gemma4",
+  "cuantizacion": "Q4_K_M",
+  "metadatos_planificador": {
+    "gemma4.block_count": 48,
+    "gemma4.context_length": 262144,
+    "gemma4.embedding_length": 3840,
+    "gemma4.attention.head_count": 16,
+    "gemma4.attention.sliding_window": 1024
+  },
+  "plantilla": {
+    "sha256": "845f1ee48e39fc942fe190da9df6a1c5db229e17a96ea08966ad1c9274e73d1b",
+    "bytes": 18924
+  },
+  "propuesta": {
+    "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+    "model": "D:\\Eolfi\\generated\\modelos\\gemma4-q4_k_m-2026-11-17\\modelo.gguf",
+    "ctx": 32000,
+    "gpu_layers": 8,
+    "batch": 128,
+    "ubatch": 64,
+    "reasoning_format": "deepseek",
+    "chat_template_kwargs": {"enable_thinking": false}
+  },
+  "verificacion": {
+    "conversion": "salida 0 y SHA-256 verificado",
+    "inferencia": "smoke_superado: una pregunta determinista en CPU",
+    "banco": "NO VERIFICADO"
+  },
+  "incognitas": [
+    "Tipo de tensor con tamaño no establecido: 14 (45 tensores)",
+    "Tipo de tensor con tamaño no establecido: 12 (284 tensores)"
+  ],
+  "limites": [
+    "La propuesta no modifica la configuración ni arranca el servidor",
+    "El smoke cubre una pregunta en CPU; no sustituye el banco ni el servidor Eolas",
+    "gpu_layers, batch y ubatch requieren validar memoria y rendimiento en el equipo",
+    "Los layouts de cuantización no cubiertos por el auditor siguen NO VERIFICADOS"
+  ]
+}

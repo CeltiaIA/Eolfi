@@ -1,7 +1,182 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-11 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-17 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
+
+## Reanudación y pruebas activas (17/11/2026)
+
+- Preferencia del titular: autoría **Luis**, ramas `luis/`, sin atribuciones a agentes en nuevas entregas.
+  Configuración local de Git aplicada. Rama actual `luis/modelos-reconstruccion`; los tres commits locales
+  del bloque G (`f4ecd58`, `5b21787`, `7552c6a`) tienen autor y confirmador Luis; sin publicación.
+  Las referencias anteriores abajo son históricas; los árboles de archivos se conservan.
+- B2 terminado (17/11 00:53): 6/6 muestras 9/9, media 1,000, desviación 0,000 y salida 0;
+  la repetición de la semilla 0 dio el mismo resultado y el motor 8090 quedó parado. Repetir sin cambiar
+  código, modelo, perfil o hipótesis duplicaría unas 4 h 33 min de trabajo sin ampliar la cobertura.
+- **Banco «tareas» sobre la reconstrucción (17/11 06:21–07:22): interrumpido.** El primer `create` superó los
+  3600 s del banco y no hay ninguna muestra. Mismo código `52cc369`, script y semillas que el B2; config temporal
+  en el puerto 8092. Generación a 4,1–4,7 t/s frente a 7,6–8,8 del publicado, con la VRAM a 7,7/8 GB; la causa
+  sigue sin verificar. Calidad NO VERIFICADA. Modelo con el mismo hash; la GPU queda libre.
+  **Suspendido por el titular (17/11, mañana):** no se repite hasta tener las implementaciones necesarias
+  (ajuste de memoria/rendimiento del perfil y presupuesto de tiempo del banco). La reconstrucción queda como
+  modelo con fallos NO VALIDADOS: timeout en el banco, layouts K y procedencia del SDK.
+- **B8 parcial (17/11):** `eolfi/acciones.py`, un registro encadenado por SHA-256 (`~/.eolfi/acciones.jsonl`,
+  esquema `eolfi-acciones/v1`) de las acciones que cambian estado en eolas_v2 y modelos_reconstruir, mediante
+  el decorador `@registrada`. No registra vistas previas. Cerrojo entre procesos; `eolfi acciones verificar|listar`.
+  Las pruebas lo redirigen a temporales (conftest). `tests/test_acciones.py`: 16 pasadas, incluida la escritura
+  concurrente de 4 procesos. Límites: no firmado; si escribir falla, solo avisa por stderr; la cadena RSI de
+  `vas-b1-b2` sigue separada; `assist`, `create` y el puente aún no registran.
+  Validación final con B6, B7 y B8 juntos: pytest **790 pasadas, 8 omitidas, 412,40 s**, salida 0 (6 omitidas son
+  nativas sin opt-in); bridge 63/4 omitidas; vscode-bridge 192; e2e 19; todas salida 0; `git diff --check` 0.
+  No se creó el `~/.eolfi/acciones.jsonl` real. La suite anterior, solo B6/B7, dio 774/8 con salida 0.
+- **C3 hecho en local (17/11):** `eolfi web URL --render --paginas N --profundidad D`. Chrome sin interfaz vía
+  playwright-core, solo el mismo origen, robots.txt, rutas `pushState`, otros hosts bloqueados, DOM renderizado
+  analizado e indicio de SPA. `tests/test_web_render.py`: 9 pasadas, una con Chrome real sobre una SPA servida en
+  127.0.0.1. Sin interacciones; no probado contra un sitio público (NO VERIFICADO).
+- **C2 parcial (17/11):** `eolfi update --check [--red] [--repo]` (`eolfi/actualizacion.py`): versión, modo de
+  instalación, commit y versiones del puente y de la extensión; con `--red` compara con la última publicación o
+  etiqueta de CeltiaIA/Eolfi en api.github.com (sin credenciales; rechaza `EOLAS_OFFLINE=1`). No instala nada.
+  `tests/test_actualizacion.py`: 11 pasadas. Consulta real NO VERIFICADA (no hay publicaciones ni etiquetas).
+  Falta el empaquetado pipx o ejecutable y el acceso directo.
+- **B8 en el puente Node (17/11):** `eolfi/bridge/acciones.mjs` añade a la misma cadena `puente.chat`,
+  `puente.comparativa`, `puente.permiso`, `puente.revocar` y `puente.reiniciar` (prompt y respuesta solo como hash).
+  Prueba cruzada Python/Node en `tests/test_acciones_puente.py` y 7 pruebas Node en `test/acciones.test.mjs`.
+  Arreglado: `verificar` usaba `splitlines` y daba por rota una cadena con U+2028 en un texto. Verificado con el
+  puente real en Electron (instancia aislada con `--user-data-dir` temporal, sin ventanas de chat ni red externa):
+  dos `/v1/revoke` dejaron 2 eventos `puente.revocar` y `eolfi acciones verificar` dio ok. NO VERIFICADO en
+  Electron: un envío real a un chat y «Permitir 30 minutos» (necesitan el diálogo y un sitio con sesión).
+- **Subidas (17/11):** por indicación del titular, mientras dure la cola los commits nuevos se quedan en local.
+- **G5 parcial (17/11):** `eolfi/modelos_actualizar.py`. `modelos actualizar --fuentes F --red` compara con Hugging Face
+  y `modelos descargar ... --red` baja un archivo fijado por commit y SHA-256, sin sobrescribir; después lo
+  audita (G1), deja el recibo `descarga.json` y lo registra en B8. Rechaza `EOLAS_OFFLINE=1`, hosts ajenos a HF
+  y credenciales. `tests/test_modelos_actualizar.py`: 23 pasadas con red simulada. Consulta real NO VERIFICADA;
+  falta comparar con el banco antes de adoptar. Guía: `docs/modelos-actualizar.md`.
+- **B8, continuación (17/11):** se registran `generador.assist` y `generador.create`; el encargo se guarda
+  solo como huella (SHA-256 y bytes) y el resultado como resumen (ok, archivos, rondas, mejor intento). Anclas
+  externas: `eolfi acciones anclar --destino F` y `eolfi acciones verificar --ancla F`, que detectan reescritura
+  o truncado anteriores al ancla. `tests/test_acciones.py`: 25 pasadas. Suite completa: 798 pasadas, 8 omitidas
+  y 1 fallo intermitente, `test_observe.py::test_desktop_scenario_windows_uia` (maneja el escritorio real y
+  coincidió con las suites node/e2e en paralelo). Repetida sola y con su archivo: 40/40. Bridge 63/4,
+  vscode-bridge 192 y e2e 19, salida 0. Pendiente B8: cadena RSI de `vas-b1-b2`, puente Node y firma.
+- **Smoke CPU de la reconstrucción real: superado (17/11).** Los dos intentos con `llama-completion` fallaron
+  porque b11968 mete `<|think|>` aunque se pida `-rea off`; el ejecutor pasa a `llama-cli` con
+  `--chat-template-kwargs '{"enable_thinking":false}'` y la respuesta se extrae entre el eco `> pregunta` y
+  `[ Prompt:` (sin marcas, falla). Respuesta real `43`, salida 0, 13,4 s, 3,7 t/s, modelo con el mismo hash.
+  Pruebas del módulo 36/6 omitidas. Suites completas: pytest **758/8 omitidas** (6 nativas sin opt-in),
+  bridge 63/4, vscode-bridge 192, e2e 19; todas salida 0. Informe:
+  `informes/modelos-g-2026-11-16/avance-g4-real-y-smoke.md`. Pendiente G4: banco sobre la reconstrucción,
+  layouts K del auditor, procedencia del SDK; adopción en G6. LIM-G-006 conserva la carpeta de 7,4 GB.
+- **G6 parcial:** nueva orden de solo lectura `eolas-v2 plan`. Exige conversión y smoke enlazados por el
+  mismo SHA-256, repite la auditoría y valida plantilla, contexto, capas y ventana deslizante antes de
+  proponer parámetros. Ejecución real: perfil `gemma4_recon_q4`, contexto 32.000, 8 capas GPU, batch 128,
+  ubatch 64; `adoptado: false`, sin motor ni cambio de configuración. Evidencia `g6-plan-real.json`.
+  Pruebas específicas de reconstrucción/Eolas/cliente: 105 pasadas, 6 omitidas. Validación final: Python 776/2
+  omitidas con seis cuantizaciones nativas; bridge 63/4, vscode-bridge 192 y panel 19; todas salida 0.
+- **Adopción G6 aplicada y smoke real:** `eolas-v2 adoptar PLAN --sha256-modelo HASH --aplicar` instaló
+  `gemma4_recon_q4` como perfil gestionado inactivo y fijado al hash, sin `extra_args` y con pensamiento
+  desactivado; `gemma_q4` siguió activo. El servidor temporal cargó el perfil, respondió exactamente
+  `EOLFI-G6` (31 tokens, `finish=stop`) y se detuvo junto con su vigilante; estado final sin proceso.
+  `eolas-v2 quitar-perfil` permite retirar solo perfiles gestionados, con pin SHA-256, conservando GGUF,
+  receta, smoke y evidencias. Banco y ajuste definitivo de memoria/rendimiento siguen NO VERIFICADOS.
+- **G3 parcial:** con `EOLAS_OFFLINE=1`, Eolas V2 arranca llama.cpp con su `--offline` nativo y variables
+  offline para llama.cpp/Hugging Face/Transformers, guarda el modo en runtime y evita reutilizar un proceso
+  arrancado con un modo distinto. `status` no afirma aislamiento: `firewall_verified=false`. Pendiente que el
+  titular cree y compruebe la regla de cortafuegos de salida.
+- **B6 implementado en local:** `assist` puntúa cada ronda por verificación realmente superada, marca el mejor
+  intento y conserva sus hashes/evidencia; si no hay verde restaura el proyecto y no aplica el candidato. Solo
+  una ronda verde se guarda en `~/.eolfi/assist-verified.jsonl`: petición y textos redactados, resumen, notas y
+  rutas relativas, sin código fuente ni candidatos fallidos; deduplicada, limitada a 200 y desactivable con
+  `EOLFI_NO_ASSIST_MEMORY=1`. Los últimos tres ejemplos del mismo destino se pasan como datos no confiables.
+  `tests/test_assist.py`: 12 pasadas. NO VERIFICADO todavía con un modelo real.
+- **B7 parcial:** la memoria nueva del banco conserva batería, resumen, ganador y aprobados. La orden
+  `eolas-v2 recomendar-perfil` es vista previa por defecto y exige `--aplicar` para cambiar el activo;
+  `assist --model banco` consume esa misma evidencia y no hace fallback silencioso. Solo admite perfiles con
+  GGUF local, no retirados, aprobados y con ronda de hasta 30 días. Pruebas combinadas B6/B7/modelos: 119
+  pasadas, 6 omitidas. Vista previa real: `NO_VERIFICADO` porque la memoria histórica no tiene todavía el
+  resumen de la nueva versión; ningún perfil cambió. Evidencia `b7-recomendacion-preview.json`.
+
+## Continuación G4: conversión real y smoke (17/11/2026) — registro del avance previo
+
+- Commit previo `15cdbd7` (bloque G) ya existe en `codex/modelos-reconstruccion`; sin publicar.
+- Conversión real ejecutada: Gemma BF16 → Q4_K_M en `generated/modelos/gemma4-q4_k_m-2026-11-17/` (ignorado por git).
+  Cuantizador salida 0 en 722 s; salida 7.381.383.776 bytes, SHA-256
+  `d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054`; 667 tensores (338 F32, 284 tipo 12, 45 tipo 14);
+  original con el mismo hash después. Estado de la receta: NO VERIFICADO (layouts K, inferencia y banco).
+- Nueva orden `modelos probar` (smoke de inferencia solo CPU, con hash del paquete del ejecutor) en
+  `eolfi/modelos_reconstruir.py` y `eolfi/cli.py`; guía en `docs/modelos-reconstruccion.md`.
+  `tests/test_modelos_reconstruir.py`: 29 pasadas, 6 omitidas (nativas sin opt-in).
+- **NO VERIFICADO / pendiente:** smoke real sobre la reconstrucción (paquete de `llama-completion.exe`:
+  `779ee85e567371effdac71e1d73903d4442c3ed6aa50e76c5ef4b882a9510330`; los argumentos del ejecutor no se han probado
+  con un modelo real), suites completas tras el cambio, banco, informe de avance y entrada de limpieza para la
+  carpeta de 7,4 GB. El fixture sintético no carga en inferencia (probado: falla el vocabulario).
+- Motor ajeno en marcha sin tocar: llama-server PID 34776 en 8090 (Gemma Q4, GPU al 100 %).
+
+## Continuación G4: reconstrucción por cuantización (16/11/2026)
+
+- Rama actual `codex/modelos-reconstruccion`, sin commits/publicación; conserva los cambios anteriores.
+- Nueva CLI `modelos reconstruir`: preparación sin ejecutar y conversión explícita con hashes de entrada
+  y paquete local, salida nueva, receta/log/auditorías y hash posterior del original. No adopta perfiles.
+  Entorno del hijo acotado, sin claves del cliente/proxies/registros privados; no implementa cortafuegos.
+- Seis presets ejecutados con cuantizador nativo y BF16 sintético propio; Q8 con decodificación numérica
+  independiente. Los layouts K siguen NO VERIFICADOS. Incluso con conversión 0, CLI 2 indica que faltan
+  inferencia y banco. Pruebas específicas: 99 pasadas, 48,50 s.
+- BF16 Gemma real de 23.832.066.656 bytes auditado íntegramente; receta base y seis derivadas preparadas,
+  sin conversión ni adopción. Motor activo preservado. Identidad del SDK fijada por ejecutable y 33 DLL;
+  procedencia oficial NO VERIFICADA. REA contrasta imports y estructura de la salida sintética Q8.
+- Validación completa final: **748 pasadas, 2 omitidas, 432,91 s**, con seis conversiones nativas activadas.
+  Bridge 63/4 omitidas; vscode-bridge 192; panel 19; todos salida 0. La primera suite dio 748/2 omitidas;
+  una posterior falló al recoger
+  temporales ajenos desde una prueba del proyecto generado. Corregida la raíz/directorio de ese pytest,
+  sin recortar pruebas: `tests/test_reconstruct.py`, 16 pasadas. Informe con resultados y límites:
+  `informes/modelos-g-2026-11-16/avance-g4-reconstruccion.md`. G4 parcial; G3/G5/G6 pendientes.
+- LIM-G-005 conserva muestras sintéticas y diagnósticos históricos hasta revisar la limpieza al cierre.
+
+## Continuación G1: chat y conexiones del motor (16/11/2026)
+
+- Misma rama `codex/modelos-bloque-g`, sin commits ni publicación; se conservan los cambios del avance previo.
+- `eolfi_modelos_auditar` disponible en MCP y chat: solo lectura, raíces respetadas, cabecera GGUF aun con
+  extensión `.bin`; resultados como datos, sin cargar pesos ni ejecutar plantilla. Contexto específico para
+  adjuntos/rutas `.gguf`, sin tratarlos como ejecutables nativos. La elección por un modelo real sigue
+  **NO VERIFICADA** (el motor activo tiene trabajo; no se lo ha interrumpido).
+- `modelos conexiones --pid PID` y `modelos auditar ARCHIVO --pid PID`: instantánea IP Helper TCP/UDP v4/v6
+  en Windows. Solo lectura; escuchas sin extremo remoto, IPv4 mapeada normalizada para clasificar loopback.
+  Linux/macOS devuelven NO VERIFICADO. La instantánea no demuestra aislamiento permanente ni pesos cargados.
+- CLI contra el motor real PID 34776: escucha `127.0.0.1:8090` y conexión establecida a loopback, sin filas
+  UDP en esa instantánea. Identidad de ejecutable/proveedor y límites en el informe. Auditor MCP real
+  contra Gemma Q4: hash coincide, 667 tensores, conserva NO VERIFICADO para 329 tensores K.
+- Específicas: 73 pasadas (incluye guía MCP y sockets loopback reales). Bridge 63/4 omitidas,
+  vscode-bridge 192, panel 19. Una suite completa terminó 721/1 fallo/2 omitidas: la guía todavía esperaba
+  12 herramientas, ahora son 13. Se actualizó la guía y se reforzó la prueba para exigir el auditor y su
+  carácter de solo lectura. Repetición completa: **722 pasadas, 2 omitidas**, 408,62 s, salida 0.
+  Panel real recargado y saludable: PID 32616, inicio 22:23:29, posterior al cambio del chat/MCP.
+- Evidencias y estado: `informes/modelos-g-2026-11-16/avance-g1-chat-conexiones.md`. Limpieza: LIM-G-003
+  (instantánea intermedia conservada) y LIM-G-004 (texto antiguo de modelo predeterminado en README).
+  G1 conserva límites pendientes; G2 sin activar/extender a todos los clientes y G3–G7 sin cerrar.
+
+## Reanudación 16/11/2026: bloque G y adjuntos de modelos grandes
+
+- Rama `codex/modelos-bloque-g`, en `D:\Eolfi`, desde `ca05ef4`. Sin commits ni publicación.
+- Plan definitivo copiado desde `D:\Eolfi-wt-voz\PLAN_DEFINITIVO.md` a esta copia de trabajo; el original de
+  voz no se ha modificado. G1/G2 actualizados como PARCIALES, no cerrados. G3–G7 siguen pendientes.
+- Nuevas órdenes `modelos auditar` y `modelos comprobar`. Auditor GGUF acotado, SHA-256 completo, plantilla,
+  datos del planificador y control opcional por manifiesto en arranque Python de V2/llama.cpp. No activado
+  en la configuración real ni extendido a Eolas Base. Documentación: `docs/modelos-confianza.md`.
+- Lectura real de Gemma Q4 y contraste REA: 667 tensores y hash completo; 329 tensores K con layout ambiguo.
+  Resultado **NO VERIFICADO** para sus tamaños y bytes sobrantes. No se afirma seguridad de pesos ni
+  ausencia de puertas traseras. Evidencias en `informes/modelos-g-2026-11-16/`.
+- Petición posterior del titular: adjuntar `.gguf` y cualquier otro formato con los tamaños de los modelos
+  locales. Se retira el tope fijo para subidas por bloques del chat/Analizar/Crear proyecto; memoria acotada
+  a bloques de 1 MiB y comprobación de espacio antes de leer. La ruta local existente evita duplicarlos.
+  El panel se recargó: PID 37764, inicio 21:32:41, posterior a `server.py` (21:32:38).
+- Pruebas específicas: 90 del auditor/proveedores y 65 de servidor/auditor; bridge 63/4 omitidas,
+  vscode-bridge 192 y e2e 19, con adjuntos en Chrome y axe. Prueba HTTP real de 257 MiB aprobada.
+  Subida HTTP real del BF16 local (23.832.066.656 bytes): 200 y hash comprobado por relectura de destino;
+  copia temporal eliminada, original intacto. Suite completa: 704 pasadas, 2 omitidas y un fallo móvil
+  (`test_estado_persistente_y_capturas_en_la_especificacion`, esperaba contradicted y obtuvo observed).
+  La prueba aislada pasó (44,56 s). Segunda suite completa sin la subida: **705 pasadas, 2 omitidas**,
+  411,83 s, salida 0. La causa del fallo inicial no está confirmada; el código móvil no se tocó ni se
+  ampliaron sus plazos. La incidencia inicial se conserva en el informe.
+- Informe de avance y límites: `informes/modelos-g-2026-11-16/avance.md`. Registro de limpieza ampliado
+  con LIM-G-001 y LIM-G-002; no se ha retirado nada.
 
 ## 0a. Fase 2: interfaz móvil Android (2026-11-11)
 

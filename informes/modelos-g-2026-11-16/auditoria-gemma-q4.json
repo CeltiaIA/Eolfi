@@ -1,0 +1,50 @@
+{
+  "schema": "eolfi.modelos.audit/v1",
+  "archivo": "D:\\AI\\Hydra\\gguf\\gemma-4-12b-it-Q4_K_M.gguf",
+  "errores": [],
+  "incognitas": [
+    "Tipo de tensor con tamaño no establecido: 12 (285 tensores)",
+    "Tipo de tensor con tamaño no establecido: 14 (44 tensores)"
+  ],
+  "limites": [
+    "No descarta puertas traseras en los pesos ni vulnerabilidades del motor",
+    "No observa conexiones; no ejecuta el modelo ni la plantilla"
+  ],
+  "bytes": 7121860000,
+  "tipos_no_cubiertos": {
+    "12": 285,
+    "14": 44
+  },
+  "cabecera_bytes": 15822733,
+  "datos_offset": 15822752,
+  "version": 3,
+  "tensores": 667,
+  "claves": 58,
+  "arquitectura": "gemma4",
+  "nombre": "Gemma-4-12B-It",
+  "cadenas_a_revisar": [
+    {
+      "clave": "general.license.link",
+      "cadena": "https://ai.google.dev/gemma/docs/gemma_4_license"
+    },
+    {
+      "clave": "general.repo_url",
+      "cadena": "https://huggingface.co/unsloth"
+    },
+    {
+      "clave": "general.base_model.0.repo_url",
+      "cadena": "https://huggingface.co/google/gemma-4-12b-it"
+    }
+  ],
+  "plantilla_sha256": "36e3a42e5cf14cd0020e72d92e1fdd9970f59b82170e421f0cbe1bb42bead3f0",
+  "plantilla_bytes": 17466,
+  "planificador": {
+    "gemma4.block_count": 48,
+    "gemma4.context_length": 262144,
+    "gemma4.embedding_length": 3840,
+    "gemma4.attention.head_count": 16,
+    "gemma4.attention.sliding_window": 1024
+  },
+  "sha256": "43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6",
+  "estado": "NO VERIFICADO"
+}

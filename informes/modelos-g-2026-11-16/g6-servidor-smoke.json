@@ -1,0 +1,36 @@
+{
+  "schema": "eolfi.modelos.servidor-smoke/v1",
+  "fecha": "2026-11-17",
+  "perfil": "gemma4_recon_q4",
+  "modelo_sha256": "d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054",
+  "url": "http://127.0.0.1:8090",
+  "arranque": {
+    "codigo_salida": 0,
+    "running": true,
+    "started": true,
+    "pid_observado": 22736,
+    "idle_watchdog_pid_observado": 30036
+  },
+  "inferencia": {
+    "peticion": "Responde unicamente con EOLFI-G6.",
+    "respuesta": "EOLFI-G6",
+    "finish_reason": "stop",
+    "prompt_tokens": 25,
+    "completion_tokens": 6,
+    "total_tokens": 31,
+    "codigo_salida": 0
+  },
+  "parada": {
+    "codigo_salida": 0,
+    "stopped": true,
+    "running_final": false,
+    "running_profile_final": null,
+    "pid_final": null,
+    "idle_watchdog_pid_final": null,
+    "perfil_activo_final": "gemma_q4"
+  },
+  "limites": [
+    "Este smoke demuestra carga y una inferencia local, no calidad general",
+    "Banco, contexto largo, herramientas y ajuste definitivo de memoria/rendimiento NO VERIFICADOS"
+  ]
+}

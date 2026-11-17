@@ -1,0 +1,306 @@
+{
+  "schema": "eolfi.modelos.reconstruccion/v1",
+  "estado": "NO VERIFICADO",
+  "ejecutado": true,
+  "fecha_utc": "2026-11-16T22:40:08.365995+00:00",
+  "plataforma": "win32",
+  "version_sistema": [
+    10,
+    0,
+    26300
+  ],
+  "bits_python": 64,
+  "entrada": {
+    "schema": "eolfi.modelos.audit/v1",
+    "archivo": "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\sintetico-bf16.gguf",
+    "errores": [],
+    "incognitas": [],
+    "limites": [
+      "No descarta puertas traseras en los pesos ni vulnerabilidades del motor",
+      "No observa conexiones; no ejecuta el modelo ni la plantilla"
+    ],
+    "bytes": 955520,
+    "tipos_no_cubiertos": {},
+    "tipos_tensores": {
+      "30": 9,
+      "0": 3
+    },
+    "tipo_archivo": 32,
+    "division": {},
+    "declaraciones_tensores_sha256": "7aa79ab46c3a654d518719dc9c0d2bf403649fa3f894b0f0e2dd6fc297030af2",
+    "cabecera_bytes": 2159,
+    "datos_offset": 2176,
+    "bytes_sobrantes": 0,
+    "version": 3,
+    "tensores": 12,
+    "claves": 18,
+    "arquitectura": "llama",
+    "nombre": "eolfi-sintetico-no-inferencia",
+    "cadenas_a_revisar": [],
+    "plantilla_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "plantilla_bytes": 0,
+    "planificador": {
+      "llama.block_count": 1,
+      "llama.context_length": 128,
+      "llama.embedding_length": 256,
+      "llama.attention.head_count": 8,
+      "llama.attention.head_count_kv": 8
+    },
+    "sha256": "1194609bf0bd4c1d4fd2dea47aff0d79cb5fd411f7255b1463d18ca6999d5b55",
+    "estado": "estructura_verificada"
+  },
+  "herramienta": {
+    "archivo": "D:\\EOLAS-BASE\\llama\\llama-quantize.exe",
+    "sha256": "3da7b6058d055f99c9f3f012d6e3981aa2021958fc8e8078fbd2891d4dc282a4",
+    "version": "NO VERIFICADA",
+    "bibliotecas_locales": [
+      {
+        "nombre": "cublas64_12.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\cublas64_12.dll",
+        "sha256": "e40202fe4223c1cd2d2dce7beec59e1ed61c7801bd827309183be9b50e358f4c"
+      },
+      {
+        "nombre": "cublasLt64_12.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\cublasLt64_12.dll",
+        "sha256": "2a896460bef60ed57ef32b0875812f355a6984e671d638bb632f5e8c1d7a831f"
+      },
+      {
+        "nombre": "cudart64_12.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\cudart64_12.dll",
+        "sha256": "d28e42265da7462162a54da6b7a99ea4fa2caf8139d862bb500db875d0b32dfc"
+      },
+      {
+        "nombre": "ggml-base.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-base.dll",
+        "sha256": "fb09f458e6f68071e1524fc79edff009910f684d2191d5276829f0b40d3ae291"
+      },
+      {
+        "nombre": "ggml-cpu-alderlake.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-alderlake.dll",
+        "sha256": "0591fbb6274917c622a6b19932df2a8e94e9cf8c7cabd8511377cf3f1256c8ef"
+      },
+      {
+        "nombre": "ggml-cpu-cannonlake.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-cannonlake.dll",
+        "sha256": "c9ebb3f8b497328cc8acfac52a7f19c1d61625a17a23a8115e755a0986bff342"
+      },
+      {
+        "nombre": "ggml-cpu-cascadelake.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-cascadelake.dll",
+        "sha256": "b89aae9c6c0800948d7cddfc2cb03b5fafcaccd32f62e93d4198b8a71c97c12e"
+      },
+      {
+        "nombre": "ggml-cpu-cooperlake.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-cooperlake.dll",
+        "sha256": "df5d58624b83da72da6dd605d30a3e4ee13fe19818c9a105371830171365e264"
+      },
+      {
+        "nombre": "ggml-cpu-haswell.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-haswell.dll",
+        "sha256": "8ac5cced3f25493fac0fc41d4b963f0fffade28ba881b5d2174c7af3d99125b1"
+      },
+      {
+        "nombre": "ggml-cpu-icelake.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-icelake.dll",
+        "sha256": "fa2468ec829a1fb04cc7b38b53e987360053465b488274b57a248d758a4a264f"
+      },
+      {
+        "nombre": "ggml-cpu-ivybridge.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-ivybridge.dll",
+        "sha256": "c493300eafcb9e246528fdd3549c910262de3e675f79f4b6df67ee535d5b7b69"
+      },
+      {
+        "nombre": "ggml-cpu-piledriver.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-piledriver.dll",
+        "sha256": "3d37f538302da4e0afc0ec3e5c7a4edebf17ebba7d1522abbadf7eb3b34a491d"
+      },
+      {
+        "nombre": "ggml-cpu-sandybridge.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-sandybridge.dll",
+        "sha256": "aaf804bf450a6313f80c5f887b6175fafa0d442d238d0b09f87750411f06c7d9"
+      },
+      {
+        "nombre": "ggml-cpu-sapphirerapids.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-sapphirerapids.dll",
+        "sha256": "79192cd3d93b4a39b6a44f9cb62581b4c11182d6ca8932407f2d127936329819"
+      },
+      {
+        "nombre": "ggml-cpu-skylakex.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-skylakex.dll",
+        "sha256": "90206d3bc48affc6e8443b42d837f3c689152c9863e154c6125d9d6337e812c1"
+      },
+      {
+        "nombre": "ggml-cpu-sse42.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-sse42.dll",
+        "sha256": "9ba6e72a66cd780a02f65866a532edaabd70da559937cc43124fe8acabf3ee53"
+      },
+      {
+        "nombre": "ggml-cpu-x64.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-x64.dll",
+        "sha256": "657ae8d810bdce18ec03a6b72929ccc3b35486d2c3ceaf9d11c94dc85fcd0573"
+      },
+      {
+        "nombre": "ggml-cpu-zen4.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cpu-zen4.dll",
+        "sha256": "e0b806f74a38f297365c6c422b540f400a3b687edc7ee5bade559c585a278890"
+      },
+      {
+        "nombre": "ggml-cuda.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-cuda.dll",
+        "sha256": "47ccd40fec564cfb3286cb623db3cf47e81413c827fa0aeef02ac6460f9364c0"
+      },
+      {
+        "nombre": "ggml-rpc.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml-rpc.dll",
+        "sha256": "0df4a899788dae9dcb792dbd6d3b8135c45ffc35086b8dfc314ed558245e7d9c"
+      },
+      {
+        "nombre": "ggml.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\ggml.dll",
+        "sha256": "59ac2bc56e3d65a6abfd3018d9ba86448858ad091bf304dad7802f25b263d5e3"
+      },
+      {
+        "nombre": "libomp.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\libomp.dll",
+        "sha256": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"
+      },
+      {
+        "nombre": "llama-batched-bench-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-batched-bench-impl.dll",
+        "sha256": "a8da7c0c06f169b4a3b5846902f5c096231ba5e82c51c7e9dfc6e9e3a22d6e39"
+      },
+      {
+        "nombre": "llama-bench-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-bench-impl.dll",
+        "sha256": "722508b1059fbda7b02e6142b1b5062ca128e391963f5d4f2fd65a8b95b1de29"
+      },
+      {
+        "nombre": "llama-cli-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-cli-impl.dll",
+        "sha256": "fe26771604550ca7a3bbaf34f40c32d52a66e00d59aa2f18efdd049828efac17"
+      },
+      {
+        "nombre": "llama-common.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-common.dll",
+        "sha256": "bee6bec245bc60bd87b946f139e2c51d4886bf03fef18be388666ea949f785b0"
+      },
+      {
+        "nombre": "llama-completion-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-completion-impl.dll",
+        "sha256": "5e40587127857a232c4cad0ccc275f1fa4d068cc9d0a3311a7d271ab7f7ace10"
+      },
+      {
+        "nombre": "llama-fit-params-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-fit-params-impl.dll",
+        "sha256": "3d1eeb5c21a38b2ba287ac8ee165395035cf9db93f7177503d0ddaecdcfba711"
+      },
+      {
+        "nombre": "llama-perplexity-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-perplexity-impl.dll",
+        "sha256": "76523d0422a24ec1a9bcfb6f7c48a2ea4e55f4b38650e1150fab12bba3f39d3b"
+      },
+      {
+        "nombre": "llama-quantize-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-quantize-impl.dll",
+        "sha256": "78230a5b906c0205d38a8072da87911c31a2a1028f7bc8fbbcb4608168d4ad01"
+      },
+      {
+        "nombre": "llama-server-impl.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama-server-impl.dll",
+        "sha256": "33b4bf8499ca842a53e9f0738ea4c511f876b108a6c5df437eef0c2f43610f88"
+      },
+      {
+        "nombre": "llama.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\llama.dll",
+        "sha256": "4a104d752784fd437ecdb15b9e665ca76bdb208916051a44412d87cf223bd128"
+      },
+      {
+        "nombre": "mtmd.dll",
+        "archivo": "D:\\EOLAS-BASE\\llama\\mtmd.dll",
+        "sha256": "8ca1e2be0f9f98d353d8dd648368cbdb43cfde7f51c4c90e65e62d9e798e5a8d"
+      }
+    ],
+    "bundle_sha256": "33c8f441079190342b65acb13ca6479ab72ac5037ccfe10e1661d18e947a5262",
+    "version_declarada_en_log": "0.8.0-dev (build 11968, commit ac8e1694d)"
+  },
+  "cuantizacion": "Q8_0",
+  "entrada_stamp": [
+    955520,
+    1794868804765803000,
+    562949954898614
+  ],
+  "hilos": 4,
+  "memoria_mib": 256,
+  "timeout_segundos": 60.0,
+  "preparacion_segundos": 3.609,
+  "carpeta_salida": "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\q8_0",
+  "salida": "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\q8_0\\modelo.gguf",
+  "argv": [
+    "D:\\EOLAS-BASE\\llama\\llama-quantize.exe",
+    "--max-buffer-size",
+    "256",
+    "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\sintetico-bf16.gguf",
+    "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\q8_0\\modelo.gguf",
+    "Q8_0",
+    "4"
+  ],
+  "verificacion": {
+    "inferencia": "NO VERIFICADO",
+    "banco": "NO VERIFICADO"
+  },
+  "limites": [
+    "La identidad de la herramienta no verifica su procedencia ni su seguridad",
+    "Bibliotecas del sistema y módulos cargados dinámicamente no inventariados",
+    "No se adopta el modelo ni se cambia la lista de confianza",
+    "Sin aislamiento de red del sistema; los indicadores offline no equivalen a cortafuegos"
+  ],
+  "pid_cuantizador": 38512,
+  "auditoria_salida": {
+    "schema": "eolfi.modelos.audit/v1",
+    "archivo": "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\q8_0\\modelo.gguf",
+    "errores": [],
+    "incognitas": [],
+    "limites": [
+      "No descarta puertas traseras en los pesos ni vulnerabilidades del motor",
+      "No observa conexiones; no ejecuta el modelo ni la plantilla"
+    ],
+    "bytes": 510112,
+    "tipos_no_cubiertos": {},
+    "tipos_tensores": {
+      "8": 9,
+      "0": 3
+    },
+    "tipo_archivo": 7,
+    "division": {},
+    "declaraciones_tensores_sha256": "7aa79ab46c3a654d518719dc9c0d2bf403649fa3f894b0f0e2dd6fc297030af2",
+    "cabecera_bytes": 2203,
+    "datos_offset": 2208,
+    "bytes_sobrantes": 0,
+    "version": 3,
+    "tensores": 12,
+    "claves": 19,
+    "arquitectura": "llama",
+    "nombre": "eolfi-sintetico-no-inferencia",
+    "cadenas_a_revisar": [],
+    "plantilla_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "plantilla_bytes": 0,
+    "planificador": {
+      "llama.block_count": 1,
+      "llama.context_length": 128,
+      "llama.embedding_length": 256,
+      "llama.attention.head_count": 8,
+      "llama.attention.head_count_kv": 8
+    },
+    "sha256": "e6e5c31cce83805c72b464ee8572ba32aa43da77c5f3abdd0d25a8db276ee83a",
+    "estado": "estructura_verificada"
+  },
+  "conversion": {
+    "exit": 0,
+    "error": null,
+    "log": "C:\\Users\\mejil\\AppData\\Local\\Temp\\pytest-of-mejil\\pytest-2356\\test_native_quantizer_bf16_tar5\\q8_0\\cuantizador.log",
+    "seconds": 0.312,
+    "log_sha256": "8854aafd3a44bcf083f8955cbf308cc24beb6f5d876c866ecceef4e4a38bb4bc"
+  },
+  "sha256_entrada_despues": "1194609bf0bd4c1d4fd2dea47aff0d79cb5fd411f7255b1463d18ca6999d5b55",
+  "ejecucion_segundos": 0.343
+}

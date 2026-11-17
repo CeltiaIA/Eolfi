@@ -24,12 +24,13 @@ MAX_ATTACHMENTS = 5
 MAX_TOOL_OUTPUT = 6000
 MAX_ROUNDS = 8
 CHAT_TOOLS = ("eolfi_triage", "eolfi_web", "eolfi_repo", "eolfi_informe", "eolfi_biblioteca_buscar",
-              "eolfi_biblioteca_leer")
+              "eolfi_biblioteca_leer", "eolfi_modelos_auditar")
 
 SYSTEM_PROMPT = (
     "Eres Eolfi, un asistente local de ingeniería inversa y generación de código. Responde en castellano, claro y "
     "ordenado. Tienes herramientas REALES de Eolfi: úsalas para obtener los datos en vez de suponerlos (eolfi_triage "
-    "para archivos y binarios, eolfi_web para webs, eolfi_repo para repositorios, eolfi_informe para el informe de "
+    "para archivos y binarios, eolfi_modelos_auditar para modelos GGUF sin cargarlos (un hash no acredita "
+    "seguridad de los pesos), eolfi_web para webs, eolfi_repo para repositorios, eolfi_informe para el informe de "
     "algo ya analizado, eolfi_biblioteca_buscar/leer para consultar código de referencia en Alejandría y "
     "ejecutar_python para calcular o probar código, y las herramientas rea_* de REA para ingeniería inversa: las "
     "rea_inspect_* reciben la ruta de un archivo; rea_buscar encuentra cualquier otra del catálogo de REA, rea_ayuda da su "
@@ -204,11 +205,14 @@ def validate_messages(messages: Any) -> list[dict[str, str]]:
 def with_context(messages: list[dict[str, str]], attachments: list[dict[str, str]],
                  analyze: dict[str, str] | None) -> list[dict[str, str]]:
     """Añade al último mensaje del usuario dónde están sus adjuntos y qué pidió analizar (el modelo decide cómo)."""
-    notes = [f"- Adjunto «{a['name']}» guardado en {a['path']}" + (" (analízalo como binario, modo profundo)"
-                                                                   if a.get("kind") == "binario" else "")
+    gguf_hint = " (modelo GGUF: usa eolfi_modelos_auditar, sin cargarlo ni ejecutar su plantilla)"
+    notes = [f"- Adjunto «{a['name']}» guardado en {a['path']}" + (gguf_hint if a["name"].lower().endswith(".gguf")
+             else " (analízalo como binario, modo profundo)" if a.get("kind") == "binario" else "")
              for a in attachments]
     if analyze:
         notes.append(f"- Analiza también {KIND_HINT[analyze['kind']]}: {analyze['target']}")
+        if analyze["kind"] in ("archivo", "binario") and analyze["target"].lower().endswith(".gguf"):
+            notes[-1] += gguf_hint
     if not notes:
         return messages
     last = messages[-1]

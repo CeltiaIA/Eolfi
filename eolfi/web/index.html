@@ -322,7 +322,7 @@
           <div class="eolas-chat-tools">
             <button type="button" id="eolas-chat-tools" class="ghost-btn" aria-controls="tools-drawer" title="Crear proyecto, analizar, objetivos y casos">Herramientas</button>
             <label class="ghost-btn eolas-chat-attach" role="button" tabindex="0">Adjuntar archivos
-              <input id="eolas-chat-files" type="file" multiple hidden>
+              <input id="eolas-chat-files" type="file" multiple hidden aria-describedby="eolas-chat-files-help">
             </label>
             <label class="visually-hidden" for="eolas-chat-kind">Qué analizar</label>
             <select id="eolas-chat-kind">
@@ -339,6 +339,7 @@
             <button type="button" id="eolas-chat-clear" class="ghost-btn">Nueva conversación</button>
             <button type="submit" id="eolas-chat-send">Enviar</button>
           </div>
+          <p id="eolas-chat-files-help" class="small muted">Todos los formatos: .gguf, .safetensors, código, documentos, imágenes y binarios. Sin límite fijo de tamaño; se necesita espacio para guardar una copia en el equipo. Para usar tus modelos locales sin copiarlos, elige «Archivo (ruta local)».</p>
         </form>
         <details class="eolas-chat-vscode">
           <summary>Permisos de REA (lo que ejecuta o abre algo vivo)</summary>

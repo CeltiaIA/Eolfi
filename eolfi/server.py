@@ -1146,6 +1146,10 @@ class EolfiApp:
         if length <= 0:
             raise ApiError(400, "archivo vacío")
         self.samples.mkdir(parents=True, exist_ok=True)
+        import shutil
+
+        if shutil.disk_usage(self.samples).free < length + (64 * 1024 * 1024):
+            raise ApiError(507, "No hay espacio suficiente para guardar el adjunto; usa su ruta local")
         part = self.samples / f".subida-{secrets.token_hex(8)}.part"
         h = hashlib.sha256()
         left = length
@@ -1849,16 +1853,25 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                 if not self._authorized(q):
                     self._reject(401, "falta el token: abre la URL con ?token=… que mostró `eolfi serve`")
                 self._precheck(method)
-                if method == "POST" and path == "/api/upload" and q.get("store") == "1":
+                if method == "POST" and ((path == "/api/upload" and q.get("store") == "1")
+                                         or path == "/api/projects/upload"):
                     # Por bloques, directamente a disco; el triaje se lanza después como trabajo (A4).
                     try:
                         n = int(self.headers.get("Content-Length") or 0)
                     except ValueError:
                         n = -1
-                    if n < 0 or n > MAX_UPLOAD:
+                    if n < 0:
                         self.close_connection = True
-                        raise ApiError(413, f"Content-Length inválido o mayor que {MAX_UPLOAD} bytes")
-                    return self._json(200, app.store_upload(self.rfile, n, q.get("name", "upload")))
+                        raise ApiError(400, "Content-Length inválido")
+                    try:
+                        stored = app.store_upload(self.rfile, n, q.get("name", "upload"))
+                    except Exception:
+                        self.close_connection = True  # si se rechaza antes de leer, no reutilizar el cuerpo pendiente
+                        raise
+                    if path == "/api/projects/upload":
+                        stored = {"path": str((app.samples / f"{stored['upload']}.bin").resolve()),
+                                  "sha256": stored["upload"], "size": stored["size"], "name": stored["name"]}
+                    return self._json(200, stored)
                 self._read_body(MAX_UPLOAD if path == "/api/upload" else MAX_JSON)
                 if method in ("GET", "HEAD"):
                     if path in _STATIC:

@@ -57,11 +57,9 @@ Registro vivo para la hoja de ruta de `PLAN_INGENIERIA_INVERSA_EOLFI.md`. Sirve 
 | LIM-039 | Scratchpad de la sesión del 16/11: `medir_vram.sh`, `repeticion.sh`, `resumen_rep.py`, `volcar.mjs`, `rsi-ui\` (RSI aislado de prueba) y registros `e2e-rsi.log`, `suites-rsi2.log`; y `~/.eolfi/rsi/registro.jsonl` (3 observaciones reales de `eolfi rea inventario`, antes de aislar las pruebas) | Creados el 16/11. Los guiones de medición y repetición esperan a que el titular reanude las pruebas en vivo. | Conservar los guiones hasta medir; el registro del RSI es el historial real (encadenado): no se borra. No se ha borrado nada. | Candidato, conservado |
 | LIM-040 | Scratchpad `rsi-eval\`: copia de `eolas-v2.json`, `eolas-v2-lecciones.json` y **`eolas-v2.key`** (clave de V2), registro RSI de la evaluación (10 eventos), `eval.log`, `correr.sh` y `eolas-v2.runtime.json` | Creado el 16/11 para la evaluación aislada del RSI; el V2 que usó está parado. | Contiene una copia de la clave de V2: retirar en cuanto se revise el resultado (no sale de la máquina). El registro y el log son la evidencia de la evaluación. No se ha borrado. | Candidato, conservado (prioridad: la clave) |
 | LIM-041 | Worktrees `D:\Eolfi-wt-vas` (rama `vas-plan`, sin subir) y `D:\celtiaia-wt-swa` (rama `eolas-plan-swa`, PR CeltiaIA/CeltiaIA#11); binario de prueba `scratchpad\eolas-swa\eolas.exe` (SHA-256 `c410126f…b7b4`) con su `eolas.exe.build.json`; y la copia `runtime\eolas\respaldo-2026-11-15` con «Eolas Base» en su ruta, que hace fallar `go test` desde la raíz de CeltiaIA | `git worktree list` (16/11); el binario se compiló para la A/B en vivo de la fase 2.1. | Retirar los worktrees tras fusionar o subir cada rama; el binario, cuando se fusione #11 y se recompile el instalado. El respaldo es preservación: no tocar sin revisar con el titular. No se ha borrado. | Candidato, conservado |
-| LIM-042 | Worktree `D:\Eolfi-wt-voz` (rama `voz-y-plan`, sin subir) con una unión `tests\e2e
+| LIM-042 | Worktree `D:\Eolfi-wt-voz` (rama `voz-y-plan`, sin subir) con una unión `tests\e2e\node_modules` → `D:\Eolfi\tests\e2e\node_modules`; la misma unión en `D:\Eolfi-wt-vas`; scratchpad `voz\` (guiones y WAV de prueba), `modelos\` (guion y `auditoria.json`) y `rsi-eval\rsi-aa` con `aa.log` (A/A real) | Creados el 16/11 para la voz, la auditoría de modelos y la A/A. | Retirar los worktrees tras subir y fusionar: primero la unión (sin borrar su destino). `rsi-aa` es el registro de la A/A: conservar hasta anotar el resultado. No se ha borrado. | Candidato, conservado |
 | LIM-043 | Worktree `D:\Eolfi-wt-b1` (rama `vas-b1-b2`, sin subir) con una unión `tests\e2e\node_modules` → `D:\Eolfi\tests\e2e\node_modules`; y `~/.eolfi/tools/whisper-b5454` (whisper.cpp y `ggml-small.bin`, 497 MB) con `~/.eolfi/voz.json` | Creados el 16/11 (juez en `verify`, Whisper a petición del titular). | El worktree, tras subir y fusionar (primero la unión). Whisper es una instalación pedida: conservar. No se ha borrado. | Candidato, conservado |
 | LIM-044 | Worktrees `D:\Eolfi-wt-tk` (rama `modelos-tensores-k`, sin subir) y `D:\Eolfi-wt-banco` (copia fija `52cc369` que usa el banco de otra sesión); scratchpad `b6.py`, `b6_banco.py`, `reg_b6.py`, `quitar_cr.py` y `rsi-eval\` (`b1.log`, `b2.log`, `determinismo.py`, `rsi-b1`, `rsi-b2`) | Creados el 16 y 17/11. | `Eolfi-wt-tk`, tras fusionar su commit en la rama de Codex. `Eolfi-wt-banco` es de otra sesión: no tocar mientras corra el banco. Los registros del banco son la evidencia de las corridas: conservar. No se ha borrado. | Candidato, conservado |
-ode_modules` → `D:\Eolfi	ests\e2e
-ode_modules`; la misma unión en `D:\Eolfi-wt-vas`; scratchpad `voz\` (guiones y WAV de prueba), `modelos\` (guion y `auditoria.json`) y `rsi-eval\rsi-aa` con `aa.log` (A/A real) | Creados el 16/11 para la voz, la auditoría de modelos y la A/A. | Retirar los worktrees tras subir y fusionar: primero la unión (sin borrar su destino). `rsi-aa` es el registro de la A/A: conservar hasta anotar el resultado. No se ha borrado. | Candidato, conservado |
 
 ## Registro de revisiones
 
@@ -71,6 +69,52 @@ ode_modules`; la misma unión en `D:\Eolfi-wt-vas`; scratchpad `voz\` (guiones y
 
 - **2026-11-16:** añadidas LIM-035 a LIM-037 (worktrees de #9 y #10, binarios de prueba de Eolas, copias de `eolas-v2.json` y salidas de la competición V1/V2); corregidas las rutas de LIM-032 a LIM-034, que tenían secuencias de escape convertidas en caracteres de control. No se borró ni movió nada.
 - **2026-11-15 (noche):** añadidas LIM-031 a LIM-034: worktrees de las PR de Eolas V1/V2, del plazo y de Fios sin Ollama, y los proyectos de prueba de las dependencias y de la comparación. No se borró ni movió nada.
+
+## Registro de revisiones
+
+- **2026-11-17 — reconstrucción real G4, LIM-G-006:** `generated/modelos/gemma4-q4_k_m-2026-11-17/`.
+  Evidencia reproducible: `receta.json` registra conversión 0, 7.381.383.776 bytes y SHA-256
+  `d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054`, con hash del BF16 original
+  conservado. Incluye modelo, receta y registros de conversión/inferencia; ignorado por Git. Impacto:
+  reconstrucción real del titular, necesaria para comprobar G4/G6; no sustituye el perfil activo.
+  Estado: CONSERVAR. La adopción inactiva y el smoke del servidor están comprobados; faltan banco y decisión
+  del titular al cierre antes de retirar cualquier
+  copia o diagnóstico. No se borra ni se mueve.
+
+- **2026-11-16 — reconstrucción G4, LIM-G-005:** `generated/modelos/g4-smoke-2026-11-16/` (entrada y salida
+  sintéticas pequeñas, receta y log) e `informes/modelos-g-2026-11-16/g4-fixture-cero-capas.*` y `g4-q4-mixto.*`.
+  Evidencia: las recetas registran hashes y nombres de muestra «eolfi-sintetico-no-inferencia»; la primera
+  muestra de cero capas falló y el preset Q4_0 incluyó un tensor Q6_K. Pruebas actuales en
+  `tests/test_modelos_reconstruir.py`; builder reproducible en `tests/ggufgen.py`. Impacto: evidencias de
+  conversión y diagnóstico, **no modelos para adoptar**; no se han copiado pesos del titular a la muestra.
+  Estado: CONSERVADO, histórico/soporte de pruebas. Falta revisar al cierre qué muestras se mantienen y
+  qué logs se consolidan; no se han borrado ni movido.
+
+- **2026-11-16 — documentación de modelo, LIM-G-004:** `README.md`, sección de llama.cpp (~línea 307),
+  cita Gemma 4 E4B Q4 como predeterminado. Evidencia: `rg -n 'Gemma 4 E4B|active_profile|gemma_q4' README.md
+  eolfi/eolas_v2.py` y perfiles de `DEFAULT_PROFILES` (Gemma 12B Q4); el README también describe el arranque
+  antiguo. Impacto: guía de configuración de usuarios; no implica que haya que retirar modelos ni binarios.
+  Estado: CONSERVADO, pendiente de consolidar con la selección V1/V2 y comprobar los ejemplos de instalación.
+  No se ha modificado esa sección para resolver este cambio de G1.
+
+- **2026-11-16 — conexiones G1, LIM-G-003:** `informes/modelos-g-2026-11-16/conexiones-motor-34776.json`.
+  Instantánea intermedia anterior a representar como indefinido el extremo remoto de una escucha.
+  Evidencia: comparar `conexiones[].remoto` y la fecha con `conexiones-motor-34776-final.json`;
+  el informe `avance-g1-chat-conexiones.md` remite al archivo final. Impacto: historial de observaciones,
+  no repetir su interpretación como si fuera el código final. Estado: CONSERVADO, histórico.
+  Falta revisar al cierre si conviene consolidarlo con el informe; no se ha borrado ni movido.
+
+- **2026-11-16 — bloque G, LIM-G-001:** `D:\Eolfi-wt-voz\tools\modelos\auditar_gguf.py`.
+  Evidencia: comparar con `eolfi/modelos.py`; el guion calcula el final usando solo el tensor de mayor offset,
+  carece de presupuestos de cabecera y presupone layouts K. Impacto: guion usado en la auditoría histórica;
+  no sustituir ni borrar sus evidencias. Estado: CONSERVADO, candidato a consolidar tras revisar sus callers
+  y la referencia de `docs/auditoria-modelos-2026-11-16.md`. Falta confirmar qué sesiones lo siguen usando.
+- **2026-11-16 — adjuntos, LIM-G-002:** `eolfi/server.py`, método `project_upload` y rama POST tardía
+  de `/api/projects/upload`. Evidencia: la ruta se atiende ahora antes de `_read_body`, mediante
+  `store_upload`; `rg -n 'project_upload|/api/projects/upload' eolfi tests` localiza los usos que revisar.
+  Impacto: el método público aún puede tener callers directos; no borrar por la falta de alcance HTTP.
+  Estado: CONSERVADO, candidato a consolidar. Falta revisar compatibilidad y callers antes de retirarlo.
+
 - **2026-11-15 — auditoría Eolas (P2-8):** añadida LIM-030, copia duplicada de llama.cpp en `D:\HYDRA-BASE\llama` (idéntica a la de `D:\EOLAS-BASE\llama`, que es la que usan V1 y V2). Junto con LIM-027. No se borró ni movió nada.
 
 - **2026-11-06 — inicio:** se inspeccionaron estado de Git, inventario de directorios `generated/`, `backups/`, `samples/` y `.claude/`, referencias textuales de algunos artefactos y los planes activos/históricos. No se borró ni movió nada. Este barrido no es un análisis completo de código muerto.

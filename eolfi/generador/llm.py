@@ -379,7 +379,9 @@ class EolasEngineProvider(Provider):
                  max_tokens_override: int | None = None, profile_locked: bool = False):
         from eolfi import eolas_v2
 
-        self.profile = profile if profile in eolas_v2.DEFAULT_PROFILES else None
+        known = eolas_v2.load_config()["profiles"]
+        self.bank_route = profile == "banco"
+        self.profile = profile if profile in known else None
         self.auto_route = profile == "auto"
         self.reasoning_override = reasoning_override
         self.max_tokens_override = max_tokens_override
@@ -394,6 +396,12 @@ class EolasEngineProvider(Provider):
 
         cfg = eolas_v2.load_config()
         profile = self.profile or str(cfg["active_profile"])
+        if self.bank_route:
+            recommendation = eolas_v2.recommend_evaluation_profile("completa")
+            if not recommendation.get("perfil"):
+                raise LLMError("No hay una ronda completa reciente con un perfil aprobado; ejecuta el banco antes de usar model=banco")
+            profile = str(recommendation["perfil"])
+            self.model = profile
         if self.auto_route:
             profile = "mistral" if effort == "low" else "gemma_q4"
             if not Path(eolas_v2.profile_config(profile, cfg)["model"]).is_file() or eolas_v2.is_retired(profile, cfg):

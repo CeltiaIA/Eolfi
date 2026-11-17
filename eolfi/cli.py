@@ -128,6 +128,63 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    acc = sub.add_parser("acciones", help="Registro encadenado de acciones que cambian estado (B8)")
+    acc_cmd = acc.add_subparsers(dest="acciones_action", required=True)
+    acc_ver = acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
+    acc_ver.add_argument("--ancla", help="Archivo de anclas externo: comprueba también que cada ancla sigue en la cadena")
+    acc_anc = acc_cmd.add_parser("anclar", help="Copia la cabeza de la cadena a un archivo externo")
+    acc_anc.add_argument("--destino", required=True, help="Archivo fuera del alcance de quien escribe el registro")
+    acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
+    acc_list.add_argument("-n", type=int, default=20)
+    upd = sub.add_parser("update", help="Versión instalada y si hay otra publicada (solo comprueba, no instala)")
+    upd.add_argument("--check", action="store_true", required=True, help="Comprobar; Eolfi nunca se actualiza solo")
+    upd.add_argument("--red", action="store_true", help="Permite consultar api.github.com (sin credenciales)")
+    upd.add_argument("--repo", help="propietario/nombre (por defecto CeltiaIA/Eolfi o EOLFI_UPDATE_REPO)")
+    models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
+    model_commands = models.add_subparsers(dest="modelos_action", required=True)
+    ma = model_commands.add_parser("auditar", help="Comprueba estructura GGUF y SHA-256")
+    ma.add_argument("archivo")
+    ma.add_argument("--pid", type=int, help="Añade una instantánea de sockets de este PID (Windows)")
+    mc = model_commands.add_parser("conexiones", help="Consulta sockets de un PID, sin iniciar el motor")
+    mc.add_argument("--pid", type=int, required=True)
+    mt = model_commands.add_parser("comprobar", help="Comprueba un hash contra un manifiesto autorizado")
+    mt.add_argument("archivo")
+    mt.add_argument("--manifiesto", required=True)
+    mu = model_commands.add_parser("actualizar", help="G5: compara los modelos locales con lo publicado (abre la red con --red)")
+    mu.add_argument("--fuentes", required=True, help="JSON eolfi.modelos.fuentes/v1 con repo, archivo y SHA-256 local")
+    mu.add_argument("--nombre", help="Solo esta fuente")
+    mu.add_argument("--red", action="store_true", help="Autoriza la consulta a la API pública de Hugging Face")
+    md = model_commands.add_parser("descargar", help="G5: descarga un GGUF fijado por commit y SHA-256 y lo audita")
+    md.add_argument("--repo", required=True)
+    md.add_argument("--archivo", required=True)
+    md.add_argument("--revision", required=True, help="Commit completo revisado con «modelos actualizar»")
+    md.add_argument("--sha256", required=True, help="SHA-256 publicado y revisado")
+    md.add_argument("--bytes", type=int, help="Tamaño publicado: se exige igual y se comprueba el espacio libre")
+    md.add_argument("--out", required=True, help="Carpeta de destino; nunca se sobrescribe")
+    md.add_argument("--red", action="store_true", help="Autoriza la descarga")
+    mr = model_commands.add_parser("reconstruir", help="Prepara una receta de cuantización; ejecutar exige opción y hashes")
+    mr.add_argument("archivo")
+    mr.add_argument("--out", required=True, help="Carpeta nueva; nunca sobrescribe una anterior")
+    mr.add_argument("--cuantizador", required=True, help="Ruta del ejecutable local llama-quantize")
+    mr.add_argument("--tipo", choices=["Q4_0", "Q3_K_M", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"], default="Q4_K_M")
+    mr.add_argument("--sha256-entrada")
+    mr.add_argument("--sha256-cuantizador")
+    mr.add_argument("--sha256-paquete")
+    mr.add_argument("--hilos", type=int, default=4)
+    mr.add_argument("--memoria-mib", type=int, default=256)
+    mr.add_argument("--timeout", type=float, default=1800)
+    mr.add_argument("--ejecutar", action="store_true", help="Ejecuta el cuantizador; requiere los hashes de entrada y paquete")
+    mp = model_commands.add_parser("probar", help="Prepara un smoke de inferencia en CPU de una reconstrucción; ejecutar exige opción y hash")
+    mp.add_argument("carpeta", help="Carpeta de salida de `modelos reconstruir`, con receta.json y modelo.gguf")
+    mp.add_argument("--ejecutor", required=True, help="Ruta del ejecutable local llama-cli")
+    mp.add_argument("--sha256-paquete")
+    mp.add_argument("--ejecutar", action="store_true")
+    mp.add_argument("--pregunta")
+    mp.add_argument("--esperado")
+    mp.add_argument("--tokens", type=int, default=64)
+    mp.add_argument("--hilos", type=int, default=4)
+    mp.add_argument("--timeout", type=float, default=900)
+
     doc = sub.add_parser("doctor", help="Comprueba proveedores")
     doc.add_argument("--pin", metavar="ARCHIVO", default=None,
                      help="Fija rutas, versiones y SHA-256 de las herramientas en este archivo de bloqueo")
@@ -305,6 +362,9 @@ def _parser() -> argparse.ArgumentParser:
     wb.add_argument("--cross-origin", action="store_true", help="Descarga también assets de otros dominios")
     wb.add_argument("--ignore-robots", action="store_true", help="No respetar robots.txt (solo con permiso)")
     wb.add_argument("--save", default=None, help="Guarda una copia de estudio de HTML/CSS/JS en esta carpeta")
+    wb.add_argument("--render", action="store_true", help="Abre las páginas en Chrome sin interfaz (SPA) y rastrea el mismo origen")
+    wb.add_argument("--paginas", type=int, default=1, help="Con --render: páginas como máximo (1-50)")
+    wb.add_argument("--profundidad", type=int, default=1, help="Con --render: saltos de enlace desde la inicial (0-5)")
     _case_args(wb)
 
     rp = sub.add_parser("repo", help="Analiza un repositorio local o remoto")
@@ -401,23 +461,42 @@ def _parser() -> argparse.ArgumentParser:
     eo = sub.add_parser("eolas-v2", help="Motor Eolas V2: perfiles Gemma/Mistral alternos, feedback y preparación de aprendizaje")
     eos = eo.add_subparsers(dest="eolas_action", required=True)
     eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
+    eos_plan = eos.add_parser("plan", help="Valida una reconstrucción y propone un perfil sin adoptarlo")
+    eos_plan.add_argument("carpeta", help="Carpeta creada por `modelos reconstruir`, con smoke superado")
+    eos_plan.add_argument("--profile", required=True, help="Nombre nuevo del perfil (minúsculas y guion bajo)")
+    eos_plan.add_argument("--alias")
+    eos_plan.add_argument("--ctx", type=int, default=32000)
+    eos_plan.add_argument("--gpu-layers", type=int, default=8)
+    eos_plan.add_argument("--batch", type=int, default=128)
+    eos_plan.add_argument("--ubatch", type=int, default=64)
+    eos_adopt = eos.add_parser("adoptar", help="Revalida un plan y añade el perfil sin activarlo")
+    eos_adopt.add_argument("plan", help="JSON producido y revisado por `eolas-v2 plan`")
+    eos_adopt.add_argument("--sha256-modelo", required=True, help="SHA-256 revisado del modelo")
+    eos_adopt.add_argument("--aplicar", action="store_true", help="Escribe el perfil; sin esta opción solo muestra la vista previa")
+    eos_remove = eos.add_parser("quitar-perfil", help="Quita un perfil reconstruido gestionado, conservando el GGUF")
+    eos_remove.add_argument("profile")
+    eos_remove.add_argument("--sha256-modelo", required=True)
+    eos_recommend = eos.add_parser("recomendar-perfil", help="Propone el ganador de un banco reciente; no cambia nada por defecto")
+    eos_recommend.add_argument("--bateria", choices=["completa", "codigo", "json"], default="completa")
+    eos_recommend.add_argument("--antiguedad-dias", type=int, default=30)
+    eos_recommend.add_argument("--aplicar", action="store_true", help="Selecciona el perfil recomendado como activo")
     eos_start = eos.add_parser("start", help="Arranca el perfil activo (o el indicado)")
-    eos_start.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], default=None)
+    eos_start.add_argument("--profile", default=None)
     eos_switch = eos.add_parser("switch", help="Detiene el perfil activo y arranca el otro")
-    eos_switch.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_switch.add_argument("profile")
     eos.add_parser("stop", help="Detiene solo el llama-server que inició Eolas")
     eos_review = eos.add_parser("revisar", help="Revisa la cabecera del GGUF de un perfil (o una ruta) con REA")
     eos_review.add_argument("objetivo", help="perfil Eolas V2 o ruta a un .gguf/.safetensors")
     eos_retire = eos.add_parser("retire", help="Retira un perfil que no aprueba (conserva su GGUF)")
-    eos_retire.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_retire.add_argument("profile")
     eos_uninstall = eos.add_parser("uninstall", help="Desinstala un motor: retira el perfil y borra su GGUF y sus lecciones")
     eos_uninstall.add_argument("profile")
     eos_restore = eos.add_parser("restore", help="Vuelve a ofrecer un perfil retirado")
-    eos_restore.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_restore.add_argument("profile")
     eos_consent = eos.add_parser("feedback-consent", help="Activa o desactiva el almacenamiento local de feedback")
     eos_consent.add_argument("state", choices=["on", "off"])
     eos_feedback = eos.add_parser("feedback-add", help="Guarda una valoración explícita localmente")
-    eos_feedback.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], required=True)
+    eos_feedback.add_argument("--profile", required=True)
     eos_feedback.add_argument("--task", required=True, help="Dominio/tarea, p. ej. 'python' o 'resumen'")
     eos_feedback.add_argument("--rating", type=int, choices=range(1, 6), required=True)
     eos_feedback.add_argument("--prompt", default=None)
@@ -897,7 +976,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
 
         rep = run_web(args.source, store, max_assets=args.max_assets, cross_origin=args.cross_origin,
                       ignore_robots=args.ignore_robots, save_dir=args.save, progress=_progress,
-                      case_id=args.case_id, provenance=args.provenance)
+                      case_id=args.case_id, provenance=args.provenance, render=args.render,
+                      max_pages=args.paginas, max_depth=args.profundidad)
         rep.pop("evidence_ids", None)
         _print(rep)
     elif args.cmd == "repo":
@@ -1571,6 +1651,105 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi.generador.llm import default_provider
 
         args.provider = default_provider()
+    if args.cmd == "acciones":
+        from eolfi import acciones
+
+        if args.acciones_action == "verificar":
+            result = acciones.verificar_anclas(args.ancla) if args.ancla else acciones.verificar()
+            _print(result)
+            return 0 if result["ok"] else 2
+        if args.acciones_action == "anclar":
+            try:
+                _print(acciones.anclar(args.destino))
+            except (OSError, ValueError) as exc:
+                _print({"ok": False, "error": str(exc)})
+                return 2
+            return 0
+        _print(acciones.listar(args.n))
+        return 0
+    if args.cmd == "update":
+        from eolfi.actualizacion import ActualizacionError, comprobar as comprobar_version
+
+        try:
+            result = comprobar_version(red=args.red, repo=args.repo)
+        except ActualizacionError as exc:
+            _print({"ok": False, "error": str(exc)})
+            return 2
+        _print(result)
+        return {"al_dia": 0, "instalada_mas_reciente": 0, "sin_publicaciones": 0, "nueva_version": 1}.get(
+            result["estado"], 2)
+    if args.cmd == "modelos":
+        from eolfi.modelos import audit, check_trust
+
+        try:
+            if args.modelos_action == "actualizar":
+                from eolfi.modelos_actualizar import comprobar
+
+                result = comprobar(args.fuentes, nombre=args.nombre, red=args.red)
+                _print(result)
+                # 0 solo si todo está al día; una versión nueva o un dato no verificado piden revisión.
+                return 0 if result["estado"] == "al_dia" else 2
+            if args.modelos_action == "descargar":
+                from eolfi.modelos_actualizar import descargar
+
+                result = descargar(args.repo, args.archivo, args.revision, args.sha256, args.out, red=args.red,
+                                   bytes_esperados=args.bytes)
+                _print(result)
+                # Descargado y auditado no significa adoptado: banco y G6 siguen pendientes.
+                return 0 if result["estado"] == "descargado" else 2
+            if args.modelos_action == "reconstruir":
+                from eolfi.modelos_reconstruir import prepare, execute
+
+                if args.ejecutar and not (args.sha256_entrada and args.sha256_paquete):
+                    raise ValueError("--ejecutar requiere --sha256-entrada y --sha256-paquete de la receta revisada")
+                result = prepare(args.archivo, args.out, args.cuantizador, args.tipo,
+                                 source_sha=args.sha256_entrada, tool_sha=args.sha256_cuantizador,
+                                 bundle_sha=args.sha256_paquete, threads=args.hilos, buffer_mib=args.memoria_mib,
+                                 timeout=args.timeout)
+                if args.ejecutar:
+                    result = execute(result, timeout=args.timeout)
+                _print(result)
+                # El resultado aún necesita inferencia y banco: no anunciar un modelo listo.
+                return 2 if args.ejecutar else 0
+            if args.modelos_action == "probar":
+                from eolfi.modelos_reconstruir import SMOKE_EXPECTED, SMOKE_PROMPT, execute_smoke, prepare_smoke
+
+                if args.ejecutar and not args.sha256_paquete:
+                    raise ValueError("--ejecutar requiere --sha256-paquete del ejecutor revisado")
+                if (args.pregunta is None) != (args.esperado is None):
+                    raise ValueError("--pregunta y --esperado se indican juntos")
+                result = prepare_smoke(args.carpeta, args.ejecutor, bundle_sha=args.sha256_paquete,
+                                       prompt=SMOKE_PROMPT if args.pregunta is None else args.pregunta,
+                                       expected=SMOKE_EXPECTED if args.esperado is None else args.esperado,
+                                       tokens=args.tokens, threads=args.hilos, timeout=args.timeout)
+                if args.ejecutar:
+                    result = execute_smoke(result)
+                _print(result)
+                # 0 significa solo «smoke superado»; el banco y la adopción siguen pendientes en `verificacion`.
+                return 0 if result["estado"] in ("preparado", "smoke_superado") else 2
+            if args.modelos_action == "auditar":
+                result = audit(args.archivo)
+                if args.pid is not None:
+                    from eolfi.modelos_red import snapshot
+
+                    result["conexiones_motor"] = snapshot(args.pid)
+                    if result["conexiones_motor"]["estado"] == "NO VERIFICADO":
+                        result["incognitas"].append("Conexiones del PID no verificadas completamente")
+                        if result["estado"] != "fallido":
+                            result["estado"] = "NO VERIFICADO"
+                _print(result)
+                return 0 if result["estado"] == "estructura_verificada" else 2
+            if args.modelos_action == "conexiones":
+                from eolfi.modelos_red import snapshot
+
+                result = snapshot(args.pid)
+                _print(result)
+                return 0 if result["estado"] == "observado" else 2
+            _print(check_trust(args.archivo, args.manifiesto))
+            return 0
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            _print({"estado": "fallido", "error": str(exc)})
+            return 2
     if args.cmd == "eolas-v2":
         from pathlib import Path as _P
         from eolfi import eolas_v2
@@ -1578,6 +1757,20 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.eolas_action == "status":
                 _print(eolas_v2.status())
+            elif args.eolas_action == "plan":
+                from eolfi.modelos_reconstruir import plan_profile
+
+                _print(plan_profile(args.carpeta, args.profile, alias=args.alias, ctx=args.ctx,
+                                    gpu_layers=args.gpu_layers, batch=args.batch, ubatch=args.ubatch))
+            elif args.eolas_action == "adoptar":
+                from eolfi.modelos_reconstruir import adopt_profile
+
+                _print(adopt_profile(args.plan, args.sha256_modelo, apply=args.aplicar))
+            elif args.eolas_action == "quitar-perfil":
+                _print(eolas_v2.remove_custom_profile(args.profile, args.sha256_modelo))
+            elif args.eolas_action == "recomendar-perfil":
+                _print(eolas_v2.apply_recommended_profile(args.bateria, max_age_days=args.antiguedad_dias,
+                                                           apply=args.aplicar))
             elif args.eolas_action == "start":
                 _print(eolas_v2.start(args.profile, release_eolas=args.liberar_eolas))
             elif args.eolas_action == "switch":
@@ -1586,7 +1779,7 @@ def main(argv: list[str] | None = None) -> int:
                 _print(eolas_v2.stop())
             elif args.eolas_action == "revisar":
                 from eolfi import rea_client, rea_compuestas
-                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.DEFAULT_PROFILES
+                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.load_config()["profiles"]
                           else args.objetivo)
                 client = rea_client.ReaClient()
                 try:
