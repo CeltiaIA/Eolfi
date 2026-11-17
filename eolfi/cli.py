@@ -484,6 +484,8 @@ def _parser() -> argparse.ArgumentParser:
     r8.add_argument("--cliente", metavar="ARCHIVO.py", help="genera además un cliente Python (solo biblioteca estándar) con las operaciones observadas; no sobrescribe")
     r10 = rps.add_parser("firmware", help="Desglose de una imagen de firmware: firmas, regiones y huecos (Binwalk 3.1.0 en WSL2)")
     r10.add_argument("ruta")
+    r10.add_argument("--extraer", metavar="DESTINO", help="extrae el contenido con Unblob 26.6.4 en esta carpeta nueva (sin montar ni ejecutar nada)")
+    r10.add_argument("--profundidad", type=int, help="profundidad máxima de extracción (con --extraer)")
     r9 = rps.add_parser("entorno", help="De una captura web (.har) a un entorno para agentes de REA (AgentEnv); ensayo salvo --escribir")
     r9.add_argument("ruta")
     r9.add_argument("destino", help="carpeta nueva (ruta absoluta) donde escribir el paquete")
@@ -1639,7 +1641,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.rea_action in ("recuperar-js", "firmware", "dotnet") and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
-        if args.rea_action == "firmware" and not any(c.startswith("REA_BINWALK_COMMAND=") for c in cmd):
+        if args.rea_action == "firmware" and args.extraer and not any(c.startswith("REA_UNBLOB_COMMAND=") for c in cmd):
+            print("Unblob 26.6.4 no instalado en WSL2: ejecuta tools/instalar-unblob-wsl.sh dentro de Ubuntu", file=sys.stderr)
+            return 2
+        if args.rea_action == "firmware" and not args.extraer and not any(c.startswith("REA_BINWALK_COMMAND=") for c in cmd):
             print("Binwalk 3.1.0 no instalado en WSL2: ejecuta tools/instalar-binwalk-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
         client = rea_client.ReaClient(cmd, timeout=900)
@@ -1660,6 +1665,10 @@ def main(argv: list[str] | None = None) -> int:
                         result["cliente"] = cliente_api.escribir_cliente(result, args.cliente)
                     except (ValueError, OSError) as exc:   # BorradorIncompleto es ValueError
                         result["cliente_error"] = str(exc)
+            elif args.rea_action == "firmware" and args.extraer:
+                op = "extraer_firmware"
+                params = {"ruta": args.ruta, "destino": args.extraer, "profundidad": args.profundidad}
+                result = rc.extraer_firmware(client, args.ruta, args.extraer, profundidad=args.profundidad)
             elif args.rea_action == "firmware":
                 op, params, result = "firmware_regiones", {"ruta": args.ruta}, rc.firmware_regiones(client, args.ruta)
             elif args.rea_action == "entorno":
