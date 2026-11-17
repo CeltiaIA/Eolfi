@@ -125,6 +125,10 @@ APP_TOOLS = {
     "eolfi_casos": {
         "description": "Lista los casos de Eolfi (cada uno agrupa artefactos, evidencias, incógnitas y proyectos).",
         "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
+    "eolfi_automejora": {
+        "description": "Estado de la automejora de Eolfi (RSI): propuestas, su evaluación y el registro. Solo lectura: "
+                       "aprobar, rechazar o revertir lo hace el titular en el panel; tú no puedes decidir.",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
 }
 
 

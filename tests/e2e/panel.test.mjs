@@ -106,6 +106,34 @@ test('la actividad del agente de VS Code aparece en la franja del panel', async 
   await page.reload();
 });
 
+test('automejora: tarjeta por propuesta, aprobar solo si está evaluada y la decisión llega al servidor', async () => {
+  const prop = (id, estado, extra = {}) => ({ id, regla: 'salida_cortada_v2', superficie: 'eolas_v2.max_tokens', actual: 8192,
+    propuesto: 16384, motivo: 'Las respuestas se cortan por longitud.', estado, fecha: '2026-11-16T10:00:00Z', ...extra });
+  const posted = [];
+  await page.route('**/api/rsi', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    activo: true, registro: { ok: true, eventos: 5 }, casos_regresion: 1, observaciones: 3, umbrales: {},
+    propuestas: [prop('aaaaaaaaaaaa', 'evaluada', { evaluacion: { base: [0.5, 0.5, 0.5], candidata: [1, 1, 1], media_base: 0.5, media_candidata: 1 } }),
+      prop('bbbbbbbbbbbb', 'pendiente')] }) }));
+  await page.route('**/api/rsi/propuestas/**', (route) => { posted.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
+  await page.reload();
+  await page.click('summary:has-text("Automejora")');
+  const box = page.locator('#eolas-chat-rsi');
+  await box.getByText('eolas_v2.max_tokens: 8192 → 16384').first().waitFor();
+  assert.match(await box.textContent(), /registro íntegro/);
+  assert.match(await box.textContent(), /eolfi rsi evaluar bbbbbbbbbbbb/);       // la pendiente indica cómo evaluarla
+  assert.equal(await box.getByRole('button', { name: 'Aprobar y aplicar' }).count(), 1);   // solo la evaluada
+  await box.getByRole('button', { name: 'Aprobar y aplicar' }).click();
+  await page.waitForFunction(() => true);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(posted, ['/api/rsi/propuestas/aaaaaaaaaaaa/aprobar']);
+  await axe('automejora');
+  await page.unroute('**/api/rsi');
+  await page.unroute('**/api/rsi/propuestas/**');
+  await page.reload();
+  assert.deepEqual(errors, []);
+});
+
 test('subir un binario: se analiza como trabajo y aparece como objetivo', async () => {
   await openTools('analyze');
   await page.setInputFiles('#file', join(tmp, 'muestra.elf'));

@@ -141,6 +141,85 @@ autorización.
 | 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
 | 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Hecho el desglose (14/11/2026, `firmware_regiones`, `eolfi rea firmware <imagen>`): firmas de Binwalk 3.1.0 (REA de WSL) con desplazamiento, tamaño declarado y confianza, más los huecos sin firma (relleno 0xFF, ceros o datos) que calcula Eolfi y la sugerencia de `inspect_devicetree` si aparece un DTB. En vivo con una imagen sintética: gzip, ZIP y PNG en sus desplazamientos exactos. Binwalk se compila desde el commit auditado con `tools/instalar-binwalk-wsl.sh` (sin sudo). Falta: extracción (`extract_firmware` necesita Unblob 26.6.x) y una imagen real |
 | 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Hecho (14/11/2026, `entorno_agente`, `eolfi rea entorno <captura.har> <destino> [--nombre] [--escribir]`): ensayo por defecto; con `--escribir`, carpeta nueva con README, manifiesto, evidencias, Dockerfile, verificador y tarea de humo. En vivo con un HAR sintético de una tienda: 3 herramientas (`get_items`, `get_items_by_id`, `post_items`), 2 lecturas desde el estado y la creación servida. NO VERIFICADO: arrancar el entorno (Docker + `rea environment-serve`) y HAR reales |
+| 3 | **Diferencias entre versiones** (hecho) | `compare_artifacts`, `compare_functions`, `find_changed_behavior`, `compare_application_versions`, `compare_wasm_interfaces` | Informe «qué cambió entre A y B» | Hecho (ver «Hecho») |
+| 4 | **Inventario de dependencias** (hecho) | `inspect_pe_imports`, `inspect_native_exports`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_pe_certificates` | Librerías, versiones, firmas y certificados | Hecho (ver «Hecho») |
+| 5 | **Apps JavaScript, Electron y web** (hecho, con recuperación de fuentes vía REA en WSL2) | `analyze_javascript_application`, `recover_javascript_sources`, `trace_javascript_semantics`, `compare_source_to_bundle` | Fuentes recuperadas y trazadas: base para regenerar la app | Hecho (ver «Hecho») |
+| 6 | **Evidencias e incógnitas compartidas** (hecho, salvo exportar el paquete completo de REA) | `export_evidence_bundle`, `import_evidence_bundle`, `record_unknown`, `update_unknown` | Un mismo caso de Eolfi con lo analizado en VS Code, en el chat o por Claude | Hecho, salvo exportar el paquete completo de REA |
+| 7 | **De captura de red a API** | `inspect_pcap_capture`, `inspect_packet_fields` y Eolas | Especificación de API (estilo OpenAPI) y un cliente generado por Eolfi | Hecho: `eolfi rea api`, `eolfi_api_desde_captura` (OpenAPI completo si hay tshark en WSL) |
+| 8 | **Mapa de la app en el panel** | `project_android_application_graph`, `get_call_graph`, `build_call_path` | Grafo visual: pantallas, clases y llamadas | Pendiente |
+| 9 | **Móvil y código gestionado** | JADX, .NET, Unity IL2CPP, Flutter/Dart, Apple (Mach-O, plist, Swift) | Análisis por plataforma | Pendiente |
+| 10 | **Firmware** | `extract_firmware`, `inspect_firmware_regions`, `inspect_devicetree` | Desglose de una imagen de firmware | Pendiente |
+| 11 | **Entorno de agente de una web** | `export_environment_bundle` (AgentEnv) | Paquete para que un agente trabaje sobre una web capturada | Pendiente |
+| 12 | **Automejora recursiva (RSI), acotada** | Observaciones de `eolfi rea`, `create --ai` y el juez funcional; reglas síntoma → propuesta; banco «tareas»; registro encadenado | Eolfi mejora su propia configuración con pruebas repetidas y el titular decide qué se adopta | Hecho (16/11): `eolfi/rsi.py`, `eolfi/rsi_banco.py`, `eolfi rsi`, lecciones de V2, observación del chat y tarjeta en el panel. Falta: evaluación en vivo con el banco |
+
+## Punto 12: automejora recursiva (RSI)
+
+Pedido por el titular el 16/11/2026 («incluye e implementa en el plan de REA un sistema recursive-self-improvement»).
+Eolfi aprende de sus propios resultados con REA y con la IA local, pero solo dentro de límites que no se pueden
+mejorar a sí mismos.
+
+**Ciclo** (`eolfi/rsi.py`, orden `eolfi rsi`):
+
+1. **Observar.** `eolfi rea …` y `create --ai` anotan cada resultado: fuente, operación, éxito y **síntomas**
+   (salida cortada por longitud, plazo de REA agotado, plazo local, sintaxis JS del sitio). No se guarda el contenido
+   analizado ni el código: lo que devuelve REA es del objetivo.
+2. **Proponer** (`eolfi rsi proponer`). Una regla convierte un síntoma repetido en un cambio concreto sobre una
+   **superficie** declarada; hay como mucho una propuesta abierta por regla.
+3. **Evaluar** (`eolfi rsi evaluar ID --proveedor …`). La línea base y la candidata pasan el mismo banco en al menos
+   5 pares alternados (base, candidata) con la misma semilla por par; la candidata solo se aplica durante sus
+   muestras, y el valor anterior se restaura siempre, también si el banco falla. Se aprueba solo si la prueba exacta
+   de signos sobre las diferencias da p < 0,05, el límite inferior del intervalo al 95 % (bootstrap de los pares) es
+   > 0 y la mejora media es ≥ 0,05 (fase 1.3 de `PLAN_VAS.md`). Con 4 pares o menos es imposible aprobar (p ≥ 1/16).
+   **A/A** del evaluador: `eolfi rsi aa --proveedor … [--simulada DESVIACION]`; la real queda en el registro como
+   evento `aa`. Simulada con la desviación medida del banco (0,3), 400 repeticiones: 2,5 % de falsos positivos con
+   5 pares, frente al 37,75 % de la regla anterior (media + 0,05 y peor muestra) con 3. La A/A real con el banco
+   está **NO VERIFICADA** (unos 13 min por muestra, 10 muestras). Banco «tareas» (`eolfi/rsi_banco.py`):
+   el encargo de la competición V1/V2, juzgado en Chrome por `tools/rsi/juez-tareas.mjs` (puntuación = comprobaciones
+   superadas / totales; si la creación falla, 0).
+4. **Decidir.** El titular aprueba (`eolfi rsi aprobar ID --por …`), que solo es posible con la evaluación aprobada,
+   o rechaza. Al aplicar se guarda el valor anterior; `eolfi rsi revertir` lo restaura.
+
+**Recursivo en dos niveles:** (a) el banco crece: cada fallo con síntomas y huella nueva queda en `casos.jsonl` como
+caso de regresión; (b) el mejorador se ajusta a sí mismo: una regla con tres rechazos o reversiones y ninguna
+adopción pide una repetición más antes de volver a proponer (hasta 10), y una adopción la devuelve a 2. Cada ajuste
+queda como evento `meta`.
+
+**Superficies (lo único que puede cambiar):** `eolas_v2.max_tokens` (1024–32768),
+`eolas_v2.perfil.<perfil>.ctx` (2048–131072) y `.gpu_layers` (0–999), `eolas_v2.leccion.<perfil>.<categoría>`
+(activa o no; solo lecciones que ya existen), y `rea.timeout`, el plazo de REA en la CLI (60–7200 s, en
+`~/.eolfi/rsi/ajustes.json`). Reglas actuales: `salida_cortada_v2` (duplica `max_tokens`), `rea_plazo` (duplica el
+plazo de REA) y `reactivar_leccion` (el motor sigue fallando por una causa cuya lección desactivó el titular).
+
+**Dónde se observa:** `eolfi rea …`, `create --ai`, las herramientas REA del chat (`in_case` del servidor) y las
+lecciones de la batería de código de V2. **Panel:** «Automejora (RSI)» en el chat lista las propuestas con su
+evaluación; «Aprobar y aplicar» solo aparece si la evaluación mejora, «Revertir» si está aplicada, y una pendiente
+muestra la orden `eolfi rsi evaluar` (la evaluación carga modelos y no se lanza desde el panel). API `/api/rsi`,
+`/api/rsi/proponer` y `/api/rsi/propuestas/<id>/(aprobar|rechazar|revertir)`; un cliente vinculado (VS Code) no
+puede decidir. En el chat, `eolfi_automejora` es solo lectura.
+
+**Invariantes:** no toca código, autorizaciones de REA, rutas permitidas, AGENTS.md, el juez ni el banco; nada se
+aplica sin evaluación aprobada y decisión del titular; registro en `~/.eolfi/rsi/registro.jsonl` encadenado por
+SHA-256 (`eolfi rsi verificar` detecta cualquier edición, borrado o reordenación); `EOLFI_RSI=0` lo apaga.
+
+**Verificado:** `tests/test_rsi.py` (16 pruebas, incluidas la regla de lecciones, la API del panel y la observación del chat) y la tarjeta
+en `tests/e2e/panel.test.mjs` (Chrome real, axe sin problemas graves); antes, 13 pruebas: registro y manipulación, superficies cerradas, propuestas con
+repetición, evaluación con restauración y margen, aprobación y reversión, ajuste del umbral, ganchos de la CLI y banco
+con juez simulado). El juez funcional da 9/9 y 8/9 sobre los proyectos reales de V1 Q5 y V2 Q4 de la competición.
+**Evaluación real (16/11/2026, titular: «haz la evaluacion R.S.I»):** aislada (registro propio y copia de
+`eolas-v2.json` en el scratchpad; dos observaciones de salida cortada sembradas y marcadas para crear la propuesta),
+banco «tareas» con Eolas V2 `gemma_q4`, 3 muestras por lado, 11:33–12:50 (unos 13 min por muestra). Propuesta
+`eolas_v2.max_tokens` 8192 → 16384: base 7/9, 5/9, 1/4 (media 0,53); candidata 5/9, 1/4, 5/9 (0,45) → **suspendida**,
+no aprobable; el valor se restauró (8192) y el registro verifica (10 eventos). Lecciones:
+- El ruido del modelo domina (7/9 a 1/4 con la MISMA configuración): 3 muestras no bastan para cambios pequeños.
+  Resuelto con el evaluador estadístico (punto 3).
+- El juez contaba solo las comprobaciones ejecutadas (una página rota daba 1/4 = 0,25). Corregido: siempre sobre 9
+  (`total` fijo y `ejecutadas` aparte). Con ese criterio la evaluación da 0,48 frente a 0,41: misma conclusión.
+- La salida no se cortaba a 8192 tokens en esta tarea, así que duplicar `max_tokens` no podía ayudar: el RSI lo
+  rechazó por evidencia, que es lo que debe hacer.
+
+**Siguiente:** capas y contexto de V1 por petición como superficie (cuando se fusione la rama `eolas-plazo-local`),
+reglas a partir del juez funcional y de las incógnitas de REA, y la evaluación en vivo cuando el titular reanude las
+pruebas.
 
 ## Lo que se aprendió de REA al construir
 
