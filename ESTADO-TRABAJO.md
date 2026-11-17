@@ -9,9 +9,10 @@
   `i18n-en.json`, 289/289 textos fijos; nunca traduce chats, evidencias ni casos), API con `?lang`/cookie/
   `Accept-Language` (61/61 errores fijos, `Content-Language`) y CLI con `--idioma en` (129/129 ayudas de
   subcomandos). Castellano por defecto. Verificado en el navegador (vista previa en 8791 con base temporal) y con
-  e2e 22/22. Pendiente: textos dinámicos del JS, errores con partes variables y ayuda de argumentos. Hallazgo: dos
-  mensajes de la API están en gallego («Abre VS Code e vincula a extensión de Eolfi.», «Mensaxe ou proxecto
-  inválido.»); no se han cambiado.
+  e2e 22/22. Pendiente: textos dinámicos del JS, errores con partes variables y ayuda de argumentos. Corregidos a
+  castellano dos mensajes de la API que estaban en gallego («Abre VS Code y vincula la extensión de Eolfi.»,
+  «Mensaje o proyecto no válido.») y dos
+  avisos del chat local del panel (`app.js`), con su traducción al inglés en el catálogo.
 - **C2 instalador (17/11, rama `luis/c2-instalador`):** la rueda no llevaba `juez_web.mjs` ni `render_driver.mjs`
   (corregido). `tools/verificar_paquete.py` (rueda sin red → entorno virtual nuevo → versión, modo, 182 archivos,
   panel) verificado. PyInstaller 6.22.3 instalado a petición del titular en `~/.eolfi/tools/pyinstaller`;

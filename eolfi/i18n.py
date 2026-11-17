@@ -88,12 +88,12 @@ def traducir_parser(parser: argparse.ArgumentParser, idioma: str) -> None:
 API_EN: dict[str, str] = {
     "'sources' debe ser una lista": "'sources' must be a list",
     "'sources' debe ser una lista no vacía": "'sources' must be a non-empty list",
-    "Abre VS Code e vincula a extensión de Eolfi.": "Open VS Code and link the Eolfi extension.",
+    "Abre VS Code y vincula la extensión de Eolfi.": "Open VS Code and link the Eolfi extension.",
     "Chat local limitado a este equipo.": "Local chat is limited to this computer.",
     "Content-Length inválido": "Invalid Content-Length",
     "El puente no responde: arráncalo con  python -m eolfi bridge":
         "The bridge is not responding: start it with  python -m eolfi bridge",
-    "Mensaxe ou proxecto inválido.": "Invalid message or project.",
+    "Mensaje o proyecto no válido.": "Invalid message or project.",
     "No hay espacio suficiente para guardar el adjunto; usa su ruta local":
         "Not enough space to store the attachment; use its local path",
     "acción desconocida": "unknown action",
