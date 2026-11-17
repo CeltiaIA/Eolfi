@@ -247,3 +247,138 @@ def test_ai_may_only_add_new_migrations(tmp_path):
     assert rejected == ["migrations/0001_init.sql", "migrations/sin_numero.sql"]
     assert "res_a (id" in (tmp_path / "migrations" / "0001_init.sql").read_text(encoding="utf-8")
     assert not _allowed("react", "migrations/0002_x.sql")
+
+
+# ------------------------------------------------------------------ autofix: que no queden errores
+def _break(out):
+    good = (out / "index.html").read_text(encoding="utf-8")
+    (out / "index.html").write_text(good.replace("</main>", "<h1>Segundo h1</h1></main>"), encoding="utf-8",
+                                    newline="\n")
+    return good
+
+
+def test_autofix_green_project_does_not_call_the_ai(tmp_path):
+    from eolfi.generador.assist import autofix
+
+    out = _project(tmp_path)
+    client = FakeClient([])                      # cualquier llamada fallaría (lista vacía)
+    r = autofix(out, provider=client)
+    assert r["ok"] and not r["needed"] and not client.calls and r["provider"] is None
+    assert r["initial"]["ok"] and r["final"] == r["initial"] and r["files_changed"] == []
+
+
+def test_autofix_repairs_failing_project(tmp_path):
+    from eolfi.generador.assist import autofix
+
+    out = _project(tmp_path)
+    good = _break(out)
+    client = FakeClient([{"summary": "Un solo h1", "notes": ["se quita el h1 duplicado"],
+                          "files": [{"path": "index.html", "content": good}]}])
+    r = autofix(out, provider=client)
+    assert r["ok"] and r["needed"] and r["files_changed"] == ["index.html"] and len(r["rounds"]) == 1
+    assert not r["initial"]["ok"] and r["final"]["ok"]
+    prompt = client.calls[0]["messages"][0]["content"]
+    assert '<error step="pruebas (node --test)">' in prompt and "Corrige los errores" in prompt
+    assert (out / "index.html").read_text(encoding="utf-8") == good
+
+
+def test_autofix_restores_when_never_green(tmp_path):
+    from eolfi.generador.assist import autofix
+
+    out = _project(tmp_path)
+    _break(out)
+    broken = (out / "index.html").read_text(encoding="utf-8")
+    worse = broken.replace("</main>", "<h1>Tercero</h1></main>")
+    client = FakeClient([{"summary": "x", "notes": [], "files": [{"path": "index.html", "content": worse}]}] * 3)
+    r = autofix(out, provider=client)
+    assert not r["ok"] and r["restored"] and len(r["rounds"]) == 3 and r["files_changed"] == []
+    assert (out / "index.html").read_text(encoding="utf-8") == broken
+
+
+def test_autofix_does_not_ask_ai_for_setup_failures(tmp_path, monkeypatch):
+    from eolfi.generador import verify as verify_mod
+    from eolfi.generador.assist import autofix
+
+    out = _project(tmp_path)
+    monkeypatch.setattr(verify_mod, "verify", lambda *a, **k: {"ok": False, "steps": [
+        {"step": "instalar dependencias (npm install)", "exit": 1, "seconds": 1, "tail": "ENOTFOUND"}]})
+    client = FakeClient([])
+    r = autofix(out, provider=client)
+    assert not r["ok"] and r["needed"] and not client.calls and "No corregible" in r["summary"]
+
+
+def _create_broken(tmp_path, monkeypatch, provider):
+    from eolfi.generador import generators
+
+    original = generators.generate
+
+    def generate_then_break(spec, out, **kw):
+        files = original(spec, out, **kw)
+        _break(out)
+        return files
+
+    monkeypatch.setattr(generators, "generate", generate_then_break)
+    s = EvidenceStore(":memory:")
+    site = build_site(tmp_path / "site")
+    out = tmp_path / "nuevo"
+    rep = create_project([str(site)], s, out, name="Bicis", target="static", do_verify=True, autofix=True,
+                         ai_provider=provider)
+    return s, out, rep
+
+
+def test_create_runs_autofix_when_verification_fails(tmp_path, monkeypatch):
+    from eolfi.generador import generators
+
+    good_holder = {}
+    original = generators.generate
+
+    def capture(spec, out, **kw):                # la versión buena, para que la IA simulada la devuelva
+        files = original(spec, out, **kw)
+        good_holder["html"] = (out / "index.html").read_text(encoding="utf-8")
+        return files
+
+    monkeypatch.setattr(generators, "generate", capture)
+
+    class Fixer(FakeClient):
+        def complete(self, system, messages, schema, effort):
+            self.replies = [{"summary": "corregido", "notes": [],
+                             "files": [{"path": "index.html", "content": good_holder["html"]}]}]
+            return super().complete(system, messages, schema, effort)
+
+    s, out, rep = _create_broken(tmp_path, monkeypatch, Fixer([]))
+    assert rep["autofix"]["ok"] and rep["autofix"]["needed"]
+    assert rep["verification"]["ok"] and rep["verification"]["autofixed"]
+    assert s.list_incognitas(subject=f"proyecto:{out.resolve()}") == []   # corregido: sin incógnita abierta
+
+
+def test_create_keeps_failure_when_autofix_unavailable(tmp_path, monkeypatch):
+    class Down(FakeClient):
+        def complete(self, system, messages, schema, effort):
+            raise LLMError("motor no disponible")
+
+    s, out, rep = _create_broken(tmp_path, monkeypatch, Down([]))
+    assert not rep["verification"]["ok"] and not rep["autofix"]["ok"]
+    assert "no disponible" in rep["autofix"]["summary"]
+    assert "Segundo h1" in (out / "index.html").read_text(encoding="utf-8")   # nada a medias
+
+
+def test_cli_autofix_on_green_project(tmp_path):
+    from eolfi import cli
+
+    out = _project(tmp_path)
+    db = str(tmp_path / "e.db")
+    assert cli.main(["--db", db, "autofix", str(out)]) == 0
+    assert cli._parser().parse_args(["create", "--from", "x", "--out", "y"]).autofix is True
+    assert cli._parser().parse_args(["create", "--from", "x", "--out", "y", "--sin-autofix"]).autofix is False
+
+
+def test_server_autofix_job(tmp_path):
+    from eolfi.server import ApiError, EolfiApp
+
+    out = _project(tmp_path)
+    app = EolfiApp(str(tmp_path / "e.db"), tmp_path / "s")
+    assert "autofix" in app.JOB_KINDS
+    with pytest.raises(ApiError, match="project"):
+        app.autofix({})
+    r = app.autofix({"project": str(out)})          # en verde: no llega a crear el proveedor
+    assert r["ok"] and not r["needed"]

@@ -217,9 +217,9 @@ class OllamaProvider(Provider):
         msgs = [{"role": "system", "content": system}] + [
             {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])}
             for m in messages]
-        from eolfi.local_gpu import GpuBusy, free_for_eolas
-
         from urllib.parse import urlsplit
+
+        from eolfi.local_gpu import GpuBusy, eolas_v1_headers, free_for_eolas
 
         if urlsplit(self.base_url).hostname in ("127.0.0.1", "localhost", "::1"):
             try:
@@ -229,7 +229,7 @@ class OllamaProvider(Provider):
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
             "options": {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2},
-        }, {}, self.timeout)
+        }, eolas_v1_headers(self.base_url), self.timeout)
         text = (r.get("message") or {}).get("content", "")
         if not text:
             raise LLMError(f"Eolas no devolvió contenido ({r.get('error') or r.get('done_reason')})")
@@ -523,18 +523,20 @@ class BridgeProvider(Provider):
 DEFAULT_PROVIDER = "eolas-v2"   # 14/11/2026, decisión del titular (antes «claude», retirado)
 
 
-def make_provider(name: str = DEFAULT_PROVIDER, *, model: str | None = None, base_url: str | None = None,
+def default_provider() -> str:
+    """El proveedor por defecto sigue al motor local elegido (eolfi motor-local / EOLFI_LOCAL_ENGINE)."""
+    from eolfi.local_gpu import local_provider
+
+    return local_provider()
+
+
+def make_provider(name: str | None = None, *, model: str | None = None, base_url: str | None = None,
                   client=None) -> Provider:
-    name = (name or DEFAULT_PROVIDER).lower()
+    name = (name or default_provider()).lower()
     if name not in PRESETS:
         raise LLMError(f"proveedor desconocido '{name}' (opciones: {', '.join(PRESETS)})")
     p = PRESETS[name]
     if p["kind"] == "ollama":
-        from eolfi.local_gpu import eolas_v1_parked
-
-        if name == "eolas" and not base_url and eolas_v1_parked():
-            raise LLMError("Eolas V1 (CeltIA, 11435) está parado hasta que se repare: usa el proveedor eolas-v2 "
-                           "(o define EOLFI_EOLAS_V1=1 cuando esté reparado)")
         return OllamaProvider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
     if p["kind"] == "bridge":
         return BridgeProvider(name, p["site"], p["context_bytes"])
@@ -612,9 +614,12 @@ def probe(name: str, base_url: str | None = None) -> dict[str, Any]:
         except (OSError, ValueError) as exc:
             return {"available": False, "detail": str(exc)}
     if p["kind"] == "ollama":
-        url = (base_url or p["base_url"]).rstrip("/") + "/api/tags"
+        from eolfi.local_gpu import eolas_v1_headers
+
+        root = (base_url or p["base_url"]).rstrip("/")
         try:
-            with urllib.request.urlopen(url, timeout=3) as r:
+            with urllib.request.urlopen(urllib.request.Request(root + "/api/tags", headers=eolas_v1_headers(root)),
+                                        timeout=3) as r:
                 models = [m.get("name") for m in json.loads(r.read().decode()).get("models", [])]
             return {"available": True, "detail": f"{len(models)} modelos", "models": models[:20]}
         except (urllib.error.URLError, OSError, ValueError):

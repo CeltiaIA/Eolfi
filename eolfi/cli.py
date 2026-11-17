@@ -33,6 +33,7 @@ Comandos:
   decompile <archivo> --functions entry,main
                                  Pseudo-C de funciones concretas con Ghidra.
   assist <proyecto> --brief TEXTO [--provider P] [--model M] [--base-url URL]
+  autofix <proyecto> [--provider P] [--model M] [--base-url URL]   comprueba que no queden errores y los corrige
                                  La IA implementa cambios en un proyecto generado (verificado y,
                                  si no queda en verde, deshecho).
   bridge [--login] [--browser B] [--engine browser|electron] [--install-only]
@@ -364,8 +365,11 @@ def _parser() -> argparse.ArgumentParser:
     _case_args(cr)
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
+    cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
+                    help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
-        sp.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
+        sp.add_argument("--provider", default=None, choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"],
+                    help="Proveedor de IA (por defecto, el motor local elegido con «eolfi motor-local»)")
         sp.add_argument("--model", default=None, help="Modelo del proveedor (por defecto, el de su preajuste)")
         sp.add_argument("--base-url", default=None, help="URL del servidor (p. ej. Eolas en otro puerto)")
 
@@ -373,9 +377,18 @@ def _parser() -> argparse.ArgumentParser:
     asg.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
     asg.add_argument("--brief", required=True, help="Qué quieres que implemente")
     asg.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
-    asg.add_argument("--provider", default="eolas-v2", choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"])
+    asg.add_argument("--provider", default=None, choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"],
+                    help="Proveedor de IA (por defecto, el motor local elegido con «eolfi motor-local»)")
     asg.add_argument("--model", default=None)
     asg.add_argument("--base-url", default=None)
+
+    afx = sub.add_parser("autofix", help="Comprueba que no queden errores en un proyecto generado y, si los hay, "
+                                         "la IA los corrige (se deshace si no queda en verde)")
+    afx.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
+    afx.add_argument("--provider", default=None, choices=["eolas", "eolas-v2", "celtia-v2", "deepseek-web", "gemini-web", "meta-web", "web"],
+                    help="Proveedor de IA (por defecto, el motor local elegido con «eolfi motor-local»)")
+    afx.add_argument("--model", default=None)
+    afx.add_argument("--base-url", default=None)
 
     rpt = sub.add_parser("report", help="Informe HTML o Markdown de un objetivo (con umbral para CI)")
     rpt.add_argument("subject", help="Objetivo: sha256, prefijo, nombre o ruta ya analizada")
@@ -537,6 +550,10 @@ def _parser() -> argparse.ArgumentParser:
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
     mc.add_argument("--library", default=os.environ.get("EOLFI_LIBRARY") or _default_library(),
                     help="Biblioteca Alejandría local (también EOLFI_LIBRARY)")
+
+    ml = sub.add_parser("motor-local", help="Muestra o elige el motor local compartido: eolas-v1 (CeltIA, 11435) "
+                                            "o eolas-v2 (Eolfi, 8090)")
+    ml.add_argument("motor", nargs="?", default=None, help="eolas-v1 | eolas-v2 (sin valor, muestra el actual)")
 
     up = sub.add_parser("up", help="Arranca todo junto: Eolas local (CeltIA), el puente de chats web y el panel")
     up.add_argument("--port", type=int, default=8777)
@@ -865,7 +882,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
                              do_verify=True, force=args.force, reanalyze=args.reanalyze,
                              workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                              ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
-                             progress=_progress, case_id=args.case_id, provenance=args.provenance)
+                             progress=_progress, case_id=args.case_id, provenance=args.provenance,
+                             autofix=args.autofix)
         rep.pop("spec", None)
         _print(rep)
         if rep.get("assist") and not rep["assist"]["ok"]:
@@ -886,6 +904,17 @@ def _dispatch(args, store: EvidenceStore) -> int:
             raise ValueError(str(exc)) from exc
         _print(rep)
         return 0 if rep["ok"] else 6
+    elif args.cmd == "autofix":
+        from eolfi.flows.create_flow import run_autofix
+        from eolfi.generador.assist import AssistError
+
+        try:
+            rep = run_autofix(store, args.project, provider=args.provider, model=args.model,
+                              base_url=args.base_url, progress=_progress)
+        except AssistError as exc:
+            raise ValueError(str(exc)) from exc
+        _print(rep)
+        return 0 if rep["ok"] else 5
     elif args.cmd == "report":
         from eolfi.core.report import build_report, fails, render_html, render_markdown
         from eolfi.flows.create_flow import resolve_subject
@@ -1246,12 +1275,12 @@ def _port_listening(host: str, port: int) -> bool:
         return False
 
 
-def _wait_http(url: str, seconds: float) -> bool:
+def _wait_http(url: str, seconds: float, headers: dict[str, str] | None = None) -> bool:
     import time
 
     end = time.monotonic() + seconds
     while time.monotonic() < end:
-        if _http_ok(url, timeout=2):
+        if _http_ok(url, headers, timeout=2):
             return True
         time.sleep(0.5)
     return False
@@ -1263,8 +1292,11 @@ def _start_eolas(eolas_url: str, celtiaia, logs) -> bool:
     import subprocess
     import urllib.parse
 
+    from eolfi.local_gpu import eolas_v1_headers
+
     tags = eolas_url + "/api/tags"
-    if _http_ok(tags):
+    # Con la clave de API (launch-eolas.ps1 la crea en runtime\eolas\api.key) /api/tags responde 401 sin ella.
+    if _http_ok(tags, eolas_v1_headers(eolas_url)):
         _progress(f"Eolas ya está activo en {eolas_url}")
         return True
     u = urllib.parse.urlsplit(eolas_url)
@@ -1275,7 +1307,7 @@ def _start_eolas(eolas_url: str, celtiaia, logs) -> bool:
     if _port_listening(host, port):
         # Otro supervisor lo está levantando (o cargando el modelo): lanzar otro fallaría por el puerto ocupado.
         _progress(f"El puerto {port} está ocupado pero Eolas aún no responde; espero a que termine de arrancar...")
-        if _wait_http(tags, 120):
+        if _wait_http(tags, 120, eolas_v1_headers(eolas_url)):
             _progress(f"Eolas listo en {eolas_url}")
             return True
         _progress(f"Aviso: algo ocupa el puerto {port} y no responde como Eolas; sigo sin Eolas.")
@@ -1298,7 +1330,8 @@ def _start_eolas(eolas_url: str, celtiaia, logs) -> bool:
     if r is not None and r.returncode != 0:
         _progress(f"Aviso: el launcher de Eolas falló (código {r.returncode}); mira {logs / 'eolas.log'}")
         return False
-    if _wait_http(tags, 60):
+    # La clave puede haberse creado en este arranque: se vuelve a leer.
+    if _wait_http(tags, 60, eolas_v1_headers(eolas_url)):
         _progress(f"Eolas listo en {eolas_url} (para pararlo: {launcher} -Stop)")
         return True
     _progress("Aviso: Eolas aún no responde; el panel lo detectará cuando esté listo.")
@@ -1319,10 +1352,10 @@ def _run_up(args) -> int:
     logs = Path.home() / ".eolfi" / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     started: list[tuple[str, subprocess.Popen]] = []
-    from eolfi.local_gpu import eolas_v1_parked
+    from eolfi.local_gpu import local_engine, local_provider
 
-    v1_parked = eolas_v1_parked()
-    os.environ.setdefault("EOLFI_DEFAULT_AI", "eolas-v2" if v1_parked else "eolas")
+    engine = local_engine()
+    os.environ.setdefault("EOLFI_DEFAULT_AI", local_provider())
     os.environ["EOLFI_BOOT_ID"] = str(int(time.time()))
     eolas_url = PRESETS["eolas"]["base_url"].rstrip("/")
     panel = f"http://127.0.0.1:{args.port}"
@@ -1330,9 +1363,9 @@ def _run_up(args) -> int:
     try:
         # 1. Eolas (motor local de CeltIA). Es un servicio compartido con CeltIA: se lanza con -Detach (supervisor
         #    propio que reinicia Eolas si cae) y sigue activo al cerrar Eolfi; se para con launch-eolas.ps1 -Stop.
-        if not args.no_eolas and v1_parked:
-            _progress("Eolas V1 (CeltIA, 11435) está parado hasta que se repare: no lo arranco. El motor local es "
-                      "Eolas V2, que se arranca al usarlo («python -m eolfi eolas-v2 start»).")
+        if not args.no_eolas and engine == "eolas-v2":
+            _progress("Motor local: Eolas V2 (8090); se arranca al usarlo («python -m eolfi eolas-v2 start»). "
+                      "Para usar Eolas V1 de CeltIA: «python -m eolfi motor-local eolas-v1».")
         elif not args.no_eolas:
             _start_eolas(eolas_url, Path(args.celtiaia), logs)
 
@@ -1491,6 +1524,10 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
     args = _parser().parse_args(argv)
+    if hasattr(args, "provider") and args.provider is None:
+        from eolfi.generador.llm import default_provider
+
+        args.provider = default_provider()
     if args.cmd == "acciones":
         from eolfi import acciones
 
@@ -1757,6 +1794,19 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi import mcp_server
 
         return mcp_server.main(args.db, args.root, args.library)
+    if args.cmd == "motor-local":
+        from eolfi import local_gpu
+
+        if args.motor:
+            try:
+                local_gpu.set_local_engine(args.motor)
+            except ValueError as exc:
+                print(f"eolfi motor-local: error: {exc}", file=sys.stderr)
+                return 2
+        motor = local_gpu.local_engine()
+        forced = " (fijado por EOLFI_LOCAL_ENGINE)" if os.environ.get("EOLFI_LOCAL_ENGINE") else ""
+        print(f"Motor local: {motor}{forced} — proveedor «{local_gpu.ENGINE_PROVIDER[motor]}» — {local_gpu.engine_file()}")
+        return 0
     if args.cmd == "up":
         return _run_up(args)
     if args.cmd == "serve":

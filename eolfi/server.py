@@ -143,7 +143,7 @@ class EolfiApp:
     # -- trabajos en segundo plano (análisis largos, crear y verificar) ---------------
     # POST /api/jobs {"kind": "create"|"web"|"repo"|"triage", "body": {...}} -> {"job_id"}
     # GET  /api/jobs?id=…&since=N -> {"status": running|done|error, "log": [...], "next": N, "result"|"error"}
-    JOB_KINDS = ("create", "web", "repo", "triage", "project", "eolas-e2e", "chat")
+    JOB_KINDS = ("create", "web", "repo", "triage", "project", "eolas-e2e", "chat", "autofix")
     MAX_JOBS = 50
     MAX_RUNNING = 3
 
@@ -171,7 +171,7 @@ class EolfiApp:
             raise ApiError(400, f"kind debe ser uno de {', '.join(self.JOB_KINDS)} y body un objeto")
         fn = {"create": self.create, "web": lambda b: self.learn("web", b), "project": self.project_run,
               "repo": lambda b: self.learn("repo", b), "triage": self.triage_path,
-              "eolas-e2e": self.eolas_e2e, "chat": self.chat}[kind]
+              "eolas-e2e": self.eolas_e2e, "chat": self.chat, "autofix": self.autofix}[kind]
         job = {"id": secrets.token_hex(8), "kind": kind, "status": "queued", "log": [], "started": time.time(),
                "label": str(payload.get("name") or payload.get("source") or payload.get("path")
                             or ", ".join(map(str, payload.get("sources") or []))
@@ -203,8 +203,13 @@ class EolfiApp:
                         final = {"status": "error", "code": 422,
                                  "error": "Creación fallida: la IA no superó las pruebas; archivos originales restaurados"}
                     elif verification.get("ok") is False:
+                        fix = result.get("autofix") or {}
                         final = {"status": "error", "code": 422,
-                                 "error": "Creación fallida: la verificación del proyecto no se superó"}
+                                 "error": "Creación fallida: la verificación del proyecto no se superó"
+                                          + (f" y autofix no lo corrigió ({fix.get('summary')})" if fix else "")}
+                if kind == "autofix" and isinstance(result, dict) and result.get("ok") is False:
+                    final = {"status": "error", "code": 422,
+                             "error": f"Autofix sin estado verde: {result.get('summary')}; archivos restaurados"}
             except JobCancelled:
                 final = {"status": "cancelled", "error": "Cancelado por el usuario", "code": 499}
             except ApiError as exc:
@@ -837,6 +842,13 @@ class EolfiApp:
         # se ha pedido expresamente otro, el panel prefiere Eolas V2, que gestiona
         # un único llama-server y el perfil local activo (Gemma Q4 por defecto).
         selected_ai = os.environ.get("EOLFI_DEFAULT_AI")
+        if not selected_ai:
+            # El motor local compartido elegido con «eolfi motor-local» (eolas-v1 o eolas-v2), si está disponible.
+            from eolfi.local_gpu import local_provider
+
+            wanted = local_provider()
+            if any(row["name"] == f"ia:{wanted}" and row["available"] for row in ia_rows):
+                selected_ai = wanted
         if not selected_ai and any(row["name"] == "ia:eolas-v2" and row["available"] for row in ia_rows):
             selected_ai = "eolas-v2"
         # La elección se aplica una vez por versión de arranque; después el panel
@@ -1232,7 +1244,8 @@ class EolfiApp:
                                      ai_base_url=(str(body["ai_base_url"])[:300] if body.get("ai_base_url") else None),
                                      reanalyze=bool(body.get("reanalyze")),
                                      db="sqlite" if body.get("db") == "sqlite" else "memory",
-                                     auth=bool(body.get("auth")), progress=self._progress, case_id=case_id)
+                                     auth=bool(body.get("auth")), progress=self._progress, case_id=case_id,
+                                     autofix=body.get("autofix") is not False)
             except FileExistsError as exc:
                 raise ApiError(409, str(exc)) from exc
             except OverwriteSourceError as exc:
@@ -1247,6 +1260,27 @@ class EolfiApp:
             finally:
                 s.close()
         return rep
+
+    def autofix(self, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/jobs {"kind": "autofix", "body": {"project": DIR, "ai_provider"?}}: verifica y corrige."""
+        from eolfi.flows.create_flow import run_autofix
+        from eolfi.generador.assist import AssistError
+
+        project = str(body.get("project") or "").strip()
+        if not project:
+            raise ApiError(400, "falta «project»: la carpeta de un proyecto generado por Eolfi")
+        self._check_root(project, "carpeta del proyecto")
+        with self._job("create:" + str(Path(project).resolve())):   # mismo cerrojo que crear en esa carpeta
+            s = self.store()
+            try:
+                return run_autofix(s, project, provider=str(body.get("ai_provider") or "eolas-v2"),
+                                   model=(str(body["ai_model"]) if body.get("ai_model") else None),
+                                   base_url=(str(body["ai_base_url"])[:300] if body.get("ai_base_url") else None),
+                                   progress=self._progress)
+            except AssistError as exc:
+                raise ApiError(400 if "no es un proyecto" in str(exc) else 502, str(exc)) from exc
+            finally:
+                s.close()
 
     def compare(self, body: dict[str, Any]) -> dict[str, Any]:
         from eolfi.flows.compare_flow import compare

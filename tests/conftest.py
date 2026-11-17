@@ -32,3 +32,10 @@ def _eolas_v2_aislado(tmp_path, monkeypatch):
     monkeypatch.setenv("EOLFI_ASSIST_MEMORY", str(tmp_path / "assist-verified.jsonl"))
     monkeypatch.setenv("EOLFI_NO_REA", "1")
     monkeypatch.setenv("EOLFI_ACCIONES_FILE", str(tmp_path / "acciones.jsonl"))
+    # 15/11/2026: el motor local elegido (~/.eolfi/motor-local.json) y la clave de Eolas V1 (runtime/eolas/api.key
+    # de CeltIA) son del equipo; las pruebas no los leen. Sin elección, el motor es el predeterminado (eolas-v2).
+    monkeypatch.delenv("EOLFI_LOCAL_ENGINE", raising=False)
+    monkeypatch.delenv("EOLAS_API_KEY", raising=False)
+    monkeypatch.setenv("EOLFI_MOTOR_LOCAL_FILE", str(tmp_path / "motor-local.json"))
+    monkeypatch.setenv("EOLAS_HOME", str(tmp_path / "eolas-v1"))
+    monkeypatch.setenv("CELTIAIA_HOME", str(tmp_path / "celtiaia"))

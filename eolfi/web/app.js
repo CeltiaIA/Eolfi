@@ -560,6 +560,13 @@ function renderCreate(r) {
       ...(r.assist.notes || []).map((n) => el("p", { class: "muted" }, "· " + n)),
       el("p", { class: "muted" }, `${r.assist.files_changed.length} archivos · ${r.assist.rounds.length} ronda(s) · `
         + `${r.assist.usage.input_tokens + r.assist.usage.output_tokens} tokens`),
+    ] : []),
+    ...(r.autofix ? [
+      el("p", { class: r.autofix.ok ? "" : "bad", role: r.autofix.ok ? "status" : "alert" },
+        el("strong", {}, r.autofix.ok ? "✓ Autofix: " : "✗ Autofix: "), r.autofix.summary || ""),
+      ...(r.autofix.notes || []).map((n) => el("p", { class: "muted" }, "· " + n)),
+      ...(r.autofix.rounds ? [el("p", { class: "muted" }, `${(r.autofix.files_changed || []).length} archivos corregidos · `
+        + `${r.autofix.rounds.length} ronda(s)` + (r.autofix.restored ? " · cambios deshechos" : ""))] : []),
     ] : []));
 }
 

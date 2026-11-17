@@ -383,6 +383,89 @@ def assist(project: str | Path, brief: str, *, client=None, effort: str = "high"
             "files_changed": sorted(backup) if ok else [], "usage": usage, "restored": not ok}
 
 
+FIX_BRIEF = """Corrige los errores de la verificación del proyecto (compilación, pruebas o prueba de humo) para que
+vuelva a quedar en verde, sin cambiar lo que hace la aplicación. Arregla el código: no borres ni debilites pruebas,
+no añadas dependencias. Toca solo los archivos necesarios. Salida de la verificación fallida:"""
+# Pasos que dependen de la red, del SDK o de los manifiestos: la IA no puede editarlos, así que no se le pide nada.
+_SETUP_STEP = re.compile(r"^(instalar|restaurar|crear entorno)", re.IGNORECASE)
+
+
+def _ver_summary(ver: dict[str, Any]) -> dict[str, Any]:
+    return {"ok": bool(ver.get("ok")),
+            "steps": [{k: s[k] for k in ("step", "exit", "seconds") if k in s} for s in ver.get("steps", [])],
+            **({"error": ver["error"]} if "error" in ver else {})}
+
+
+def autofix(project: str | Path, *, client=None, effort: str = "high",
+            provider: str | Provider = "eolas-v2", model: str | None = None, base_url: str | None = None,
+            progress: Callable[[str], None] | None = None,
+            token_budget: int = DEFAULT_TOKEN_BUDGET) -> dict[str, Any]:
+    """Comprueba que no queden errores y, si los hay, pide a la IA que los corrija.
+
+    1. Verifica el proyecto (instalación, compilación, pruebas). En verde: termina sin llamar a la IA.
+    2. Si falla un paso de preparación (instalar/restaurar), no se pide nada: la IA no puede tocar manifiestos.
+    3. Si no, la salida del fallo va a la IA, con las mismas reglas que assist (rutas editables, pruebas que no
+       pierden aserciones, autenticación protegida) y hasta MAX_ROUNDS rondas, cada una verificada en aislamiento.
+    4. Si no se consigue el verde, se restauran todos los archivos."""
+    log = progress or (lambda _m: None)
+    root = Path(project).resolve()
+    spec_path = root / "eolfi.spec.json"
+    if not spec_path.is_file():
+        raise AssistError(f"{root} no es un proyecto generado por Eolfi (falta eolfi.spec.json)")
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    target = spec["target"]
+    empty = {"input_tokens": 0, "output_tokens": 0}
+
+    from eolfi.generador.verify import verify
+    log("autofix: comprobando si quedan errores…")
+    base = verify(root, target, progress=log)
+    initial = _ver_summary(base)
+    failed = next((s for s in base.get("steps", []) if s["exit"] != 0), None)
+    report = {"needed": not base["ok"], "provider": None, "model": None, "notes": [], "rounds": [],
+              "files_changed": [], "usage": empty, "restored": False, "initial": initial, "final": initial}
+    if base["ok"]:
+        log("autofix: sin errores, no hace falta corregir nada")
+        return {**report, "ok": True, "summary": "Sin errores: no hacía falta corregir nada"}
+    if failed is None or _SETUP_STEP.match(failed["step"]):
+        reason = base.get("error") or f"falla «{failed['step']}»"
+        log(f"autofix: {reason}; es de preparación del entorno y la IA no puede corregirlo")
+        return {**report, "ok": False, "summary": f"No corregible por la IA: {reason} (revisa el SDK, la red o "
+                                                     "los manifiestos)"}
+    try:
+        llm = provider if isinstance(provider, Provider) else make_provider(
+            provider, model=model, base_url=base_url, client=client)
+    except LLMError as exc:
+        raise AssistError(str(exc)) from exc
+    if hasattr(llm, "progress"):
+        llm.progress = log
+    log(f"autofix: falla «{failed['step']}»; se pide la corrección a {llm.name}")
+    brief = f"{FIX_BRIEF}\n<error step=\"{failed['step']}\">\n{failed.get('tail', '')[-4000:]}\n</error>"
+    tree, files = collect_context(root, target, llm.context_bytes)
+    max_tree = 120 if llm.context_bytes < 50_000 else 600
+    messages: list[dict[str, Any]] = [{"role": "user", "content": _user_prompt(spec, brief, tree, files, max_tree)}]
+    backup: dict[str, str | None] = {}
+    rounds: list[dict[str, Any]] = []
+    usage = dict(empty)
+    best: dict[str, Any] = {}
+    try:
+        ok, summary, notes = _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, token_budget,
+                                     best)
+    except BaseException:
+        _restore(root, backup)
+        _rollback_provider(llm, log)
+        raise
+    if not ok:
+        log("autofix: no se logró un estado verde; restaurando los archivos originales")
+        _restore(root, backup)
+        _rollback_provider(llm, log)
+    final = rounds[-1]["verification"] if ok and rounds else initial
+    return {**report, "ok": ok, "provider": llm.name, "model": getattr(llm, "model", None), "summary": summary,
+            "notes": notes, "rounds": rounds, "files_changed": sorted(backup) if ok else [], "usage": usage,
+            "restored": not ok, "final": final,
+            "best_attempt": ({"round": best["round"], "score": list(best["score"]), "verified": bool(best["verified"]),
+                              "files": best["files"], "applied": ok and best["verified"]} if best else None)}
+
+
 def _rollback_provider(llm, log) -> None:
     """Proveedores que escriben por su cuenta (VS Code en modo «auto»): deshacer también lo suyo."""
     undo = getattr(llm, "rollback", None)
@@ -430,7 +513,8 @@ def _rounds(llm, root, target, effort, messages, backup, rounds, usage, log, tok
                        "provider_timings": dict(getattr(llm, "last_timings", {})),
                        "usage": dict(reply.usage),
                        "failed_output": (failed or {}).get("tail", "")[-4000:],
-                       "failed_step": failed["step"] if failed else None})
+                       "failed_step": failed["step"] if failed else None,
+                       "verification": _ver_summary(ver)})
         score = _verification_score(ver)
         if not best or score > best["score"]:
             for old in rounds[:-1]:
