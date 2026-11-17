@@ -296,7 +296,7 @@ def rebuilt(recipe_inputs, monkeypatch):
     return output, runner
 
 
-def fake_runner(monkeypatch, answer="43\n", code=0, mutate=False):
+def fake_runner(monkeypatch, answer="43\n", code=0, mutate=False, raw=False):
     class Process:
         pid = 123456789
         returncode = code
@@ -304,8 +304,12 @@ def fake_runner(monkeypatch, answer="43\n", code=0, mutate=False):
             assert kwargs["stdin"] is rebuild.subprocess.DEVNULL
             assert "EOLAS_V2_API_KEY" not in kwargs["env"]
             assert argv[3:6] == ["--device", "none", "-ngl"] and argv[6] == "0"
-            kwargs["stdout"].write(answer.encode("utf-8"))
-            kwargs["stderr"].write(b"build: 1 (test)\nllama_perf: eval time = 1 ms / 2 runs ( 0.5 ms per token, 2.00 tokens per second)\n")
+            assert argv[argv.index("--chat-template-kwargs") + 1] == '{"enable_thinking":false}'
+            # Forma de la salida de llama-cli: pancarta, eco «> pregunta», respuesta y estadísticas.
+            shown = answer if raw else (f"build      : b1-test\r\n\r\n> {argv[-1]}\r\n{answer}\r\n\r\n"
+                                        "[ Prompt: 9.0 t/s | Generation: 2.0 t/s ]\r\n\r\nExiting...\r\n")
+            kwargs["stdout"].write(shown.encode("utf-8"))
+            kwargs["stderr"].write(b"llama_perf: carga\n")
             if mutate:
                 with open(argv[2], "ab") as stream:
                     stream.write(b"changed")
@@ -332,12 +336,15 @@ def test_smoke_pass_keeps_bench_unverified_and_recipe_untouched(rebuilt, monkeyp
     result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))
     assert result["estado"] == "smoke_superado" and result["ejecucion"]["exit"] == 0
     assert result["verificacion"]["banco"] == "NO VERIFICADO"
-    assert result["ejecucion"]["velocidad_declarada_en_log"] == "2.00 tokens per second"
+    assert result["ejecucion"]["velocidad_declarada_en_log"] == "2.0 t/s"
+    assert result["herramienta"]["version_declarada_en_log"] == "b1-test"
     assert (output / "receta.json").read_bytes() == recipe
     assert json.loads(Path(result["resultado"]).read_text(encoding="utf-8"))["estado"] == "smoke_superado"
 
 
-@pytest.mark.parametrize("answer,code", [("143\n", 0), ("no lo sé\n", 0), ("43\n", 3)])
+@pytest.mark.parametrize("answer,code", [("143\n", 0), ("no lo sé\n", 0), ("43\n", 3),
+                                       ("<|channel>thought 43", 0),
+                                       ("<think>43</think>No lo sé", 0), ("<think>43", 0)])
 def test_smoke_wrong_answer_or_exit_fails(rebuilt, monkeypatch, answer, code):
     output, runner = rebuilt
     fake_runner(monkeypatch, answer=answer, code=code)
@@ -351,6 +358,44 @@ def test_smoke_model_mutated_by_runner_is_not_accepted(rebuilt, monkeypatch):
     fake_runner(monkeypatch, mutate=True)
     result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))
     assert result["estado"] == "fallido" and "modelo cambió" in result["ejecucion"]["error"]
+
+
+@pytest.mark.parametrize("answer", ["<|channel>thought\nincorrecto 17<channel|>43",
+                                    "<think>incorrecto</think>43"])
+def test_smoke_uses_final_answer(rebuilt, monkeypatch, answer):
+    output, runner = rebuilt
+    fake_runner(monkeypatch, answer=answer)
+    result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))
+    assert result["estado"] == "smoke_superado" and result["respuesta"] == "43"
+
+
+def test_smoke_never_matches_outside_the_answer(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    # Sin el eco de la pregunta no hay respuesta identificable, aunque el valor esté en la salida.
+    fake_runner(monkeypatch, answer="43\n", raw=True)
+    assert rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))["estado"] == "fallido"
+    # El valor que solo aparece en la pregunta no cuenta como respuesta.
+    fake_runner(monkeypatch, answer="no lo sé")
+    result = rebuild.execute_smoke(rebuild.prepare_smoke(output, runner, prompt="Repite 43 al revés",
+                                                         expected="43"))
+    assert result["estado"] == "fallido" and result["respuesta"] == "no lo sé"
+
+
+def test_smoke_interrupt_during_final_hash_is_recorded(rebuilt, monkeypatch):
+    output, runner = rebuilt
+    plan = rebuild.prepare_smoke(output, runner)
+    fake_runner(monkeypatch)
+    original = rebuild.sha256
+    def interrupted(path):
+        if Path(path) == output / "modelo.gguf":
+            raise KeyboardInterrupt
+        return original(path)
+    monkeypatch.setattr(rebuild, "sha256", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        rebuild.execute_smoke(plan)
+    saved = json.loads(Path(plan["resultado"]).read_text(encoding="utf-8"))
+    assert saved["estado"] == "interrumpido"
+    assert saved["verificacion"]["inferencia"] == "NO VERIFICADO"
 
 
 def test_smoke_rejects_unfinished_tampered_or_changed(rebuilt, monkeypatch):

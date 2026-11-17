@@ -141,7 +141,7 @@ def _parser() -> argparse.ArgumentParser:
     mr.add_argument("--ejecutar", action="store_true", help="Ejecuta el cuantizador; requiere los hashes de entrada y paquete")
     mp = model_commands.add_parser("probar", help="Prepara un smoke de inferencia en CPU de una reconstrucción; ejecutar exige opción y hash")
     mp.add_argument("carpeta", help="Carpeta de salida de `modelos reconstruir`, con receta.json y modelo.gguf")
-    mp.add_argument("--ejecutor", required=True, help="Ruta del ejecutable local llama-completion")
+    mp.add_argument("--ejecutor", required=True, help="Ruta del ejecutable local llama-cli")
     mp.add_argument("--sha256-paquete")
     mp.add_argument("--ejecutar", action="store_true")
     mp.add_argument("--pregunta")

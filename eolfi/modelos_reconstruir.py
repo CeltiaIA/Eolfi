@@ -274,9 +274,32 @@ SMOKE_BUDGET = 16 * 1024 * 1024
 
 def _smoke_command(runner, model, prompt, tokens, threads):
     # Solo CPU: no reserva VRAM ni puertos, así que no compite por la GPU con un motor en marcha.
+    # Ejecutor llama-cli: llama-completion (b11968) añade un sistema vacío con <|think|> aunque se pida
+    # `-rea off`; aquí el pensamiento se apaga en la propia plantilla con enable_thinking=false.
     return [str(runner), "-m", str(model), "--device", "none", "-ngl", "0", "-t", str(threads),
             "-n", str(tokens), "-c", "2048", "--temp", "0", "--seed", "1", "--offline", "--simple-io",
-            "--no-display-prompt", "--jinja", "-cnv", "-st", "-rea", "off", "-p", prompt]
+            "--no-display-prompt", "--jinja", "-st", "-rea", "off",
+            "--chat-template-kwargs", '{"enable_thinking":false}', "-p", prompt]
+
+
+def _smoke_answer(text, prompt):
+    """Respuesta del turno: entre el eco `> pregunta` de llama-cli y su línea de estadísticas.
+
+    Sin esas marcas no se busca en la salida completa (la pancarta o la pregunta podrían contener el valor).
+    Tampoco se usan pensamientos como respuesta, incluidos los truncados por el límite de tokens.
+    """
+    text = text.replace("\r\n", "\n")
+    marker = "> " + prompt.replace("\r\n", "\n")
+    if marker not in text:
+        return ""
+    text = text.rsplit(marker, 1)[1].split("\n[ Prompt:", 1)[0]
+    if "<|channel>" in text:
+        # Gemma cierra el canal de pensamiento con <channel|>; sin cierre, todo es pensamiento truncado.
+        if "<channel|>" not in text:
+            return ""
+        text = text.rsplit("<channel|>", 1)[1]
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    return text.split("<think>", 1)[0].strip()
 
 
 def prepare_smoke(folder, runner, *, bundle_sha=None, prompt=SMOKE_PROMPT, expected=SMOKE_EXPECTED,
@@ -369,7 +392,7 @@ def execute_smoke(plan):
             raise RuntimeError("El ejecutor superó el presupuesto de salida o de registro")
         if step["exit"] != 0:
             raise RuntimeError(f"El ejecutor terminó con código {step['exit']}")
-        answer = out_path.read_bytes().decode("utf-8", "replace").strip()
+        answer = _smoke_answer(out_path.read_bytes().decode("utf-8", "replace"), plan["pregunta"])
         plan["respuesta"] = answer[:2000]
         if not re.search(r"(?<!\w)" + re.escape(plan["esperado"].strip()) + r"(?!\w)", answer):
             raise ValueError("La respuesta no contiene el valor esperado")
@@ -396,8 +419,13 @@ def execute_smoke(plan):
             step["log_sha256"] = sha256(log_path)
             with log_path.open("rb") as stream:
                 text = stream.read(SMOKE_BUDGET).decode("utf-8", "replace")
-            version = re.findall(r"build:\s*([^\r\n]{1,200})", text)
-            speed = re.findall(r"eval time\s*=[^\r\n]*?([\d.]+ tokens per second)", text)
+            if out_path.is_file():
+                # llama-cli imprime versión y velocidad en stdout, no en el registro.
+                with out_path.open("rb") as stream:
+                    text += "\n" + stream.read(SMOKE_BUDGET).decode("utf-8", "replace")
+            version = re.findall(r"build\s*:\s*([^\r\n]{1,200})", text)
+            speed = re.findall(r"eval time\s*=[^\r\n]*?([\d.]+ tokens per second)|Generation:\s*([\d.]+ t/s)", text)
+            speed = ["".join(s) for s in speed]
             if version:
                 plan["herramienta"]["version_declarada_en_log"] = version[-1]
             if speed:
@@ -410,6 +438,12 @@ def execute_smoke(plan):
             except OSError as exc:
                 plan["estado"] = "fallido"
                 step["error"] = f"No se pudo verificar el modelo al terminar: {exc}"
+            except KeyboardInterrupt:
+                plan["estado"] = "interrumpido"
+                step["error"] = "Interrumpido al verificar el modelo después de inferencia"
+                plan["verificacion"]["inferencia"] = "NO VERIFICADO"
+                save()
+                raise
         if plan["estado"] != "smoke_superado":
             plan["verificacion"]["inferencia"] = "NO VERIFICADO"
         save()

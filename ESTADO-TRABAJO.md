@@ -1,9 +1,27 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-16 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-17 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
 
-## Continuación G4: conversión real y smoke (17/11/2026) — INCOMPLETO, cortado por límite de uso
+## Reanudación y pruebas activas (17/11/2026)
+
+- Preferencia del titular: autoría **Luis**, ramas `luis/`, sin atribuciones a agentes en nuevas entregas.
+  Configuración local de Git aplicada. Rama actual `luis/modelos-reconstruccion`, commits locales
+  `f4ecd58` y `5b21787` con autor y confirmador Luis; sin publicación. Las referencias anteriores abajo
+  son históricas; los árboles de archivos de ambos commits se conservan.
+- Banco B2 real activo: proceso 10916, motor 34776 en 8090. Registro consultado: cinco muestras completadas
+  (semillas 0, 0, 1, 2, 3), todas 1,000 y juez 9/9; pendiente semilla 4 y resumen final. No demuestra
+  determinismo completo ni calidad fuera de ese banco. No se detiene ni reconfigura ese motor.
+- **Smoke CPU de la reconstrucción real: superado (17/11).** Los dos intentos con `llama-completion` fallaron
+  porque b11968 mete `<|think|>` aunque se pida `-rea off`; el ejecutor pasa a `llama-cli` con
+  `--chat-template-kwargs '{"enable_thinking":false}'` y la respuesta se extrae entre el eco `> pregunta` y
+  `[ Prompt:` (sin marcas, falla). Respuesta real `43`, salida 0, 13,4 s, 3,7 t/s, modelo con el mismo hash.
+  Pruebas del módulo 36/6 omitidas. Suites completas: pytest **758/8 omitidas** (6 nativas sin opt-in),
+  bridge 63/4, vscode-bridge 192, e2e 19; todas salida 0. Informe:
+  `informes/modelos-g-2026-11-16/avance-g4-real-y-smoke.md`. Pendiente G4: banco sobre la reconstrucción,
+  layouts K del auditor, procedencia del SDK; adopción en G6. LIM-G-006 conserva la carpeta de 7,4 GB.
+
+## Continuación G4: conversión real y smoke (17/11/2026) — registro del avance previo
 
 - Commit previo `15cdbd7` (bloque G) ya existe en `codex/modelos-reconstruccion`; sin publicar.
 - Conversión real ejecutada: Gemma BF16 → Q4_K_M en `generated/modelos/gemma4-q4_k_m-2026-11-17/` (ignorado por git).

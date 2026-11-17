@@ -62,11 +62,15 @@ al cuantizador, pero no demuestra que el ejecutable sea seguro ni le impide acce
 ## Smoke de inferencia en CPU
 
 `modelos probar` es el paso siguiente e independiente: carga la reconstrucción con un ejecutor local de
-llama.cpp (`llama-completion`) y le hace una pregunta con respuesta conocida.
+llama.cpp (`llama-cli`) y le hace una pregunta con respuesta conocida.
 
 ```powershell
-python -m eolfi modelos probar 'D:\Eolfi\generated\modelos\gemma4-q4_k_m-2026-11-17' --ejecutor 'D:\EOLAS-BASE\llama\llama-completion.exe'
+python -m eolfi modelos probar 'D:\Eolfi\generated\modelos\gemma4-q4_k_m-2026-11-17' --ejecutor 'D:\EOLAS-BASE\llama\llama-cli.exe'
 ```
+
+Se usa `llama-cli` y no `llama-completion` porque en la build b11968 `llama-completion -cnv` añade un mensaje
+de sistema vacío con `<|think|>` aunque se pida `-rea off`; con Gemma 4 el modelo se pasaba los tokens
+pensando y no respondía (dos intentos del 17/11 conservados en la carpeta de la reconstrucción).
 
 Sin `--ejecutar` solo prepara: exige una `receta.json` de conversión terminada sin errores, vuelve a hashear
 `modelo.gguf` contra el SHA-256 de salida de la receta e identifica el ejecutor y sus bibliotecas. No lanza
@@ -74,14 +78,20 @@ ningún proceso ni escribe en la carpeta. Para ejecutar se añade `--ejecutar --
 `herramienta.bundle_sha256` revisado; ese hash es distinto del paquete del cuantizador porque incluye el
 ejecutable. `--pregunta` y `--esperado` se indican juntos; `--tokens` (1–512), `--hilos` y `--timeout`.
 
-La ejecución es solo CPU (`--device none -ngl 0`), determinista (`--temp 0 --seed 1`), sin razonamiento y
-con la plantilla de chat del propio GGUF. No abre puertos ni reserva VRAM, así que puede hacerse con otro
+La ejecución es solo CPU (`--device none -ngl 0`), determinista (`--temp 0 --seed 1`), con razonamiento
+desactivado (`-rea off` y `--chat-template-kwargs '{"enable_thinking":false}'`) y con la plantilla de chat
+del propio GGUF. No abre puertos ni reserva VRAM, así que puede hacerse con otro
 motor en marcha; sí usa RAM por el tamaño del modelo, sin límite impuesto. El proceso recibe el mismo
 entorno reducido que el cuantizador. Cada ejecución deja `inferencia-FECHA.json`, `.salida.txt` y `.log`
 nuevos; `receta.json` no se modifica. Después se vuelve a hashear el modelo.
 
-Resultado `smoke_superado` (código 0) si el proceso termina 0 y la respuesta contiene el valor esperado
-como palabra completa; en otro caso `fallido` (código 2). **Código 0 significa solo que esa pregunta se
+La respuesta se toma solo del tramo entre el eco `> pregunta` de `llama-cli` y su línea `[ Prompt: …`;
+si no aparecen esas marcas no hay respuesta identificable y el smoke falla, sin buscar el valor en la
+pancarta ni en la pregunta. Dentro de ese tramo se descartan el canal de pensamiento de Gemma (hasta
+`<channel|>`) y los bloques `<think>`, también los truncados. Resultado `smoke_superado` (código 0) si el
+proceso termina 0 y esa respuesta contiene el valor esperado como palabra completa; en otro caso `fallido`
+(código 2). El formato de salida de `llama-cli` puede cambiar entre builds: un cambio daría `fallido`, no un
+falso positivo. **Código 0 significa solo que esa pregunta se
 respondió bien**: `verificacion.banco` sigue NO VERIFICADO. No mide calidad ni velocidad en GPU, no ejercita
 el servidor, las herramientas ni el planificador de Eolas, y no adopta el modelo. La velocidad y la versión
 que aparecen se copian del registro del programa como declaración suya.
