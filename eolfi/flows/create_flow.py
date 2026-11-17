@@ -257,7 +257,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
         # pruebas unitarias (do_verify=False) no recibe criterios que no ha pedido.
         from eolfi.generador import juez as _juez
 
-        accesibilidad = do_verify and spec["target"] in _juez.DESTINOS
+        accesibilidad = do_verify and spec["target"] in _juez.CUBIERTOS
     if db not in ("memory", "sqlite"):
         raise ValueError("db debe ser memory o sqlite")
     spec["options"] = {"db": db, "auth": bool(auth)}

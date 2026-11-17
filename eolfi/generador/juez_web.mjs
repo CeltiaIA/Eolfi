@@ -67,8 +67,10 @@ async function main() {
   } catch (e) {
     return out({ status: 'unavailable', error: `no se pudo abrir el navegador: ${String(e.message || e).slice(0, 200)}` });
   }
-  const server = await serve(req.raiz);
-  const origen = `http://127.0.0.1:${server.address().port}`;
+  // Con «url» la app ya la sirve su propio servidor (next, express, fastapi, django); si no, se sirve la carpeta.
+  const server = req.url ? null : await serve(req.raiz);
+  const origen = req.url ? new URL(req.url).origin : `http://127.0.0.1:${server.address().port}`;
+  const inicio = req.url && req.pagina === 'index.html' ? '' : req.pagina;
   const checks = [];
   const errores = [];
   const bloqueadas = [];
@@ -110,7 +112,7 @@ async function main() {
       return r.filter((v) => v.impact === 'serious' || v.impact === 'critical');
     };
 
-    await page.goto(`${origen}/${req.pagina}`, { waitUntil: 'load' });
+    await page.goto(`${origen}/${inicio}`, { waitUntil: 'load' });
     for (const paso of req.pasos) {
       if ('comprobar' in paso) {
         const c = { nombre: paso.comprobar, ok: false };
@@ -165,7 +167,7 @@ async function main() {
     fallo = fallo || String(e.message || e).split('\n')[0].slice(0, 300);
   } finally {
     await browser.close().catch(() => {});
-    server.close();
+    server?.close();
   }
   out({ status: 'ok', total, passed: checks.filter((c) => c.ok).length, ejecutadas: checks.length, checks,
     errores_js: errores.slice(0, 10), peticiones_bloqueadas: [...new Set(bloqueadas)].slice(0, 10),

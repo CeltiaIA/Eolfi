@@ -12,7 +12,8 @@
   verificar (la plantilla base también se mide). El juez cubre también react, vue y svelte (sirve
   `dist/`; con un proyecto real NO VERIFICADO). Desde el 17/11 se mide por defecto (create, API y
   panel; `--sin-accesibilidad`) con el navegador propio de Eolfi: `eolfi navegador instalar` (ya instalado en
-  `~/.eolfi/navegador`: Chrome Headless Shell 1248, playwright-core 1.64.1, axe-core 4.14.0). Pendiente de C4: next y servidores, PWA, i18n y receta de despliegue.
+  `~/.eolfi/navegador`: Chrome Headless Shell 1248, playwright-core 1.64.1, axe-core 4.14.0). El juez cubre también next, express, fastapi y
+  django en modo servidor (proyectos reales verificados 3/3 con axe). Pendiente de C4: PWA, i18n y despliegue, PWA, i18n y receta de despliegue.
 - **C5 mapa de la app (17/11, rama `luis/c5-mapa-app`):** `eolfi/web/mapa.js` dibuja en la evidencia de REA el
   grafo de llamadas (SVG por niveles, importaciones diferenciadas, lista en texto) y el mapa de pantallas y
   componentes de Android y de bundles de Apple. `grafo_llamadas` devuelve `enlaces`; las evidencias antiguas se
