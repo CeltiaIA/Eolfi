@@ -667,6 +667,14 @@ Otras guías con el mismo formato, también ejecutadas en la CI:
   denegado y las protecciones de la pasarela.
 - [`ejemplos/agente-vscode/GUIA.md`](ejemplos/agente-vscode/GUIA.md): el agente @eolfi en VS Code (laboratorio) y,
   en la CI, el servidor MCP de Eolfi por stdio y lo que declara la extensión.
+- [`ejemplos/crear-proyecto/GUIA.md`](ejemplos/crear-proyecto/GUIA.md): crear un proyecto nuevo con plan razonado,
+  aprobación de la versión revisada, ejecución y el objeto `verification` (pasos y códigos de salida); también
+  `create` desde la CLI.
+- [`ejemplos/registro-acciones/GUIA.md`](ejemplos/registro-acciones/GUIA.md): el registro de acciones encadenado,
+  su firma HMAC y cómo se detecta una manipulación, en un registro temporal.
+- [`ejemplos/instalador/GUIA.md`](ejemplos/instalador/GUIA.md): la versión instalada (`update --check`) y el
+  acceso directo del panel en vista previa, aplicado y retirado.
+- [`ejemplos/idioma/GUIA.md`](ejemplos/idioma/GUIA.md): la CLI, la API y el panel en inglés solo cuando se pide.
 
 ## Pruebas
 

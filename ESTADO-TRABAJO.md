@@ -5,6 +5,15 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C6 guías (17/11, rama `luis/c6-guias`):** `ejemplos/crear-proyecto/GUIA.md` (plan → aprobación → trabajo
+  `project` → `verification`, y `create` de la CLI) completa las siete guías de O13. Guías breves con prueba:
+  `registro-acciones` (B8), `instalador` (C2) e `idioma` (C1). Pruebas `tests/test_guia_crear_proyecto.py`,
+  `_registro_acciones`, `_instalador` y `_idioma`. Sin binarios ni red; el registro y los lanzadores van a temporales.
+  Pendiente: retirada de opciones (decisión del titular) y MCP en modo agente (NO VERIFICADO).
+- **e2e intermitente de adjuntos (17/11, PR #62, fusionada `ba51d37`):** el módulo del chat llegaba después de
+  `#version` y el `change` del selector se perdía (0 subidas). `initEolasChat` procesa lo ya elegido y marca
+  `data-ready`; prueba de regresión que retrasa el módulo.
+
 - **C1 idiomas, parcial (17/11, rama `luis/c1-idiomas`):** panel con selector ES/EN (`eolfi/web/i18n.js` +
   `i18n-en.json`, 289/289 textos fijos; nunca traduce chats, evidencias ni casos), API con `?lang`/cookie/
   `Accept-Language` (61/61 errores fijos, `Content-Language`) y CLI con `--idioma en` (129/129 ayudas de
