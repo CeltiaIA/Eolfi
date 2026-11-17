@@ -6,12 +6,28 @@
 ## Reanudación y pruebas activas (17/11/2026)
 
 - Preferencia del titular: autoría **Luis**, ramas `luis/`, sin atribuciones a agentes en nuevas entregas.
-  Configuración local de Git aplicada. Rama actual `luis/modelos-reconstruccion`, commits locales
-  `f4ecd58` y `5b21787` con autor y confirmador Luis; sin publicación. Las referencias anteriores abajo
-  son históricas; los árboles de archivos de ambos commits se conservan.
-- Banco B2 real activo: proceso 10916, motor 34776 en 8090. Registro consultado: cinco muestras completadas
-  (semillas 0, 0, 1, 2, 3), todas 1,000 y juez 9/9; pendiente semilla 4 y resumen final. No demuestra
-  determinismo completo ni calidad fuera de ese banco. No se detiene ni reconfigura ese motor.
+  Configuración local de Git aplicada. Rama actual `luis/modelos-reconstruccion`; los tres commits locales
+  del bloque G (`f4ecd58`, `5b21787`, `7552c6a`) tienen autor y confirmador Luis; sin publicación.
+  Las referencias anteriores abajo son históricas; los árboles de archivos se conservan.
+- B2 terminado (17/11 00:53): 6/6 muestras 9/9, media 1,000, desviación 0,000 y salida 0;
+  la repetición de la semilla 0 dio el mismo resultado y el motor 8090 quedó parado. Repetir sin cambiar
+  código, modelo, perfil o hipótesis duplicaría unas 4 h 33 min de trabajo sin ampliar la cobertura.
+- **Banco «tareas» sobre la reconstrucción (17/11 06:21–07:22): interrumpido.** El primer `create` superó los
+  3600 s del banco y no hay ninguna muestra. Mismo código `52cc369`, script y semillas que el B2; config temporal
+  en el puerto 8092. Generación a 4,1–4,7 t/s frente a 7,6–8,8 del publicado, con la VRAM a 7,7/8 GB; la causa
+  sigue sin verificar. Calidad NO VERIFICADA. Modelo con el mismo hash; la GPU queda libre.
+  **Suspendido por el titular (17/11, mañana):** no se repite hasta tener las implementaciones necesarias
+  (ajuste de memoria/rendimiento del perfil y presupuesto de tiempo del banco). La reconstrucción queda como
+  modelo con fallos NO VALIDADOS: timeout en el banco, layouts K y procedencia del SDK.
+- **B8 parcial (17/11):** `eolfi/acciones.py`, un registro encadenado por SHA-256 (`~/.eolfi/acciones.jsonl`,
+  esquema `eolfi-acciones/v1`) de las acciones que cambian estado en eolas_v2 y modelos_reconstruir, mediante
+  el decorador `@registrada`. No registra vistas previas. Cerrojo entre procesos; `eolfi acciones verificar|listar`.
+  Las pruebas lo redirigen a temporales (conftest). `tests/test_acciones.py`: 16 pasadas, incluida la escritura
+  concurrente de 4 procesos. Límites: no firmado; si escribir falla, solo avisa por stderr; la cadena RSI de
+  `vas-b1-b2` sigue separada; `assist`, `create` y el puente aún no registran.
+  Validación final con B6, B7 y B8 juntos: pytest **790 pasadas, 8 omitidas, 412,40 s**, salida 0 (6 omitidas son
+  nativas sin opt-in); bridge 63/4 omitidas; vscode-bridge 192; e2e 19; todas salida 0; `git diff --check` 0.
+  No se creó el `~/.eolfi/acciones.jsonl` real. La suite anterior, solo B6/B7, dio 774/8 con salida 0.
 - **Smoke CPU de la reconstrucción real: superado (17/11).** Los dos intentos con `llama-completion` fallaron
   porque b11968 mete `<|think|>` aunque se pida `-rea off`; el ejecutor pasa a `llama-cli` con
   `--chat-template-kwargs '{"enable_thinking":false}'` y la respuesta se extrae entre el eco `> pregunta` y
@@ -20,6 +36,34 @@
   bridge 63/4, vscode-bridge 192, e2e 19; todas salida 0. Informe:
   `informes/modelos-g-2026-11-16/avance-g4-real-y-smoke.md`. Pendiente G4: banco sobre la reconstrucción,
   layouts K del auditor, procedencia del SDK; adopción en G6. LIM-G-006 conserva la carpeta de 7,4 GB.
+- **G6 parcial:** nueva orden de solo lectura `eolas-v2 plan`. Exige conversión y smoke enlazados por el
+  mismo SHA-256, repite la auditoría y valida plantilla, contexto, capas y ventana deslizante antes de
+  proponer parámetros. Ejecución real: perfil `gemma4_recon_q4`, contexto 32.000, 8 capas GPU, batch 128,
+  ubatch 64; `adoptado: false`, sin motor ni cambio de configuración. Evidencia `g6-plan-real.json`.
+  Pruebas específicas de reconstrucción/Eolas/cliente: 105 pasadas, 6 omitidas. Validación final: Python 776/2
+  omitidas con seis cuantizaciones nativas; bridge 63/4, vscode-bridge 192 y panel 19; todas salida 0.
+- **Adopción G6 aplicada y smoke real:** `eolas-v2 adoptar PLAN --sha256-modelo HASH --aplicar` instaló
+  `gemma4_recon_q4` como perfil gestionado inactivo y fijado al hash, sin `extra_args` y con pensamiento
+  desactivado; `gemma_q4` siguió activo. El servidor temporal cargó el perfil, respondió exactamente
+  `EOLFI-G6` (31 tokens, `finish=stop`) y se detuvo junto con su vigilante; estado final sin proceso.
+  `eolas-v2 quitar-perfil` permite retirar solo perfiles gestionados, con pin SHA-256, conservando GGUF,
+  receta, smoke y evidencias. Banco y ajuste definitivo de memoria/rendimiento siguen NO VERIFICADOS.
+- **G3 parcial:** con `EOLAS_OFFLINE=1`, Eolas V2 arranca llama.cpp con su `--offline` nativo y variables
+  offline para llama.cpp/Hugging Face/Transformers, guarda el modo en runtime y evita reutilizar un proceso
+  arrancado con un modo distinto. `status` no afirma aislamiento: `firewall_verified=false`. Pendiente que el
+  titular cree y compruebe la regla de cortafuegos de salida.
+- **B6 implementado en local:** `assist` puntúa cada ronda por verificación realmente superada, marca el mejor
+  intento y conserva sus hashes/evidencia; si no hay verde restaura el proyecto y no aplica el candidato. Solo
+  una ronda verde se guarda en `~/.eolfi/assist-verified.jsonl`: petición y textos redactados, resumen, notas y
+  rutas relativas, sin código fuente ni candidatos fallidos; deduplicada, limitada a 200 y desactivable con
+  `EOLFI_NO_ASSIST_MEMORY=1`. Los últimos tres ejemplos del mismo destino se pasan como datos no confiables.
+  `tests/test_assist.py`: 12 pasadas. NO VERIFICADO todavía con un modelo real.
+- **B7 parcial:** la memoria nueva del banco conserva batería, resumen, ganador y aprobados. La orden
+  `eolas-v2 recomendar-perfil` es vista previa por defecto y exige `--aplicar` para cambiar el activo;
+  `assist --model banco` consume esa misma evidencia y no hace fallback silencioso. Solo admite perfiles con
+  GGUF local, no retirados, aprobados y con ronda de hasta 30 días. Pruebas combinadas B6/B7/modelos: 119
+  pasadas, 6 omitidas. Vista previa real: `NO_VERIFICADO` porque la memoria histórica no tiene todavía el
+  resumen de la nueva versión; ningún perfil cambió. Evidencia `b7-recomendacion-preview.json`.
 
 ## Continuación G4: conversión real y smoke (17/11/2026) — registro del avance previo
 

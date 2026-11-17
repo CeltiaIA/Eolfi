@@ -54,7 +54,8 @@ Registro vivo para la hoja de ruta de `PLAN_INGENIERIA_INVERSA_EOLFI.md`. Sirve 
   `d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054`, con hash del BF16 original
   conservado. Incluye modelo, receta y registros de conversión/inferencia; ignorado por Git. Impacto:
   reconstrucción real del titular, necesaria para comprobar G4/G6; no sustituye el perfil activo.
-  Estado: CONSERVAR. Faltan banco, adopción y decisión del titular al cierre antes de retirar cualquier
+  Estado: CONSERVAR. La adopción inactiva y el smoke del servidor están comprobados; faltan banco y decisión
+  del titular al cierre antes de retirar cualquier
   copia o diagnóstico. No se borra ni se mueve.
 
 - **2026-11-16 — reconstrucción G4, LIM-G-005:** `generated/modelos/g4-smoke-2026-11-16/` (entrada y salida

@@ -1,0 +1,28 @@
+{
+  "schema": "eolfi.modelos.adopcion-evidencia/v1",
+  "fecha": "2026-11-17",
+  "perfil": "gemma4_recon_q4",
+  "aplicado": true,
+  "estado": "perfil_instalado_inactivo",
+  "perfil_activo_antes": "gemma_q4",
+  "perfil_activo_despues": "gemma_q4",
+  "motor_arrancado_por_adopcion": false,
+  "modelo": "D:\\Eolfi\\generated\\modelos\\gemma4-q4_k_m-2026-11-17\\modelo.gguf",
+  "modelo_sha256": "d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054",
+  "parametros": {
+    "ctx": 32000,
+    "gpu_layers": 8,
+    "batch": 128,
+    "ubatch": 64,
+    "reasoning": false,
+    "reasoning_format": "deepseek",
+    "enable_thinking": false
+  },
+  "comando": "python -m eolfi eolas-v2 adoptar informes/modelos-g-2026-11-16/g6-plan-real.json --sha256-modelo d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054 --aplicar",
+  "codigo_salida": 0,
+  "reversible_con": "python -m eolfi eolas-v2 quitar-perfil gemma4_recon_q4 --sha256-modelo d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054",
+  "limites": [
+    "La retirada conserva el GGUF, la receta, el smoke y las evidencias",
+    "El banco de calidad de la reconstruccion sigue NO VERIFICADO"
+  ]
+}

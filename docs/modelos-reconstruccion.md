@@ -96,6 +96,58 @@ respondió bien**: `verificacion.banco` sigue NO VERIFICADO. No mide calidad ni 
 el servidor, las herramientas ni el planificador de Eolas, y no adopta el modelo. La velocidad y la versión
 que aparecen se copian del registro del programa como declaración suya.
 
+## Preparar el perfil de Eolas
+
+Después de un smoke superado, `eolas-v2 plan` vuelve a auditar el GGUF y enlaza la receta y el smoke por
+el mismo SHA-256. Comprueba que el contexto no supere `*.context_length`, que las capas GPU no superen
+`*.block_count`, y valida la ventana deslizante cuando el modelo la declara.
+
+```powershell
+python -m eolfi eolas-v2 plan 'D:\Eolfi\generated\modelos\gemma4-q4_k_m-2026-11-17' `
+  --profile gemma4_recon_q4 --ctx 32000 --gpu-layers 8 --batch 128 --ubatch 64
+```
+
+La orden solo devuelve una propuesta: `adoptado: false`. No escribe la configuración, no cambia el perfil
+activo y no arranca el servidor. Conserva como límites el banco pendiente, los layouts K no cubiertos y la
+necesidad de medir memoria y rendimiento antes de elegir capas GPU, batch y ubatch definitivos.
+
+La adopción tiene otra vista previa y exige volver a escribir el SHA-256 revisado:
+
+```powershell
+python -m eolfi eolas-v2 adoptar '.\informes\modelos-g-2026-11-16\g6-plan-real.json' `
+  --sha256-modelo d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054
+```
+
+Sin `--aplicar` revalida el modelo, receta, smoke, metadatos y propuesta, y deja la configuración intacta.
+Con `--aplicar` añade un perfil nuevo gestionado, fijado al SHA-256 y con pensamiento desactivado; no permite
+`extra_args`, no sobrescribe perfiles y no selecciona ni arranca el nuevo perfil. La selección y la prueba del
+servidor son pasos posteriores. Los perfiles gestionados verifican su SHA-256 antes de construir los argumentos
+de arranque.
+
+Un perfil gestionado que no esté activo ni cargado puede retirarse sin borrar el modelo ni sus evidencias:
+
+```powershell
+python -m eolfi eolas-v2 quitar-perfil gemma4_recon_q4 `
+  --sha256-modelo d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054
+```
+
+La retirada exige el mismo SHA-256 fijado y rechaza perfiles predeterminados, activos o cargados.
+
+## Modo sin red de Eolas V2
+
+Antes de arrancar el servidor puede solicitarse el modo offline de llama.cpp:
+
+```powershell
+$env:EOLAS_OFFLINE = '1'
+python -m eolfi eolas-v2 start --profile gemma4_recon_q4
+```
+
+Eolfi añade `--offline` y pasa `LLAMA_ARG_OFFLINE=1`, `HF_HUB_OFFLINE=1` y
+`TRANSFORMERS_OFFLINE=1`. El runtime registra el modo y no reutiliza silenciosamente un servidor iniciado
+con otro valor. `eolas-v2 status` distingue el modo solicitado y el modo del proceso. Esto reduce la superficie
+de red del motor, pero **no verifica el cortafuegos del sistema**: la regla de salida de G3 sigue siendo una
+acción separada del titular.
+
 ## Pruebas nativas optativas
 
 ```powershell

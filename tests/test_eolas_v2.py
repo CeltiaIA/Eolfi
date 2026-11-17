@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -254,9 +255,12 @@ def test_cli_eolas_y_provider_nuevo_sin_romper_alias_legacy():
 
     assert _parser().parse_args(["eolas-v2", "switch", "mistral"]).eolas_action == "switch"
     assert _parser().parse_args(["eolas-v2", "switch", "gemma_q4"]).profile == "gemma_q4"
+    assert _parser().parse_args(["eolas-v2", "recomendar-perfil", "--bateria", "completa"]).eolas_action == "recomendar-perfil"
     assert _parser().parse_args(["eolas-v2", "train-sft", "--checkpoint", "c", "--dataset", "d", "--out", "o"]).eolas_action == "train-sft"
     provider = make_provider("eolas-v2", model="mistral")
     assert provider.profile == "mistral"
+    bank_provider = make_provider("eolas-v2", model="banco")
+    assert bank_provider.bank_route is True and bank_provider.profile is None
     composed = make_provider("celtia-v2")
     assert composed.name == "celtia-v2"
     # 14/11/2026: nemo-moe retirado; eolas-v2 es el proveedor por defecto de create.
@@ -278,6 +282,46 @@ def test_cli_eolas_y_provider_nuevo_sin_romper_alias_legacy():
         os.environ.pop("EOLFI_EOLAS_V1", None)
         if saved is not None:
             os.environ["EOLFI_EOLAS_V1"] = saved
+
+
+def test_recomendacion_del_banco_solo_usa_aprobados_recientes_y_disponibles(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    cfg_path = tmp_path / "eolas.json"
+    memory = tmp_path / "evaluation.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(cfg_path))
+    monkeypatch.setenv("EOLFI_EOLAS_V2_EVALUATIONS", str(memory))
+    cfg = _config(tmp_path, active="gemma_q4")
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    report = {"protocol": "ronda completa", "battery": "completa", "mejor": "mistral",
+              "aprobados": ["gemma_q4", "mistral"], "results": [], "summary": {
+                  "gemma_q4": {"aprobado": True, "codigo_primera_pct": 90, "herramientas_pct": 100},
+                  "mistral": {"aprobado": True, "codigo_primera_pct": 95, "herramientas_pct": 100}}}
+    eolas_v2._remember_evaluation(report)
+    preview = eolas_v2.apply_recommended_profile("completa")
+    assert preview["perfil"] == "mistral" and preview["aplicado"] is False
+    assert eolas_v2.load_config()["active_profile"] == "gemma_q4"
+    applied = eolas_v2.apply_recommended_profile("completa", apply=True)
+    assert applied["aplicado"] is True and eolas_v2.load_config()["active_profile"] == "mistral"
+
+    cfg = eolas_v2.load_config()
+    cfg["retired_profiles"] = ["mistral"]
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    assert eolas_v2.recommend_evaluation_profile("completa")["perfil"] == "gemma_q4"
+
+
+def test_recomendacion_no_inventa_ganador_sin_banco_aprobado(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas.json"))
+    monkeypatch.setenv("EOLFI_EOLAS_V2_EVALUATIONS", str(tmp_path / "evaluation.json"))
+    cfg = _config(tmp_path)
+    Path(os.environ["EOLFI_EOLAS_V2_CONFIG"]).write_text(json.dumps(cfg), encoding="utf-8")
+    eolfi = {"protocol": "ronda", "battery": "completa", "results": [], "summary": {
+        "gemma_q4": {"aprobado": False, "codigo_primera_pct": 100, "herramientas_pct": 100}}}
+    eolas_v2._remember_evaluation(eolfi)
+    result = eolas_v2.recommend_evaluation_profile("completa")
+    assert result["estado"] == "NO_VERIFICADO" and result["perfil"] is None
 
 
 def test_celtia_v2_compone_redactor_y_revisor_secuencial(monkeypatch):
@@ -840,6 +884,36 @@ def test_eolas_v2_exige_clave_de_api_que_no_aparece_en_la_linea_de_ordenes(tmp_p
     monkeypatch.setenv("EOLAS_V2_API_KEY", "clave-del-titular")
     assert eolas_v2.api_key() == "clave-del-titular"
     assert eolas_v2.api_key_file().read_text(encoding="utf-8") == "clave-del-titular"   # el motor usa la misma
+
+
+def test_modo_offline_usa_guardia_nativa_y_entorno_sin_declarar_cortafuegos(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas.json"))
+    monkeypatch.setenv("EOLAS_OFFLINE", "1")
+    cfg = _config(tmp_path)
+    args = eolas_v2.server_args("mistral", cfg)
+    assert args.count("--offline") == 1
+    env = eolas_v2._server_env()
+    assert env["EOLAS_OFFLINE"] == env["LLAMA_ARG_OFFLINE"] == "1"
+    assert env["HF_HUB_OFFLINE"] == env["TRANSFORMERS_OFFLINE"] == "1"
+    state = eolas_v2.status()
+    assert state["offline_requested"] is True
+    assert state["running_offline"] is None
+    assert state["firewall_verified"] is False
+
+
+def test_servidor_activo_no_cambia_de_modo_offline_en_silencio(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas.json"))
+    cfg = _config(tmp_path)
+    monkeypatch.setattr(eolas_v2, "_runtime", lambda: {"pid": 123, "profile": "mistral", "offline": False})
+    monkeypatch.setattr(eolas_v2, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(eolas_v2, "_healthy", lambda *args: True)
+    monkeypatch.setenv("EOLAS_OFFLINE", "1")
+    with pytest.raises(RuntimeError, match="otro modo de red"):
+        eolas_v2._start_locked("mistral", cfg, popen=lambda *a, **k: pytest.fail("no debe arrancar"))
 
 
 def test_peticiones_al_motor_llevan_la_clave(tmp_path, monkeypatch):

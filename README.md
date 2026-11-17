@@ -261,10 +261,15 @@ en ella.
 
 ```bash
 python -m eolfi eolas-v2 status  # el motor local Eolas V2 (proveedor por defecto)
+python -m eolfi eolas-v2 recomendar-perfil --bateria completa  # vista previa; no cambia el activo
 python -m eolfi create --from https://una-web.com/ --out D:/p/tienda \
     --ai "Catálogo de bicis con filtro por precio y carrito con total"
 python -m eolfi assist D:/p/tienda --brief "Añade búsqueda en el catálogo"
 ```
+
+Tras una ronda completa reciente, `recomendar-perfil` solo considera perfiles disponibles que aprobaron el
+umbral del banco. `--aplicar` cambia el perfil activo de forma explícita. En `assist`, `--model banco` usa esa
+misma evidencia y falla con un aviso si no hay un ganador reciente; nunca cae silenciosamente al perfil activo.
 
 El modelo (por defecto, el motor activo de Eolas V2) recibe la especificación, la
 petición y los archivos editables, y devuelve archivos completos. Eolfi:
@@ -272,8 +277,12 @@ petición y los archivos editables, y devuelve archivos completos. Eolfi:
 - solo acepta rutas de código de la app y pruebas (nunca `package.json`,
   configuración de build, CI ni nada fuera del proyecto);
 - compila y prueba; si falla, devuelve el error al modelo (hasta 2 reparaciones);
-- si no consigue un estado verde, **restaura todos los archivos**;
-- registra el resultado (resumen, archivos, rondas, tokens) como evidencia.
+- conserva en la evidencia cuál fue el mejor intento por pasos de verificación; si ninguno queda verde,
+  **restaura todos los archivos** y no aplica ese candidato;
+- solo después de una verificación verde guarda una memoria local acotada con petición redactada, resumen,
+  notas y rutas relativas; nunca código fuente ni intentos fallidos. Se desactiva con
+  `EOLFI_NO_ASSIST_MEMORY=1`;
+- registra el resultado (resumen, archivos, rondas, tokens y mejor intento) como evidencia.
 
 Proveedores (`--provider`, también en el panel):
 

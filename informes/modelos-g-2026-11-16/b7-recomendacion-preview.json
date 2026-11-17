@@ -1,0 +1,11 @@
+{
+  "schema": "eolfi.eolas.recomendacion-preview/v1",
+  "fecha": "2026-11-17",
+  "estado": "NO_VERIFICADO",
+  "perfil": null,
+  "bateria": "completa",
+  "aplicado": false,
+  "evidencia": "C:\\Users\\mejil\\.eolfi\\eolas-v2\\evaluation-memory.json",
+  "limite": "No hay una ronda reciente, completa y aprobada para perfiles locales disponibles",
+  "conclusion": "La memoria historica anterior no contiene el resumen nuevo; no se inventa ni se aplica un ganador"
+}

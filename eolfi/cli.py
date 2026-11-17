@@ -117,6 +117,11 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    acc = sub.add_parser("acciones", help="Registro encadenado de acciones que cambian estado (B8)")
+    acc_cmd = acc.add_subparsers(dest="acciones_action", required=True)
+    acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
+    acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
+    acc_list.add_argument("-n", type=int, default=20)
     models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
     model_commands = models.add_subparsers(dest="modelos_action", required=True)
     ma = model_commands.add_parser("auditar", help="Comprueba estructura GGUF y SHA-256")
@@ -411,23 +416,42 @@ def _parser() -> argparse.ArgumentParser:
     eo = sub.add_parser("eolas-v2", help="Motor Eolas V2: perfiles Gemma/Mistral alternos, feedback y preparación de aprendizaje")
     eos = eo.add_subparsers(dest="eolas_action", required=True)
     eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
+    eos_plan = eos.add_parser("plan", help="Valida una reconstrucción y propone un perfil sin adoptarlo")
+    eos_plan.add_argument("carpeta", help="Carpeta creada por `modelos reconstruir`, con smoke superado")
+    eos_plan.add_argument("--profile", required=True, help="Nombre nuevo del perfil (minúsculas y guion bajo)")
+    eos_plan.add_argument("--alias")
+    eos_plan.add_argument("--ctx", type=int, default=32000)
+    eos_plan.add_argument("--gpu-layers", type=int, default=8)
+    eos_plan.add_argument("--batch", type=int, default=128)
+    eos_plan.add_argument("--ubatch", type=int, default=64)
+    eos_adopt = eos.add_parser("adoptar", help="Revalida un plan y añade el perfil sin activarlo")
+    eos_adopt.add_argument("plan", help="JSON producido y revisado por `eolas-v2 plan`")
+    eos_adopt.add_argument("--sha256-modelo", required=True, help="SHA-256 revisado del modelo")
+    eos_adopt.add_argument("--aplicar", action="store_true", help="Escribe el perfil; sin esta opción solo muestra la vista previa")
+    eos_remove = eos.add_parser("quitar-perfil", help="Quita un perfil reconstruido gestionado, conservando el GGUF")
+    eos_remove.add_argument("profile")
+    eos_remove.add_argument("--sha256-modelo", required=True)
+    eos_recommend = eos.add_parser("recomendar-perfil", help="Propone el ganador de un banco reciente; no cambia nada por defecto")
+    eos_recommend.add_argument("--bateria", choices=["completa", "codigo", "json"], default="completa")
+    eos_recommend.add_argument("--antiguedad-dias", type=int, default=30)
+    eos_recommend.add_argument("--aplicar", action="store_true", help="Selecciona el perfil recomendado como activo")
     eos_start = eos.add_parser("start", help="Arranca el perfil activo (o el indicado)")
-    eos_start.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], default=None)
+    eos_start.add_argument("--profile", default=None)
     eos_switch = eos.add_parser("switch", help="Detiene el perfil activo y arranca el otro")
-    eos_switch.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_switch.add_argument("profile")
     eos.add_parser("stop", help="Detiene solo el llama-server que inició Eolas")
     eos_review = eos.add_parser("revisar", help="Revisa la cabecera del GGUF de un perfil (o una ruta) con REA")
     eos_review.add_argument("objetivo", help="perfil Eolas V2 o ruta a un .gguf/.safetensors")
     eos_retire = eos.add_parser("retire", help="Retira un perfil que no aprueba (conserva su GGUF)")
-    eos_retire.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_retire.add_argument("profile")
     eos_uninstall = eos.add_parser("uninstall", help="Desinstala un motor: retira el perfil y borra su GGUF y sus lecciones")
     eos_uninstall.add_argument("profile")
     eos_restore = eos.add_parser("restore", help="Vuelve a ofrecer un perfil retirado")
-    eos_restore.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_restore.add_argument("profile")
     eos_consent = eos.add_parser("feedback-consent", help="Activa o desactiva el almacenamiento local de feedback")
     eos_consent.add_argument("state", choices=["on", "off"])
     eos_feedback = eos.add_parser("feedback-add", help="Guarda una valoración explícita localmente")
-    eos_feedback.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], required=True)
+    eos_feedback.add_argument("--profile", required=True)
     eos_feedback.add_argument("--task", required=True, help="Dominio/tarea, p. ej. 'python' o 'resumen'")
     eos_feedback.add_argument("--rating", type=int, choices=range(1, 6), required=True)
     eos_feedback.add_argument("--prompt", default=None)
@@ -1464,6 +1488,15 @@ def main(argv: list[str] | None = None) -> int:
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
     args = _parser().parse_args(argv)
+    if args.cmd == "acciones":
+        from eolfi import acciones
+
+        if args.acciones_action == "verificar":
+            result = acciones.verificar()
+            _print(result)
+            return 0 if result["ok"] else 2
+        _print(acciones.listar(args.n))
+        return 0
     if args.cmd == "modelos":
         from eolfi.modelos import audit, check_trust
 
@@ -1528,6 +1561,20 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.eolas_action == "status":
                 _print(eolas_v2.status())
+            elif args.eolas_action == "plan":
+                from eolfi.modelos_reconstruir import plan_profile
+
+                _print(plan_profile(args.carpeta, args.profile, alias=args.alias, ctx=args.ctx,
+                                    gpu_layers=args.gpu_layers, batch=args.batch, ubatch=args.ubatch))
+            elif args.eolas_action == "adoptar":
+                from eolfi.modelos_reconstruir import adopt_profile
+
+                _print(adopt_profile(args.plan, args.sha256_modelo, apply=args.aplicar))
+            elif args.eolas_action == "quitar-perfil":
+                _print(eolas_v2.remove_custom_profile(args.profile, args.sha256_modelo))
+            elif args.eolas_action == "recomendar-perfil":
+                _print(eolas_v2.apply_recommended_profile(args.bateria, max_age_days=args.antiguedad_dias,
+                                                           apply=args.aplicar))
             elif args.eolas_action == "start":
                 _print(eolas_v2.start(args.profile, release_eolas=args.liberar_eolas))
             elif args.eolas_action == "switch":
@@ -1536,7 +1583,7 @@ def main(argv: list[str] | None = None) -> int:
                 _print(eolas_v2.stop())
             elif args.eolas_action == "revisar":
                 from eolfi import rea_client, rea_compuestas
-                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.DEFAULT_PROFILES
+                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.load_config()["profiles"]
                           else args.objetivo)
                 client = rea_client.ReaClient()
                 try:

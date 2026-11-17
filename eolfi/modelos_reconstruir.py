@@ -15,6 +15,7 @@ import sys
 import struct
 import subprocess
 import time
+from eolfi.acciones import registrada
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -157,6 +158,7 @@ def _terminate(proc):
     proc.wait(timeout=10)
 
 
+@registrada("modelos.reconstruir", resultado=("estado", "salida", "sha256_salida", "respuesta", "aplicado", "adoptado", "perfil", "error"))
 def execute(recipe, *, timeout=None):
     """Ejecuta únicamente la receta en memoria que prepare acaba de verificar."""
     timeout = _timeout(recipe.get("timeout_segundos", 1800) if timeout is None else timeout)
@@ -270,6 +272,7 @@ SMOKE_SCHEMA = "eolfi.modelos.smoke/v1"
 SMOKE_PROMPT = "¿Cuánto es 17*3-8? Responde solo con el número."
 SMOKE_EXPECTED = "43"
 SMOKE_BUDGET = 16 * 1024 * 1024
+PROFILE_SCHEMA = "eolfi.modelos.perfil/v1"
 
 
 def _smoke_command(runner, model, prompt, tokens, threads):
@@ -345,6 +348,7 @@ def prepare_smoke(folder, runner, *, bundle_sha=None, prompt=SMOKE_PROMPT, expec
                         "No se adopta el modelo ni se cambia la lista de confianza"]}
 
 
+@registrada("modelos.probar", resultado=("estado", "salida", "sha256_salida", "respuesta", "aplicado", "adoptado", "perfil", "error"))
 def execute_smoke(plan):
     """Ejecuta únicamente el plan en memoria que prepare_smoke acaba de verificar."""
     timeout = _timeout(plan["timeout_segundos"])
@@ -448,3 +452,130 @@ def execute_smoke(plan):
             plan["verificacion"]["inferencia"] = "NO VERIFICADO"
         save()
     return plan
+
+
+def plan_profile(folder, profile, *, alias=None, ctx=32000, gpu_layers=8, batch=128, ubatch=64):
+    """Valida una reconstrucción y propone un perfil Eolas sin modificar su configuración."""
+    folder = Path(folder).expanduser().resolve()
+    model, recipe_path = folder / "modelo.gguf", folder / "receta.json"
+    if not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", str(profile)):
+        raise ValueError("El perfil debe usar minúsculas, números y guion bajo (2–64 caracteres)")
+    values = {"ctx": ctx, "gpu_layers": gpu_layers, "batch": batch, "ubatch": ubatch}
+    if any(type(value) is not int for value in values.values()):
+        raise ValueError("Los límites del perfil deben ser enteros")
+    if not 512 <= ctx <= 1_048_576 or not 0 <= gpu_layers <= 1024:
+        raise ValueError("Contexto o capas GPU fuera de rango")
+    if not 1 <= ubatch <= batch <= 4096:
+        raise ValueError("Se requiere 1 <= ubatch <= batch <= 4096")
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    conversion = recipe.get("conversion") or {}
+    if (recipe.get("schema") != SCHEMA or recipe.get("estado") != "NO VERIFICADO"
+            or conversion.get("exit") != 0 or conversion.get("error") is not None
+            or Path(recipe.get("salida", "")).resolve() != model or not model.is_file()):
+        raise ValueError("La carpeta no contiene una reconstrucción terminada sin errores")
+    before = _stamp(model)
+    audit_result = audit(model)
+    digest = audit_result.get("sha256")
+    recorded_audit = recipe.get("auditoria_salida") or {}
+    if audit_result.get("estado") == "fallido" or digest != recorded_audit.get("sha256"):
+        raise ValueError("El modelo no coincide con el SHA-256 de salida de su receta")
+    for key in ("arquitectura", "tensores", "tipo_archivo", "plantilla_sha256", "planificador",
+                "declaraciones_tensores_sha256"):
+        if audit_result.get(key) != recorded_audit.get(key):
+            raise ValueError(f"El metadato {key} no coincide con la auditoría registrada")
+    if before != _stamp(model):
+        raise ValueError("El modelo cambió al planificar el perfil")
+    architecture = audit_result.get("arquitectura")
+    planner = audit_result.get("planificador") or {}
+    prefix = str(architecture) + "."
+    blocks, context = planner.get(prefix + "block_count"), planner.get(prefix + "context_length")
+    sliding = planner.get(prefix + "attention.sliding_window")
+    if type(blocks) is not int or blocks <= 0 or type(context) is not int or context <= 0:
+        raise ValueError("El GGUF no declara capas y contexto válidos para el planificador")
+    if ctx > context:
+        raise ValueError(f"El contexto solicitado ({ctx}) supera el declarado por el GGUF ({context})")
+    if gpu_layers > blocks:
+        raise ValueError(f"Las capas GPU solicitadas ({gpu_layers}) superan las capas del modelo ({blocks})")
+    if sliding is not None and (type(sliding) is not int or sliding <= 0 or sliding > context):
+        raise ValueError("La ventana deslizante declarada no es válida")
+    successful = []
+    for evidence_path in sorted(folder.glob("inferencia-*.json"), reverse=True):
+        try:
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        execution = evidence.get("ejecucion") or {}
+        if (evidence.get("schema") == SMOKE_SCHEMA and evidence.get("estado") == "smoke_superado"
+                and Path(evidence.get("modelo", "")).resolve() == model and evidence.get("modelo_sha256") == digest
+                and execution.get("exit") == 0 and execution.get("error") is None
+                and Path(evidence.get("resultado", "")).resolve() == evidence_path.resolve()
+                and str((evidence.get("verificacion") or {}).get("inferencia", "")).startswith("smoke_superado")):
+            successful.append((evidence_path, evidence))
+    if not successful:
+        raise ValueError("Falta un smoke superado para este mismo SHA-256")
+    smoke_path, smoke = successful[0]
+    proposed_alias = alias or f"{profile}:reconstruido"
+    if not isinstance(proposed_alias, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", proposed_alias):
+        raise ValueError("Alias de perfil inválido")
+    unknown = list(audit_result.get("incognitas") or [])
+    return {"schema": PROFILE_SCHEMA, "estado": "perfil_preparado_con_limites" if unknown else "perfil_preparado",
+            "adoptado": False, "fecha_utc": datetime.now(timezone.utc).isoformat(),
+            "perfil": profile, "modelo": str(model), "modelo_sha256": digest,
+            "receta": str(recipe_path), "smoke": str(smoke_path),
+            "arquitectura": architecture, "cuantizacion": recipe.get("cuantizacion"),
+            "metadatos_planificador": planner,
+            "plantilla": {"sha256": audit_result.get("plantilla_sha256"),
+                           "bytes": audit_result.get("plantilla_bytes")},
+            "propuesta": {"alias": proposed_alias, "model": str(model), "ctx": ctx,
+                           "gpu_layers": gpu_layers, "batch": batch, "ubatch": ubatch,
+                           "reasoning_format": "deepseek" if architecture in ("gemma", "gemma3", "gemma4") else None,
+                           "chat_template_kwargs": {"enable_thinking": False}},
+            "verificacion": {"conversion": "salida 0 y SHA-256 verificado",
+                              "inferencia": smoke["verificacion"]["inferencia"],
+                              "banco": "NO VERIFICADO"},
+            "incognitas": unknown,
+            "limites": ["La propuesta no modifica la configuración ni arranca el servidor",
+                        "El smoke cubre una pregunta en CPU; no sustituye el banco ni el servidor Eolas",
+                        "gpu_layers, batch y ubatch requieren validar memoria y rendimiento en el equipo",
+                        "Los layouts de cuantización no cubiertos por el auditor siguen NO VERIFICADOS"]}
+
+
+@registrada("eolas_v2.adoptar", campos=("plan_file", "expected_sha"), resultado=("estado", "salida", "sha256_salida", "respuesta", "aplicado", "adoptado", "perfil", "error"), si=lambda a: bool(a.get("apply")))
+def adopt_profile(plan_file, expected_sha, *, apply=False):
+    """Revalida un plan G6 y, solo con apply, añade un perfil nuevo sin activarlo."""
+    expected_sha = _expected(expected_sha, "del modelo")
+    path = Path(plan_file).expanduser().resolve()
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    if saved.get("schema") != PROFILE_SCHEMA or saved.get("adoptado") is not False:
+        raise ValueError("El archivo no es un plan de perfil sin adoptar")
+    if saved.get("modelo_sha256") != expected_sha:
+        raise ValueError("SHA-256 revisado distinto del plan")
+    proposal = saved.get("propuesta") or {}
+    model = Path(saved.get("modelo", "")).resolve()
+    current = plan_profile(model.parent, saved.get("perfil"), alias=proposal.get("alias"),
+                           ctx=proposal.get("ctx"), gpu_layers=proposal.get("gpu_layers"),
+                           batch=proposal.get("batch"), ubatch=proposal.get("ubatch"))
+    for key in ("modelo_sha256", "arquitectura", "cuantizacion", "metadatos_planificador", "plantilla", "propuesta"):
+        if current.get(key) != saved.get(key):
+            raise ValueError(f"El plan guardado ya no coincide: {key}")
+    from eolfi import eolas_v2
+
+    record = {"managed_by": eolas_v2.CUSTOM_PROFILE_MARKER, "alias": proposal["alias"],
+              "model": str(model), "ctx": proposal["ctx"], "gpu_layers": proposal["gpu_layers"],
+              "batch": proposal["batch"], "ubatch": proposal["ubatch"], "sha256": expected_sha,
+              "reasoning": False,
+              "reasoning_format": proposal.get("reasoning_format"),
+              "chat_template_kwargs": proposal["chat_template_kwargs"],
+              "source_recipe": current["receta"], "source_smoke": current["smoke"]}
+    # Valida antes de anunciar siquiera la vista previa.
+    eolas_v2._validate_custom_profile(current["perfil"], record)
+    result = {"schema": "eolfi.modelos.adopcion/v1", "estado": "adopcion_preparada", "aplicado": False,
+              "perfil": current["perfil"], "config": str(eolas_v2.config_file()), "registro": record,
+              "active_profile": eolas_v2.load_config(create=False)["active_profile"],
+              "limites": ["La vista previa no cambia la configuración ni arranca el motor",
+                          "Aplicar añade un perfil nuevo, pero no lo selecciona como activo",
+                          "Banco de la reconstrucción NO VERIFICADO"]}
+    if apply:
+        installed = eolas_v2.install_custom_profile(current["perfil"], record)
+        result.update(estado="perfil_instalado_inactivo", aplicado=True, instalacion=installed)
+    return result

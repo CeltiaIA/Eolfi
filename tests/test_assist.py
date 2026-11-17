@@ -65,7 +65,10 @@ def test_assist_repairs_then_passes(tmp_path):
         {"summary": "Carrito corregido", "notes": ["un solo h1"], "files": [
             {"path": "./index.html", "content": fixed}]},
     ])
-    r = assist(out, "Añade una sección de carrito", provider=client)
+    memory = tmp_path / "verified.jsonl"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("EOLFI_ASSIST_MEMORY", str(memory))
+        r = assist(out, "Añade una sección de carrito", provider=client)
     assert r["ok"] and len(r["rounds"]) == 2
     assert set(r["rounds"][0]["rejected"]) == {"package.json", "../fuera.html"}
     assert r["rounds"][0]["failed_step"] == "pruebas (node --test)"
@@ -82,6 +85,11 @@ def test_assist_repairs_then_passes(tmp_path):
     assert second[-2]["role"] == "assistant" and "<error>" in second[-1]["content"]
     assert r["provider"] == "simulado" and client.calls[0]["schema"]["type"] == "object"
     assert r["usage"] == {"input_tokens": 2000, "output_tokens": 400}
+    assert r["best_attempt"]["round"] == 2 and r["best_attempt"]["verified"] is True
+    assert r["best_attempt"]["applied"] is True and r["verified_memory_saved"] is True
+    remembered = json.loads(memory.read_text(encoding="utf-8"))
+    assert remembered["verified"] is True and remembered["summary"] == "Carrito corregido"
+    assert remembered["files"] == ["index.html"] and "content" not in remembered
 
 
 def test_assist_restores_when_never_green(tmp_path):
@@ -90,10 +98,47 @@ def test_assist_restores_when_never_green(tmp_path):
     bad = original.replace("</main>", "<h1>otro</h1></main>")
     client = FakeClient([{"summary": "x", "notes": [], "files": [
         {"path": "index.html", "content": bad}, {"path": "nueva.html", "content": "<p>x</p>"}]}] * 3)
-    r = assist(out, "algo", provider=client)
+    memory = tmp_path / "verified.jsonl"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("EOLFI_ASSIST_MEMORY", str(memory))
+        r = assist(out, "algo", provider=client)
     assert not r["ok"] and r["restored"] and len(r["rounds"]) == 3
     assert (out / "index.html").read_text(encoding="utf-8") == original
     assert not (out / "nueva.html").exists()
+    assert r["best_attempt"]["round"] == 1 and r["best_attempt"]["verified"] is False
+    assert r["best_attempt"]["applied"] is False and r["best_attempt"]["conserved_in_rounds"] is True
+    assert r["rounds"][0]["best_attempt"] is True and not memory.exists()
+
+
+def test_assist_reutiliza_solo_resumenes_verificados(tmp_path):
+    from eolfi.generador.assist import MEMORY_SCHEMA
+
+    memory = tmp_path / "verified.jsonl"
+    rows = [
+        {"schema": MEMORY_SCHEMA, "verified": False, "target": "static", "summary": "NO USAR"},
+        {"schema": MEMORY_SCHEMA, "verified": True, "target": "react", "summary": "OTRO DESTINO"},
+        {"schema": MEMORY_SCHEMA, "verified": True, "target": "static", "request": "Añade buscador",
+         "summary": "Buscador validado", "notes": ["sin dependencias"], "files": ["index.html"]},
+    ]
+    memory.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    out = _project(tmp_path)
+    page = (out / "index.html").read_text(encoding="utf-8")
+    client = FakeClient([{"summary": "sin cambios", "notes": [], "files": [{"path": "index.html", "content": page}]}])
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("EOLFI_ASSIST_MEMORY", str(memory))
+        result = assist(out, "Revisa la página", provider=client)
+    prompt = client.calls[0]["messages"][0]["content"]
+    assert result["ok"] and "Buscador validado" in prompt
+    assert "NO USAR" not in prompt and "OTRO DESTINO" not in prompt
+
+
+def test_puntuacion_del_mejor_intento_prioriza_verificacion_real():
+    from eolfi.generador.assist import _verification_score
+
+    falla_pronto = {"ok": False, "steps": [{"exit": 1}]}
+    llega_a_pruebas = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}]}
+    verde = {"ok": True, "steps": [{"exit": 0}]}
+    assert _verification_score(falla_pronto) < _verification_score(llega_a_pruebas) < _verification_score(verde)
 
 
 def test_assist_refusal(tmp_path):

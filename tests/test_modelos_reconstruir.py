@@ -7,6 +7,7 @@ import pytest
 
 from eolfi import modelos
 from eolfi import modelos_reconstruir as rebuild
+from eolfi import eolas_v2
 from eolfi.cli import main
 from tests.test_modelos import fixture
 
@@ -79,7 +80,7 @@ def test_rejects_renamed_shard_and_zero_layers(recipe_inputs):
         rebuild.prepare(source, output, tool, "Q4_0")
 
 
-def fake_process(monkeypatch, code=0, mutate=False):
+def fake_process(monkeypatch, code=0, mutate=False, metadata=None):
     class Process:
         pid = 123456789
         returncode = code
@@ -88,8 +89,9 @@ def fake_process(monkeypatch, code=0, mutate=False):
             assert "EOLAS_V2_API_KEY" not in kwargs["env"]
             assert "PIP_INDEX_URL" not in kwargs["env"] and "NPM_CONFIG_REGISTRY" not in kwargs["env"]
             target = Path(argv[4])
-            fixture(target, metadata=[("general.architecture", 8, "gemma"), ("gemma.block_count", 4, 2),
-                                      ("general.file_type", 4, 2)])
+            fixture(target, metadata=metadata or [("general.architecture", 8, "gemma"),
+                                                  ("gemma.block_count", 4, 2),
+                                                  ("general.file_type", 4, 2)])
             if code:
                 target.write_bytes(b"incomplete artifact")
             if mutate:
@@ -455,3 +457,129 @@ def test_smoke_cli_requires_pin_and_reports_exit(rebuilt, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["verificacion"]["banco"] == "NO VERIFICADO"
     fake_runner(monkeypatch, answer="7\n")
     assert main([*base, "--ejecutar", "--sha256-paquete", pin]) == 2
+
+
+# --- Plan de perfil Eolas (G6; no adopta ni arranca) ---
+
+@pytest.fixture
+def profiled(recipe_inputs, monkeypatch):
+    source, output, tool = recipe_inputs
+    metadata = [("general.architecture", 8, "gemma"), ("general.name", 8, "Gemma prueba"),
+                ("gemma.block_count", 4, 48), ("gemma.context_length", 4, 262144),
+                ("gemma.attention.sliding_window", 4, 1024),
+                ("tokenizer.chat_template", 8, "{{ messages }}")]
+    fixture(source, metadata=metadata)
+    fake_process(monkeypatch, metadata=[*metadata, ("general.file_type", 4, 2)])
+    assert rebuild.execute(rebuild.prepare(source, output, tool, "Q4_0"))["estado"] == "NO VERIFICADO"
+    runner = tool.with_name("llama-cli.exe")
+    runner.write_bytes(b"runner")
+    fake_runner(monkeypatch)
+    assert rebuild.execute_smoke(rebuild.prepare_smoke(output, runner))["estado"] == "smoke_superado"
+    return output
+
+
+def test_profile_plan_validates_recipe_smoke_metadata_and_does_not_adopt(profiled):
+    before = sorted(p.name for p in profiled.iterdir())
+    result = rebuild.plan_profile(profiled, "gemma4_recon_q4", ctx=32000, gpu_layers=8)
+    assert result["schema"] == rebuild.PROFILE_SCHEMA and result["adoptado"] is False
+    assert result["perfil"] == "gemma4_recon_q4"
+    assert result["metadatos_planificador"]["gemma.context_length"] == 262144
+    assert result["propuesta"]["ctx"] == 32000 and result["propuesta"]["gpu_layers"] == 8
+    assert result["propuesta"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert result["verificacion"]["banco"] == "NO VERIFICADO"
+    assert sorted(p.name for p in profiled.iterdir()) == before
+
+
+@pytest.mark.parametrize("kwargs,match", [({"ctx": 262145}, "contexto solicitado"),
+                                          ({"gpu_layers": 49}, "capas GPU"),
+                                          ({"batch": 32, "ubatch": 64}, "ubatch")])
+def test_profile_plan_rejects_limits_outside_metadata(profiled, kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        rebuild.plan_profile(profiled, "gemma4_recon_q4", **kwargs)
+
+
+def test_profile_plan_requires_same_successful_smoke(profiled):
+    evidence = next(profiled.glob("inferencia-*.json"))
+    data = json.loads(evidence.read_text(encoding="utf-8"))
+    data["modelo_sha256"] = "0" * 64
+    evidence.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="smoke superado"):
+        rebuild.plan_profile(profiled, "gemma4_recon_q4")
+
+
+def test_profile_plan_rejects_tampered_recorded_metadata(profiled):
+    recipe_path = profiled / "receta.json"
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    recipe["auditoria_salida"]["planificador"]["gemma.context_length"] = 999999
+    recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+    with pytest.raises(ValueError, match="planificador"):
+        rebuild.plan_profile(profiled, "gemma4_recon_q4")
+
+
+def test_profile_plan_cli(profiled, capsys):
+    assert main(["eolas-v2", "plan", str(profiled), "--profile", "gemma4_recon_q4",
+                 "--ctx", "4096", "--gpu-layers", "4"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["propuesta"]["ctx"] == 4096 and result["adoptado"] is False
+
+
+def test_adoption_preview_and_apply_adds_inactive_pinned_profile(profiled, tmp_path, monkeypatch):
+    config = tmp_path / "eolas-v2.json"
+    server = tmp_path / "llama-server.exe"
+    server.write_bytes(b"server")
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(config))
+    monkeypatch.setattr(eolas_v2, "_server_default", lambda: str(server))
+    eolas_v2.load_config()
+    before = config.read_bytes()
+    plan = rebuild.plan_profile(profiled, "gemma4_recon_q4")
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+
+    preview = rebuild.adopt_profile(plan_file, plan["modelo_sha256"])
+    assert preview["estado"] == "adopcion_preparada" and preview["aplicado"] is False
+    assert config.read_bytes() == before
+
+    applied = rebuild.adopt_profile(plan_file, plan["modelo_sha256"], apply=True)
+    assert applied["estado"] == "perfil_instalado_inactivo" and applied["aplicado"] is True
+    cfg = eolas_v2.load_config()
+    assert cfg["active_profile"] == "gemma_q4"
+    custom = cfg["profiles"]["gemma4_recon_q4"]
+    assert custom["sha256"] == plan["modelo_sha256"] and custom["managed_by"] == rebuild.PROFILE_SCHEMA
+    args = eolas_v2.server_args("gemma4_recon_q4", cfg)
+    assert args[args.index("-m") + 1] == str(profiled / "modelo.gguf")
+    assert args[args.index("--reasoning-format") + 1] == "deepseek"
+    assert custom["reasoning"] is False
+    with pytest.raises(FileExistsError):
+        rebuild.adopt_profile(plan_file, plan["modelo_sha256"], apply=True)
+    model = profiled / "modelo.gguf"
+    removed = eolas_v2.remove_custom_profile("gemma4_recon_q4", plan["modelo_sha256"])
+    assert removed["quitado"] is True and model.is_file()
+    assert "gemma4_recon_q4" not in eolas_v2.load_config()["profiles"]
+
+
+def test_adoption_rejects_wrong_pin_or_injectable_custom_profile(profiled, tmp_path, monkeypatch):
+    config = tmp_path / "eolas-v2.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(config))
+    monkeypatch.setattr(eolas_v2, "_server_default", lambda: str(tmp_path / "server.exe"))
+    plan = rebuild.plan_profile(profiled, "gemma4_recon_q4")
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA-256 revisado"):
+        rebuild.adopt_profile(plan_file, "0" * 64)
+    record = {"managed_by": rebuild.PROFILE_SCHEMA, **plan["propuesta"], "sha256": plan["modelo_sha256"],
+              "source_recipe": plan["receta"], "source_smoke": plan["smoke"], "extra_args": ["--rpc"]}
+    with pytest.raises(ValueError, match="Campos no admitidos"):
+        eolas_v2._validate_custom_profile("gemma4_recon_q4", record)
+
+
+def test_adoption_cli_preview_never_applies(profiled, tmp_path, monkeypatch, capsys):
+    config = tmp_path / "eolas-v2.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(config))
+    monkeypatch.setattr(eolas_v2, "_server_default", lambda: str(tmp_path / "server.exe"))
+    plan = rebuild.plan_profile(profiled, "gemma4_recon_q4")
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    assert main(["eolas-v2", "adoptar", str(plan_file), "--sha256-modelo", plan["modelo_sha256"]]) == 0
+    assert json.loads(capsys.readouterr().out)["aplicado"] is False
+    assert not config.exists()
+    assert "gemma4_recon_q4" not in eolas_v2.load_config()["profiles"]
