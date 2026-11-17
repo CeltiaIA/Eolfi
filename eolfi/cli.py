@@ -502,6 +502,12 @@ def _parser() -> argparse.ArgumentParser:
     r13.add_argument("ruta")
     r13.add_argument("--limite", type=int, default=30, help="máximo de elementos por lista (30)")
     r13.add_argument("--salida", help="ruta .json nueva para el volcado completo (tipos, métodos, cadenas, P/Invoke)")
+    r14 = rps.add_parser("clase", help="Clases y métodos de un APK descompilados con JADX, sin ejecutar la app")
+    r14.add_argument("ruta")
+    r14.add_argument("consulta", help="nombre completo de la clase o un trozo (distingue mayúsculas)")
+    r14.add_argument("--metodo", help="método que se descompila")
+    r14.add_argument("--sobrecarga", type=int, help="índice de la sobrecarga si el método tiene varias")
+    r14.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1661,6 +1667,12 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "dotnet":
                 op, params = "ensamblado_dotnet", {"ruta": args.ruta, "limite": args.limite, "salida": args.salida}
                 result = rc.ensamblado_dotnet(client, args.ruta, args.limite, args.salida)
+            elif args.rea_action == "clase":
+                op = "clase_android"
+                params = {"ruta": args.ruta, "consulta": args.consulta, "metodo": args.metodo,
+                          "sobrecarga": args.sobrecarga}
+                result = rc.clase_android(client, args.ruta, args.consulta, metodo=args.metodo,
+                                          sobrecarga=args.sobrecarga, limite=args.limite)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":

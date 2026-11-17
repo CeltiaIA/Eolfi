@@ -187,3 +187,15 @@ Punto 9, primera parte: `eolfi rea dotnet <ensamblado>` (compuesto `ensamblado_d
 Verificado en vivo con dos ensamblados del Framework 4 de Windows copiados al área temporal: `InstallUtil.exe` (cobertura completa: 8 tipos, 7 cadenas, sin P/Invoke) y `System.Data.dll` (modo mixto, 158 P/Invoke, 319 implementaciones nativas). En `System.Data.dll` REA corta los miembros por su presupuesto fijo de 64 MiB por inspección (`dist/dotnet/ManagedDecodeBudget.js`, sin ajuste ni variable `REA_*`). El compuesto no modifica REA: particiona con `type_names` en lotes adaptativos (150 tipos, partidos por la mitad si se pasan; `<Module>` va solo), suma los recuentos por tipo sin duplicar y une las cadenas por token. Así recupera 14.072 métodos, 9.096 campos, 64.372 aristas y 3.865 cadenas en 9 inspecciones, y los totales cuadran con la tabla de tipos. `cobertura_miembros` indica la partición, los lotes parciales y los tipos que no cupieran ni solos. REA marcaba `<Module>` como «partial» sin motivo. Al revisar sus 101 métodos, 31 son código nativo de C++/CLI («CIL decoding is unavailable for native…») y 2 son P/Invoke sin cuerpo (RVA 0). Un lote parcial solo por eso cuenta como completo y lo anota en `metodos_sin_cil`; cualquier otro cuerpo que falte lo deja parcial. Con eso, `System.Data.dll` sale «complete». `--salida <nuevo.json>` vuelca todos los tipos, métodos, cadenas y P/Invoke. Decisiones y evidencia: `D:\Alejandria\docs\REA-DOTNET-PARTICION-2026-11-14.md`.
 
 NO VERIFICADO: proyectos .NET Core/5+ con `TargetFramework` (la lista `marcos_objetivo` salió vacía en ambos), ensamblados ReadyToRun y ofuscados. Siguen pendientes Unity IL2CPP, Flutter/Dart y Apple.
+
+## Clases y métodos Android con JADX (14/11/2026)
+
+Punto 9, parte JADX: `eolfi rea clase <apk> <consulta> [--metodo M] [--sobrecarga N]` (compuesto `clase_android`; REA de Windows, que tiene JADX configurado). Funciona sin instalar ni ejecutar la app:
+- Si la consulta coincide con varias clases, las lista.
+- Si coincide con una sola, o una coincide exacta, da sus métodos (firma y prototipo DEX), campos (tipo y valor estático) y clases internas.
+- Con `--metodo`, descompila ese método e indica si REA recurrió a smali, sus marcas y si la fuente salió recortada (12.000 caracteres).
+- Si el método tiene varias sobrecargas, las lista y pide `--sobrecarga`.
+
+Verificado en vivo con ApiDemos 6.0.18 (SHA-256 `6e5eacf5…ff75`, 2.876 clases, JADX headless 0.7.1), unos 10 s por llamada, en cinco casos: varias coincidencias, clase única, `onCreate` de `ReversingAnimation`, `getData` de `ApiDemos` y una consulta sin resultados.
+
+NO VERIFICADO: APK ofuscados (R8/ProGuard), métodos que fallan en JADX y caen a smali, y paquetes .aab/.xapk.
