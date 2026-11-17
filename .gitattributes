@@ -28,3 +28,7 @@
 # Paquete con manifiesto de hashes (MANIFEST-SHA256.csv): los bytes se conservan tal cual,
 # incluidos sus scripts .cmd/.ps1, para que los SHA-256 publicados sigan coincidiendo.
 informes/eolas-v2-para-eolfi-2026-11-09/** -text
+
+# Scripts que se ejecutan en Linux/WSL o como ganchos: siempre LF (con CRLF, bash falla en WSL).
+*.sh text eol=lf
+.githooks/* text eol=lf
