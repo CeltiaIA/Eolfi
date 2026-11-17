@@ -133,6 +133,9 @@ class EolfiApp:
         self._jobs: dict[str, threading.Lock] = {}
         self._jobs_guard = threading.Lock()
         self.jobs: dict[str, dict[str, Any]] = {}   # trabajos en segundo plano (id -> estado)
+        # Subidas en curso (17/11/2026): no son trabajos, pero --reload tampoco debe cortarlas. Un reinicio en mitad
+        # de un .gguf de 24 GB lo dejaba en «Failed to fetch» y las siguientes fallaban con el puerto cerrado.
+        self._uploads = 0
         # Actividad del agente: conserva progreso redactado sin prompts ni respuestas.
         self._vscode_activity_lock = threading.Lock()
         self._tl = threading.local()
@@ -381,7 +384,9 @@ class EolfiApp:
                 s.close()
             old = [{k: v for k, v in dict(r).items() if v is not None} | {"stored": True}
                    for r in rows if r["id"] not in seen]
-            return {"jobs": (live + old)[:100], "max_running": self.MAX_RUNNING}
+            with self._jobs_guard:
+                uploads = self._uploads
+            return {"jobs": (live + old)[:100], "max_running": self.MAX_RUNNING, "uploads": uploads}
         job = self.jobs.get(q.get("id", ""))
         if job is None:
             stored = self._stored_result(q.get("id", ""))
@@ -1141,10 +1146,19 @@ class EolfiApp:
 
     def store_upload(self, stream, length: int, name: str) -> dict[str, Any]:
         """Guarda el cuerpo por bloques de 1 MB con hash incremental: nunca entero en memoria (A4)."""
-        import secrets
-
         if length <= 0:
             raise ApiError(400, "archivo vacío")
+        with self._jobs_guard:
+            self._uploads += 1
+        try:
+            return self._store_upload(stream, length, name)
+        finally:
+            with self._jobs_guard:
+                self._uploads -= 1
+
+    def _store_upload(self, stream, length: int, name: str) -> dict[str, Any]:
+        import secrets
+
         self.samples.mkdir(parents=True, exist_ok=True)
         import shutil
 
@@ -2163,13 +2177,15 @@ def _snapshot(root: Path) -> dict[str, float]:
 
 
 def _active_jobs(port: int) -> int | None:
-    """Trabajos en marcha o en cola en el servidor hijo; None si no responde (NO significa que no haya ninguno)."""
+    """Trabajos en marcha o en cola y subidas en curso en el servidor hijo; None si no responde (NO significa que no
+    haya ninguno)."""
     import urllib.request
 
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/jobs", timeout=10) as r:
-            jobs = json.loads(r.read().decode("utf-8")).get("jobs", [])
-        return sum(1 for j in jobs if j.get("status") in ("running", "queued"))
+            data = json.loads(r.read().decode("utf-8"))
+        jobs = data.get("jobs", [])
+        return sum(1 for j in jobs if j.get("status") in ("running", "queued")) + int(data.get("uploads") or 0)
     except Exception:  # noqa: BLE001
         return None
 
@@ -2186,7 +2202,7 @@ def _wait_jobs_idle(proc: Any, port: int, *, pause: float = 2.0, sleep: Callable
         n = active(port)
         idle = idle + 1 if n == 0 else 0
         if n != 0 and not told:
-            print("eolfi: cambio detectado; hay trabajos en marcha: recargaré al terminar…", flush=True)
+            print("eolfi: cambio detectado; hay trabajos o subidas en marcha: recargaré al terminar…", flush=True)
             told = True
         if idle < 2:
             sleep(pause)

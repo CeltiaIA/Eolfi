@@ -86,3 +86,61 @@ def test_el_vigilante_espera_a_que_terminen_los_trabajos(tmp_path, monkeypatch):
     assert consultas and all(port == 8799 for _, port in consultas)
     # Solo se reinicia cuando ya no hay trabajos: dos lecturas SEGUIDAS de 0 (13/11/2026), 1+1+1+0+0 = 5 consultas.
     assert events[-1][0] == "terminate" and len(consultas) == 5
+
+
+def test_una_subida_en_curso_cuenta_como_actividad(tmp_path):
+    """17/11/2026: --reload cortaba la subida de un .gguf de 24 GB (no era un trabajo) y las siguientes fallaban con
+    el puerto cerrado («Failed to fetch»). Una subida a medias cuenta ahora como actividad y el vigilante espera."""
+    import socket
+
+    httpd = server.make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        assert server._active_jobs(port) == 0
+        s = socket.create_connection(("127.0.0.1", port))
+        cuerpo = b"x" * 100
+        s.sendall(b"POST /api/upload?store=1&name=modelo.gguf HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Eolfi: 1\r\n"
+                  b"Content-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n" % len(cuerpo) + cuerpo[:40])
+        deadline = time.time() + 10
+        while server._active_jobs(port) != 1 and time.time() < deadline:   # el servidor ya está leyendo el cuerpo
+            time.sleep(0.05)
+        assert server._active_jobs(port) == 1
+        estado = json.loads(__import__("urllib.request").request.urlopen(f"http://127.0.0.1:{port}/api/jobs").read())
+        assert estado["uploads"] == 1
+        s.sendall(cuerpo[40:])
+        respuesta = s.recv(4096)
+        s.close()
+        assert b" 200 " in respuesta.split(b"\r\n", 1)[0]
+        deadline = time.time() + 10
+        while server._active_jobs(port) != 0 and time.time() < deadline:
+            time.sleep(0.05)
+        assert server._active_jobs(port) == 0                       # terminada, deja de contar
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_una_subida_cortada_deja_de_contar(tmp_path):
+    import socket
+
+    httpd = server.make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        s = socket.create_connection(("127.0.0.1", port))
+        s.sendall(b"POST /api/upload?store=1&name=a.gguf HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Eolfi: 1\r\n"
+                  b"Content-Length: 1000\r\n\r\n" + b"x" * 10)
+        deadline = time.time() + 10
+        while server._active_jobs(port) != 1 and time.time() < deadline:
+            time.sleep(0.05)
+        assert server._active_jobs(port) == 1
+        s.close()                                                    # el navegador se cierra a mitad
+        deadline = time.time() + 10
+        while server._active_jobs(port) != 0 and time.time() < deadline:
+            time.sleep(0.05)
+        assert server._active_jobs(port) == 0
+        assert not list((tmp_path / "samples").glob("*.part"))      # sin restos a medias
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
