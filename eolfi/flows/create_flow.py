@@ -130,8 +130,10 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
                    progress: Callable[[str], None] | None = None, case_id: str | None = None,
                    provenance: str = "", autofix: bool = False, juez: str | None = None,
-                   accesibilidad: bool = False) -> dict[str, Any]:
+                   accesibilidad: bool | None = None) -> dict[str, Any]:
     """autofix: si la verificación falla, la IA (ai_provider) intenta corregir el proyecto (ver run_autofix).
+    accesibilidad: None (por defecto) la mide con axe en los destinos que cubre el juez funcional; True la exige
+    también en los demás (sin juez para ese destino, la verificación no queda en verde); False la omite.
     case_id: cada fuente analizada queda en el caso (con su propio registro «analysis») y la reconstrucción
     se registra como «reconstruction», con la verificación y sus pasos. Sin verificación verde: «partial»."""
     from eolfi.core.cases import case_run
@@ -173,7 +175,7 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
 
 def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str, target: str,
                     do_verify: bool, force: bool, reanalyze: bool, workdir: str, ai_brief: str | None,
-                    autofix: bool = False, juez: str | None = None, accesibilidad: bool = False,
+                    autofix: bool = False, juez: str | None = None, accesibilidad: bool | None = None,
                     ai_client, ai_provider: str, ai_model: str | None, ai_base_url: str | None, db: str,
                     auth: bool, progress: Callable[[str], None] | None, case_id: str | None) -> dict[str, Any]:
     from eolfi.generador.generators import generate
@@ -249,6 +251,13 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
         # Solo si parece una ruta («C:\x\y», «a/b»); «Tienda: precios» sigue siendo un título.
         name = re.split(r"[\\/]", name.rstrip("\\/"))[-1] or "nuevo-proyecto"
     spec = build_spec(store, subjects, name=name, target=target)
+    if accesibilidad is None:
+        # Por defecto (C4, 17/11/2026, decisión del titular) en los destinos que el juez sabe abrir, cuando se
+        # verifica: los caminos públicos (CLI, API, panel) siempre verifican; el generador de bajo nivel de las
+        # pruebas unitarias (do_verify=False) no recibe criterios que no ha pedido.
+        from eolfi.generador import juez as _juez
+
+        accesibilidad = do_verify and spec["target"] in _juez.DESTINOS
     if db not in ("memory", "sqlite"):
         raise ValueError("db debe ser memory o sqlite")
     spec["options"] = {"db": db, "auth": bool(auth)}

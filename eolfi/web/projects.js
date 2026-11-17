@@ -144,7 +144,10 @@ export function createProjectView({ $, el, api, setStatus }) {
       const edits = {};
       if (target.value !== plan.target) edits.target = target.value;
       const opts = { sqlite: $("#proj-sqlite").checked, auth: $("#proj-auth").checked };
-      if (opts.sqlite !== plan.options.sqlite || opts.auth !== plan.options.auth) edits.options = opts;
+      // Accesibilidad: activa por defecto (C4); solo se envía si se quita o se vuelve a poner.
+      const a11y = $("#proj-a11y").checked;
+      if (a11y !== (plan.options.accesibilidad !== false)) opts.accesibilidad = a11y;
+      if (opts.sqlite !== plan.options.sqlite || opts.auth !== plan.options.auth || "accesibilidad" in opts) edits.options = opts;
       if (mode.value !== plan.mode) edits.mode = mode.value;
       if (note.value.trim()) edits.instructions = [note.value.trim()];
       try {
@@ -155,7 +158,8 @@ export function createProjectView({ $, el, api, setStatus }) {
     } },
       el("h4", {}, "Revisar antes de aprobar"),
       el("div", { class: "row" }, target, mode),
-      el("div", { class: "row" }, box("proj-sqlite", "base de datos SQLite", plan.options.sqlite), box("proj-auth", "inicio de sesión", plan.options.auth)),
+      el("div", { class: "row" }, box("proj-sqlite", "base de datos SQLite", plan.options.sqlite), box("proj-auth", "inicio de sesión", plan.options.auth),
+        box("proj-a11y", "medir la accesibilidad (axe, tema claro y oscuro)", plan.options.accesibilidad !== false)),
       note,
       el("div", { class: "row between" }, el("span", { class: "small muted" }, "No se ejecuta nada hasta que apruebes."),
         el("button", { type: "submit", id: "proj-approve" }, "Aprobar y ejecutar")));

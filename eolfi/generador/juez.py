@@ -180,10 +180,16 @@ def instalar(proyecto: Path, origen: str | Path, *, accesibilidad: bool = False)
 
 
 def _playwright() -> str | None:
-    """Ruta de playwright-core: la declarada, o la de las pruebas del propio Eolfi si está instalada."""
+    """Ruta de playwright-core: la declarada, la del navegador propio («eolfi navegador instalar») o la de las
+    pruebas del propio Eolfi si está instalada."""
     declarada = os.environ.get("EOLFI_PLAYWRIGHT")
     if declarada:
         return declarada
+    from eolfi import navegador
+
+    propio = navegador.playwright_propio()
+    if propio:
+        return str(propio)
     local = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "node_modules" / "playwright-core"
     return str(local) if (local / "index.mjs").is_file() else None
 
@@ -193,6 +199,11 @@ def _axe() -> str | None:
     declarado = os.environ.get("EOLFI_AXE")
     if declarado:
         return declarado if Path(declarado).is_file() else None
+    from eolfi import navegador
+
+    propio = navegador.axe_propio()
+    if propio:
+        return str(propio)
     local = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "node_modules" / "axe-core" / "axe.min.js"
     return str(local) if local.is_file() else None
 
@@ -211,6 +222,13 @@ def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, st
     for k in ("EOLFI_BROWSER_CHANNEL", "EOLFI_BROWSER_PATH"):
         if os.environ.get(k):
             run_env[k] = os.environ[k]
+    if not (run_env.get("EOLFI_BROWSER_CHANNEL") or run_env.get("EOLFI_BROWSER_PATH")):
+        # El navegador propio de Eolfi («eolfi navegador instalar») antes que el Chrome del equipo.
+        from eolfi import navegador
+
+        propio = navegador.ejecutable()
+        if propio:
+            run_env["EOLFI_BROWSER_PATH"] = str(propio)
     t0 = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="eolfi-juez-") as tmp:
         req = Path(tmp, "peticion.json")

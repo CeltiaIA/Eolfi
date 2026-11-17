@@ -136,6 +136,49 @@ def comprobar_panel(pasos: list, exe: list[str], home: Path, env: dict, tmp: Pat
             pasos[-1]["stderr"] = err[-1500:]
 
 
+# Prueba que juzga la rueda instalada: una página accesible, con CSP estricta, y los criterios de accesibilidad.
+_JUEZ_INSTALADO = """
+import json, pathlib, sys
+from eolfi.generador import juez
+from eolfi import navegador
+app = pathlib.Path(sys.argv[1]); app.mkdir(parents=True, exist_ok=True)
+(app / 'index.html').write_text('<!doctype html><html lang=\"es\"><meta charset=\"utf-8\">'
+    '<meta http-equiv=\"Content-Security-Policy\" content=\"default-src \\'self\\'\">'
+    '<title>Prueba</title><main><h1>Hola</h1><p id=\"x\">listo</p></main></html>', encoding='utf-8')
+(app / juez.ARCHIVO).write_text(json.dumps(juez.con_accesibilidad(None)), encoding='utf-8')
+p = juez.paso(app, 'static')
+print(json.dumps({'exit': p['exit'], 'step': p['step'], 'tail': p['tail'][-300:], 'playwright': juez._playwright(),
+                  'axe': juez._axe(), 'navegador': str(navegador.ejecutable())}))
+"""
+
+
+def comprobar_navegador(pasos: list, py: Path, exe: list[str], env: dict, tmp: Path) -> None:
+    """Con Eolfi instalado como paquete, el juez usa el navegador, Playwright y axe propios (eolfi navegador), no
+    los de tests/e2e (que no van en la rueda). Sin navegador propio en este equipo: NO VERIFICADO, no aprobado."""
+    sys.path.insert(0, str(RAIZ))
+    from eolfi import navegador
+
+    if navegador.ejecutable() is None or navegador.playwright_propio() is None:
+        pasos.append({"paso": "navegador_propio", "codigo": 0, "estado": "NO VERIFICADO",
+                      "motivo": "este equipo no tiene «eolfi navegador instalar»"})
+        return
+    env = {**env, "EOLFI_NAVEGADOR_DIR": str(navegador.carpeta())}
+    for k in ("EOLFI_PLAYWRIGHT", "EOLFI_AXE", "EOLFI_BROWSER_PATH", "EOLFI_BROWSER_CHANNEL"):
+        env.pop(k, None)
+    paso(pasos, "navegador_estado", [*exe, "navegador", "estado", "--comprobar"], env=env, timeout=120)
+    p = paso(pasos, "juez_instalado", [str(py), "-c", _JUEZ_INSTALADO, str(tmp / "app-juez")], cwd=tmp, env=env,
+             timeout=300)
+    try:
+        r = json.loads(p.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        comprobacion(pasos, "juez_con_lo_propio", False, salida=(p.stdout + p.stderr)[-500:])
+        return
+    propio = str(navegador.carpeta())
+    comprobacion(pasos, "juez_con_lo_propio",
+                 r["exit"] == 0 and all(str(r[k]).startswith(propio) for k in ("playwright", "axe", "navegador")),
+                 **r)
+
+
 def cerrar(out: dict, pasos: list, limites: str) -> dict:
     out["ok"] = bool(pasos) and all(p["codigo"] == 0 for p in pasos)
     out["estado"] = "verificado" if out["ok"] else "fallido"
@@ -207,6 +250,7 @@ def verificar(tmp: Path) -> dict:
     comprobacion(pasos, "archivos", not faltan, esperados=len(esperados(rutas)), faltan=faltan[:50])
 
     comprobar_panel(pasos, exe, home, env, tmp)
+    comprobar_navegador(pasos, py, exe, env, tmp)
     return cerrar(out, pasos, LIMITE_PIPX)
 
 
