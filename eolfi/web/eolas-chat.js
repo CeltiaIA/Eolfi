@@ -321,4 +321,10 @@ export function initEolasChat() {
     nueva: () => $("#eolas-chat-clear").click(),
     ultima: () => chat.messages.filter((m) => m.role === "assistant" && !m.local).pop()?.content || "",
   });
+  // 17/11/2026: este módulo se importa aparte y puede llegar después de que el panel ya se vea. Lo elegido en el
+  // selector antes de este punto no tenía quién lo escuchara y se perdía en silencio (fallo intermitente del e2e en la
+  // CI): se procesa ahora. data-ready indica que el chat ya responde.
+  const pending = $("#eolas-chat-files");
+  if (pending.files?.length) pending.dispatchEvent(new Event("change"));
+  $("#eolas-chat-form").dataset.ready = "1";
 }
