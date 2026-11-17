@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from eolfi.arithmetic import inventory_evidence, numeric_evidence
+from eolfi.acciones import registrada
 
 SCHEMA = "eolas-feedback/v1"
 DATASET_SCHEMA = "eolas-training-dataset/v1"
@@ -29,18 +30,20 @@ DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
     # Los cinco perfiles de la comparación se mantienen en el mismo almacén de
     # GGUF.  No implican cinco servidores: Eolas siempre arranca uno y detiene
     # el anterior antes de pasar al siguiente.
+    # Gemma 4 12B, reglaje de la competición V1/V2 del 16/11/2026 (RTX 3060 Ti, 8 GB): atención flash, caché KV
+    # en q8_0, una sola ranura y lote 512, como Eolas V1. Q4 cabe entero con 16k (41,6 tok/s frente a 5,3 sin
+    # este reglaje); Q5 rinde mejor con 40 capas (con 44 desborda la VRAM). Con menos VRAM, baja gpu_layers.
     "gemma_q4": {
         "alias": "gemma-4-12b-it-q4_k_m:latest",
         "model": r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q4_K_M.gguf",
-        "ctx": 32000, "gpu_layers": 8, "batch": 128, "ubatch": 64,
+        "ctx": 16384, "gpu_layers": 99, "batch": 512, "ubatch": 512,
+        "extra_args": ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"],
     },
     "gemma": {
         "alias": "gemma-4-12b-it-q5_k_m:latest",
         "model": r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q5_K_M.gguf",
-        "ctx": 32000,
-        "gpu_layers": 8,
-        "batch": 128,
-        "ubatch": 64,
+        "ctx": 16384, "gpu_layers": 40, "batch": 512, "ubatch": 512,
+        "extra_args": ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"],
     },
     "mistral": {
         "alias": "mistral-7b-instruct-v0.3-q4_k_m:latest",
@@ -139,7 +142,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "threads": 0,
     "temperature": 0.2,
     "top_p": 0.95,
-    "max_tokens": 4096,
+    # Gemma escribe ~3600-3900 tokens en una ronda sencilla de create --ai: con 4096 se cortaba (16/11/2026).
+    "max_tokens": 8192,
     "reasoning": True,
     "review_reasoning": False,
     "show_reasoning": True,
@@ -150,6 +154,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # conserva; no aparecen en pruebas ni en el selector y no se cargan. Reversible con restore_profile.
     "retired_profiles": [],
 }
+CUSTOM_PROFILE_MARKER = "eolfi.modelos.perfil/v1"
+PROFILE_NAME = re.compile(r"[a-z][a-z0-9_]{1,63}")
 REDACT = re.compile(r"(?i)(api[_-]?key|token|password|secret)(\s*[:=]\s*)([^\s,;]+)")
 
 
@@ -162,7 +168,8 @@ def feedback_file() -> Path:
 
 
 def evaluation_memory_file() -> Path:
-    return Path.home() / ".eolfi" / "eolas-v2" / "evaluation-memory.json"
+    return Path(os.environ.get("EOLFI_EOLAS_V2_EVALUATIONS") or
+                Path.home() / ".eolfi" / "eolas-v2" / "evaluation-memory.json")
 
 
 def _remember_evaluation(report: dict[str, Any]) -> None:
@@ -175,12 +182,78 @@ def _remember_evaluation(report: dict[str, Any]) -> None:
         history = []
     rows = [{key: row.get(key) for key in ("profile", "alias", "analysis", "answer", "expected", "passed", "seconds", "tokens", "error")}
             for row in report.get("results", []) if isinstance(row, dict)]
-    history.append({"recorded_at": datetime.now(timezone.utc).isoformat(), "protocol": report.get("protocol"), "results": rows})
+    history.append({"schema": "eolfi.eolas.evaluacion/v1",
+                    "recorded_at": datetime.now(timezone.utc).isoformat(), "protocol": report.get("protocol"),
+                    "battery": report.get("battery"), "summary": report.get("summary"),
+                    "best": report.get("mejor"), "approved": report.get("aprobados"), "results": rows})
     try:
         _write_json_atomic(path, history[-50:])
     except OSError:
         # Memory must never invalidate an inference result when storage is read-only.
         return
+
+
+def recommend_evaluation_profile(battery: str = "completa", *, max_age_days: int = 30) -> dict[str, Any]:
+    """Recomienda desde una ronda reciente y completa; nunca cambia el perfil por sí sola."""
+    if battery not in ("completa", "codigo", "json"):
+        raise ValueError("Batería desconocida")
+    if not 1 <= max_age_days <= 365:
+        raise ValueError("Antigüedad fuera de rango")
+    path = evaluation_memory_file()
+    try:
+        history = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+    except (OSError, ValueError):
+        history = []
+    cfg = load_config()
+    available = set(available_evaluation_profiles(cfg))
+    now = datetime.now(timezone.utc)
+    for record in reversed(history if isinstance(history, list) else []):
+        if not isinstance(record, dict) or record.get("battery") != battery:
+            continue
+        try:
+            recorded = datetime.fromisoformat(str(record.get("recorded_at"))).astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        age_days = (now - recorded).total_seconds() / 86400
+        if age_days < 0 or age_days > max_age_days:
+            continue
+        summary = record.get("summary")
+        if not isinstance(summary, dict):
+            continue
+        candidates = []
+        for name, result in summary.items():
+            if name not in available or not isinstance(result, dict):
+                continue
+            if battery == "completa":
+                if result.get("aprobado") is not True:
+                    continue
+                score = (int(result.get("codigo_primera_pct") or 0), int(result.get("herramientas_pct") or 0))
+            else:
+                cases, correct = int(result.get("casos") or 0), int(result.get("correctos") or 0)
+                if cases <= 0:
+                    continue
+                score = (round(100 * correct / cases), -round(float(result.get("respuesta_s") or 0)))
+            candidates.append((score, name, result))
+        if candidates:
+            score, name, result = max(candidates, key=lambda item: (item[0], item[1]))
+            return {"estado": "recomendado", "perfil": name, "bateria": battery,
+                    "registrado": recorded.isoformat(), "antiguedad_dias": round(age_days, 3),
+                    "puntuacion": list(score), "resultado": result, "aplicado": False,
+                    "evidencia": str(path),
+                    "limite": "La recomendación solo resume ese banco; no demuestra calidad fuera de sus casos"}
+    return {"estado": "NO_VERIFICADO", "perfil": None, "bateria": battery, "aplicado": False,
+            "evidencia": str(path),
+            "limite": "No hay una ronda reciente, completa y aprobada para perfiles locales disponibles"}
+
+
+@registrada("eolas_v2.recomendar_perfil", campos=("battery", "max_age_days"), resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"), si=lambda a: bool(a.get("apply")))
+def apply_recommended_profile(battery: str = "completa", *, max_age_days: int = 30,
+                              apply: bool = False) -> dict[str, Any]:
+    result = recommend_evaluation_profile(battery, max_age_days=max_age_days)
+    if not apply or not result.get("perfil"):
+        return result
+    set_active_profile(str(result["perfil"]))
+    return {**result, "aplicado": True, "active_profile": result["perfil"]}
 
 
 def runtime_file() -> Path:
@@ -212,21 +285,60 @@ def load_config(*, create: bool = True) -> dict[str, Any]:
             path.parent.mkdir(parents=True, exist_ok=True)
             _write_json_atomic(path, DEFAULT_CONFIG)
     cfg = {**DEFAULT_CONFIG, **{k: v for k, v in user.items() if k in DEFAULT_CONFIG}}
-    cfg["profiles"] = {name: {**DEFAULT_PROFILES[name], **dict((user.get("profiles") or {}).get(name) or {})}
+    user_profiles = user.get("profiles") or {}
+    if not isinstance(user_profiles, dict):
+        raise ValueError("profiles debe ser un objeto")
+    cfg["profiles"] = {name: {**DEFAULT_PROFILES[name], **dict(user_profiles.get(name) or {})}
                        for name in DEFAULT_PROFILES}
+    for name, profile in user_profiles.items():
+        if name not in DEFAULT_PROFILES and isinstance(profile, dict) and profile.get("managed_by") == CUSTOM_PROFILE_MARKER:
+            cfg["profiles"][name] = _validate_custom_profile(name, profile)
     cfg["server"] = str(cfg.get("server") or _server_default())
     cfg["port"] = int(cfg.get("port") or 8090)
     cfg["ready_timeout"] = max(1, int(cfg.get("ready_timeout") or 300))
     cfg["threads"] = max(0, int(cfg.get("threads") or 0))
     retired = cfg.get("retired_profiles") or []
-    cfg["retired_profiles"] = [n for n in dict.fromkeys(retired) if isinstance(n, str) and n in DEFAULT_PROFILES]         if isinstance(retired, list) else []
-    if cfg["active_profile"] not in DEFAULT_PROFILES:
+    cfg["retired_profiles"] = [n for n in dict.fromkeys(retired) if isinstance(n, str) and n in cfg["profiles"]] \
+        if isinstance(retired, list) else []
+    if cfg["active_profile"] not in cfg["profiles"]:
         raise ValueError("active_profile no es un perfil Eolas conocido")
     for name, env in (("gemma", "EOLFI_EOLAS_V2_GEMMA_GGUF"), ("mistral", "EOLFI_EOLAS_V2_MISTRAL_GGUF"),
                       ("moe", "EOLFI_EOLAS_V2_MOE_GGUF")):
         if os.environ.get(env):
             cfg["profiles"][name]["model"] = os.environ[env]
     return cfg
+
+
+def _validate_custom_profile(name: str, profile: dict[str, Any]) -> dict[str, Any]:
+    """Perfil reconstruido gestionado: campos acotados, sin argumentos de proceso arbitrarios."""
+    if not PROFILE_NAME.fullmatch(name):
+        raise ValueError("Nombre de perfil reconstruido inválido")
+    allowed = {"managed_by", "alias", "model", "ctx", "gpu_layers", "batch", "ubatch", "sha256",
+               "reasoning", "reasoning_format", "chat_template_kwargs", "source_recipe", "source_smoke"}
+    if set(profile) - allowed:
+        raise ValueError(f"Campos no admitidos en el perfil reconstruido {name}")
+    model, alias, digest = profile.get("model"), profile.get("alias"), profile.get("sha256")
+    if not isinstance(model, str) or not Path(model).is_absolute():
+        raise ValueError("El modelo de un perfil reconstruido debe ser una ruta absoluta")
+    if not isinstance(alias, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", alias):
+        raise ValueError("Alias de perfil reconstruido inválido")
+    if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise ValueError("SHA-256 de perfil reconstruido inválido")
+    ctx, layers, batch, ubatch = (profile.get(k) for k in ("ctx", "gpu_layers", "batch", "ubatch"))
+    if any(type(value) is not int for value in (ctx, layers, batch, ubatch)):
+        raise ValueError("Los límites del perfil reconstruido deben ser enteros")
+    if not 512 <= ctx <= 1_048_576 or not 0 <= layers <= 1024 or not 1 <= ubatch <= batch <= 4096:
+        raise ValueError("Límites del perfil reconstruido fuera de rango")
+    reasoning_format = profile.get("reasoning_format")
+    if reasoning_format not in (None, "deepseek"):
+        raise ValueError("Formato de razonamiento no admitido")
+    kwargs = profile.get("chat_template_kwargs")
+    if profile.get("reasoning") is not False or kwargs != {"enable_thinking": False}:
+        raise ValueError("El perfil reconstruido debe desactivar pensamiento en la plantilla")
+    for key in ("source_recipe", "source_smoke"):
+        if not isinstance(profile.get(key), str) or not Path(profile[key]).is_absolute():
+            raise ValueError(f"{key} debe ser una ruta absoluta")
+    return dict(profile)
 
 
 def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
@@ -237,9 +349,9 @@ def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
 
 
 def profile_config(name: str, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    if name not in DEFAULT_PROFILES:
-        raise ValueError("perfil Eolas desconocido")
     cfg = cfg or load_config()
+    if name not in cfg["profiles"]:
+        raise ValueError("perfil Eolas desconocido")
     profile = cfg["profiles"][name]
     from eolfi import llamacpp
 
@@ -247,6 +359,57 @@ def profile_config(name: str, cfg: dict[str, Any] | None = None) -> dict[str, An
     result.setdefault("alias", Path(str(result["model"])).stem)
     result["url"] = llamacpp.base_url(result)
     return result
+
+
+def install_custom_profile(name: str, profile: dict[str, Any]) -> dict[str, Any]:
+    """Añade un perfil reconstruido nuevo; no cambia el activo ni arranca el servidor."""
+    validated = _validate_custom_profile(name, profile)
+    with _exclusive_lock():
+        cfg = load_config()
+        if name in cfg["profiles"]:
+            raise FileExistsError(f"El perfil {name} ya existe; no se sobrescribe")
+        record = _runtime()
+        if record and _pid_alive(int(record.get("pid") or 0)) and record.get("profile") == name:
+            raise RuntimeError("El perfil está cargado; no se modifica")
+        path = config_file()
+        stored = json.loads(path.read_text(encoding="utf-8-sig"))
+        profiles = stored.get("profiles") or {}
+        if not isinstance(profiles, dict):
+            raise ValueError("profiles debe ser un objeto")
+        stored["profiles"] = {**profiles, name: validated}
+        _write_json_atomic(path, stored)
+    return {"perfil": name, "instalado": True, "active_profile": cfg["active_profile"],
+            "config": str(path), "modelo": validated["model"], "sha256": validated["sha256"]}
+
+
+@registrada("eolas_v2.quitar_perfil", campos=("name", "expected_sha"), resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"))
+def remove_custom_profile(name: str, expected_sha: str) -> dict[str, Any]:
+    """Retira solo la entrada gestionada; conserva siempre el GGUF, receta, smoke y evidencias."""
+    if not isinstance(expected_sha, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_sha):
+        raise ValueError("SHA-256 esperado inválido")
+    with _exclusive_lock():
+        cfg = load_config()
+        profile = cfg["profiles"].get(name)
+        if not profile or profile.get("managed_by") != CUSTOM_PROFILE_MARKER:
+            raise ValueError("Solo se pueden quitar perfiles reconstruidos gestionados")
+        if profile.get("sha256") != expected_sha:
+            raise ValueError("SHA-256 distinto del perfil que se quiere quitar")
+        if name == cfg["active_profile"]:
+            raise ValueError("El perfil está activo; selecciona antes otro perfil")
+        record = _runtime()
+        if record and _pid_alive(int(record.get("pid") or 0)) and record.get("profile") == name:
+            raise RuntimeError("El perfil está cargado; detenlo antes de quitarlo")
+        path = config_file()
+        stored = json.loads(path.read_text(encoding="utf-8-sig"))
+        profiles = stored.get("profiles") or {}
+        if not isinstance(profiles, dict) or name not in profiles:
+            raise ValueError("El perfil no está almacenado en la configuración")
+        del profiles[name]
+        stored["profiles"] = profiles
+        stored["retired_profiles"] = [n for n in stored.get("retired_profiles", []) if n != name]
+        _write_json_atomic(path, stored)
+    return {"perfil": name, "quitado": True, "modelo_conservado": profile["model"],
+            "sha256": profile["sha256"], "config": str(path)}
 
 
 def is_mistral_profile(name: str) -> bool:
@@ -284,6 +447,18 @@ def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key()}"}
 
 
+def offline_requested() -> bool:
+    """Modo local explícito de G3; el cortafuegos del sistema sigue siendo una comprobación separada."""
+    return os.environ.get("EOLAS_OFFLINE", "").strip() == "1"
+
+
+def _server_env() -> dict[str, str]:
+    env = dict(os.environ)
+    if offline_requested():
+        env.update(EOLAS_OFFLINE="1", LLAMA_ARG_OFFLINE="1", HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
+    return env
+
+
 def server_args(name: str, cfg: dict[str, Any] | None = None) -> list[str]:
     cfg = cfg or load_config()
     c = profile_config(name, cfg)
@@ -291,13 +466,21 @@ def server_args(name: str, cfg: dict[str, Any] | None = None) -> list[str]:
         raise FileNotFoundError("No encuentro llama-server.exe (PATH o campo server de la configuración Eolas)")
     if not Path(c["model"]).is_file():
         raise FileNotFoundError(f"No encuentro el GGUF del perfil {name}: {c['model']}")
+    if c.get("sha256"):
+        from eolfi.modelos import sha256 as model_sha256
+
+        if model_sha256(c["model"]) != c["sha256"]:
+            raise ValueError(f"SHA-256 distinto del perfil reconstruido {name}")
     args = [c["server"], "-m", str(c["model"]), "--host", "127.0.0.1", "--port", str(c["port"]),
             "-c", str(c["ctx"]), "-ngl", str(c["gpu_layers"]), "-b", str(c["batch"]),
             "-ub", str(c["ubatch"]), "--alias", str(c["alias"]), "--jinja"]
+    if offline_requested():
+        args.append("--offline")
     api_key()   # garantiza el archivo antes de arrancar
     args += ["--api-key-file", str(api_key_file())]
-    if name in THINKING_PROFILES:
-        args += ["--reasoning-format", "deepseek"]
+    reasoning_format = c.get("reasoning_format") or ("deepseek" if name in THINKING_PROFILES else None)
+    if reasoning_format:
+        args += ["--reasoning-format", str(reasoning_format)]
     if c["threads"] > 0:
         args += ["--threads", str(c["threads"]), "--threads-batch", str(c["threads"])]
     args.extend(str(x) for x in cfg.get("extra_args") or [])
@@ -508,6 +691,7 @@ def _stop_locked(*, wait: float = 30.0) -> bool:
     return True
 
 
+@registrada("eolas_v2.parar", resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"))
 def stop() -> dict[str, Any]:
     with _exclusive_lock():
         stopped = _stop_locked()
@@ -521,9 +705,16 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
         raise RuntimeError(f"El perfil {name} está retirado (no aprobó la ronda de motores); su GGUF se conserva. "
                            f"Restáuralo con «eolfi eolas-v2 restore {name}» si lo necesitas.")
     c = profile_config(name, cfg)
+    from eolfi.modelos import enforce_trust
+
+    policy = enforce_trust(c["model"])
+    if policy and (cfg.get("extra_args") or cfg.get("profiles", {}).get(name, {}).get("extra_args")):
+        raise ValueError("La política de confianza no admite extra_args: podrían sustituir el modelo autorizado")
     record = _runtime()
     if _record_alive(record):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):
+            if bool(record.get("offline")) != offline_requested():
+                raise RuntimeError("Eolas ya está en marcha con otro modo de red; detenlo antes de cambiar EOLAS_OFFLINE")
             watchdog = None
             if popen is subprocess.Popen:      # un vigilante perdido se rearma al reutilizar el servidor (P0-3)
                 from eolfi.local_gpu import ensure_watchdog
@@ -550,7 +741,7 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
     args = server_args(name, cfg)
     with log_path.open("ab") as log:
         common = {"stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL,
-                  "start_new_session": os.name != "nt"}
+                  "start_new_session": os.name != "nt", "env": _server_env()}
         breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0) if os.name == "nt" else 0
         try:
             proc = popen(args, creationflags=flags | breakaway, **common)
@@ -559,6 +750,7 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
                 raise
             proc = popen(args, creationflags=flags, **common)
     runtime = {"pid": proc.pid, "pid_started": _process_started(proc.pid), "profile": name, "model": c["model"], "alias": c["alias"], "port": c["port"],
+               "offline": offline_requested(),
                "started_at": datetime.now(timezone.utc).isoformat()}
     timeout = float(wait if wait is not None else cfg["ready_timeout"])
     deadline = time.monotonic() + timeout
@@ -587,6 +779,7 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
         raise
 
 
+@registrada("eolas_v2.arrancar", campos=("profile", "release_eolas"), resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"))
 def start(profile: str | None = None, *, wait: float | None = None, release_eolas: bool = False) -> dict[str, Any]:
     cfg = load_config()
     name = profile or str(cfg["active_profile"])
@@ -594,11 +787,12 @@ def start(profile: str | None = None, *, wait: float | None = None, release_eola
         return _start_locked(name, cfg, wait=wait, release_eolas=release_eolas)
 
 
+@registrada("eolas_v2.cambiar", campos=("profile",), resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"))
 def switch(profile: str, *, wait: float | None = None) -> dict[str, Any]:
-    if profile not in DEFAULT_PROFILES:
-        raise ValueError("perfil Eolas desconocido")
     with _exclusive_lock():
         cfg = load_config()
+        if profile not in cfg["profiles"]:
+            raise ValueError("perfil Eolas desconocido")
         server_args(profile, cfg)
         config_path = config_file()
         stored = json.loads(config_path.read_text(encoding="utf-8-sig"))
@@ -628,10 +822,11 @@ def _store_retired(names: list[str]) -> list[str]:
     return names
 
 
+@registrada("eolas_v2.retirar_perfil", campos=("name",))
 def retire_profile(name: str) -> list[str]:
     """Retira un perfil (no aprueba): conserva el GGUF; deja de ofrecerse y de cargarse."""
     cfg = load_config()
-    if name not in DEFAULT_PROFILES or name == NEMO_MOE_PROFILE:
+    if name not in cfg["profiles"] or name == NEMO_MOE_PROFILE:
         raise ValueError("perfil Eolas desconocido")
     if name == cfg["active_profile"]:
         raise ValueError(f"{name} es el motor activo: elige antes otro motor en Eolfi")
@@ -650,6 +845,7 @@ def _gguf_files(model: str) -> list[Path]:
     return [f for f in [*parts, path.with_name(stem + ".sha256")] if f.is_file()]
 
 
+@registrada("eolas_v2.desinstalar_perfil", campos=("name",), resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"))
 def uninstall_profile(name: str) -> dict[str, Any]:
     """Desinstala un motor que no aprobó (titular, 13/11/2026: «que se autodesinstalen para no dejar restos»):
     retira el perfil, borra su GGUF (todas las partes y su .sha256) y sus lecciones. Nunca el motor activo ni uno
@@ -680,17 +876,19 @@ def uninstall_profile(name: str) -> dict[str, Any]:
             "lecciones_borradas": had_lessons, "gguf_compartido_con": shared}
 
 
+@registrada("eolas_v2.restaurar_perfil", campos=("name",))
 def restore_profile(name: str) -> list[str]:
     cfg = load_config()
     return _store_retired([n for n in cfg["retired_profiles"] if n != name])
 
 
+@registrada("eolas_v2.perfil_activo", campos=("profile",))
 def set_active_profile(profile: str) -> dict[str, Any]:
     """El motor que el usuario elige en Eolfi pasa a ser el de Eolas V2 para todo (chat, generador, proveedores).
     No arranca nada: el cambio de modelo ocurre en la siguiente petición (inference_profile), con el cerrojo."""
-    if profile not in DEFAULT_PROFILES or profile == NEMO_MOE_PROFILE:
-        raise ValueError("perfil Eolas desconocido")
     cfg = load_config()
+    if profile not in cfg["profiles"] or profile == NEMO_MOE_PROFILE:
+        raise ValueError("perfil Eolas desconocido")
     if is_retired(profile, cfg):
         raise ValueError(f"{profile} está retirado: no aprobó la ronda de motores")
     if not Path(str(profile_config(profile, cfg)["model"])).is_file():
@@ -726,6 +924,8 @@ def status() -> dict[str, Any]:
     return {"config": str(config_file()), "active_profile": cfg["active_profile"], "running_profile": selected if live else None,
             "model": c["model"], "alias": c["alias"], "url": c["url"], "pid": record.get("pid") if live else None,
             "running": bool(live and healthy), "model_verified": healthy,
+            "offline_requested": offline_requested(), "running_offline": bool(record.get("offline")) if live else None,
+            "firewall_verified": False,
             "idle_watchdog_pid": (record.get("idle_watchdog_pid")
                                   if live and _record_alive(record, "idle_watchdog_pid") else None),
             "feedback_enabled": bool(cfg["feedback_enabled"]), "feedback_file": str(feedback_file())}
@@ -923,8 +1123,21 @@ def record_lessons(profile: str, failures: list[str]) -> dict[str, Any]:
         entry = mine.setdefault(category, {"veces": 0, "activa": True, "desde": now})
         entry["veces"] += 1
         entry["ultima"] = now
+        if not entry.get("activa"):
+            _rsi_leccion_inactiva(profile, category)
     _write_json_atomic(lessons_file(), data)
     return mine
+
+
+def _rsi_leccion_inactiva(profile: str, category: str) -> None:
+    """Para la automejora (PLAN_REA.md, punto 12): el motor falla por una causa cuya lección está desactivada."""
+    try:
+        from eolfi import rsi
+
+        rsi.observar("eolas-v2", "lecciones", {"ok": False, "error": f"lección inactiva: {profile}.{category}"},
+                     contexto={"perfil": profile, "categoria": category})
+    except Exception:  # noqa: BLE001, S110 — el registro es accesorio
+        pass
 
 
 def set_lesson_active(profile: str, category: str, active: bool) -> dict[str, Any]:
@@ -1098,6 +1311,9 @@ def available_evaluation_profiles(cfg: dict[str, Any] | None = None) -> list[str
              "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5")
     available = [name for name in order if Path(str((cfg["profiles"].get(name) or {}).get("model") or "")).is_file()
                   and name not in (cfg.get("retired_profiles") or [])]
+    available.extend(name for name in cfg["profiles"] if name not in order and name not in available
+                     and Path(str(cfg["profiles"][name].get("model") or "")).is_file()
+                     and name not in (cfg.get("retired_profiles") or []))
     if "nemo_q4" in available:
         available.append(NEMO_MOE_PROFILE)
     return available
@@ -1167,7 +1383,7 @@ def _structured_match(answer: str, expected: Any) -> bool:
         if isinstance(left, dict):
             return left.keys() == right.keys() and all(same(left[key], right[key]) for key in left)
         if isinstance(left, list):
-            return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right))
+            return len(left) == len(right) and all(same(a, b) for a, b in zip(left, right, strict=True))
         return left == right
     return same(norm(actual), norm(expected))
 
@@ -1951,9 +2167,9 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
 
                             def count(reply: dict[str, Any]) -> dict[str, Any]:
                                 usage = reply.get("usage") or {}
-                                spent["entrada"] += int(usage.get("prompt_tokens") or 0)
-                                spent["salida"] += int(usage.get("completion_tokens") or 0)
-                                row["tokens"] = dict(spent)
+                                spent["entrada"] += int(usage.get("prompt_tokens") or 0)  # noqa: B023 — se llama dentro de esta misma vuelta
+                                spent["salida"] += int(usage.get("completion_tokens") or 0)  # noqa: B023 — se llama dentro de esta misma vuelta
+                                row["tokens"] = dict(spent)  # noqa: B023 — se llama dentro de esta misma vuelta
                                 return reply
 
                             analysis = count(_evaluation_request(c, [{"role": "system", "content": CODE_ANALYSIS_PROTOCOL},
@@ -2029,7 +2245,6 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
                         announce(f"{name}: descartado — {reason}; salto el resto del código y paso a herramientas")
                 if failures and learn:
                     record_lessons(name, failures)
-                code_cases = sum(tally[k]["casos"] for k in ("codigo", "codigo_nuevo", "inedito"))
                 code_first = sum(tally[k]["primera"] for k in ("codigo", "codigo_nuevo", "inedito"))
                 tools_first = tally["herramientas"]["primera"]
                 # Siempre sobre el TOTAL de tareas: un motor descartado pronto no parece mejor de lo que es.
@@ -2192,11 +2407,11 @@ def record_feedback(*, profile: str, task: str, prompt: str, response: str, rati
                     parameters: dict[str, Any] | None = None, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     if not consent:
         raise PermissionError("El feedback requiere consentimiento explícito")
-    if profile not in DEFAULT_PROFILES:
-        raise ValueError("perfil desconocido; usa 'gemma', 'mistral' o 'moe'")
+    cfg = cfg or load_config(create=False)
+    if profile not in cfg["profiles"]:
+        raise ValueError("perfil Eolas desconocido")
     if not isinstance(rating, int) or isinstance(rating, bool) or not 1 <= rating <= 5:
         raise ValueError("rating debe ser un entero entre 1 y 5")
-    cfg = cfg or load_config(create=False)
     if not cfg.get("feedback_enabled"):
         raise PermissionError("Activa primero el almacenamiento local con 'eolfi eolas-v2 feedback-consent on'")
     c = profile_config(profile, cfg)

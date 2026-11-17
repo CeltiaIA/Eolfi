@@ -1,0 +1,43 @@
+{
+ "version": 1,
+ "pagina": "index.html",
+ "pasos": [
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "clic": {
+    "selector": "#mas"
+   }
+  },
+  {
+   "comprobar": "dos clics en sumar dan 2",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])2(?!\\d)"
+  },
+  {
+   "clic": {
+    "selector": "#menos"
+   }
+  },
+  {
+   "comprobar": "restar deja 1",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])1(?!\\d)"
+  },
+  {
+   "recargar": true
+  },
+  {
+   "comprobar": "el valor sigue al recargar",
+   "selector": "#valor",
+   "patron": "(?<![-−\\d])1(?!\\d)"
+  },
+  {
+   "comprobar": "sin errores de JavaScript",
+   "sin_errores_js": true
+  }
+ ]
+}

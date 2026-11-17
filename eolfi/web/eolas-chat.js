@@ -2,6 +2,7 @@
 // Los adjuntos se suben por su huella; el modelo decide qué herramientas de Eolfi usar (triaje, web, repositorio,
 // Alejandría, Python en el contenedor) y cada llamada se ve en la conversación. Todo se pinta como texto.
 import { $, el, api, runJob } from "./runtime.js";
+import { initVoz, decir } from "./voz.js";
 
 const STORE_KEY = "eolfi.eolasChat";
 const AUTO_PROMPT = "Analiza lo que te adjunto y propón qué se podría generar con Eolfi a partir de ello.";
@@ -40,6 +41,9 @@ function bubble(m) {
   for (const t of m.tools || []) {
     if (t.proyecto) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => emit("eolfi:open-project", { caseId: t.proyecto }) }, "Revisar y aprobar el plan"));
     if (t.objetivo) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => emit("eolfi:open-subject", { subject: t.objetivo }) }, "Ver informe"));
+  }
+  if (m.role === "assistant" && !m.local && "speechSynthesis" in window) {
+    actions.push(el("button", { type: "button", class: "small-btn leer-btn", "aria-label": "Leer esta respuesta en voz alta", onclick: () => decir(m.content) }, "Leer"));
   }
   if (actions.length) node.append(el("div", { class: "msg-actions" }, ...actions));
   // Autorización por caso (plan REA, punto 2): solo el titular decide, aquí; el modelo nunca puede autorizarse.
@@ -99,6 +103,53 @@ async function loadPermissions() {
       ...(log.length ? [el("p", { class: "small" }, "Últimas ejecuciones autorizadas:"), el("ul", { class: "plain" }, ...log)] : []));
   } catch (err) {
     box.replaceChildren(el("p", { class: "small muted" }, `No se pudieron cargar los permisos: ${err.message}`));
+  }
+}
+
+// Automejora (PLAN_REA.md, punto 12): tarjeta por propuesta. Aprobar solo si está evaluada con mejora; revertir si
+// está aplicada. La evaluación (carga modelos) se lanza desde la CLI, y aquí se indica la orden exacta.
+const RSI_STATE = { pendiente: "pendiente de evaluar", evaluada: "evaluada: mejora", suspendida: "evaluada: sin mejora",
+  aprobada: "aprobada", aplicada: "aplicada", rechazada: "rechazada", revertida: "revertida" };
+
+function rsiCard(p) {
+  const ev = p.evaluacion;
+  const card = el("div", { class: "auth-card rsi-card", role: "group", "aria-label": `Propuesta ${p.id}` },
+    el("strong", {}, `${p.superficie}: ${JSON.stringify(p.actual)} → ${JSON.stringify(p.propuesto)}`),
+    el("div", { class: "small" }, `${p.motivo} · ${RSI_STATE[p.estado] || p.estado}`),
+    ...(ev ? [el("div", { class: "small" }, `Banco: base ${ev.media_base} → candidata ${ev.media_candidata} (${(ev.base || []).length} muestras por lado)`)] : []));
+  const act = async (action) => {
+    card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    try { await api(`/api/rsi/propuestas/${encodeURIComponent(p.id)}/${action}`, { method: "POST", body: "{}" }); loadRsi(); }
+    catch (err) {
+      card.append(el("div", { class: "small bad" }, err.message));
+      card.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    }
+  };
+  const buttons = [];
+  if (p.estado === "pendiente") card.append(el("code", { class: "auth-args" }, `eolfi rsi evaluar ${p.id} --banco tareas --proveedor eolas-v2`));
+  if (p.estado === "evaluada") buttons.push(el("button", { type: "button", class: "small-btn", onclick: () => act("aprobar") }, "Aprobar y aplicar"));
+  if (["pendiente", "evaluada", "suspendida"].includes(p.estado)) buttons.push(el("button", { type: "button", class: "ghost-btn", onclick: () => act("rechazar") }, "Rechazar"));
+  if (p.estado === "aplicada") buttons.push(el("button", { type: "button", class: "small-btn", onclick: () => act("revertir") }, "Revertir"));
+  if (buttons.length) card.append(el("div", { class: "msg-actions" }, ...buttons));
+  return card;
+}
+
+async function loadRsi() {
+  const box = $("#eolas-chat-rsi");
+  if (!box) return;
+  try {
+    const d = await api("/api/rsi");
+    const find = el("button", { type: "button", class: "small-btn", onclick: async () => {
+      find.disabled = true;
+      try { await api("/api/rsi/proponer", { method: "POST", body: "{}" }); } catch (err) { box.append(el("p", { class: "small bad" }, err.message)); }
+      loadRsi();
+    } }, "Buscar propuestas");
+    box.replaceChildren(
+      el("p", { class: "small" }, `${d.activo ? "Activa" : "Apagada (EOLFI_RSI=0)"} · ${d.observaciones} observaciones · ${d.casos_regresion} casos de regresión · registro ${d.registro.ok ? "íntegro" : `ROTO en el evento ${d.registro.roto_en}`}`),
+      ...(d.propuestas.length ? d.propuestas.map(rsiCard) : [el("p", { class: "small muted" }, "No hay propuestas.")]),
+      el("div", { class: "msg-actions" }, find));
+  } catch (err) {
+    box.replaceChildren(el("p", { class: "small muted" }, `No se pudo cargar la automejora: ${err.message}`));
   }
 }
 
@@ -198,6 +249,7 @@ async function send(text) {
     });
     chat.messages.push({ role: "assistant", content: result.text, model: result.model, tools: result.tools });
     chat.attachments = [];
+    emit("eolfi:chat-reply", { text: result.text });
     $("#eolas-chat-input").value = "";
     $("#eolas-chat-kind").value = "";
     $("#eolas-chat-target").value = "";
@@ -222,6 +274,7 @@ export function initEolasChat() {
   if (!$("#eolas-chat-form")) return;
   load();
   loadPermissions();
+  loadRsi();
   render();
   refreshEngine();
   setInterval(() => { if (!$("#local-chat").hidden && !chat.busy) refreshEngine(); }, 30000);
@@ -262,5 +315,10 @@ export function initEolasChat() {
     renderAttachments();
     save();
     render();
+  });
+  initVoz({
+    enviar: (texto) => send(texto),
+    nueva: () => $("#eolas-chat-clear").click(),
+    ultima: () => chat.messages.filter((m) => m.role === "assistant" && !m.local).pop()?.content || "",
   });
 }

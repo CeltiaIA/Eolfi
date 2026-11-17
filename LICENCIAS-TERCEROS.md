@@ -62,6 +62,17 @@ Eolfi las ejecuta si están instaladas en el equipo; cada una se obtiene e insta
 Los pesos de los modelos locales (por ejemplo Gemma `gemma-4-12b-it`) no forman parte de Eolfi. Se rigen por los
 términos de uso que publica su proveedor, que deben aceptarse al descargarlos.
 
+## Voz (opcional, fuera del repositorio)
+
+Se instalan en `~/.eolfi/tools/whisper-b5454` solo si el titular lo pide; Eolfi no los distribuye.
+
+| Componente | Versión | Licencia | Origen | SHA-256 |
+|---|---|---|---|---|
+| whisper.cpp (`whisper-bin-x64.zip`, CPU) | b5454 | MIT | github.com/ggml-org/whisper.cpp | `6ba69e3482d7826214f90a6a9c84ca07782aec1e1d0c6a7c30c994fd5d816ccb` |
+| Modelo Whisper «small» (`ggml-small.bin`) | — | MIT (OpenAI Whisper) | huggingface.co/ggerganov/whisper.cpp | `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` |
+
+El motor de voz de Windows (`System.Speech`) es parte del sistema operativo.
+
 ## Mantenimiento
 
 Al añadir o actualizar dependencias, revisar este archivo. Para el puente web, la lista se obtiene de

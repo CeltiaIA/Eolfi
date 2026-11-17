@@ -16,8 +16,13 @@
 // - GET /v1/events?since=N  historial de mensajes (envíos, respuestas, errores).
 // - GET /v1/screen?provider=X  captura JPEG de la ventana de ese chat.
 // - POST /v1/input  clic / rueda / tecla / texto del usuario sobre esa captura.
+//
+// B8: cada envío (aprobado, denegado, caducado o cancelado), comparativa, revocación y reinicio se pasa a
+// `audit(operacion, {params, resultado, ok, error})`, que main.mjs encadena en el registro de acciones. Los
+// prompts y respuestas solo viajan como SHA-256 y longitud.
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { huella } from './acciones.mjs';
 
 const MAX_BODY = 128 * 1024;
 const MAX_EVENTS = 200;   // con textos de hasta 20-50 KB: unos 6 MB como mucho
@@ -35,7 +40,7 @@ function sameToken(given, token) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function startBridgeServer({ adapters, approve, token, panelToken, port = 0, host = '127.0.0.1', log = () => {}, screens = {}, info = () => ({}), inputs = {}, approveTimeoutMs = APPROVE_TIMEOUT_MS, revoke = null }) {
+export function startBridgeServer({ adapters, approve, token, panelToken, port = 0, host = '127.0.0.1', log = () => {}, screens = {}, info = () => ({}), inputs = {}, approveTimeoutMs = APPROVE_TIMEOUT_MS, revoke = null, audit = () => {} }) {
   if (!token || token.length < 32) throw new Error('token demasiado corto');
   // B1: sin modo heredado. Las dos credenciales son obligatorias y distintas.
   if (!panelToken || panelToken.length < 32 || panelToken === token) throw new Error('panelToken inválido u omitido');
@@ -43,6 +48,7 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
   const partials = new Map();   // «proveedor|conversación» → { text, ts }: lo que el chat lleva escrito
   let nextId = 1;
   const busy = new Set();
+  const anota = (op, datos) => { try { audit(op, datos); } catch (e) { log(`aviso: registro de acciones: ${e?.message || e}`); } };
   const record = (evt) => {
     events.push({ id: nextId++, ts: Date.now(), ...evt });
     if (events.length > MAX_EVENTS) events.shift();
@@ -131,7 +137,11 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
             Promise.resolve(approve(free.join('+'), prompt, approval.signal, conv)).then((ok) => ok === true && !approval.signal.aborted),
             new Promise((r) => approval.signal.addEventListener('abort', () => r(false), { once: true })),
           ]);
-          if (!allowed) return json(res, approval.signal.aborted ? 408 : 403, { error: 'Comparativa no aprobada en el puente' });
+          const cparams = { providers: free, conversation: conv, source, prompt: huella(prompt) };
+          if (!allowed) {
+            anota('puente.comparativa', { params: cparams, ok: false, resultado: { decision: approval.signal.aborted ? 'caducado' : 'denegado' } });
+            return json(res, approval.signal.aborted ? 408 : 403, { error: 'Comparativa no aprobada en el puente' });
+          }
           log(`→ comparativa ${free.join(', ')}: ${prompt.length} caracteres`);
           const results = await Promise.all(free.map(async (p) => {
             record({ provider: p, conversation: conv, source, role: 'user', text: prompt.slice(0, 20000), length: prompt.length, compare: true });
@@ -148,6 +158,9 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
               return [p, { error: String(e?.message || e) }];
             } finally { partials.delete(key); }
           }));
+          anota('puente.comparativa', { params: cparams, ok: results.some(([, r]) => !r.error),
+            resultado: { decision: source === 'panel' ? 'tecleado_en_panel' : 'aprobado',
+              respuestas: Object.fromEntries(results.map(([p, r]) => [p, r.error ? { error: r.error } : huella(r.text)])) } });
           json(res, 200, { conversation: conv, results: Object.fromEntries(results),
             skipped_busy: names.filter((p) => !free.includes(p)) });
         } catch (e) {
@@ -171,10 +184,16 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
         const { provider } = body || {};
         const conv = typeof body?.conversation === 'string' && /^[\w-]{1,64}$/.test(body.conversation) ? body.conversation : null;
         if (!Object.hasOwn(adapters, provider)) return json(res, 404, { error: `proveedor desconocido: ${provider}` });
-        if (url.pathname === '/v1/revoke') return json(res, 200, { ok: true, revoked: revoke ? revoke(provider, conv) : 0 });
+        if (url.pathname === '/v1/revoke') {
+          const revoked = revoke ? revoke(provider, conv) : 0;
+          anota('puente.revocar', { params: { provider, conversation: conv }, resultado: { revocados: revoked } });
+          return json(res, 200, { ok: true, revoked });
+        }
         try {
           const adapter = await adapters[provider]({ peek: true });
-          return json(res, 200, { ok: true, reset: !!adapter.reset?.(conv || 'default') });
+          const reset = !!adapter.reset?.(conv || 'default');
+          anota('puente.reiniciar', { params: { provider, conversation: conv || 'default' }, resultado: { reset } });
+          return json(res, 200, { ok: true, reset });
         } catch (e) { return json(res, 502, { error: String(e?.message || e) }); }
       });
       return;
@@ -238,6 +257,8 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
         const expire = setTimeout(() => approval.abort(new Error('aprobación caducada')), approveTimeoutMs);
         expire.unref?.();
         const onCancel = () => approval.abort(new Error('Eolfi canceló la petición'));
+        const params = { provider, conversation: conv, source, prompt: huella(prompt) };
+        let decision = null;
         controller.signal.addEventListener('abort', onCancel, { once: true });
         try {
           const allowed = source === 'panel' || await Promise.race([
@@ -249,15 +270,18 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
           // Si Eolfi canceló mientras el diálogo estaba abierto, no se envía nada.
           if (controller.signal.aborted) {
             record({ provider, conversation: conv, source, role: 'error', text: 'Cancelado antes de enviar' });
+            anota('puente.chat', { params, ok: false, resultado: { decision: 'cancelado' } });
             return;
           }
           if (!allowed) {
             const expired = approval.signal.aborted && /caducada/.test(String(approval.signal.reason?.message));
             record({ provider, conversation: conv, source, role: 'error', text: expired ? 'Aprobación caducada' : 'Envío denegado en el puente' });
+            anota('puente.chat', { params, ok: false, resultado: { decision: expired ? 'caducado' : 'denegado' } });
             // 408: nadie respondió a tiempo (no es lo mismo que un «Denegar» explícito; M7).
             return expired ? json(res, 408, { error: 'La aprobación caducó sin respuesta en el puente' })
               : json(res, 403, { error: 'El usuario denegó el envío en el puente' });
           }
+          decision = source === 'panel' ? 'tecleado_en_panel' : 'aprobado';
           log(`→ ${provider} (${source}): ${prompt.length} caracteres`);
           record({ provider, conversation: conv, source, role: 'user', text: prompt.slice(0, 20000), length: prompt.length });
           const adapter = await adapters[provider]();
@@ -267,9 +291,11 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
           try { text = await adapter.send(prompt, controller.signal, conv, onPartial); } finally { partials.delete(key); }
           log(`← ${provider}: ${text.length} caracteres`);
           record({ provider, conversation: conv, source, role: 'assistant', text: text.slice(0, 30000), length: text.length });
+          anota('puente.chat', { params, resultado: { decision, respuesta: huella(text) } });
           json(res, 200, { text, provider, conversation: conv });
         } catch (e) {
           record({ provider, conversation: conv, source, role: 'error', text: String(e?.message || e) });
+          anota('puente.chat', { params, ok: false, resultado: { decision }, error: String(e?.message || e) });
           if (!res.writableEnded) json(res, 502, { error: String(e?.message || e) });
         } finally {
           clearTimeout(expire);

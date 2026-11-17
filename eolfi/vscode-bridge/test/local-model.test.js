@@ -6,7 +6,7 @@ require('./aislar-eolas');   // nunca el estado real de Eolas V2 del equipo
 
 const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
 
-test('sin Ollama: Eolas (11435) y llama-server (8080), solo en este equipo', () => {
+test('solo motores propios: Eolas (11435) y llama-server (8080), solo en este equipo', () => {
   assert.deepStrictEqual(DEFAULT_ENDPOINTS, ['http://127.0.0.1:11435', 'http://127.0.0.1:8080']);
   assert.ok(!DEFAULT_ENDPOINTS.some((u) => u.includes('11434')));
   assert.ok(isLoopback('http://localhost:8080') && !isLoopback('http://192.168.1.5:8080') && !isLoopback('https://ejemplo.es'));

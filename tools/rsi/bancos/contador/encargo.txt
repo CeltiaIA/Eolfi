@@ -1,0 +1,1 @@
+Añade a la página un contador: un párrafo con id «valor» que muestre el número (empieza en 0) y tres botones con id «mas», «menos» y «reiniciar». «mas» suma 1, «menos» resta 1 sin bajar nunca de 0 y «reiniciar» lo pone a 0. Guarda el número en localStorage para que siga igual al recargar.

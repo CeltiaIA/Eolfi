@@ -1,0 +1,162 @@
+{
+  "evidence_id": "ev_9d28780031ed5edd5de7277fb8218f7925e01718f30425b71a471b20b4affe98",
+  "subject": null,
+  "provider": {
+    "id": "rea-analysis-view",
+    "name": "REA analysis view projection",
+    "version": "1"
+  },
+  "analysis_profile": null,
+  "predicate_type": "rea.analysis-view",
+  "operation": "inspect_analysis_view",
+  "parameters": {
+    "parent_evidence_id": "ev_a30ca88ca14afbfaf0d9a2e19ca6ec42fbecd8cebc8ec41a74170453fd48601d",
+    "view": {
+      "kind": "summary"
+    }
+  },
+  "raw_result": null,
+  "normalized_result": {
+    "kind": "summary",
+    "view": {
+      "kind": "summary"
+    },
+    "parent_evidence_id": "ev_a30ca88ca14afbfaf0d9a2e19ca6ec42fbecd8cebc8ec41a74170453fd48601d",
+    "parent_operation": "inspect_model_artifact",
+    "parent_digest": "a30ca88ca14afbfaf0d9a2e19ca6ec42fbecd8cebc8ec41a74170453fd48601d",
+    "view_digest": "6123f129dbba40a793d67079b64eac980f43b3eeb58346222aa7fdde43723d09",
+    "artifact": {
+      "path": "D:\\AI\\Hydra\\gguf\\gemma-4-12b-it-Q4_K_M.gguf",
+      "sha256": null
+    },
+    "coverage": {
+      "status": "complete-within-view",
+      "examined": 1,
+      "total": 1,
+      "next_offset": null,
+      "exhausted": true
+    },
+    "limitations": [
+      "Facts are file declarations; model behavior, weight values and compatibility with an inference runtime were not verified.",
+      "Full-file SHA-256 is unknown because tensor data was not read.",
+      "Full-file identity is unknown in header-only mode; normalized_result.artifact records a scoped header SHA-256 and exact source path/extent.",
+      "Header SHA-256 commits only to the recorded prefix; file size is a separate observation. Different weights may share these declarations.",
+      "K-quantization types (IDs 10–15) have released 64-element and 256-element block layouts with the same GGUF and quantization versions. The common 64-element row constraint does not establish a storage block size. Nonempty tensor byte lengths and storage validation remain unknown; file extents and general.file_type do not identify the layout.",
+      "Metadata arrays retain at most eight elements per array; remaining values are omitted, with exact declared counts and source byte ranges."
+    ],
+    "unknowns": [
+      "Tensor values, runtime execution and inference quality were not inspected.",
+      "Full-file content identity is unknown; header_sha256 commits only to declarations."
+    ],
+    "summary": {
+      "artifact": {
+        "path": "D:\\AI\\Hydra\\gguf\\gemma-4-12b-it-Q4_K_M.gguf",
+        "file_size": 7121860000,
+        "header_sha256": "2ae904db2df9f85a4caf69e8775b5cfb8eaa3383db36659e76d8e98af2936dc4",
+        "header_length": 15822733,
+        "sha256": null,
+        "bytes_read": 15822733,
+        "read_scope": "header"
+      },
+      "format": "gguf",
+      "version": 3,
+      "byte_order": "little",
+      "alignment": 32,
+      "tensor_data_offset": 15822752,
+      "coverage": {
+        "header": "complete",
+        "tensor_data": "not-interpreted",
+        "array_values": "preview",
+        "tensor_ranges": "partial",
+        "storage_sizes": "partial"
+      },
+      "limitations": [
+        "Facts are file declarations; model behavior, weight values and compatibility with an inference runtime were not verified.",
+        "Full-file SHA-256 is unknown because tensor data was not read.",
+        "Header SHA-256 commits only to the recorded prefix; file size is a separate observation. Different weights may share these declarations.",
+        "K-quantization types (IDs 10–15) have released 64-element and 256-element block layouts with the same GGUF and quantization versions. The common 64-element row constraint does not establish a storage block size. Nonempty tensor byte lengths and storage validation remain unknown; file extents and general.file_type do not identify the layout.",
+        "Metadata arrays retain at most eight elements per array; remaining values are omitted, with exact declared counts and source byte ranges."
+      ],
+      "totals": {
+        "confidence": "derived",
+        "parameter_count": "11907350576",
+        "tensor_bytes": null
+      },
+      "counts": {
+        "metadata": 58,
+        "tensors": 667,
+        "types": 3
+      },
+      "headlines": [
+        {
+          "index": 0,
+          "key": "general.architecture",
+          "type": "STRING",
+          "value": "gemma4",
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 5,
+          "key": "general.name",
+          "type": "STRING",
+          "value": "Gemma-4-12B-It",
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 19,
+          "key": "gemma4.context_length",
+          "type": "UINT32",
+          "value": 262144,
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 39,
+          "key": "tokenizer.ggml.model",
+          "type": "STRING",
+          "value": "gemma4",
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        },
+        {
+          "index": 53,
+          "key": "general.file_type",
+          "type": "UINT32",
+          "value": 15,
+          "element_type": null,
+          "element_count": null,
+          "preview_complete": true
+        }
+      ],
+      "chat_template_present": true
+    }
+  },
+  "confidence": "derived",
+  "authority": "shipped-artifact",
+  "environment": null,
+  "limitations": [
+    "Artifact identity is unavailable for this observation.",
+    "Facts are file declarations; model behavior, weight values and compatibility with an inference runtime were not verified.",
+    "Full-file SHA-256 is unknown because tensor data was not read.",
+    "Full-file identity is unknown in header-only mode; normalized_result.artifact records a scoped header SHA-256 and exact source path/extent.",
+    "Header SHA-256 commits only to the recorded prefix; file size is a separate observation. Different weights may share these declarations.",
+    "K-quantization types (IDs 10–15) have released 64-element and 256-element block layouts with the same GGUF and quantization versions. The common 64-element row constraint does not establish a storage block size. Nonempty tensor byte lengths and storage validation remain unknown; file extents and general.file_type do not identify the layout.",
+    "Metadata arrays retain at most eight elements per array; remaining values are omitted, with exact declared counts and source byte ranges."
+  ],
+  "relationship_coverage": null,
+  "locations": [
+    {
+      "kind": "artifact-path",
+      "path": "D:\\AI\\Hydra\\gguf\\gemma-4-12b-it-Q4_K_M.gguf"
+    }
+  ],
+  "evidence_links": [
+    "ev_a30ca88ca14afbfaf0d9a2e19ca6ec42fbecd8cebc8ec41a74170453fd48601d"
+  ]
+}

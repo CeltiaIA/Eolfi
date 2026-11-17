@@ -111,6 +111,18 @@ def _run(cmd: list[str], cwd: Path, timeout: float, env: dict[str, str] | None =
             "tail": out if full else out[-2500:]}
 
 
+def _site_scripts(root: Path) -> list[str]:
+    """JavaScript que carga el navegador en un sitio estático: todo .js/.mjs salvo pruebas,
+    dependencias y scripts de herramientas. Rutas relativas con «/», en orden estable."""
+    skip = {"node_modules", "tests", "test", "scripts", ".git"}
+    found = []
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root)
+        if path.suffix in (".js", ".mjs") and path.is_file() and not skip.intersection(rel.parts[:-1]):
+            found.append(rel.as_posix())
+    return found
+
+
 def pin_nuget_versions(project: Path, dotnet: str) -> dict[str, str]:
     """Sustituye Version="*" por la versión que NuGet restauró de verdad (proyecto reproducible)."""
     import re
@@ -161,16 +173,40 @@ def verify(project: str | Path, target: str, *, progress: Callable[[str], None] 
     """install=False reutiliza node_modules/.venv existentes (solo compila y prueba).
     sandbox=True (código escrito por una IA): carpeta personal temporal, ver sandbox_env()."""
     if not sandbox:
-        return _verify(project, target, progress=progress, timeout=timeout, install=install, env=None)
+        return _con_juez(_verify(project, target, progress=progress, timeout=timeout, install=install, env=None),
+                         project, target, progress, None)
     import shutil as _shutil
     import tempfile
 
     home = Path(tempfile.mkdtemp(prefix="eolfi-sandbox-home-"))
     try:
         (progress or (lambda _m: None))(f"verificación aislada: carpeta personal temporal {home}")
-        return _verify(project, target, progress=progress, timeout=timeout, install=install, env=sandbox_env(home))
+        env = sandbox_env(home)
+        return _con_juez(_verify(project, target, progress=progress, timeout=timeout, install=install, env=env),
+                         project, target, progress, env)
     finally:
         _shutil.rmtree(home, ignore_errors=True)
+
+
+def _con_juez(res: dict[str, Any], project: str | Path, target: str, progress: Callable[[str], None] | None,
+              env: dict[str, str] | None) -> dict[str, Any]:
+    """Juez funcional (PLAN_DEFINITIVO.md, B1): si el proyecto trae criterios y lo demás pasó, se prueba la
+    aplicación en Chrome. Verde solo si TODAS las comprobaciones pasan; un juez que no puede correr no aprueba."""
+    if not res.get("ok"):
+        return res
+    from eolfi.generador import juez
+
+    log = progress or (lambda _m: None)
+    if (Path(project) / juez.ARCHIVO).is_file():
+        log("→ juez funcional (la aplicación en Chrome)")
+    p = juez.paso(project, target, env=env)
+    if p is None:
+        return res
+    res["judge"] = p.pop("judge")
+    res["steps"].append(p)
+    res["ok"] = p["exit"] == 0
+    log(f"  {'OK' if res['ok'] else 'FALLO'}: {p['step']} ({p['seconds']} s)")
+    return res
 
 
 def _verify(project: str | Path, target: str, *, progress: Callable[[str], None] | None,
@@ -329,7 +365,13 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
         if not (npm and node):
             return {"ok": False, "steps": [], "error": "Node.js/npm no están instalados"}
         if target == "static":
-            step([node, "--test"], "pruebas (node --test)")
+            # Las pruebas de node --test no cargan el JS del navegador: un error de sintaxis
+            # en js/main.js deja la página sin lógica y las pruebas siguen en verde.
+            ok = True
+            for script in _site_scripts(root):
+                ok = step([node, "--check", script], f"sintaxis JS del sitio ({script})") and ok
+            if ok:
+                step([node, "--test"], "pruebas (node --test)")
         else:
             ok = True
             if install or not (root / "node_modules").is_dir():

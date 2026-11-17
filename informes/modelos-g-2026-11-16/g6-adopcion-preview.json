@@ -1,0 +1,19 @@
+{
+  "schema": "eolfi.modelos.adopcion-preview/v1",
+  "fecha_local": "2026-11-17",
+  "orden": "eolfi eolas-v2 adoptar (sin --aplicar)",
+  "exit": 0,
+  "estado": "adopcion_preparada",
+  "aplicado": false,
+  "perfil": "gemma4_recon_q4",
+  "active_profile": "gemma_q4",
+  "modelo_sha256": "d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054",
+  "config_antes_sha256": "58ece425be8c3333ad7bb4e22081d82bda7442be69a68f0dc124b3abf5db773d",
+  "config_despues_sha256": "58ece425be8c3333ad7bb4e22081d82bda7442be69a68f0dc124b3abf5db773d",
+  "config_intacta": true,
+  "limites": [
+    "No se aplicó ni activó el perfil",
+    "No se arrancó el servidor",
+    "Banco de la reconstrucción NO VERIFICADO"
+  ]
+}

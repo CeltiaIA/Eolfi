@@ -788,7 +788,7 @@ def _a11y(p: PageParser, metas: dict[str, str]) -> dict[str, Any]:
     if p.buttons_without_text:
         issues.append(f"{p.buttons_without_text} botones sin texto ni aria-label.")
     levels = [l for l, _ in p.headings]
-    skips = sum(1 for a, b in zip(levels, levels[1:]) if b > a + 1)
+    skips = sum(1 for a, b in zip(levels, levels[1:], strict=False) if b > a + 1)
     if skips:
         issues.append(f"{skips} saltos de nivel en los encabezados (p. ej. h2 → h4).")
     h1 = levels.count(1)

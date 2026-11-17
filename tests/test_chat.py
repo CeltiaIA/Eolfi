@@ -41,6 +41,33 @@ def test_contexto_dice_donde_estan_los_adjuntos_y_que_analizar():
     assert chat.with_context([{"role": "user", "content": "x"}], [], None) == [{"role": "user", "content": "x"}]
 
 
+def test_chat_can_call_real_gguf_auditor_without_loading_model(tmp_path):
+    from tests.test_modelos import fixture
+    from eolfi.mcp_server import EolfiMCP
+
+    path = fixture(tmp_path / "upload.bin")
+    mcp = EolfiMCP(db=str(tmp_path / "no-db.db"), roots=[str(tmp_path)])
+    replies = iter([{"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": str(path)})]},
+                    {"content": "Auditoría estructural; no demuestra seguridad de pesos."}])
+    sent = []
+    result = chat.agent_turn([{"role": "user", "content": "Audita el GGUF adjunto"}], {"alias": "prueba"}, mcp,
+                             lambda message: None,
+                             request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
+    assert result["tools"][0]["name"] == "eolfi_modelos_auditar" and result["tools"][0]["ok"]
+    assert any(m.get("role") == "tool" and '"sha256"' in m["content"] for m in sent[1])
+    assert not (tmp_path / "no-db.db").exists()
+
+
+def test_gguf_context_uses_auditor_instead_of_native_decompiler():
+    result = chat.with_context([{"role": "user", "content": "analiza"}],
+                               [{"name": "Pesos.GGUF", "path": "/samples/hash.bin", "kind": "binario"}],
+                               {"kind": "archivo", "target": "/models/local.gguf"})
+    text = result[-1]["content"]
+    assert text.count("eolfi_modelos_auditar") == 2
+    assert "modo profundo" not in text
+    assert "sin cargarlo" in text
+
+
 def test_eolas_decide_las_herramientas_y_eolfi_las_ejecuta():
     mcp, steps, sent = FakeMCP(), [], []
     replies = iter([

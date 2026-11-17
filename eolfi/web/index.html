@@ -200,7 +200,7 @@
               </div>
               <label><input type="checkbox" id="create-reanalyze"> volver a analizar las fuentes (aunque ya estén analizadas)</label>
               <input id="create-ai-model" placeholder="Modelo de IA (opcional, p. ej. claude-opus-5-5)" aria-label="Modelo de IA">
-              <input id="create-ai-base" placeholder="URL del servidor de IA (opcional, compatible OpenAI u Ollama)" aria-label="URL del servidor de IA">
+              <input id="create-ai-base" placeholder="URL del servidor de IA (opcional: Eolas V1, Eolas V2 o compatible OpenAI)" aria-label="URL del servidor de IA">
             </div>
           </details>
           <div class="row between">
@@ -322,7 +322,7 @@
           <div class="eolas-chat-tools">
             <button type="button" id="eolas-chat-tools" class="ghost-btn" aria-controls="tools-drawer" title="Crear proyecto, analizar, objetivos y casos">Herramientas</button>
             <label class="ghost-btn eolas-chat-attach" role="button" tabindex="0">Adjuntar archivos
-              <input id="eolas-chat-files" type="file" multiple hidden>
+              <input id="eolas-chat-files" type="file" multiple hidden aria-describedby="eolas-chat-files-help">
             </label>
             <label class="visually-hidden" for="eolas-chat-kind">Qué analizar</label>
             <select id="eolas-chat-kind">
@@ -335,15 +335,25 @@
             <label class="visually-hidden" for="eolas-chat-target">Ruta, URL o repositorio</label>
             <input id="eolas-chat-target" type="text" hidden placeholder="Ruta, URL o repositorio">
             <label class="small eolas-chat-binary"><input id="eolas-chat-as-binary" type="checkbox"> Adjuntos como binarios (análisis profundo)</label>
+            <button type="button" id="voz-mic" class="ghost-btn" aria-pressed="false" hidden title="Dictar con el micrófono (Alt+M). El audio se transcribe en este equipo.">Dictar</button>
+            <button type="button" id="voz-conversar" class="ghost-btn" aria-pressed="false" hidden title="Hablar con Eolfi sin teclado: escucha, envía y lee la respuesta (Esc para salir)">Conversación</button>
+            <label class="small eolas-chat-binary" hidden><input id="voz-leer" type="checkbox"> Leer las respuestas en voz alta</label>
             <span class="eolas-chat-spacer"></span>
             <button type="button" id="eolas-chat-clear" class="ghost-btn">Nueva conversación</button>
             <button type="submit" id="eolas-chat-send">Enviar</button>
           </div>
+          <p id="eolas-chat-files-help" class="small muted">Todos los formatos: .gguf, .safetensors, código, documentos, imágenes y binarios. Sin límite fijo de tamaño; se necesita espacio para guardar una copia en el equipo. Para usar tus modelos locales sin copiarlos, elige «Archivo (ruta local)».</p>
+          <p id="voz-estado" class="muted small" role="status"></p>
         </form>
         <details class="eolas-chat-vscode">
           <summary>Permisos de REA (lo que ejecuta o abre algo vivo)</summary>
           <p class="small muted">Eolas pide permiso en el chat cuando necesita ejecutar algo (Frida, depuradores, capturas). «Una vez» vale para esa llamada exacta; «en este caso», para esa herramienta en el caso activo hasta que la revoques.</p>
           <div id="eolas-chat-perms"></div>
+        </details>
+        <details class="eolas-chat-vscode">
+          <summary>Automejora (RSI): propuestas que decides tú</summary>
+          <p class="small muted">Eolfi observa sus fallos reales y propone cambios acotados (plazos, tokens, lecciones). Cada propuesta se evalúa contra la configuración actual con <code>eolfi rsi evaluar</code>; solo una propuesta evaluada con mejora se puede aprobar, y todo cambio aplicado se puede revertir.</p>
+          <div id="eolas-chat-rsi"></div>
         </details>
         <details class="eolas-chat-vscode">
           <summary>Actividad de Eolfi en VS Code</summary>

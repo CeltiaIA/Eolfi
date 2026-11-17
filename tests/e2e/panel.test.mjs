@@ -39,12 +39,15 @@ before(async () => {
   // puente de VS Code) y la prueba fallaba con 502 según lo que estuviera haciendo el equipo. Así ve lo mismo que la CI.
   const home = join(tmp, 'home');
   mkdirSync(home);
-  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json') };
+  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json'),
+    EOLFI_VSCODE_BRIDGE_FILE: join(home, '.eolfi', 'vscode-bridge.json') };
   server = spawn(PY, ['-m', 'eolfi', '--db', join(tmp, 'e.db'), 'serve', '--port', String(PORT), '--samples', join(tmp, 's')],
     { cwd: ROOT, stdio: 'ignore', env: { ...process.env, ...isolated, PYTHONIOENCODING: 'utf-8' } });
   await waitHealth();
   browser = await chromium.launch({
     headless: true,
+    // Micrófono simulado (un tono) y permiso concedido: para la prueba de dictado, sin audio real.
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
     ...(process.env.EOLFI_E2E_BROWSER ? { executablePath: process.env.EOLFI_E2E_BROWSER }
       : { channel: process.env.EOLFI_E2E_CHANNEL || 'chrome' }),
   });
@@ -103,6 +106,53 @@ test('la actividad del agente de VS Code aparece en la franja del panel', async 
   assert.match(await page.textContent('#vscode-activity'), /eolfi_read_file/);
   await page.unroute('**/api/vscode/activity*');
   await page.reload();
+});
+
+test('automejora: tarjeta por propuesta, aprobar solo si está evaluada y la decisión llega al servidor', async () => {
+  const prop = (id, estado, extra = {}) => ({ id, regla: 'salida_cortada_v2', superficie: 'eolas_v2.max_tokens', actual: 8192,
+    propuesto: 16384, motivo: 'Las respuestas se cortan por longitud.', estado, fecha: '2026-11-16T10:00:00Z', ...extra });
+  const posted = [];
+  await page.route('**/api/rsi', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    activo: true, registro: { ok: true, eventos: 5 }, casos_regresion: 1, observaciones: 3, umbrales: {},
+    propuestas: [prop('aaaaaaaaaaaa', 'evaluada', { evaluacion: { base: [0.5, 0.5, 0.5], candidata: [1, 1, 1], media_base: 0.5, media_candidata: 1 } }),
+      prop('bbbbbbbbbbbb', 'pendiente')] }) }));
+  await page.route('**/api/rsi/propuestas/**', (route) => { posted.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
+  await page.reload();
+  await page.click('summary:has-text("Automejora")');
+  const box = page.locator('#eolas-chat-rsi');
+  await box.getByText('eolas_v2.max_tokens: 8192 → 16384').first().waitFor();
+  assert.match(await box.textContent(), /registro íntegro/);
+  assert.match(await box.textContent(), /eolfi rsi evaluar bbbbbbbbbbbb/);       // la pendiente indica cómo evaluarla
+  assert.equal(await box.getByRole('button', { name: 'Aprobar y aplicar' }).count(), 1);   // solo la evaluada
+  await box.getByRole('button', { name: 'Aprobar y aplicar' }).click();
+  await page.waitForFunction(() => true);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(posted, ['/api/rsi/propuestas/aaaaaaaaaaaa/aprobar']);
+  await axe('automejora');
+  await page.unroute('**/api/rsi');
+  await page.unroute('**/api/rsi/propuestas/**');
+  await page.reload();
+  assert.deepEqual(errors, []);
+});
+
+test('adjuntar GGUF, safetensors y otros formatos desde el chat', async () => {
+  await page.goto(BASE + '/#chat');
+  await page.waitForSelector('#version:not(:empty)');
+  assert.equal(await page.getAttribute('#eolas-chat-files', 'accept'), null);
+  // Con texto pendiente, adjuntar no envía una tarea al motor del equipo.
+  await page.fill('#eolas-chat-input', 'Revisar adjuntos sin enviarlos');
+  await page.setInputFiles('#eolas-chat-files', [
+    { name: 'modelo.gguf', mimeType: 'application/octet-stream', buffer: Buffer.from('GGUF-test') },
+    { name: 'pesos.safetensors', mimeType: 'application/octet-stream', buffer: Buffer.from('safetensors-test') },
+    { name: 'datos.xyz', mimeType: '', buffer: Buffer.from('unknown-format-test') },
+  ]);
+  await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 3);
+  const names = await page.textContent('#eolas-chat-attachments');
+  for (const name of ['modelo.gguf', 'pesos.safetensors', 'datos.xyz']) assert.ok(names.includes(name));
+  await axe('adjuntos de cualquier formato en el chat');
+  for (let i = 0; i < 3; i++) await page.locator('#eolas-chat-attachments button').first().click();
+  await page.fill('#eolas-chat-input', '');
 });
 
 test('subir un binario: se analiza como trabajo y aparece como objetivo', async () => {
@@ -373,4 +423,54 @@ test('crear proyecto: modo guiado se detiene, la instrucción que cambia el plan
   await page.click('#proj-continue');
   await page.waitForFunction(() => document.querySelectorAll('.proj-step .badge.ok').length === 2, null, { timeout: 60000 });
   assert.match(await page.textContent('#proj-view'), /Especificación v1/);
+});
+
+test('voz: dictar escribe en el chat sin enviar, las órdenes no se escriben y todo es accesible', async () => {
+  let recibido = null;
+  let texto = 'analiza este archivo';
+  await page.route('**/api/voz/estado', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+    motor_activo: 'windows', idioma: 'es-ES', voz_a_texto: true, texto_a_voz: true, local: true }) }));
+  await page.route('**/api/voz/transcribir', async (route) => {
+    const body = route.request().postDataBuffer();
+    recibido = { cabecera: body.subarray(0, 4).toString('latin1'), formato: body.readUInt16LE(20), canales: body.readUInt16LE(22),
+      hz: body.readUInt32LE(24), bits: body.readUInt16LE(34), bytes: body.length, xeolfi: route.request().headers()['x-eolfi'] };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ texto, motor: 'windows', confianza: 0.8 }) });
+  });
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#voz-mic:not([hidden])');
+  assert.match(await page.textContent('#voz-estado'), /Voz local lista/);
+  await axe('chat con voz');
+  await page.fill('#eolas-chat-input', 'Hola,');
+  await page.click('#voz-mic');
+  await page.waitForSelector('#voz-mic[aria-pressed=true]');
+  await page.waitForTimeout(700);
+  await page.click('#voz-mic');
+  await page.waitForFunction(() => /analiza este archivo/.test(document.querySelector('#eolas-chat-input').value));
+  assert.equal(await page.inputValue('#eolas-chat-input'), 'Hola, analiza este archivo');
+  // Lo que sale del navegador es un WAV PCM de 16 bits, mono, a 16 kHz, y solo hacia el propio servidor.
+  assert.deepEqual({ ...recibido, bytes: recibido.bytes > 44 }, { cabecera: 'RIFF', formato: 1, canales: 1, hz: 16000, bits: 16, bytes: true, xeolfi: '1' });
+  assert.equal(await page.locator('#eolas-chat-log .msg.user').count(), 0);          // dictar no envía
+  assert.match(await page.textContent('#voz-estado'), /motor local «windows»/);
+  texto = 'Borra todo.';                                                                // orden, no texto
+  await page.keyboard.press('Alt+m');
+  await page.waitForSelector('#voz-mic[aria-pressed=true]');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Alt+m');
+  await page.waitForFunction(() => document.querySelector('#eolas-chat-input').value === '');
+  assert.match(await page.textContent('#voz-estado'), /Orden por voz: borrar/);
+  // A7: el mismo dictado en otros cuadros del panel; ahí «Borra todo.» es texto, no una orden.
+  await openTools('create');
+  await page.waitForSelector('#proj-desc + .voz-junto .voz-dictar');
+  await page.fill('#proj-desc', 'Una web con');
+  await page.click('#proj-desc + .voz-junto .voz-dictar');
+  await page.waitForSelector('#proj-desc + .voz-junto .voz-dictar[aria-pressed=true]');
+  assert.equal(await page.isDisabled('#voz-mic'), true);                              // un solo dictado a la vez
+  await page.waitForTimeout(500);
+  await page.click('#proj-desc + .voz-junto .voz-dictar');
+  await page.waitForFunction(() => document.querySelector('#proj-desc').value === 'Una web con Borra todo.');
+  assert.match(await page.textContent('#proj-desc + .voz-junto .voz-nota'), /motor local «windows»/);
+  assert.equal(await page.inputValue('#eolas-chat-input'), '');
+  assert.equal(await page.locator('.voz-dictar').count(), 5);
+  await axe('dictado en crear proyecto');
+  assert.deepEqual(errors, []);
 });

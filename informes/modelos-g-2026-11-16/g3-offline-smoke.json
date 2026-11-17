@@ -1,0 +1,45 @@
+{
+  "schema": "eolfi.modelos.offline-smoke/v1",
+  "fecha": "2026-11-17",
+  "perfil": "gemma4_recon_q4",
+  "modelo_sha256": "d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054",
+  "solicitud": {
+    "EOLAS_OFFLINE": "1",
+    "argumento_nativo": "--offline",
+    "variables_heredadas": [
+      "LLAMA_ARG_OFFLINE=1",
+      "HF_HUB_OFFLINE=1",
+      "TRANSFORMERS_OFFLINE=1"
+    ]
+  },
+  "runtime": {
+    "running": true,
+    "model_verified": true,
+    "offline_requested": true,
+    "running_offline": true,
+    "firewall_verified": false,
+    "pid_observado": 27520,
+    "idle_watchdog_pid_observado": 37592
+  },
+  "inferencia": {
+    "peticion": "Responde unicamente con EOLFI-OFFLINE.",
+    "respuesta": "EOLFI-OFFLINE",
+    "finish_reason": "stop",
+    "prompt_tokens": 25,
+    "completion_tokens": 6,
+    "total_tokens": 31,
+    "codigo_salida": 0
+  },
+  "parada": {
+    "stopped": true,
+    "running_final": false,
+    "running_profile_final": null,
+    "pid_final": null,
+    "idle_watchdog_pid_final": null,
+    "perfil_activo_final": "gemma_q4"
+  },
+  "limites": [
+    "llama.cpp declara que --offline evita acceso de red, pero esta prueba no capturo trafico",
+    "La regla de cortafuegos de salida sigue NO VERIFICADA y corresponde al titular"
+  ]
+}

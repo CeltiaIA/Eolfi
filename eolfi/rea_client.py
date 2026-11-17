@@ -45,8 +45,12 @@ def rea_command() -> list[str] | None:
     return [node, str(script), "mcp"] if node and script.is_file() else None
 
 
+WABT_DIR = "wabt-1.0.42"   # REA exige esta versión exacta (comprueba «--version» de cada herramienta)
+WABT_TOOLS = ("wasm-validate", "wasm-objdump", "wasm2wat")
+
+
 def rea_env() -> dict[str, str]:
-    """Entorno de REA sin secretos de Eolfi, con las herramientas instaladas para él (apktool, tshark, jadx)."""
+    """Entorno de REA sin secretos de Eolfi, con las herramientas instaladas para él (apktool, tshark, jadx, WABT)."""
     env = {k: v for k, v in os.environ.items() if not _SECRET.search(k)}
     home = Path.home()
     defaults = {
@@ -58,6 +62,11 @@ def rea_env() -> dict[str, str]:
     for key, path in defaults.items():   # un servidor arrancado antes de instalarlas no ve las variables nuevas
         if not env.get(key) and path.is_file():
             env[key] = str(path)
+    # WABT 1.0.42 (tools/instalar-wabt.ps1): REA pide la CARPETA bin con wasm-validate, wasm-objdump y wasm2wat.
+    wabt = home / ".eolfi" / "tools" / WABT_DIR / "bin"
+    exe = ".exe" if os.name == "nt" else ""
+    if not env.get("REA_WABT_BIN_DIRECTORY") and all((wabt / f"{t}{exe}").is_file() for t in WABT_TOOLS):
+        env["REA_WABT_BIN_DIRECTORY"] = str(wabt)
     return env
 
 
@@ -275,12 +284,18 @@ def wsl_path(path: str | Path) -> str:
 
 
 def wsl_rea_command() -> list[str] | None:
-    """Orden para arrancar el REA de WSL con Wakaru, si está instalado (EOLFI_NO_REA lo desactiva en pruebas)."""
+    """Orden para arrancar el REA de WSL con Wakaru, si está instalado (EOLFI_NO_REA lo desactiva en pruebas). Si está
+    Binwalk 3.1.0 (tools/instalar-binwalk-wsl.sh), se le pasa en REA_BINWALK_COMMAND para el análisis de firmware; si
+    está Unblob 26.6.4 (tools/instalar-unblob-wsl.sh), su lanzador en REA_UNBLOB_COMMAND para la extracción, y si está
+    Kuna (instalar-rea-wsl.sh deja $B/kuna), en REA_KUNA_COMMAND. Cada herramienta se reconoce por su ruta dentro de
+    ~/.local/eolfi-rea, no por su posición en la salida."""
     if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe"):
         return None
     script = ("B=$HOME/.local/eolfi-rea; N=$(ls -d $B/node-*-linux-x64 2>/dev/null | tail -1); "
+              "K=; test -x $B/kuna && K=kuna; "
               "test -x \"$N/bin/node\" -a -x $B/wakaru/wakaru -a -f $B/npm/node_modules/rea-agents/scripts/rea.mjs "
-              "&& echo \"$N|$HOME\"")
+              "&& echo \"$N|$HOME|$(test -x $B/binwalk-3.1.0/bin/binwalk && echo $B/binwalk-3.1.0/bin/binwalk)"
+              "|$(test -x $B/unblob-26.6.4/eolfi-unblob && echo $B/unblob-26.6.4/eolfi-unblob)|$K\"")
     try:
         out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
@@ -288,10 +303,124 @@ def wsl_rea_command() -> list[str] | None:
         return None
     if "|" not in out:
         return None
-    node_dir, home = out.splitlines()[-1].split("|", 1)
+    node_dir, home, *rest = out.splitlines()[-1].split("|")
     base = f"{home}/.local/eolfi-rea"
-    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", f"{node_dir}/bin/node",
-            f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
+    propias = [r for r in rest if r.startswith(base + "/")]
+    binwalk = [f"REA_BINWALK_COMMAND={r}" for r in propias if r.endswith("/bin/binwalk")][:1]
+    unblob = [f"REA_UNBLOB_COMMAND={r}" for r in propias if r.endswith("/eolfi-unblob")][:1]
+    # Kuna (15/11/2026): REA solo lo admite en Linux/macOS; instalar-rea-wsl.sh deja $B/kuna → kuna-1.833.
+    kuna = [f"REA_KUNA_COMMAND={base}/kuna"] if "kuna" in rest else []
+    return ["wsl.exe", "-e", "env", f"REA_WAKARU_COMMAND={base}/wakaru/wakaru", *binwalk, *unblob, *kuna,
+            f"{node_dir}/bin/node", f"{base}/npm/node_modules/rea-agents/scripts/rea.mjs", "mcp"]
+
+
+def wsl_run(argv: list[str], timeout: float = 900) -> tuple[int, str]:
+    """Ejecuta una orden dentro de Ubuntu (WSL) sin shell y devuelve (código, salida+error recortada)."""
+    try:
+        r = subprocess.run(["wsl.exe", "-e", *argv], capture_output=True, text=True, timeout=timeout,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, str(e)[:2000]
+    return r.returncode, ((r.stdout or "") + (r.stderr or ""))[-4000:]
+
+
+def wsl_staging_dir(prefix: str) -> str:
+    """Carpeta nueva (aún sin crear) en ~/.local/eolfi-rea/salidas de Ubuntu, para herramientas que no pueden
+    escribir en /mnt (p. ej. Unblob, que exige ser dueño del destino)."""
+    import uuid
+
+    code, out = wsl_run(["sh", "-c", 'mkdir -p "$HOME/.local/eolfi-rea/salidas" && echo "$HOME"'], timeout=60)
+    home = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
+    if not home.startswith("/"):
+        raise RuntimeError(f"no se pudo preparar la carpeta temporal en WSL: {out[:300]}")
+    return f"{home}/.local/eolfi-rea/salidas/{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+WSL_JDK = "jdk21/usr/lib/jvm/java-21-openjdk-amd64"   # tools/instalar-java-wsl.sh
+# Plazo y memoria de Ghidra para importar y analizar: con los 330 s y 2 GB de REA no se analiza un ejecutable de app de
+# ~20 MB desde /mnt (Feather 2.9.0, 15/11/2026: ~24 min con 2 GB y la máquina libre; más de 25 con otra carga).
+# El cliente debe esperar algo más que Ghidra (GHIDRA_CLIENT_TIMEOUT).
+GHIDRA_STARTUP_MS = 3_600_000
+GHIDRA_MAX_HEAP = "6G"
+# Respuesta máxima de REA por MCP: los 10 MiB por defecto no bastan para analyze_swift_types de Feather (21,7 MB).
+GHIDRA_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+GHIDRA_CLIENT_TIMEOUT = 4200
+
+
+def wsl_rea_ghidra_command(ghidra_dir: str | None = None) -> list[str] | None:
+    """Orden del REA de WSL con Ghidra, para lo que el Ghidra de Windows no abre (Mach-O, ELF): el REA de Windows
+    solo acepta PE. Usa la misma instalación de Ghidra 12.1 que Windows (GHIDRA_INSTALL_DIR, que trae el
+    descompilador de Linux) vista desde /mnt, con el Java 21 de tools/instalar-java-wsl.sh. None si falta algo."""
+    base_cmd = wsl_rea_command()
+    ghidra = ghidra_dir or os.environ.get("GHIDRA_INSTALL_DIR")
+    if not base_cmd or not ghidra:
+        return None
+    try:
+        ghidra_wsl = wsl_path(ghidra)
+    except ValueError:
+        return None
+    script = (f'J="$HOME/.local/eolfi-rea/{WSL_JDK}"; G="{ghidra_wsl}"; '
+              'test -x "$J/bin/java" -a -x "$G/support/analyzeHeadless" '
+              '-a -x "$G/Ghidra/Features/Decompiler/os/linux_x86_64/decompile" && echo "$J"')
+    try:
+        out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    java_home = out.splitlines()[-1] if out else ""
+    if not java_home.startswith("/") or not java_home.endswith(WSL_JDK):
+        return None
+    i = base_cmd.index("env") + 1
+    return [*base_cmd[:i], f"GHIDRA_INSTALL_DIR={ghidra_wsl}", f"JAVA_HOME={java_home}",
+            f"PATH={java_home}/bin:/usr/bin:/bin", f"REA_GHIDRA_STARTUP_TIMEOUT_MS={GHIDRA_STARTUP_MS}",
+            f"GHIDRA_MAXMEM={GHIDRA_MAX_HEAP}",
+            f"REA_MCP_MAX_RESPONSE_BYTES={GHIDRA_MAX_RESPONSE_BYTES}",
+            *base_cmd[i:]]
+
+
+WSL_SWIFT_DEMANGLE = "swift-6.4.2/swift-6.4.2-RELEASE-ubuntu26.04/usr/bin/swift-demangle"  # tools/instalar-swift-demangle-wsl.sh
+
+
+def wsl_swift_demangle(names: list[str], timeout: float = 120) -> list[str] | None:
+    """Nombres Swift descifrados con el swift-demangle oficial de Linux (Swift 6.4.2) en WSL, uno por entrada y en
+    el mismo orden. None si no está instalado o falla (REA solo ofrece demangle_swift en macOS)."""
+    if os.environ.get("EOLFI_NO_REA") or not shutil.which("wsl.exe") or not names:
+        return None if names else []
+    clean = [n.replace("\n", " ").strip() for n in names]
+    script = f'B="$HOME/.local/eolfi-rea/{WSL_SWIFT_DEMANGLE}"; test -x "$B" && exec "$B"'
+    try:
+        r = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], input="\n".join(clean) + "\n",
+                           capture_output=True, text=True, timeout=timeout, encoding="utf-8",
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    out = r.stdout.splitlines()
+    return out if r.returncode == 0 and len(out) == len(clean) else None
+def wsl_has_kuna(cmd: list[str] | None) -> bool:
+    """¿La orden del REA de WSL trae Kuna configurado?"""
+    return bool(cmd) and any(a.startswith("REA_KUNA_COMMAND=") for a in cmd)
+
+
+WSL_SIGROK = "sigrok/eolfi-sigrok"   # tools/instalar-sigrok-wsl.sh
+
+
+def wsl_rea_sigrok_command() -> list[str] | None:
+    """Orden del REA de WSL con sigrok-cli 0.7.2 (REA_SIGROK_COMMAND) para decodificar grabaciones de señales: REA
+    solo lo hace en Linux y con prlimit de util-linux. None si falta el REA de WSL, el lanzador o prlimit."""
+    base_cmd = wsl_rea_command()
+    if not base_cmd:
+        return None
+    script = f'S="$HOME/.local/eolfi-rea/{WSL_SIGROK}"; test -x "$S" -a -x /usr/bin/prlimit && echo "$S"'
+    try:
+        out = subprocess.run(["wsl.exe", "-e", "bash", "-c", script], capture_output=True, text=True, timeout=60,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    launcher = out.splitlines()[-1] if out else ""
+    if not launcher.startswith("/") or not launcher.endswith("/" + WSL_SIGROK):
+        return None
+    i = base_cmd.index("env") + 1
+    return [*base_cmd[:i], f"REA_SIGROK_COMMAND={launcher}", *base_cmd[i:]]
 
 
 def wsl_has_tshark() -> bool:

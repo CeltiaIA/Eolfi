@@ -123,9 +123,9 @@ def test_proveedor_eolas_aplica_la_guardia_solo_en_local(monkeypatch):
         local_gpu.GpuBusy("Eolas V2 está generando")))
     monkeypatch.setattr(llm, "_post", lambda *a, **k: pytest.fail("no debe llegar a Eolas"))
     with pytest.raises(llm.LLMError, match="Eolas V2 está generando"):
-        llm.OllamaProvider("http://127.0.0.1:11435", "gemma").complete("s", [{"role": "user", "content": "x"}], {}, None)
+        llm.EolasV1Provider("http://127.0.0.1:11435", "gemma").complete("s", [{"role": "user", "content": "x"}], {}, None)
     monkeypatch.setattr(llm, "_post", lambda *a, **k: {"message": {"content": "{\"ok\": 1}"}})
-    llm.OllamaProvider("http://eolas.remota:11435", "gemma").complete("s", [{"role": "user", "content": "x"}], {}, None)
+    llm.EolasV1Provider("http://eolas.remota:11435", "gemma").complete("s", [{"role": "user", "content": "x"}], {}, None)
     assert calls == [1]                                               # un Eolas remoto no toca la GPU local
 
 
@@ -261,7 +261,7 @@ def test_motor_local_se_elige_y_lo_siguen_el_generador_y_la_cli(monkeypatch, cap
     assert main(["motor-local", "eolas-v3"]) == 2
     assert local_gpu.local_engine() == "eolas-v1"
     with pytest.raises(ValueError):
-        local_gpu.set_local_engine("ollama")
+        local_gpu.set_local_engine("otro-motor")
 
 
 def test_clave_de_eolas_v1_solo_va_a_este_equipo(tmp_path, monkeypatch):
@@ -331,3 +331,61 @@ def test_free_for_eolas_por_linea_de_ordenes(monkeypatch, capsys):
     monkeypatch.setattr(local_gpu, "free_for_eolas", busy)
     assert local_gpu.main(["free-for-eolas"]) == 3
     assert "respondiendo" in json.loads(capsys.readouterr().out)["error"]
+
+
+def test_modelo_local_que_agota_el_plazo_no_se_reintenta(monkeypatch):
+    """15/11/2026: Eolas V1 tenía 900 s y 3 reintentos; cada reintento volvía a generar desde cero en la GPU."""
+    import time
+
+    from eolfi.generador import llm
+
+    hits = []
+
+    class Lento(BaseHTTPRequestHandler):
+        def do_POST(self):
+            hits.append(1)
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            time.sleep(1.5)
+            try:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+            except OSError:
+                pass
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Lento)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/chat"
+    try:
+        with pytest.raises(llm.LLMError, match="no se repite la petición"):
+            llm._post(url, {}, {}, 0.3, sleep=lambda s: None, retry_timeouts=False)
+        assert len(hits) == 1
+        hits.clear()
+        with pytest.raises(llm.LLMError, match="No se pudo conectar"):
+            llm._post(url, {}, {}, 0.3, retries=1, sleep=lambda s: None)
+        assert len(hits) == 2                              # las API remotas siguen reintentando
+    finally:
+        srv.shutdown()
+    assert llm.EolasV1Provider("http://127.0.0.1:11435", "m").timeout == llm.LOCAL_TIMEOUT == 1800.0
+
+
+def test_opciones_de_eolas_v1_por_variables(monkeypatch):
+    from eolfi.generador.llm import LLMError, eolas_v1_options
+
+    for name in ("EOLFI_EOLAS_NUM_CTX", "EOLFI_EOLAS_NUM_PREDICT", "EOLFI_EOLAS_NUM_GPU"):
+        monkeypatch.delenv(name, raising=False)
+    assert eolas_v1_options() == {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_CTX", "16384")
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_PREDICT", "4096")
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_GPU", "99")
+    assert eolas_v1_options() == {"num_ctx": 16384, "num_predict": 4096, "temperature": 0.2, "num_gpu": 99}
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_GPU", "muchas")
+    with pytest.raises(LLMError, match="EOLFI_EOLAS_NUM_GPU"):
+        eolas_v1_options()
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_GPU", "0")
+    monkeypatch.setenv("EOLFI_EOLAS_NUM_CTX", "10")
+    with pytest.raises(LLMError, match="al menos 1024"):
+        eolas_v1_options()

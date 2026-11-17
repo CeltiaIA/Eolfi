@@ -137,7 +137,7 @@ Esfuerzo: S ≤ 1 h, M ≤ 1 día, L > 1 día.
 | P1-4 | Hecho | Eolfi 57a7fba (PR #41): `num_predict` desde `max_tokens`. En vivo con `max_tokens` 32. |
 | P1-5 | Hecho | Eolfi PR #41 (`c52528e`): la extensión llama a `python -m eolfi.local_gpu free-for-eolas` antes de usar V1; si V2 está respondiendo, explica el motivo. Pruebas JS y pytest. |
 | P2-1 | Hecho | celtiaia PR #5 (`4cb6b78`, con b21d026: launcher crea `runtime\eolas\api.key` y la pasa a Eolas; Fios `localKeys.ts`); Eolfi (CLI, generador, guardia de GPU, extensión). En vivo: 401 sin clave o con clave mala (también `DELETE /api/delete`), 200 con clave, `/` abierto; web, Fios (`smoke live`), generador y extensión responden con clave. |
-| P2-2 | Parcial | SHA-256 de los 57 archivos en celtiaia `docs/audit/llama-b11968-win-cuda-12.4-x64.sha256`; las dos copias son idénticas. **NO VERIFICADO** frente a la publicación oficial (necesita red). |
+| P2-2 | Hecho | Release oficial ggml-org/llama.cpp b11968 (28/10/2026) descargada el 15/11. Los zip `llama-b11968-bin-win-cuda-12.4-x64.zip` (`10edd9e2…6fcd`) y `cudart-llama-bin-win-cuda-12.4-x64.zip` (`8c79a9b2…e1d6`) coinciden con el digest de GitHub. Sus 56 archivos son idénticos, por SHA-256, a los 57 de la lista de celtiaia `docs/audit/llama-b11968-win-cuda-12.4-x64.sha256`; el 57.º es `llama-release.json`, el registro local de la instalación. Las copias de EOLAS-BASE y HYDRA-BASE son, por tanto, las oficiales. |
 | P2-3 | Hecho | Eolfi 57a7fba: PID con hora de inicio (`pid_started`). |
 | P2-4 | Hecho | Eolfi 57a7fba: candado con propósito; el vigilante no muere con `EolasBusy`. |
 | P2-5 | Hecho | Comentario corregido; en vivo `tool_calls` llega estructurado. |
@@ -149,8 +149,14 @@ equipo se fija Eolas V1 (`python -m eolfi motor-local eolas-v1`, archivo `~/.eol
 y un solo modelo para la web, Fios y Eolfi, ahora reparado y con clave. Se cambia con `python -m eolfi motor-local eolas-v2`.
 
 **Siguen abiertos:** los pendientes de la sección 4 que no son de esta auditoría (proyecto real con la IA de Eolas, backend
-nativo con herramientas, caídas de Gemma sin causa raíz, iframe `SameSite`), y la comparación de llama.cpp con la release
-oficial.
+nativo con herramientas, caídas de Gemma sin causa raíz, iframe `SameSite`), y nada más de llama.cpp: ya se comparó con la release oficial.
+
+**Actualización (16/11/2026):**
+- Caídas de Gemma: causa (caché de prompts en RAM contra el Job de 9600 MiB) corregida con `--cache-ram 1024` (CeltiaIA#6), verificada en vivo; sin caídas en las ejecuciones de la competición.
+- Backend nativo: con el binario actual, la llamada a herramientas y el error CUDA 208 no se reproducen dentro del Job. La memoria fijada sin límite se corrige en CeltiaIA#9 (`EOLAS_PINNED_HOST_MB` y caída a copias desde el mapeo). El Job sigue en 9600 MiB.
+- Iframe `SameSite`: corregido con un token en la ruta (CeltiaIA#8); E2E en vivo 14/14.
+- Caché KV auto: con `num_gpu` explícito elegía f16 aunque no cupiera (CeltiaIA#10); 27,7 → 34,2 tok/s en Gemma Q4.
+- Competición V1/V2 (mismo encargo, 16k, 8192 tokens): V2 Q4_K_M 41,6 tok/s y 101 s; V1 Q5 9/9 en el juez funcional. Detalle en `ESTADO-TRABAJO.md`.
 
 **Publicación (15/11, 22:10):**
 - Eolfi https://github.com/CeltiaIA/Eolfi/pull/41 fusionada (`c52528e`), CI en verde.

@@ -2,7 +2,7 @@
 
 - eolas-v2  Motor Eolas V2 de Eolfi (llama-server local con clave de API): el proveedor por defecto.
 - celtia-v2 CeltIA V2: un perfil de Eolas V2 redacta y otro revisa (por defecto gemma → gemma_q4).
-- eolas     Motor local Eolas V1 (CeltIA), API compatible con Ollama en 127.0.0.1:11435.
+- eolas     Motor local Eolas V1 (CeltIA), API propia de Eolas (/api/chat, /api/tags) en 127.0.0.1:11435.
 - deepseek-web / gemini-web / meta-web / web
             Webs de chat a través del puente Electron de Eolfi (python -m eolfi bridge):
             tu sesión iniciada a mano y permiso en cada envío. Puede ir contra las
@@ -33,6 +33,10 @@ class LLMError(Exception):
     pass
 
 
+class RespuestaCortada(LLMError):
+    """El modelo agotó su límite de salida. No es un fallo del motor: la ronda no sirve, pero se puede pedir otra."""
+
+
 @dataclass
 class Reply:
     data: dict[str, Any]
@@ -42,7 +46,7 @@ class Reply:
 
 
 PRESETS: dict[str, dict[str, Any]] = {
-    "eolas": {"kind": "ollama", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
+    "eolas": {"kind": "eolas-v1", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
               "model": os.environ.get("EOLAS_MODEL", "gemma-4-12b-it:latest"), "key_env": None,
               "context_bytes": 60_000},
     # Motor Eolas V2 gestionado por Eolfi (llama-server local, perfil Gemma o Mistral alterno).
@@ -157,8 +161,14 @@ MAX_RESPONSE_BYTES = 32 * 1024 * 1024   # una respuesta mayor no es una respuest
 RETRIES = 3                             # reintentos ante 429, 5xx y cortes de red
 
 
+# Un modelo local que agota el plazo no ha fallado de forma pasajera: está generando y repetir la petición vuelve a
+# empezar desde cero en la misma GPU (15/11/2026: tres reintentos de 15 min con Eolas V1, sin ninguna respuesta).
+LOCAL_TIMEOUT = 1800.0
+
+
 def _post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float,
-          retries: int = RETRIES, sleep: Callable[[float], None] | None = None) -> dict[str, Any]:
+          retries: int = RETRIES, sleep: Callable[[float], None] | None = None,
+          retry_timeouts: bool = True) -> dict[str, Any]:
     import time as _time
 
     check_key_url(url, "Authorization" in headers)
@@ -186,6 +196,10 @@ def _post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: floa
                 continue
             raise LLMError(f"HTTP {exc.code} de {where}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            timed_out = isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError)
+            if timed_out and not retry_timeouts:
+                raise LLMError(f"{where} no terminó en {timeout:.0f} s: el modelo local sigue generando o va "
+                               "demasiado lento; no se repite la petición para no empezar otra vez desde cero") from exc
             if attempt < retries:
                 wait(min(2.0 * 2 ** attempt, 60.0))
                 continue
@@ -203,11 +217,59 @@ class Provider:
         raise NotImplementedError
 
 
-class OllamaProvider(Provider):
-    """Eolas V1 / Ollama: POST /api/chat con `format` = esquema JSON."""
+def eolas_v1_options() -> dict:
+    """Opciones de Eolas V1 por petición. EOLFI_EOLAS_NUM_CTX, EOLFI_EOLAS_NUM_PREDICT y
+    EOLFI_EOLAS_NUM_GPU (capas en GPU) las ajustan a la VRAM del equipo; sin ellas, 32768, 12000
+    y el reparto automático de Eolas."""
+    options = {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2}
+    for env, key, low in (("EOLFI_EOLAS_NUM_CTX", "num_ctx", 1024), ("EOLFI_EOLAS_NUM_PREDICT", "num_predict", 1),
+                          ("EOLFI_EOLAS_NUM_GPU", "num_gpu", 0)):
+        value = os.environ.get(env, "").strip()
+        if value:
+            try:
+                number = int(value)
+            except ValueError as exc:
+                raise LLMError(f"{env} debe ser un número entero: {value!r}") from exc
+            if number < low:
+                raise LLMError(f"{env} debe ser al menos {low}: {number}")
+            options[key] = number
+    return options
+
+
+
+def semilla() -> int | None:
+    """Generación reproducible (PLAN_DEFINITIVO.md, B2): con ``EOLFI_SEMILLA`` (entero ≥ 0) los motores locales
+    reciben esa semilla y ``temperature`` 0. Sin ella, todo sigue como antes. La usa el banco del RSI para que la
+    línea base y la candidata de un mismo par partan de lo mismo."""
+    raw = os.environ.get("EOLFI_SEMILLA", "").strip()
+    if not raw:
+        return None
+    try:
+        n = int(raw)
+    except ValueError as exc:
+        raise LLMError("EOLFI_SEMILLA debe ser un entero") from exc
+    if not 0 <= n < 2**31:
+        raise LLMError("EOLFI_SEMILLA debe estar entre 0 y 2147483647")
+    return n
+
+
+def determinista(opciones: dict[str, Any], *, llama_server: bool = True) -> dict[str, Any]:
+    """Añade semilla y temperatura 0 a las opciones de una petición si hay ``EOLFI_SEMILLA``.
+
+    Con ``llama_server`` (peticiones directas a llama-server: Eolas V2 y llama.cpp) también desactiva la caché de
+    prompt. Medido el 16/11/2026 con Gemma 4 Q4, semilla 0 y temperatura 0: con la caché, la misma petición da un
+    texto en frío y otro distinto en caliente; sin ella sale idéntica en frío, en caliente y tras reiniciar."""
+    n = semilla()
+    if n is None:
+        return opciones
+    return {**opciones, "temperature": 0, "seed": n, **({"cache_prompt": False} if llama_server else {})}
+
+
+class EolasV1Provider(Provider):
+    """Eolas V1 (CeltIA): POST /api/chat con `format` = esquema JSON."""
     name = "eolas"
 
-    def __init__(self, base_url: str, model: str, context_bytes: int = 60_000, timeout: float = 900.0):
+    def __init__(self, base_url: str, model: str, context_bytes: int = 60_000, timeout: float = LOCAL_TIMEOUT):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.context_bytes = context_bytes
@@ -228,8 +290,8 @@ class OllamaProvider(Provider):
                 raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
-            "options": {"num_ctx": 32768, "num_predict": 12000, "temperature": 0.2},
-        }, eolas_v1_headers(self.base_url), self.timeout)
+            "options": determinista(eolas_v1_options(), llama_server=False),
+        }, eolas_v1_headers(self.base_url), self.timeout, retry_timeouts=False)
         text = (r.get("message") or {}).get("content", "")
         if not text:
             raise LLMError(f"Eolas no devolvió contenido ({r.get('error') or r.get('done_reason')})")
@@ -270,7 +332,7 @@ class OpenAICompatProvider(Provider):
         }, {"Authorization": f"Bearer {key}"} if key else {}, self.timeout)
         choice = (r.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
-            raise LLMError("La respuesta se cortó por longitud: pide un cambio más acotado")
+            raise RespuestaCortada("La respuesta se cortó por longitud: pide un cambio más acotado")
         text = (choice.get("message") or {}).get("content") or ""
         u = r.get("usage") or {}
         return Reply(parse_json_text(text), text,
@@ -299,7 +361,7 @@ class LlamaCppProvider(OpenAICompatProvider):
         msgs = [{"role": "system", "content": system}] + [
             {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])}
             for m in messages]
-        opts = llamacpp.request_options(self.cfg)
+        opts = determinista(llamacpp.request_options(self.cfg))
         # El modo asistido devuelve archivos enteros: la mitad del contexto como mínimo para la respuesta.
         opts["max_tokens"] = max(int(opts["max_tokens"]), int(self.cfg["ctx"]) // 2)
         r = _post(f"{self.base_url}/chat/completions", {
@@ -308,7 +370,7 @@ class LlamaCppProvider(OpenAICompatProvider):
         }, {}, self.timeout)
         choice = (r.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
-            raise LLMError("La respuesta se cortó por longitud: sube «ctx» o «max_tokens» en " + str(llamacpp.config_file()))
+            raise RespuestaCortada("La respuesta se cortó por longitud: sube «ctx» o «max_tokens» en " + str(llamacpp.config_file()))
         msg = choice.get("message") or {}
         self.last_reasoning = msg.get("reasoning_content") or ""
         text = msg.get("content") or ""
@@ -350,7 +412,9 @@ class EolasEngineProvider(Provider):
                  max_tokens_override: int | None = None, profile_locked: bool = False):
         from eolfi import eolas_v2
 
-        self.profile = profile if profile in eolas_v2.DEFAULT_PROFILES else None
+        known = eolas_v2.load_config()["profiles"]
+        self.bank_route = profile == "banco"
+        self.profile = profile if profile in known else None
         self.auto_route = profile == "auto"
         self.reasoning_override = reasoning_override
         self.max_tokens_override = max_tokens_override
@@ -358,13 +422,19 @@ class EolasEngineProvider(Provider):
         self.context_bytes = PRESETS["eolas-v2"]["context_bytes"]
         self.model = self.profile or eolas_v2.load_config()["active_profile"]
         self.last_reasoning = ""
-        self.timeout = 1800.0
+        self.timeout = LOCAL_TIMEOUT
 
     def complete(self, system, messages, schema, effort) -> Reply:
         from eolfi import eolas_v2, llamacpp
 
         cfg = eolas_v2.load_config()
         profile = self.profile or str(cfg["active_profile"])
+        if self.bank_route:
+            recommendation = eolas_v2.recommend_evaluation_profile("completa")
+            if not recommendation.get("perfil"):
+                raise LLMError("No hay una ronda completa reciente con un perfil aprobado; ejecuta el banco antes de usar model=banco")
+            profile = str(recommendation["perfil"])
+            self.model = profile
         if self.auto_route:
             profile = "mistral" if effort == "low" else "gemma_q4"
             if not Path(eolas_v2.profile_config(profile, cfg)["model"]).is_file() or eolas_v2.is_retired(profile, cfg):
@@ -387,7 +457,7 @@ class EolasEngineProvider(Provider):
             if eolas_v2.is_mistral_profile(profile):
                 msgs = _mistral_chat_messages(system, msgs[1:])
                 reasoning = False
-            opts = llamacpp.request_options(c, reasoning=reasoning)
+            opts = determinista(llamacpp.request_options(c, reasoning=reasoning))
             # Contexto y límite de generación son distintos; no conviertas un contexto 32k
             # en permiso para emitir 16k tokens por cada fase del compuesto.
             opts["max_tokens"] = min(max(1, int(opts["max_tokens"])), max(1, int(c["ctx"])))
@@ -396,11 +466,11 @@ class EolasEngineProvider(Provider):
             response = _post(f"{c['url']}/v1/chat/completions", {
                 "model": c["alias"], "messages": msgs, **opts,
                 "response_format": {"type": "json_schema", "json_schema": {"name": "eolfi_changes", "schema": schema, "strict": True}},
-            }, eolas_v2.auth_headers(), self.timeout)
+            }, eolas_v2.auth_headers(), self.timeout, retry_timeouts=False)
         self.last_server_timings = dict(response.get("timings") or {})
         choice = (response.get("choices") or [{}])[0]
         if choice.get("finish_reason") == "length":
-            raise LLMError("La respuesta de Eolas V2 se cortó por longitud; revisa ctx/max_tokens en " + str(eolas_v2.config_file()))
+            raise RespuestaCortada("La respuesta de Eolas V2 se cortó por longitud; revisa ctx/max_tokens en " + str(eolas_v2.config_file()))
         msg = choice.get("message") or {}
         self.last_reasoning = msg.get("reasoning_content") or ""
         text = msg.get("content") or ""
@@ -528,8 +598,8 @@ def make_provider(name: str | None = None, *, model: str | None = None, base_url
     if name not in PRESETS:
         raise LLMError(f"proveedor desconocido '{name}' (opciones: {', '.join(PRESETS)})")
     p = PRESETS[name]
-    if p["kind"] == "ollama":
-        return OllamaProvider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
+    if p["kind"] == "eolas-v1":
+        return EolasV1Provider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
     if p["kind"] == "bridge":
         return BridgeProvider(name, p["site"], p["context_bytes"])
     if p["kind"] == "llamacpp":
@@ -605,7 +675,7 @@ def probe(name: str, base_url: str | None = None) -> dict[str, Any]:
                     "detail": f"{roles[0]} redacta → {roles[1]} revisa; carga secuencial, runtime NO VERIFICADO"}
         except (OSError, ValueError) as exc:
             return {"available": False, "detail": str(exc)}
-    if p["kind"] == "ollama":
+    if p["kind"] == "eolas-v1":
         from eolfi.local_gpu import eolas_v1_headers
 
         root = (base_url or p["base_url"]).rstrip("/")

@@ -93,6 +93,16 @@ def _print(obj) -> None:
     _emit(text, ascii_fallback=json.dumps(obj, indent=2, ensure_ascii=True))
 
 
+def _rsi_observar(fuente: str, operacion: str, resultado, contexto: dict | None = None) -> None:
+    """Anota el resultado para la automejora (PLAN_REA.md, punto 12). Nunca rompe la orden que observa."""
+    try:
+        from eolfi import rsi
+
+        rsi.observar(fuente, operacion, resultado, contexto=contexto)
+    except Exception as exc:   # noqa: BLE001 — el registro es accesorio
+        print(f"(RSI: no se pudo anotar la observación: {exc})", file=sys.stderr)
+
+
 def _default_library() -> str:
     """Sin ruta fija de un equipo concreto: EOLFI_LIBRARY, ~/Alejandria o D:\\Alejandria si existe."""
     from pathlib import Path
@@ -117,6 +127,63 @@ def _parser() -> argparse.ArgumentParser:
                     help="Ruta de la base de evidencias (por defecto EOLFI_DB o ~/.eolfi/eolfi.db)")
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    acc = sub.add_parser("acciones", help="Registro encadenado de acciones que cambian estado (B8)")
+    acc_cmd = acc.add_subparsers(dest="acciones_action", required=True)
+    acc_ver = acc_cmd.add_parser("verificar", help="Recalcula la cadena SHA-256 del registro")
+    acc_ver.add_argument("--ancla", help="Archivo de anclas externo: comprueba también que cada ancla sigue en la cadena")
+    acc_anc = acc_cmd.add_parser("anclar", help="Copia la cabeza de la cadena a un archivo externo")
+    acc_anc.add_argument("--destino", required=True, help="Archivo fuera del alcance de quien escribe el registro")
+    acc_list = acc_cmd.add_parser("listar", help="Muestra los últimos eventos")
+    acc_list.add_argument("-n", type=int, default=20)
+    upd = sub.add_parser("update", help="Versión instalada y si hay otra publicada (solo comprueba, no instala)")
+    upd.add_argument("--check", action="store_true", required=True, help="Comprobar; Eolfi nunca se actualiza solo")
+    upd.add_argument("--red", action="store_true", help="Permite consultar api.github.com (sin credenciales)")
+    upd.add_argument("--repo", help="propietario/nombre (por defecto CeltiaIA/Eolfi o EOLFI_UPDATE_REPO)")
+    models = sub.add_parser("modelos", help="Modelos GGUF: auditoría, identidad y cuantización local")
+    model_commands = models.add_subparsers(dest="modelos_action", required=True)
+    ma = model_commands.add_parser("auditar", help="Comprueba estructura GGUF y SHA-256")
+    ma.add_argument("archivo")
+    ma.add_argument("--pid", type=int, help="Añade una instantánea de sockets de este PID (Windows)")
+    mc = model_commands.add_parser("conexiones", help="Consulta sockets de un PID, sin iniciar el motor")
+    mc.add_argument("--pid", type=int, required=True)
+    mt = model_commands.add_parser("comprobar", help="Comprueba un hash contra un manifiesto autorizado")
+    mt.add_argument("archivo")
+    mt.add_argument("--manifiesto", required=True)
+    mu = model_commands.add_parser("actualizar", help="G5: compara los modelos locales con lo publicado (abre la red con --red)")
+    mu.add_argument("--fuentes", required=True, help="JSON eolfi.modelos.fuentes/v1 con repo, archivo y SHA-256 local")
+    mu.add_argument("--nombre", help="Solo esta fuente")
+    mu.add_argument("--red", action="store_true", help="Autoriza la consulta a la API pública de Hugging Face")
+    md = model_commands.add_parser("descargar", help="G5: descarga un GGUF fijado por commit y SHA-256 y lo audita")
+    md.add_argument("--repo", required=True)
+    md.add_argument("--archivo", required=True)
+    md.add_argument("--revision", required=True, help="Commit completo revisado con «modelos actualizar»")
+    md.add_argument("--sha256", required=True, help="SHA-256 publicado y revisado")
+    md.add_argument("--bytes", type=int, help="Tamaño publicado: se exige igual y se comprueba el espacio libre")
+    md.add_argument("--out", required=True, help="Carpeta de destino; nunca se sobrescribe")
+    md.add_argument("--red", action="store_true", help="Autoriza la descarga")
+    mr = model_commands.add_parser("reconstruir", help="Prepara una receta de cuantización; ejecutar exige opción y hashes")
+    mr.add_argument("archivo")
+    mr.add_argument("--out", required=True, help="Carpeta nueva; nunca sobrescribe una anterior")
+    mr.add_argument("--cuantizador", required=True, help="Ruta del ejecutable local llama-quantize")
+    mr.add_argument("--tipo", choices=["Q4_0", "Q3_K_M", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"], default="Q4_K_M")
+    mr.add_argument("--sha256-entrada")
+    mr.add_argument("--sha256-cuantizador")
+    mr.add_argument("--sha256-paquete")
+    mr.add_argument("--hilos", type=int, default=4)
+    mr.add_argument("--memoria-mib", type=int, default=256)
+    mr.add_argument("--timeout", type=float, default=1800)
+    mr.add_argument("--ejecutar", action="store_true", help="Ejecuta el cuantizador; requiere los hashes de entrada y paquete")
+    mp = model_commands.add_parser("probar", help="Prepara un smoke de inferencia en CPU de una reconstrucción; ejecutar exige opción y hash")
+    mp.add_argument("carpeta", help="Carpeta de salida de `modelos reconstruir`, con receta.json y modelo.gguf")
+    mp.add_argument("--ejecutor", required=True, help="Ruta del ejecutable local llama-cli")
+    mp.add_argument("--sha256-paquete")
+    mp.add_argument("--ejecutar", action="store_true")
+    mp.add_argument("--pregunta")
+    mp.add_argument("--esperado")
+    mp.add_argument("--tokens", type=int, default=64)
+    mp.add_argument("--hilos", type=int, default=4)
+    mp.add_argument("--timeout", type=float, default=900)
 
     doc = sub.add_parser("doctor", help="Comprueba proveedores")
     doc.add_argument("--pin", metavar="ARCHIVO", default=None,
@@ -295,6 +362,9 @@ def _parser() -> argparse.ArgumentParser:
     wb.add_argument("--cross-origin", action="store_true", help="Descarga también assets de otros dominios")
     wb.add_argument("--ignore-robots", action="store_true", help="No respetar robots.txt (solo con permiso)")
     wb.add_argument("--save", default=None, help="Guarda una copia de estudio de HTML/CSS/JS en esta carpeta")
+    wb.add_argument("--render", action="store_true", help="Abre las páginas en Chrome sin interfaz (SPA) y rastrea el mismo origen")
+    wb.add_argument("--paginas", type=int, default=1, help="Con --render: páginas como máximo (1-50)")
+    wb.add_argument("--profundidad", type=int, default=1, help="Con --render: saltos de enlace desde la inicial (0-5)")
     _case_args(wb)
 
     rp = sub.add_parser("repo", help="Analiza un repositorio local o remoto")
@@ -324,6 +394,8 @@ def _parser() -> argparse.ArgumentParser:
     _case_args(cr)
     cr.add_argument("--ai", dest="ai_brief", default=None,
                     help="Descripción para que la IA implemente la lógica de negocio")
+    cr.add_argument("--juez", default=None, metavar="ARCHIVO",
+                    help="Criterios del juez funcional (JSON): la app se prueba en Chrome y debe cumplirlos todos")
     cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
                     help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
@@ -391,23 +463,42 @@ def _parser() -> argparse.ArgumentParser:
     eo = sub.add_parser("eolas-v2", help="Motor Eolas V2: perfiles Gemma/Mistral alternos, feedback y preparación de aprendizaje")
     eos = eo.add_subparsers(dest="eolas_action", required=True)
     eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
+    eos_plan = eos.add_parser("plan", help="Valida una reconstrucción y propone un perfil sin adoptarlo")
+    eos_plan.add_argument("carpeta", help="Carpeta creada por `modelos reconstruir`, con smoke superado")
+    eos_plan.add_argument("--profile", required=True, help="Nombre nuevo del perfil (minúsculas y guion bajo)")
+    eos_plan.add_argument("--alias")
+    eos_plan.add_argument("--ctx", type=int, default=32000)
+    eos_plan.add_argument("--gpu-layers", type=int, default=8)
+    eos_plan.add_argument("--batch", type=int, default=128)
+    eos_plan.add_argument("--ubatch", type=int, default=64)
+    eos_adopt = eos.add_parser("adoptar", help="Revalida un plan y añade el perfil sin activarlo")
+    eos_adopt.add_argument("plan", help="JSON producido y revisado por `eolas-v2 plan`")
+    eos_adopt.add_argument("--sha256-modelo", required=True, help="SHA-256 revisado del modelo")
+    eos_adopt.add_argument("--aplicar", action="store_true", help="Escribe el perfil; sin esta opción solo muestra la vista previa")
+    eos_remove = eos.add_parser("quitar-perfil", help="Quita un perfil reconstruido gestionado, conservando el GGUF")
+    eos_remove.add_argument("profile")
+    eos_remove.add_argument("--sha256-modelo", required=True)
+    eos_recommend = eos.add_parser("recomendar-perfil", help="Propone el ganador de un banco reciente; no cambia nada por defecto")
+    eos_recommend.add_argument("--bateria", choices=["completa", "codigo", "json"], default="completa")
+    eos_recommend.add_argument("--antiguedad-dias", type=int, default=30)
+    eos_recommend.add_argument("--aplicar", action="store_true", help="Selecciona el perfil recomendado como activo")
     eos_start = eos.add_parser("start", help="Arranca el perfil activo (o el indicado)")
-    eos_start.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], default=None)
+    eos_start.add_argument("--profile", default=None)
     eos_switch = eos.add_parser("switch", help="Detiene el perfil activo y arranca el otro")
-    eos_switch.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_switch.add_argument("profile")
     eos.add_parser("stop", help="Detiene solo el llama-server que inició Eolas")
     eos_review = eos.add_parser("revisar", help="Revisa la cabecera del GGUF de un perfil (o una ruta) con REA")
     eos_review.add_argument("objetivo", help="perfil Eolas V2 o ruta a un .gguf/.safetensors")
     eos_retire = eos.add_parser("retire", help="Retira un perfil que no aprueba (conserva su GGUF)")
-    eos_retire.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_retire.add_argument("profile")
     eos_uninstall = eos.add_parser("uninstall", help="Desinstala un motor: retira el perfil y borra su GGUF y sus lecciones")
     eos_uninstall.add_argument("profile")
     eos_restore = eos.add_parser("restore", help="Vuelve a ofrecer un perfil retirado")
-    eos_restore.add_argument("profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"])
+    eos_restore.add_argument("profile")
     eos_consent = eos.add_parser("feedback-consent", help="Activa o desactiva el almacenamiento local de feedback")
     eos_consent.add_argument("state", choices=["on", "off"])
     eos_feedback = eos.add_parser("feedback-add", help="Guarda una valoración explícita localmente")
-    eos_feedback.add_argument("--profile", choices=["gemma_q4", "gemma", "mistral", "nemo_q4", "nemo_q5", "qwen14_q4", "qwen14_q3", "qwen14_q5", "gemma3_q4", "gemma3_q3", "gemma3_q5", "msmall_q4", "msmall_q3", "msmall_q5", "moe"], required=True)
+    eos_feedback.add_argument("--profile", required=True)
     eos_feedback.add_argument("--task", required=True, help="Dominio/tarea, p. ej. 'python' o 'resumen'")
     eos_feedback.add_argument("--rating", type=int, choices=range(1, 6), required=True)
     eos_feedback.add_argument("--prompt", default=None)
@@ -472,6 +563,9 @@ def _parser() -> argparse.ArgumentParser:
     r3 = rps.add_parser("reimplementar", help="Pseudocódigo, firma y llamadas de una función para reimplementarla")
     r3.add_argument("ruta")
     r3.add_argument("funcion", help="nombre o dirección (p. ej. entry o 0x140001010)")
+    for sp in (r2, r3):
+        sp.add_argument("--motor", choices=["ghidra", "kuna"], default="ghidra",
+                        help="Descompilador: ghidra (REA de Windows) o kuna (REA de WSL2; solo ELF y Mach-O)")
     r5 = rps.add_parser("inventario", help="Librerías, firmas, recursos y dependencias Go/Rust de un binario")
     r5.add_argument("ruta")
     r6 = rps.add_parser("app-js", help="Analiza una app JavaScript, Electron o web (carpeta o .asar) sin ejecutarla")
@@ -481,10 +575,122 @@ def _parser() -> argparse.ArgumentParser:
     r7.add_argument("destino", help="carpeta nueva o vacía donde guardar los módulos recuperados")
     r8 = rps.add_parser("api", help="De una captura de red (.pcap/.pcapng) a un borrador de API (OpenAPI si hay tshark en WSL)")
     r8.add_argument("ruta")
+    r8.add_argument("--cliente", metavar="ARCHIVO.py", help="genera además un cliente Python (solo biblioteca estándar) con las operaciones observadas; no sobrescribe")
+    r10 = rps.add_parser("firmware", help="Desglose de una imagen de firmware: firmas, regiones y huecos (Binwalk 3.1.0 en WSL2)")
+    r10.add_argument("ruta")
+    r10.add_argument("--extraer", metavar="DESTINO", help="extrae el contenido con Unblob 26.6.4 en esta carpeta nueva (sin montar ni ejecutar nada)")
+    r10.add_argument("--profundidad", type=int, help="profundidad máxima de extracción (con --extraer)")
+    r9 = rps.add_parser("entorno", help="De una captura web (.har) a un entorno para agentes de REA (AgentEnv); ensayo salvo --escribir")
+    r9.add_argument("ruta")
+    r9.add_argument("destino", help="carpeta nueva (ruta absoluta) donde escribir el paquete")
+    r9.add_argument("--nombre", help="nombre del entorno (obligatorio si el origen es localhost o una IP)")
+    r9.add_argument("--escribir", action="store_true", help="escribe el paquete; sin esto solo informa de lo que contendría")
+    r11 = rps.add_parser("mapa-app", help="Mapa de una app Android (.apk): permisos, componentes exportados y estructura (JADX)")
+    r11.add_argument("ruta")
+    r11.add_argument("--limite", type=int, default=40, help="máximo de componentes y bibliotecas listados (40)")
+    r12 = rps.add_parser("llamadas", help="Grafo de llamadas de una función (Ghidra), con nombres y en Mermaid")
+    r12.add_argument("ruta")
+    r12.add_argument("funcion", help="nombre (p. ej. entry) o dirección (0x140001cb0)")
+    r12.add_argument("--atras", action="store_true", help="quién la llama, en vez de a quién llama")
+    r12.add_argument("--profundidad", type=int, default=3, help="niveles (1-10, 3 por defecto)")
+    r12.add_argument("--max-nodos", type=int, default=60, help="máximo de nodos (2-300, 60 por defecto)")
+    r13 = rps.add_parser("dotnet", help="Qué hay en un ensamblado .NET: identidad, referencias, tipos, cadenas y P/Invoke (REA de WSL2)")
+    r13.add_argument("ruta")
+    r13.add_argument("--limite", type=int, default=30, help="máximo de elementos por lista (30)")
+    r13.add_argument("--salida", help="ruta .json nueva para el volcado completo (tipos, métodos, cadenas, P/Invoke)")
+    r14 = rps.add_parser("clase", help="Clases y métodos de un APK descompilados con JADX, sin ejecutar la app")
+    r14.add_argument("ruta")
+    r14.add_argument("consulta", help="nombre completo de la clase o un trozo (distingue mayúsculas)")
+    r14.add_argument("--metodo", help="método que se descompila")
+    r14.add_argument("--sobrecarga", type=int, help="índice de la sobrecarga si el método tiene varias")
+    r14.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r15 = rps.add_parser("flutter", help="Qué hay en una app Flutter: motor, snapshot Dart y paquetes, sin ejecutarla")
+    r15.add_argument("ruta")
+    r15.add_argument("--abi", help="ABI del snapshot que se examina (por defecto la que elija REA)")
+    r15.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r16 = rps.add_parser("apple", help="Mapa de una app de Apple (.app, .zip, .ipa o .dmg): bundles, ejecutables e Info.plist, sin ejecutarla")
+    r16.add_argument("ruta")
+    r16.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r17 = rps.add_parser("devicetree", help="Mapa del hardware de un devicetree (.dtb): placa, CPU, memoria y dispositivos")
+    r17.add_argument("ruta")
+    r17.add_argument("--filtro", help="texto en la ruta o en compatible para acotar los dispositivos")
+    r17.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r17 = rps.add_parser("swift", help="Tipos Swift y clases Objective-C de una app de Apple (Ghidra en el REA de WSL), sin macOS")
+    r17.add_argument("ruta", help=".app, .zip, .ipa o ejecutable Mach-O")
+    r17.add_argument("--arquitectura", help="porción del ejecutable universal (arm64 por defecto)")
+    r17.add_argument("--limite", type=int, default=60, help="máximo de elementos por lista (60)")
+    r18 = rps.add_parser("go", help="Ejecutable Go: versión de Go, módulo, dependencias y ajustes de compilación, sin ejecutarlo")
+    r18.add_argument("ruta")
+    r18.add_argument("--limite", type=int, default=60, help="máximo de dependencias listadas (60)")
+    r19 = rps.add_parser("rust", help="Ejecutable Rust con cargo-auditable: crates, raíz y dependencias directas, sin ejecutarlo")
+    r19.add_argument("ruta")
+    r19.add_argument("--limite", type=int, default=60, help="máximo de paquetes listados (60)")
+    r18 = rps.add_parser("senal", help="Decodifica una grabación de analizador lógico (.sr, VCD, CSV) con sigrok en el REA de WSL")
+    r18.add_argument("ruta")
+    r18.add_argument("--decodificadores", required=True,
+                     help="pila de sigrok, p. ej. uart:rx=TX:baudrate=9600 o i2c:scl=scl:sda=sda,edid")
+    r18.add_argument("--anotaciones", help="clases de anotación, p. ej. uart=rx-data")
+    r18.add_argument("--formato", help="formato de entrada de sigrok (por defecto lo detecta)")
+    r18.add_argument("--limite", type=int, default=40, help="máximo de la muestra (40)")
+    r19 = rps.add_parser("decodificadores", help="Decodificadores de sigrok instalados, o la ayuda de uno (--ayuda ID)")
+    r19.add_argument("consulta", nargs="?", help="texto que buscar en el identificador o el nombre")
+    r19.add_argument("--ayuda", metavar="ID", help="canales, opciones y anotaciones de un decodificador")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
+    rw = rps.add_parser("wasm", help="Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y "
+                                     "exportaciones (WABT 1.0.42)")
+    rw.add_argument("ruta")
+    rw.add_argument("--frente", default=None, metavar="OTRO.wasm",
+                    help="otra versión del módulo: compara sus importaciones y exportaciones")
+    rw.add_argument("--js", action="append", default=[], metavar="CARGADOR.js",
+                    help="JavaScript que carga el módulo (repetible): dónde lo nombra, sin ejecutarlo")
+    rw.add_argument("--limite", type=int, default=40)
 
+    # Automejora recursiva acotada (PLAN_REA.md, punto 12): observa, propone, evalúa y el titular decide.
+    rs = sub.add_parser("rsi", help="Automejora recursiva acotada: propuestas evaluadas que el titular aprueba o revierte")
+    rss = rs.add_subparsers(dest="rsi_action", required=True)
+    rss.add_parser("estado", help="Observaciones, casos de regresión, propuestas, reglas y registro")
+    rss.add_parser("verificar", help="Comprueba la cadena SHA-256 del registro")
+    rss.add_parser("proponer", help="Propone cambios a partir de los síntomas repetidos")
+    rse = rss.add_parser("evaluar", help="Línea base contra candidata con un banco de pruebas (CARGA el modelo local)")
+    rse.add_argument("id")
+    rse.add_argument("--banco", choices=["tareas", "contador", "filtro", "todos"], default="tareas")
+    rse.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
+    rse.add_argument("--modelo", default=None)
+    rse.add_argument("--muestras", type=int, default=5, help="Pares base/candidata (mínimo 5)")
+    rse.add_argument("--margen", type=float, default=0.05)
+    rse.add_argument("--alfa", type=float, default=0.05, help="Nivel de la prueba exacta de signos")
+    rsa = rss.add_parser("aa", help="Prueba A/A del evaluador con el banco real (CARGA el modelo local)")
+    rsa.add_argument("--banco", choices=["tareas", "contador", "filtro", "todos"], default="tareas")
+    rsa.add_argument("--proveedor", required=True, help="Proveedor de create --ai: eolas o eolas-v2")
+    rsa.add_argument("--modelo", default=None)
+    rsa.add_argument("--muestras", type=int, default=5)
+    rsa.add_argument("--simulada", type=float, default=None, metavar="DESVIACION",
+                     help="A/A simulada con esa desviación típica, sin cargar nada")
+    for name, text in (("aprobar", "Aplica una propuesta evaluada con éxito"), ("rechazar", "Descarta una propuesta"),
+                       ("revertir", "Devuelve una propuesta aplicada a su valor anterior")):
+        r_ = rss.add_parser(name, help=text)
+        r_.add_argument("id")
+        r_.add_argument("--por", required=True, help="Quién decide (queda en el registro)")
+
+    tl = sub.add_parser("telemetria", help="Telemetría local: tiempos y rendimiento por fase (no sale del equipo)")
+    tl.add_argument("telemetria_action", choices=["resumen", "ruta"], nargs="?", default="resumen")
+    vz = sub.add_parser("voz", help="Voz local: voz a texto y texto a voz sin que el audio salga del equipo")
+    vzs = vz.add_subparsers(dest="voz_action", required=True)
+    vzs.add_parser("estado", help="Motores disponibles, idioma y voces")
+    vzt = vzs.add_parser("transcribir", help="Voz a texto de un WAV (PCM de 16 bits)")
+    vzt.add_argument("archivo")
+    vzt.add_argument("--idioma", default=None, help="Por ejemplo es-ES")
+    vzd = vzs.add_parser("decir", help="Texto a voz: escribe un WAV")
+    vzd.add_argument("texto")
+    vzd.add_argument("--out", required=True, help="Archivo WAV de salida")
+    vzd.add_argument("--idioma", default=None)
+    vzd.add_argument("--voz", default=None)
+    vzc = vzs.add_parser("configurar", help="Elige motor, idioma o voz")
+    vzc.add_argument("--motor", choices=["auto", "windows", "whisper"], default=None)
+    vzc.add_argument("--idioma", default=None)
+    vzc.add_argument("--voz", default=None)
     mc = sub.add_parser("mcp", help="Servidor MCP por stdio (Copilot en modo agente, Claude Code…)")
     mc.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)")
@@ -805,7 +1011,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
 
         rep = run_web(args.source, store, max_assets=args.max_assets, cross_origin=args.cross_origin,
                       ignore_robots=args.ignore_robots, save_dir=args.save, progress=_progress,
-                      case_id=args.case_id, provenance=args.provenance)
+                      case_id=args.case_id, provenance=args.provenance, render=args.render,
+                      max_pages=args.paginas, max_depth=args.profundidad)
         rep.pop("evidence_ids", None)
         _print(rep)
     elif args.cmd == "repo":
@@ -818,13 +1025,34 @@ def _dispatch(args, store: EvidenceStore) -> int:
     elif args.cmd == "create":
         from eolfi.flows.create_flow import create_project
 
-        rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
-                             do_verify=True, force=args.force, reanalyze=args.reanalyze,
-                             workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
-                             ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
-                             progress=_progress, case_id=args.case_id, provenance=args.provenance,
-                             autofix=args.autofix)
+        ctx = {"proveedor": args.provider or "", "modelo": args.model or "", "destino": args.target}
+        if args.juez:
+            from pathlib import Path as _Path
+
+            from eolfi.generador import juez as _juez
+
+            try:
+                _juez.validar(json.loads(_Path(args.juez).read_text(encoding="utf-8")))
+            except (OSError, ValueError) as exc:
+                print(f"create: criterios del juez inválidos: {exc}", file=sys.stderr)
+                return 2
+        try:
+            rep = create_project(args.sources, store, args.out, name=args.name, target=args.target,
+                                 do_verify=True, force=args.force, reanalyze=args.reanalyze,
+                                 workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
+                                 ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
+                                 progress=_progress, case_id=args.case_id, provenance=args.provenance,
+                                 autofix=args.autofix, juez=args.juez)
+        except Exception as exc:
+            if args.ai_brief:
+                _rsi_observar("generador", "create_ai", {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ctx)
+            raise
         rep.pop("spec", None)
+        if args.ai_brief and rep.get("assist"):
+            a = rep["assist"]
+            _rsi_observar("generador", "create_ai", {"ok": bool(a.get("ok")), "rondas": len(a.get("rounds") or []),
+                                                     "fallos": [r.get("failed_step") for r in a.get("rounds") or []
+                                                                if r.get("failed_step")]}, ctx)
         _print(rep)
         if rep.get("assist") and not rep["assist"]["ok"]:
             return 6
@@ -1468,6 +1696,105 @@ def main(argv: list[str] | None = None) -> int:
         from eolfi.generador.llm import default_provider
 
         args.provider = default_provider()
+    if args.cmd == "acciones":
+        from eolfi import acciones
+
+        if args.acciones_action == "verificar":
+            result = acciones.verificar_anclas(args.ancla) if args.ancla else acciones.verificar()
+            _print(result)
+            return 0 if result["ok"] else 2
+        if args.acciones_action == "anclar":
+            try:
+                _print(acciones.anclar(args.destino))
+            except (OSError, ValueError) as exc:
+                _print({"ok": False, "error": str(exc)})
+                return 2
+            return 0
+        _print(acciones.listar(args.n))
+        return 0
+    if args.cmd == "update":
+        from eolfi.actualizacion import ActualizacionError, comprobar as comprobar_version
+
+        try:
+            result = comprobar_version(red=args.red, repo=args.repo)
+        except ActualizacionError as exc:
+            _print({"ok": False, "error": str(exc)})
+            return 2
+        _print(result)
+        return {"al_dia": 0, "instalada_mas_reciente": 0, "sin_publicaciones": 0, "nueva_version": 1}.get(
+            result["estado"], 2)
+    if args.cmd == "modelos":
+        from eolfi.modelos import audit, check_trust
+
+        try:
+            if args.modelos_action == "actualizar":
+                from eolfi.modelos_actualizar import comprobar
+
+                result = comprobar(args.fuentes, nombre=args.nombre, red=args.red)
+                _print(result)
+                # 0 solo si todo está al día; una versión nueva o un dato no verificado piden revisión.
+                return 0 if result["estado"] == "al_dia" else 2
+            if args.modelos_action == "descargar":
+                from eolfi.modelos_actualizar import descargar
+
+                result = descargar(args.repo, args.archivo, args.revision, args.sha256, args.out, red=args.red,
+                                   bytes_esperados=args.bytes)
+                _print(result)
+                # Descargado y auditado no significa adoptado: banco y G6 siguen pendientes.
+                return 0 if result["estado"] == "descargado" else 2
+            if args.modelos_action == "reconstruir":
+                from eolfi.modelos_reconstruir import prepare, execute
+
+                if args.ejecutar and not (args.sha256_entrada and args.sha256_paquete):
+                    raise ValueError("--ejecutar requiere --sha256-entrada y --sha256-paquete de la receta revisada")
+                result = prepare(args.archivo, args.out, args.cuantizador, args.tipo,
+                                 source_sha=args.sha256_entrada, tool_sha=args.sha256_cuantizador,
+                                 bundle_sha=args.sha256_paquete, threads=args.hilos, buffer_mib=args.memoria_mib,
+                                 timeout=args.timeout)
+                if args.ejecutar:
+                    result = execute(result, timeout=args.timeout)
+                _print(result)
+                # El resultado aún necesita inferencia y banco: no anunciar un modelo listo.
+                return 2 if args.ejecutar else 0
+            if args.modelos_action == "probar":
+                from eolfi.modelos_reconstruir import SMOKE_EXPECTED, SMOKE_PROMPT, execute_smoke, prepare_smoke
+
+                if args.ejecutar and not args.sha256_paquete:
+                    raise ValueError("--ejecutar requiere --sha256-paquete del ejecutor revisado")
+                if (args.pregunta is None) != (args.esperado is None):
+                    raise ValueError("--pregunta y --esperado se indican juntos")
+                result = prepare_smoke(args.carpeta, args.ejecutor, bundle_sha=args.sha256_paquete,
+                                       prompt=SMOKE_PROMPT if args.pregunta is None else args.pregunta,
+                                       expected=SMOKE_EXPECTED if args.esperado is None else args.esperado,
+                                       tokens=args.tokens, threads=args.hilos, timeout=args.timeout)
+                if args.ejecutar:
+                    result = execute_smoke(result)
+                _print(result)
+                # 0 significa solo «smoke superado»; el banco y la adopción siguen pendientes en `verificacion`.
+                return 0 if result["estado"] in ("preparado", "smoke_superado") else 2
+            if args.modelos_action == "auditar":
+                result = audit(args.archivo)
+                if args.pid is not None:
+                    from eolfi.modelos_red import snapshot
+
+                    result["conexiones_motor"] = snapshot(args.pid)
+                    if result["conexiones_motor"]["estado"] == "NO VERIFICADO":
+                        result["incognitas"].append("Conexiones del PID no verificadas completamente")
+                        if result["estado"] != "fallido":
+                            result["estado"] = "NO VERIFICADO"
+                _print(result)
+                return 0 if result["estado"] == "estructura_verificada" else 2
+            if args.modelos_action == "conexiones":
+                from eolfi.modelos_red import snapshot
+
+                result = snapshot(args.pid)
+                _print(result)
+                return 0 if result["estado"] == "observado" else 2
+            _print(check_trust(args.archivo, args.manifiesto))
+            return 0
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            _print({"estado": "fallido", "error": str(exc)})
+            return 2
     if args.cmd == "eolas-v2":
         from pathlib import Path as _P
         from eolfi import eolas_v2
@@ -1475,6 +1802,20 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.eolas_action == "status":
                 _print(eolas_v2.status())
+            elif args.eolas_action == "plan":
+                from eolfi.modelos_reconstruir import plan_profile
+
+                _print(plan_profile(args.carpeta, args.profile, alias=args.alias, ctx=args.ctx,
+                                    gpu_layers=args.gpu_layers, batch=args.batch, ubatch=args.ubatch))
+            elif args.eolas_action == "adoptar":
+                from eolfi.modelos_reconstruir import adopt_profile
+
+                _print(adopt_profile(args.plan, args.sha256_modelo, apply=args.aplicar))
+            elif args.eolas_action == "quitar-perfil":
+                _print(eolas_v2.remove_custom_profile(args.profile, args.sha256_modelo))
+            elif args.eolas_action == "recomendar-perfil":
+                _print(eolas_v2.apply_recommended_profile(args.bateria, max_age_days=args.antiguedad_dias,
+                                                           apply=args.aplicar))
             elif args.eolas_action == "start":
                 _print(eolas_v2.start(args.profile, release_eolas=args.liberar_eolas))
             elif args.eolas_action == "switch":
@@ -1483,7 +1824,7 @@ def main(argv: list[str] | None = None) -> int:
                 _print(eolas_v2.stop())
             elif args.eolas_action == "revisar":
                 from eolfi import rea_client, rea_compuestas
-                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.DEFAULT_PROFILES
+                target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.load_config()["profiles"]
                           else args.objetivo)
                 client = rea_client.ReaClient()
                 try:
@@ -1579,6 +1920,38 @@ def main(argv: list[str] | None = None) -> int:
 
         _print(build(args.library, dry_run=args.dry_run))
         return 0
+    if args.cmd == "rsi":
+        from eolfi import rsi
+
+        a = args.rsi_action
+        try:
+            if a == "estado":
+                _print(rsi.estado())
+            elif a == "verificar":
+                res = rsi.verificar_registro()
+                _print(res)
+                return 0 if res["ok"] else 1
+            elif a == "proponer":
+                _print(rsi.proponer())
+            elif a == "aa" and args.simulada is not None:
+                _print(rsi.calibrar_aa(desviacion=args.simulada, muestras=args.muestras))
+            elif a in ("evaluar", "aa"):
+                from eolfi import rsi_banco
+
+                banco = rsi_banco.banco(args.banco, proveedor=args.proveedor, modelo=args.modelo,
+                                               registro=lambda d: _progress(f"RSI muestra: {d}"))
+                if a == "aa":
+                    _print(rsi.prueba_aa(banco, muestras=args.muestras))
+                else:
+                    _print(rsi.evaluar(args.id, banco, muestras=args.muestras, margen=args.margen, alfa=args.alfa))
+            elif a == "revertir":
+                _print(rsi.revertir(args.id, por=args.por))
+            else:
+                _print(rsi.decidir(args.id, a, por=args.por))
+        except rsi.RSIError as exc:
+            print(f"RSI: {exc}", file=sys.stderr)
+            return 2
+        return 0
     if args.cmd == "rea":
         from eolfi import rea_client, rea_compuestas as rc
 
@@ -1597,11 +1970,45 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             finally:
                 check.close()
-        cmd = rea_client.wsl_rea_command() if args.rea_action == "recuperar-js" else None
-        if args.rea_action == "recuperar-js" and not cmd:
+        motor = getattr(args, "motor", "ghidra")
+        wsl = args.rea_action in ("recuperar-js", "firmware", "dotnet") or motor == "kuna"
+        cmd = rea_client.wsl_rea_command() if wsl else None
+        if wsl and not cmd:
             print("REA de WSL2 no instalado: ejecuta tools/instalar-rea-wsl.sh dentro de Ubuntu", file=sys.stderr)
             return 2
-        client = rea_client.ReaClient(cmd, timeout=900)
+        if args.rea_action in ("senal", "decodificadores"):
+            cmd = rea_client.wsl_rea_sigrok_command()
+            if not cmd:
+                print("sigrok en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh) y "
+                      "sigrok-cli 0.7.2 (tools/instalar-sigrok-wsl.sh)", file=sys.stderr)
+                return 2
+        if motor == "kuna" and not rea_client.wsl_has_kuna(cmd):
+            print("Kuna no instalado en WSL2: vuelve a ejecutar tools/instalar-rea-wsl.sh dentro de Ubuntu "
+                  "(REA solo admite Kuna en Linux y macOS)", file=sys.stderr)
+            return 2
+        if args.rea_action == "firmware" and args.extraer and not any(c.startswith("REA_UNBLOB_COMMAND=") for c in cmd):
+            print("Unblob 26.6.4 no instalado en WSL2: ejecuta tools/instalar-unblob-wsl.sh dentro de Ubuntu", file=sys.stderr)
+            return 2
+        if args.rea_action == "firmware" and not args.extraer and not any(c.startswith("REA_BINWALK_COMMAND=") for c in cmd):
+            print("Binwalk 3.1.0 no instalado en WSL2: ejecuta tools/instalar-binwalk-wsl.sh dentro de Ubuntu", file=sys.stderr)
+            return 2
+        if args.rea_action == "swift":
+            cmd = rea_client.wsl_rea_ghidra_command()
+            if not cmd:
+                print("Ghidra en el REA de WSL no disponible: hace falta el REA de WSL (tools/instalar-rea-wsl.sh), "
+                      "Java 21 (tools/instalar-java-wsl.sh) y GHIDRA_INSTALL_DIR con Ghidra 12.1", file=sys.stderr)
+                return 2
+        from eolfi import rsi
+
+        # Plazo del cliente: el de Ghidra en WSL para Swift; si no, el ajuste del RSI (900 s salvo propuesta aprobada).
+        plazo = rea_client.GHIDRA_CLIENT_TIMEOUT if args.rea_action == "swift" else rsi.ajuste("rea.timeout")
+        client = rea_client.ReaClient(cmd, timeout=plazo)
+        if motor == "kuna":   # el REA de WSL ve las rutas de Windows como /mnt/<unidad>/…
+            from eolfi.server import _WslPaths
+
+            raw, client = client, _WslPaths(client)
+            client.close = raw.close
+        op = args.rea_action
         try:
             if args.rea_action == "recuperar-js":
                 op, params = "recuperar_fuentes_js", {"ruta": args.ruta, "destino": args.destino}
@@ -1611,23 +2018,104 @@ def main(argv: list[str] | None = None) -> int:
 
                 op, params = "api_desde_captura", {"ruta": args.ruta}
                 result = EolfiApp(args.db)._api_from_capture(client, args.ruta)
+                if args.cliente:   # plan REA, punto 7: cliente de lo observado
+                    from eolfi import cliente_api
+
+                    params["cliente"] = args.cliente
+                    try:
+                        result["cliente"] = cliente_api.escribir_cliente(result, args.cliente)
+                    except (ValueError, OSError) as exc:   # BorradorIncompleto es ValueError
+                        result["cliente_error"] = str(exc)
+            elif args.rea_action == "firmware" and args.extraer:
+                op = "extraer_firmware"
+                params = {"ruta": args.ruta, "destino": args.extraer, "profundidad": args.profundidad}
+                result = rc.extraer_firmware(client, args.ruta, args.extraer, profundidad=args.profundidad)
+            elif args.rea_action == "firmware":
+                op, params, result = "firmware_regiones", {"ruta": args.ruta}, rc.firmware_regiones(client, args.ruta)
+            elif args.rea_action == "entorno":
+                op = "entorno_agente"
+                params = {"ruta": args.ruta, "destino": args.destino, "nombre": args.nombre, "escribir": args.escribir}
+                result = rc.entorno_agente(client, args.ruta, args.destino, args.nombre, escribir=args.escribir)
+            elif args.rea_action == "mapa-app":
+                op, params = "mapa_app_android", {"ruta": args.ruta, "limite": args.limite}
+                result = rc.mapa_app_android(client, args.ruta, args.limite)
+            elif args.rea_action == "llamadas":
+                hacia = "atras" if args.atras else "adelante"
+                op = "grafo_llamadas"
+                params = {"ruta": args.ruta, "funcion": args.funcion, "hacia": hacia, "profundidad": args.profundidad}
+                result = rc.grafo_llamadas(client, args.ruta, args.funcion, hacia=hacia, profundidad=args.profundidad,
+                                           max_nodos=args.max_nodos)
+            elif args.rea_action == "dotnet":
+                op, params = "ensamblado_dotnet", {"ruta": args.ruta, "limite": args.limite, "salida": args.salida}
+                result = rc.ensamblado_dotnet(client, args.ruta, args.limite, args.salida)
+            elif args.rea_action == "clase":
+                op = "clase_android"
+                params = {"ruta": args.ruta, "consulta": args.consulta, "metodo": args.metodo,
+                          "sobrecarga": args.sobrecarga}
+                result = rc.clase_android(client, args.ruta, args.consulta, metodo=args.metodo,
+                                          sobrecarga=args.sobrecarga, limite=args.limite)
+            elif args.rea_action == "flutter":
+                op, params = "app_flutter", {"ruta": args.ruta, "abi": args.abi}
+                result = rc.app_flutter(client, args.ruta, args.abi, args.limite)
+            elif args.rea_action == "apple":
+                op, params = "mapa_app_apple", {"ruta": args.ruta}
+                result = rc.mapa_app_apple(client, args.ruta, args.limite)
+            elif args.rea_action == "devicetree":
+                op, params = "devicetree_hw", {"ruta": args.ruta, "filtro": args.filtro}
+                result = rc.devicetree_hw(client, args.ruta, args.limite, args.filtro)
+            elif args.rea_action == "swift":
+                op, params = "tipos_swift_apple", {"ruta": args.ruta, "arquitectura": args.arquitectura}
+                result = rc.tipos_swift_apple(client, args.ruta, arquitectura=args.arquitectura, limite=args.limite,
+                                              ruta_rea=rea_client.wsl_path, demangle=rea_client.wsl_swift_demangle)
+            elif args.rea_action == "go":
+                op, params, result = "binario_go", {"ruta": args.ruta}, rc.binario_go(client, args.ruta, args.limite)
+            elif args.rea_action == "rust":
+                op, params = "binario_rust", {"ruta": args.ruta}
+                result = rc.binario_rust(client, args.ruta, args.limite)
+            elif args.rea_action == "senal":
+                op, params = "decodificar_senal", {"ruta": args.ruta, "decodificadores": args.decodificadores}
+                result = rc.decodificar_senal(client, args.ruta, args.decodificadores, anotaciones=args.anotaciones,
+                                              formato=args.formato, limite=args.limite, ruta_rea=rea_client.wsl_path)
+            elif args.rea_action == "decodificadores":
+                op, params = "decodificadores_senal", {"consulta": args.consulta, "decodificador": args.ayuda}
+                result = rc.decodificadores_senal(client, args.consulta, decodificador=args.ayuda)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
-                op, params = "explicar_binario", {"ruta": args.ruta, "funciones": args.funciones}
-                result = rc.explicar_binario(client, args.ruta, args.funciones)
+                extra = {"motor": motor} if motor != "ghidra" else {}
+                op, params = "explicar_binario", {"ruta": args.ruta, "funciones": args.funciones, **extra}
+                result = rc.explicar_binario(client, args.ruta, args.funciones, motor=motor)
             elif args.rea_action == "inventario":
                 op, params, result = "inventario_dependencias", {"ruta": args.ruta}, rc.inventario_dependencias(client, args.ruta)
+            elif args.rea_action == "wasm":
+                op, params = "modulo_wasm", {"ruta": args.ruta, "frente": args.frente, "js": args.js}
+                result = rc.modulo_wasm(client, args.ruta, args.frente, args.limite, args.js)
             elif args.rea_action == "app-js":
                 op, params, result = "analizar_app_js", {"ruta": args.ruta}, rc.analizar_app_js(client, args.ruta)
             elif args.rea_action == "reimplementar":
-                op, params = "reimplementar_funcion", {"ruta": args.ruta, "funcion": args.funcion}
-                result = rc.reimplementar_funcion(client, args.ruta, args.funcion)
+                extra = {"motor": motor} if motor != "ghidra" else {}
+                op, params = "reimplementar_funcion", {"ruta": args.ruta, "funcion": args.funcion, **extra}
+                result = rc.reimplementar_funcion(client, args.ruta, args.funcion, motor=motor)
             else:
                 op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
                 result = rc.comparar_versiones(client, args.original, args.nueva)
+        except (ValueError, RuntimeError) as exc:
+            # Error de REA o ruta no válida: el mensaje, sin traza (EOLFI_DEBUG la muestra). El RSI lo anota igual
+            # (un plazo agotado es el síntoma que propone ampliar rea.timeout).
+            _rsi_observar("rea", op, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            if os.environ.get("EOLFI_DEBUG"):
+                raise
+            hint = (" Kuna solo admite ELF y Mach-O de una arquitectura; para PE usa --motor ghidra."
+                    if motor == "kuna" and "unsupported_provider" in str(exc) else "")
+            print(f"eolfi rea {args.rea_action}: {exc}{hint}", file=sys.stderr)
+            return 1
+        except Exception as exc:
+            _rsi_observar("rea", op, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            raise
         finally:
             client.close()
+        _rsi_observar("rea", op, {"ok": not result.get("error"), "error": str(result.get("error") or "")}
+                      if isinstance(result, dict) else result)
         if args.caso:   # plan REA, punto 6: lo analizado queda en el caso
             # Alias: un «import EvidenceStore» aquí lo haría local a TODA la función y rompería las demás órdenes.
             from eolfi import rea_caso
@@ -1642,6 +2130,33 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 store.close()
         _print(result)
+        return 0
+    if args.cmd == "telemetria":
+        from eolfi import telemetria
+
+        _print({"carpeta": str(telemetria.carpeta()), "activa": telemetria.activa()}
+               if args.telemetria_action == "ruta" else telemetria.resumen())
+        return 0
+    if args.cmd == "voz":
+        from pathlib import Path
+
+        from eolfi import voz
+
+        try:
+            if args.voz_action == "estado":
+                _print(voz.estado())
+            elif args.voz_action == "transcribir":
+                _print(voz.transcribir(Path(args.archivo).read_bytes(), idioma=args.idioma))
+            elif args.voz_action == "decir":
+                data = voz.hablar(args.texto, idioma=args.idioma, voz=args.voz)
+                Path(args.out).write_bytes(data)
+                _print({"archivo": args.out, "bytes": len(data)})
+            else:
+                _print(voz.guardar({k: v for k, v in (("motor", args.motor), ("idioma", args.idioma),
+                                                      ("voz", args.voz)) if v is not None}))
+        except (voz.VozError, OSError) as exc:
+            print(f"voz: {exc}", file=sys.stderr)
+            return 2
         return 0
     if args.cmd == "mcp":
         from eolfi import mcp_server

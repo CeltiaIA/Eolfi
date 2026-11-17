@@ -378,8 +378,10 @@ def test_http_model_generates_only_observed_routes_with_traceability(store, tmp_
     assert ver["equivalent_on_observed"] is False      # hay casos parciales y pendientes: no se da verde
     assert "cabeceras de la petición" in ver["limits"]
 
-    p = subprocess.run([sys.executable, "-m", "pytest", "-q", str(out / "tests")], capture_output=True, text=True,
-                       timeout=180)
+    # La colección pertenece al proyecto generado. No debe buscar configuración ni pruebas en otros
+    # temporales del equipo (perfiles de navegador que pueden desaparecer durante la colección).
+    p = subprocess.run([sys.executable, "-m", "pytest", "-q", "--rootdir", str(out), "--confcutdir", str(out), "tests"],
+                       capture_output=True, text=True, cwd=out, timeout=180)
     assert p.returncode == 0, p.stdout + p.stderr
 
 

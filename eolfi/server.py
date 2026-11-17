@@ -38,7 +38,7 @@ MAX_UPLOAD = 256 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
 _STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
            "/projects.js": "projects.js", "/eolas-chat.js": "eolas-chat.js",
-           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/style.css": "style.css",
+           "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/voz.js": "voz.js", "/style.css": "style.css",
            "/favicon.svg": "favicon.svg",
            "/favicon.ico": "favicon.svg"}
 _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -64,6 +64,16 @@ class ApiError(Exception):
         self.extra = extra   # campos adicionales de la respuesta (p. ej. needs_confirm)
         super().__init__(message)
         self.status = status
+
+
+def _rsi_observar(operacion: str, resultado: dict[str, Any]) -> None:
+    """Resultado de una herramienta REA del chat para la automejora (PLAN_REA.md, punto 12). Nunca rompe el chat."""
+    try:
+        from eolfi import rsi
+
+        rsi.observar("chat", operacion, resultado)
+    except Exception:  # noqa: BLE001, S110 — el registro es accesorio
+        pass
 
 
 def _decode_rows(rows: list[dict[str, Any]], fields: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -441,7 +451,7 @@ class EolfiApp:
 
     def chat(self, body: dict[str, Any]) -> dict[str, Any]:
         """Chat del panel: el modelo de Eolas V2 decide qué herramientas de Eolfi usar y responde con sus resultados."""
-        from eolfi import chat, eolas_v2
+        from eolfi import chat
         from eolfi.mcp_server import EolfiMCP
 
         try:
@@ -482,6 +492,7 @@ class EolfiApp:
             "eolfi_objetivos": self._chat_subjects,
             "eolfi_casos": lambda _a: {"casos": [{k: c.get(k) for k in ("case_id", "name", "status", "updated_at")}
                                                  for c in self.cases_list({})["cases"][:30]]},
+            "eolfi_automejora": lambda _a: self.rsi_overview(),
             **(self._chat_rea_composites(rea, self._case_id(body)) if rea is not None else {}),
         }, rea=rea)
         context = chat.with_context(messages, attachments, analyze)
@@ -517,7 +528,13 @@ class EolfiApp:
 
         def in_case(operation: str, fn: Any) -> Any:
             def run(a: dict[str, Any]) -> Any:
-                result = fn(a)
+                try:
+                    result = fn(a)
+                except Exception as exc:
+                    _rsi_observar(operation, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+                    raise
+                if isinstance(result, dict):
+                    _rsi_observar(operation, {"ok": not result.get("error"), "error": str(result.get("error") or "")})
                 if case_id and isinstance(result, dict) and not result.get("autorizacion_pendiente"):
                     s = self.store()
                     try:
@@ -534,6 +551,9 @@ class EolfiApp:
             "eolfi_reimplementar_funcion": lambda a: step("REA descompila la función…",
                                                           lambda: rc.reimplementar_funcion(rea.client, ruta(a), str(a.get("funcion") or ""))),
             "eolfi_inventario_dependencias": lambda a: rc.inventario_dependencias(rea.client, ruta(a)),
+            "eolfi_modulo_wasm": lambda a: rc.modulo_wasm(
+                rea.client, ruta(a), ruta({"ruta": a["frente"]}) if a.get("frente") else None,
+                js=[ruta({"ruta": j}) for j in a.get("js") or [] if isinstance(j, str)][:10]),
             "eolfi_api_desde_captura": lambda a: step("REA lee la captura de red…",
                                                       lambda: self._api_from_capture(rea.client, ruta(a))),
             "eolfi_recuperar_fuentes_js": lambda a: step("REA (WSL2) reconstruye las fuentes con Wakaru…",
@@ -548,7 +568,7 @@ class EolfiApp:
         }
         names = {"eolfi_revisar_modelo": "revisar_modelo", "eolfi_explicar_binario": "explicar_binario",
                  "eolfi_reimplementar_funcion": "reimplementar_funcion", "eolfi_comparar_versiones": "comparar_versiones",
-                 "eolfi_inventario_dependencias": "inventario_dependencias",
+                 "eolfi_inventario_dependencias": "inventario_dependencias", "eolfi_modulo_wasm": "modulo_wasm",
                  "eolfi_verificar_comportamiento": "verificar_comportamiento", "eolfi_analizar_app_js": "analizar_app_js",
                  "eolfi_recuperar_fuentes_js": "recuperar_fuentes_js", "eolfi_api_desde_captura": "api_desde_captura"}
         return {name: in_case(names[name], fn) for name, fn in tools.items()}
@@ -642,6 +662,34 @@ class EolfiApp:
             return rea_autorizacion.revoke(self._rea_db, grant_id)
         except KeyError as exc:
             raise ApiError(404, str(exc).strip("'")) from exc
+
+    # Automejora (PLAN_REA.md, punto 12): el panel muestra y el TITULAR decide. La evaluación carga modelos y genera
+    # proyectos, así que se lanza solo desde la CLI («eolfi rsi evaluar»), nunca desde aquí ni desde el chat.
+    def rsi_overview(self, _q: dict[str, str] | None = None) -> dict[str, Any]:
+        from eolfi import rsi
+
+        props = sorted(rsi.propuestas(), key=lambda p: p["fecha"], reverse=True)
+        return {"activo": rsi.activo(), "registro": rsi.verificar_registro(), "casos_regresion": len(rsi.casos()),
+                "observaciones": len(rsi.eventos("observacion")), "propuestas": props[:30],
+                "umbrales": {r: rsi.umbral(r) for r in rsi.REGLAS}}
+
+    def rsi_propose(self) -> dict[str, Any]:
+        from eolfi import rsi
+
+        try:
+            return {"nuevas": rsi.proponer()}
+        except rsi.RSIError as exc:
+            raise ApiError(400, str(exc)) from exc
+
+    def rsi_act(self, pid: str, action: str) -> dict[str, Any]:
+        from eolfi import rsi
+
+        try:
+            if action == "revertir":
+                return rsi.revertir(pid, por="titular (panel)")
+            return rsi.decidir(pid, action, por="titular (panel)")
+        except rsi.RSIError as exc:
+            raise ApiError(404 if "desconocida" in str(exc) else 400, str(exc)) from exc
 
     def _chat_answer(self, context: list[dict[str, str]], remote: Any, mcp: Any) -> dict[str, Any]:
         from eolfi import chat, eolas_v2
@@ -1098,6 +1146,10 @@ class EolfiApp:
         if length <= 0:
             raise ApiError(400, "archivo vacío")
         self.samples.mkdir(parents=True, exist_ok=True)
+        import shutil
+
+        if shutil.disk_usage(self.samples).free < length + (64 * 1024 * 1024):
+            raise ApiError(507, "No hay espacio suficiente para guardar el adjunto; usa su ruta local")
         part = self.samples / f".subida-{secrets.token_hex(8)}.part"
         h = hashlib.sha256()
         left = length
@@ -1801,16 +1853,25 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                 if not self._authorized(q):
                     self._reject(401, "falta el token: abre la URL con ?token=… que mostró `eolfi serve`")
                 self._precheck(method)
-                if method == "POST" and path == "/api/upload" and q.get("store") == "1":
+                if method == "POST" and ((path == "/api/upload" and q.get("store") == "1")
+                                         or path == "/api/projects/upload"):
                     # Por bloques, directamente a disco; el triaje se lanza después como trabajo (A4).
                     try:
                         n = int(self.headers.get("Content-Length") or 0)
                     except ValueError:
                         n = -1
-                    if n < 0 or n > MAX_UPLOAD:
+                    if n < 0:
                         self.close_connection = True
-                        raise ApiError(413, f"Content-Length inválido o mayor que {MAX_UPLOAD} bytes")
-                    return self._json(200, app.store_upload(self.rfile, n, q.get("name", "upload")))
+                        raise ApiError(400, "Content-Length inválido")
+                    try:
+                        stored = app.store_upload(self.rfile, n, q.get("name", "upload"))
+                    except Exception:
+                        self.close_connection = True  # si se rechaza antes de leer, no reutilizar el cuerpo pendiente
+                        raise
+                    if path == "/api/projects/upload":
+                        stored = {"path": str((app.samples / f"{stored['upload']}.bin").resolve()),
+                                  "sha256": stored["upload"], "size": stored["size"], "name": stored["name"]}
+                    return self._json(200, stored)
                 self._read_body(MAX_UPLOAD if path == "/api/upload" else MAX_JSON)
                 if method in ("GET", "HEAD"):
                     if path in _STATIC:
@@ -1828,7 +1889,8 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
                         "/api/vscode/activity": app.vscode_activity,
                         "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
-                        "/api/rea/autorizaciones": app.rea_authorizations,
+                        "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
+                        "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
                         "/api/eolas/perfiles": lambda _q: {"perfiles": __import__("eolfi.eolas_v2", fromlist=["x"]).available_evaluation_profiles()},
                         "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
@@ -1927,6 +1989,24 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     m = re.fullmatch(r"/api/rea/permisos/(perm_[0-9a-f]{16})/revocar", path)
                     if m:
                         return self._json(200, app.rea_revoke(m.group(1)))
+                    if path == "/api/rsi/proponer":
+                        return self._json(200, app.rsi_propose())
+                    m = re.fullmatch(r"/api/rsi/propuestas/([0-9a-f]{12})/(aprobar|rechazar|revertir)", path)
+                    if m:
+                        if self.headers.get("X-Eolfi-Client"):   # solo el titular, desde el panel; nunca un cliente
+                            raise ApiError(403, "las propuestas de automejora se deciden en el panel de Eolfi")
+                        return self._json(200, app.rsi_act(m.group(1), m.group(2)))
+                    if path in ("/api/voz/transcribir", "/api/voz/hablar"):
+                        from eolfi import voz
+
+                        try:
+                            if path == "/api/voz/transcribir":   # cuerpo: el WAV tal cual; nada se guarda
+                                return self._json(200, voz.transcribir(self._body(), idioma=q.get("idioma")))
+                            body = self._obj()
+                            return self._send(200, voz.hablar(str(body.get("texto") or ""), idioma=body.get("idioma"),
+                                                              voz=body.get("voz")), "audio/wav")
+                        except voz.VozError as exc:
+                            raise ApiError(400, str(exc)) from exc
                     if path == "/api/chat/motor":
                         return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":

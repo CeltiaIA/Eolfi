@@ -61,6 +61,11 @@ es una implementación propia.
 - Python 3.10+ (el núcleo no necesita dependencias externas).
 - Opcional: capa, rizin/radare2, Ghidra (define `GHIDRA_INSTALL_DIR`).
   `python -m eolfi doctor` dice cuáles detecta.
+- `python -m eolfi update --check` muestra la versión instalada, cómo se instaló (copia del repositorio,
+  pipx, entorno virtual o ejecutable) y la versión del puente y de la extensión. Con `--red` consulta la
+  última publicación o etiqueta de `CeltiaIA/Eolfi` en api.github.com, sin credenciales. Con
+  `EOLAS_OFFLINE=1` no consulta la red. Nunca instala nada: solo indica cómo actualizar. Sale con 0 si está al día, 1 si hay una
+  versión nueva y 2 si no se pudo comprobar.
 
 ## Uso rápido
 
@@ -173,10 +178,16 @@ En el panel: pestañas Binario / Web / Repositorio para analizar, casillas en
 ```bash
 python -m eolfi web https://ejemplo.com/            # o un .html / carpeta de sitio estático
 python -m eolfi web https://ejemplo.com/ --save estudio/   # + copia de estudio de HTML/CSS/JS
+python -m eolfi web https://ejemplo.com/ --render --paginas 10 --profundidad 2   # SPA: renderiza y rastrea el mismo origen
 python -m eolfi repo D:/proyectos/mi-app            # carpeta local
 python -m eolfi repo https://github.com/usuario/repo   # clon superficial y seguro
 ```
 
+- **Web renderizada** (`--render`, C3): abre cada página en Chrome/Edge sin interfaz (playwright-core, sin
+  descargar navegadores), espera a que la red se calme y analiza el DOM resultante: lo que una SPA construye
+  con JavaScript. Rastreo en anchura solo del mismo origen (como máximo 50 páginas y 5 saltos), con
+  robots.txt respetado, enlaces y rutas de `pushState`. Las peticiones a otros hosts se bloquean y se
+  cuentan. No rellena formularios ni pulsa botones. Sin navegador, el resultado queda NO VERIFICADO.
 - **Web**: estructura (landmarks, encabezados, formularios, esquema del DOM),
   assets, CSS (paleta, fuentes, breakpoints, variables, Grid/Flex), JS
   (bundler, APIs del navegador, endpoints), **source maps** (solo las rutas
@@ -261,10 +272,15 @@ en ella.
 
 ```bash
 python -m eolfi eolas-v2 status  # el motor local Eolas V2 (proveedor por defecto)
+python -m eolfi eolas-v2 recomendar-perfil --bateria completa  # vista previa; no cambia el activo
 python -m eolfi create --from https://una-web.com/ --out D:/p/tienda \
     --ai "Catálogo de bicis con filtro por precio y carrito con total"
 python -m eolfi assist D:/p/tienda --brief "Añade búsqueda en el catálogo"
 ```
+
+Tras una ronda completa reciente, `recomendar-perfil` solo considera perfiles disponibles que aprobaron el
+umbral del banco. `--aplicar` cambia el perfil activo de forma explícita. En `assist`, `--model banco` usa esa
+misma evidencia y falla con un aviso si no hay un ganador reciente; nunca cae silenciosamente al perfil activo.
 
 El modelo (por defecto, el motor activo de Eolas V2) recibe la especificación, la
 petición y los archivos editables, y devuelve archivos completos. Eolfi:
@@ -272,8 +288,12 @@ petición y los archivos editables, y devuelve archivos completos. Eolfi:
 - solo acepta rutas de código de la app y pruebas (nunca `package.json`,
   configuración de build, CI ni nada fuera del proyecto);
 - compila y prueba; si falla, devuelve el error al modelo (hasta 2 reparaciones);
-- si no consigue un estado verde, **restaura todos los archivos**;
-- registra el resultado (resumen, archivos, rondas, tokens) como evidencia.
+- conserva en la evidencia cuál fue el mejor intento por pasos de verificación; si ninguno queda verde,
+  **restaura todos los archivos** y no aplica ese candidato;
+- solo después de una verificación verde guarda una memoria local acotada con petición redactada, resumen,
+  notas y rutas relativas; nunca código fuente ni intentos fallidos. Se desactiva con
+  `EOLFI_NO_ASSIST_MEMORY=1`;
+- registra el resultado (resumen, archivos, rondas, tokens y mejor intento) como evidencia.
 
 Proveedores (`--provider`, también en el panel):
 
@@ -281,12 +301,21 @@ Proveedores (`--provider`, también en el panel):
 |---|---|---|
 | `eolas-v2` (defecto) | el motor local Eolas V2 de Eolfi (llama-server con clave de API), con el perfil activo | `python -m eolfi eolas-v2 start` (o se arranca solo al usarlo) |
 | `celtia-v2` | dos perfiles de Eolas V2: uno redacta (gemma) y otro revisa (gemma_q4) | los dos GGUF instalados y sin retirar |
-| `eolas` | Eolas V1 local (CeltIA), API Ollama en `127.0.0.1:11435` | arrancar Eolas (`launch-eolas.ps1`); `--base-url`/`--model` para cambiarlo |
+| `eolas` | Eolas V1 local (CeltIA), API de Eolas en `127.0.0.1:11435` | arrancar Eolas (`launch-eolas.ps1`); `--base-url`/`--model` para cambiarlo |
 
 | `deepseek-web` · `gemini-web` · `meta-web` · `web` | las webs de chat con tu sesión, vía el puente Electron (`web` elige la primera lista) | `python -m eolfi bridge` e iniciar sesión en sus ventanas |
 
 Retirados el 14/11/2026 (decisión del titular): `claude`, `openai`, `gemini`, `deepseek` (API), `gemma`,
 `nemo-moe`, `copilot-vscode`, `copilot-web`, `chatgpt-web` y `lechat-web`.
+
+Con `eolas` (Eolas V1), tres variables ajustan cada petición a la VRAM del equipo; sin ellas se piden 32768 de
+contexto, 12000 tokens de salida y el reparto automático de capas de Eolas:
+- `EOLFI_EOLAS_NUM_CTX`: el contexto.
+- `EOLFI_EOLAS_NUM_PREDICT`: los tokens de salida.
+- `EOLFI_EOLAS_NUM_GPU`: las capas en GPU.
+
+En una RTX 3060 Ti (8 GB), Gemma 4 12B Q4 cabe entero con 16384 de contexto (`EOLFI_EOLAS_NUM_CTX=16384
+EOLFI_EOLAS_NUM_GPU=99`). Q5_K_M no cabe entero: rinde mejor con 40 capas.
 
 `python -m eolfi doctor` indica cuáles están disponibles. Las claves se leen de variables de entorno o
 del archivo **`.env`** de la carpeta del proyecto (copia `.env.example`; también vale `~/.eolfi/.env` o
@@ -418,7 +447,7 @@ python -m eolfi vscode-do open --path src/app.py --line 40
   van a «Descartadas al verificar» con su motivo. Si el veredicto es dudoso o ilegible, se queda como REAL.
 - **Límites de peticiones de Copilot**: la auditoría usa Auto primero, cambia de modelo si uno llega a su límite y,
   si todos lo están, sigue con un **modelo local llama.cpp** (Eolas en 127.0.0.1:11435 o un `llama-server` en
-  127.0.0.1:8080; ajustes `eolfi.fallback.*`): sin límites y sin que el código salga del equipo. Sin Ollama.
+  127.0.0.1:8080; ajustes `eolfi.fallback.*`): sin límites y sin que el código salga del equipo.
   Si no hay ninguno en marcha, **Eolfi arranca un `llama-server`** (en manual pregunta una vez por sesión; en
   automático no) con el GGUF más adecuado para código, solo en 127.0.0.1, y lo para al cerrar VS Code o tras 15 min
   sin uso (`eolfi.fallback.autoStart`, `eolfi.fallback.llamaServer`, `eolfi.fallback.gguf`).

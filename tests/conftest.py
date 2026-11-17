@@ -17,6 +17,8 @@ os.environ.setdefault("EOLFI_DB", os.path.join(_TMP, "eolfi.db"))
 # (~/.eolfi/eolas-v2*) cambian el resultado de las pruebas ni se escriben desde ellas.
 os.environ.setdefault("EOLFI_EOLAS_V2_CONFIG", os.path.join(_TMP, "eolas-v2.json"))
 os.environ.setdefault("EOLFI_EOLAS_V2_FEEDBACK", os.path.join(_TMP, "eolas-v2-feedback.jsonl"))
+# Ni el registro encadenado de acciones del usuario (~/.eolfi/acciones.jsonl, B8).
+os.environ.setdefault("EOLFI_ACCIONES_FILE", os.path.join(_TMP, "acciones.jsonl"))
 
 import pytest
 
@@ -26,7 +28,11 @@ def _eolas_v2_aislado(tmp_path, monkeypatch):
     """Cada prueba con su propia configuración de Eolas V2 (ni la real ni la de otra prueba: perfiles retirados,
     clave de API…) y sin arrancar el REA real del equipo (12/11/2026)."""
     monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas-v2-prueba.json"))
+    monkeypatch.setenv("EOLFI_EOLAS_V2_EVALUATIONS", str(tmp_path / "evaluation-memory.json"))
+    monkeypatch.setenv("EOLFI_ASSIST_MEMORY", str(tmp_path / "assist-verified.jsonl"))
     monkeypatch.setenv("EOLFI_NO_REA", "1")
+    monkeypatch.setenv("EOLFI_ACCIONES_FILE", str(tmp_path / "acciones.jsonl"))
+    monkeypatch.setenv("EOLFI_VOZ_CONFIG", str(tmp_path / "voz-prueba.json"))
     # 15/11/2026: el motor local elegido (~/.eolfi/motor-local.json) y la clave de Eolas V1 (runtime/eolas/api.key
     # de CeltIA) son del equipo; las pruebas no los leen. Sin elección, el motor es el predeterminado (eolas-v2).
     monkeypatch.delenv("EOLFI_LOCAL_ENGINE", raising=False)
@@ -34,3 +40,6 @@ def _eolas_v2_aislado(tmp_path, monkeypatch):
     monkeypatch.setenv("EOLFI_MOTOR_LOCAL_FILE", str(tmp_path / "motor-local.json"))
     monkeypatch.setenv("EOLAS_HOME", str(tmp_path / "eolas-v1"))
     monkeypatch.setenv("CELTIAIA_HOME", str(tmp_path / "celtiaia"))
+    # 16/11/2026: el registro de la automejora (RSI) es del equipo; lo que observan las pruebas va a su carpeta.
+    monkeypatch.setenv("EOLFI_RSI_DIR", str(tmp_path / "rsi"))
+    monkeypatch.setenv("EOLFI_TELEMETRIA_DIR", str(tmp_path / "telemetria"))

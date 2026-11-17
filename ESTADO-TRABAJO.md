@@ -1,7 +1,182 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-11 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-17 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
+
+## Reanudación y pruebas activas (17/11/2026)
+
+- Preferencia del titular: autoría **Luis**, ramas `luis/`, sin atribuciones a agentes en nuevas entregas.
+  Configuración local de Git aplicada. Rama actual `luis/modelos-reconstruccion`; los tres commits locales
+  del bloque G (`f4ecd58`, `5b21787`, `7552c6a`) tienen autor y confirmador Luis; sin publicación.
+  Las referencias anteriores abajo son históricas; los árboles de archivos se conservan.
+- B2 terminado (17/11 00:53): 6/6 muestras 9/9, media 1,000, desviación 0,000 y salida 0;
+  la repetición de la semilla 0 dio el mismo resultado y el motor 8090 quedó parado. Repetir sin cambiar
+  código, modelo, perfil o hipótesis duplicaría unas 4 h 33 min de trabajo sin ampliar la cobertura.
+- **Banco «tareas» sobre la reconstrucción (17/11 06:21–07:22): interrumpido.** El primer `create` superó los
+  3600 s del banco y no hay ninguna muestra. Mismo código `52cc369`, script y semillas que el B2; config temporal
+  en el puerto 8092. Generación a 4,1–4,7 t/s frente a 7,6–8,8 del publicado, con la VRAM a 7,7/8 GB; la causa
+  sigue sin verificar. Calidad NO VERIFICADA. Modelo con el mismo hash; la GPU queda libre.
+  **Suspendido por el titular (17/11, mañana):** no se repite hasta tener las implementaciones necesarias
+  (ajuste de memoria/rendimiento del perfil y presupuesto de tiempo del banco). La reconstrucción queda como
+  modelo con fallos NO VALIDADOS: timeout en el banco, layouts K y procedencia del SDK.
+- **B8 parcial (17/11):** `eolfi/acciones.py`, un registro encadenado por SHA-256 (`~/.eolfi/acciones.jsonl`,
+  esquema `eolfi-acciones/v1`) de las acciones que cambian estado en eolas_v2 y modelos_reconstruir, mediante
+  el decorador `@registrada`. No registra vistas previas. Cerrojo entre procesos; `eolfi acciones verificar|listar`.
+  Las pruebas lo redirigen a temporales (conftest). `tests/test_acciones.py`: 16 pasadas, incluida la escritura
+  concurrente de 4 procesos. Límites: no firmado; si escribir falla, solo avisa por stderr; la cadena RSI de
+  `vas-b1-b2` sigue separada; `assist`, `create` y el puente aún no registran.
+  Validación final con B6, B7 y B8 juntos: pytest **790 pasadas, 8 omitidas, 412,40 s**, salida 0 (6 omitidas son
+  nativas sin opt-in); bridge 63/4 omitidas; vscode-bridge 192; e2e 19; todas salida 0; `git diff --check` 0.
+  No se creó el `~/.eolfi/acciones.jsonl` real. La suite anterior, solo B6/B7, dio 774/8 con salida 0.
+- **C3 hecho en local (17/11):** `eolfi web URL --render --paginas N --profundidad D`. Chrome sin interfaz vía
+  playwright-core, solo el mismo origen, robots.txt, rutas `pushState`, otros hosts bloqueados, DOM renderizado
+  analizado e indicio de SPA. `tests/test_web_render.py`: 9 pasadas, una con Chrome real sobre una SPA servida en
+  127.0.0.1. Sin interacciones; no probado contra un sitio público (NO VERIFICADO).
+- **C2 parcial (17/11):** `eolfi update --check [--red] [--repo]` (`eolfi/actualizacion.py`): versión, modo de
+  instalación, commit y versiones del puente y de la extensión; con `--red` compara con la última publicación o
+  etiqueta de CeltiaIA/Eolfi en api.github.com (sin credenciales; rechaza `EOLAS_OFFLINE=1`). No instala nada.
+  `tests/test_actualizacion.py`: 11 pasadas. Consulta real NO VERIFICADA (no hay publicaciones ni etiquetas).
+  Falta el empaquetado pipx o ejecutable y el acceso directo.
+- **B8 en el puente Node (17/11):** `eolfi/bridge/acciones.mjs` añade a la misma cadena `puente.chat`,
+  `puente.comparativa`, `puente.permiso`, `puente.revocar` y `puente.reiniciar` (prompt y respuesta solo como hash).
+  Prueba cruzada Python/Node en `tests/test_acciones_puente.py` y 7 pruebas Node en `test/acciones.test.mjs`.
+  Arreglado: `verificar` usaba `splitlines` y daba por rota una cadena con U+2028 en un texto. Verificado con el
+  puente real en Electron (instancia aislada con `--user-data-dir` temporal, sin ventanas de chat ni red externa):
+  dos `/v1/revoke` dejaron 2 eventos `puente.revocar` y `eolfi acciones verificar` dio ok. NO VERIFICADO en
+  Electron: un envío real a un chat y «Permitir 30 minutos» (necesitan el diálogo y un sitio con sesión).
+- **Subidas (17/11):** por indicación del titular, mientras dure la cola los commits nuevos se quedan en local.
+- **G5 parcial (17/11):** `eolfi/modelos_actualizar.py`. `modelos actualizar --fuentes F --red` compara con Hugging Face
+  y `modelos descargar ... --red` baja un archivo fijado por commit y SHA-256, sin sobrescribir; después lo
+  audita (G1), deja el recibo `descarga.json` y lo registra en B8. Rechaza `EOLAS_OFFLINE=1`, hosts ajenos a HF
+  y credenciales. `tests/test_modelos_actualizar.py`: 23 pasadas con red simulada. Consulta real NO VERIFICADA;
+  falta comparar con el banco antes de adoptar. Guía: `docs/modelos-actualizar.md`.
+- **B8, continuación (17/11):** se registran `generador.assist` y `generador.create`; el encargo se guarda
+  solo como huella (SHA-256 y bytes) y el resultado como resumen (ok, archivos, rondas, mejor intento). Anclas
+  externas: `eolfi acciones anclar --destino F` y `eolfi acciones verificar --ancla F`, que detectan reescritura
+  o truncado anteriores al ancla. `tests/test_acciones.py`: 25 pasadas. Suite completa: 798 pasadas, 8 omitidas
+  y 1 fallo intermitente, `test_observe.py::test_desktop_scenario_windows_uia` (maneja el escritorio real y
+  coincidió con las suites node/e2e en paralelo). Repetida sola y con su archivo: 40/40. Bridge 63/4,
+  vscode-bridge 192 y e2e 19, salida 0. Pendiente B8: cadena RSI de `vas-b1-b2`, puente Node y firma.
+- **Smoke CPU de la reconstrucción real: superado (17/11).** Los dos intentos con `llama-completion` fallaron
+  porque b11968 mete `<|think|>` aunque se pida `-rea off`; el ejecutor pasa a `llama-cli` con
+  `--chat-template-kwargs '{"enable_thinking":false}'` y la respuesta se extrae entre el eco `> pregunta` y
+  `[ Prompt:` (sin marcas, falla). Respuesta real `43`, salida 0, 13,4 s, 3,7 t/s, modelo con el mismo hash.
+  Pruebas del módulo 36/6 omitidas. Suites completas: pytest **758/8 omitidas** (6 nativas sin opt-in),
+  bridge 63/4, vscode-bridge 192, e2e 19; todas salida 0. Informe:
+  `informes/modelos-g-2026-11-16/avance-g4-real-y-smoke.md`. Pendiente G4: banco sobre la reconstrucción,
+  layouts K del auditor, procedencia del SDK; adopción en G6. LIM-G-006 conserva la carpeta de 7,4 GB.
+- **G6 parcial:** nueva orden de solo lectura `eolas-v2 plan`. Exige conversión y smoke enlazados por el
+  mismo SHA-256, repite la auditoría y valida plantilla, contexto, capas y ventana deslizante antes de
+  proponer parámetros. Ejecución real: perfil `gemma4_recon_q4`, contexto 32.000, 8 capas GPU, batch 128,
+  ubatch 64; `adoptado: false`, sin motor ni cambio de configuración. Evidencia `g6-plan-real.json`.
+  Pruebas específicas de reconstrucción/Eolas/cliente: 105 pasadas, 6 omitidas. Validación final: Python 776/2
+  omitidas con seis cuantizaciones nativas; bridge 63/4, vscode-bridge 192 y panel 19; todas salida 0.
+- **Adopción G6 aplicada y smoke real:** `eolas-v2 adoptar PLAN --sha256-modelo HASH --aplicar` instaló
+  `gemma4_recon_q4` como perfil gestionado inactivo y fijado al hash, sin `extra_args` y con pensamiento
+  desactivado; `gemma_q4` siguió activo. El servidor temporal cargó el perfil, respondió exactamente
+  `EOLFI-G6` (31 tokens, `finish=stop`) y se detuvo junto con su vigilante; estado final sin proceso.
+  `eolas-v2 quitar-perfil` permite retirar solo perfiles gestionados, con pin SHA-256, conservando GGUF,
+  receta, smoke y evidencias. Banco y ajuste definitivo de memoria/rendimiento siguen NO VERIFICADOS.
+- **G3 parcial:** con `EOLAS_OFFLINE=1`, Eolas V2 arranca llama.cpp con su `--offline` nativo y variables
+  offline para llama.cpp/Hugging Face/Transformers, guarda el modo en runtime y evita reutilizar un proceso
+  arrancado con un modo distinto. `status` no afirma aislamiento: `firewall_verified=false`. Pendiente que el
+  titular cree y compruebe la regla de cortafuegos de salida.
+- **B6 implementado en local:** `assist` puntúa cada ronda por verificación realmente superada, marca el mejor
+  intento y conserva sus hashes/evidencia; si no hay verde restaura el proyecto y no aplica el candidato. Solo
+  una ronda verde se guarda en `~/.eolfi/assist-verified.jsonl`: petición y textos redactados, resumen, notas y
+  rutas relativas, sin código fuente ni candidatos fallidos; deduplicada, limitada a 200 y desactivable con
+  `EOLFI_NO_ASSIST_MEMORY=1`. Los últimos tres ejemplos del mismo destino se pasan como datos no confiables.
+  `tests/test_assist.py`: 12 pasadas. NO VERIFICADO todavía con un modelo real.
+- **B7 parcial:** la memoria nueva del banco conserva batería, resumen, ganador y aprobados. La orden
+  `eolas-v2 recomendar-perfil` es vista previa por defecto y exige `--aplicar` para cambiar el activo;
+  `assist --model banco` consume esa misma evidencia y no hace fallback silencioso. Solo admite perfiles con
+  GGUF local, no retirados, aprobados y con ronda de hasta 30 días. Pruebas combinadas B6/B7/modelos: 119
+  pasadas, 6 omitidas. Vista previa real: `NO_VERIFICADO` porque la memoria histórica no tiene todavía el
+  resumen de la nueva versión; ningún perfil cambió. Evidencia `b7-recomendacion-preview.json`.
+
+## Continuación G4: conversión real y smoke (17/11/2026) — registro del avance previo
+
+- Commit previo `15cdbd7` (bloque G) ya existe en `codex/modelos-reconstruccion`; sin publicar.
+- Conversión real ejecutada: Gemma BF16 → Q4_K_M en `generated/modelos/gemma4-q4_k_m-2026-11-17/` (ignorado por git).
+  Cuantizador salida 0 en 722 s; salida 7.381.383.776 bytes, SHA-256
+  `d5afb9efb2fa6e39cf9d64e96292f13f5b20c381789643fc9b6f15c9fdc3b054`; 667 tensores (338 F32, 284 tipo 12, 45 tipo 14);
+  original con el mismo hash después. Estado de la receta: NO VERIFICADO (layouts K, inferencia y banco).
+- Nueva orden `modelos probar` (smoke de inferencia solo CPU, con hash del paquete del ejecutor) en
+  `eolfi/modelos_reconstruir.py` y `eolfi/cli.py`; guía en `docs/modelos-reconstruccion.md`.
+  `tests/test_modelos_reconstruir.py`: 29 pasadas, 6 omitidas (nativas sin opt-in).
+- **NO VERIFICADO / pendiente:** smoke real sobre la reconstrucción (paquete de `llama-completion.exe`:
+  `779ee85e567371effdac71e1d73903d4442c3ed6aa50e76c5ef4b882a9510330`; los argumentos del ejecutor no se han probado
+  con un modelo real), suites completas tras el cambio, banco, informe de avance y entrada de limpieza para la
+  carpeta de 7,4 GB. El fixture sintético no carga en inferencia (probado: falla el vocabulario).
+- Motor ajeno en marcha sin tocar: llama-server PID 34776 en 8090 (Gemma Q4, GPU al 100 %).
+
+## Continuación G4: reconstrucción por cuantización (16/11/2026)
+
+- Rama actual `codex/modelos-reconstruccion`, sin commits/publicación; conserva los cambios anteriores.
+- Nueva CLI `modelos reconstruir`: preparación sin ejecutar y conversión explícita con hashes de entrada
+  y paquete local, salida nueva, receta/log/auditorías y hash posterior del original. No adopta perfiles.
+  Entorno del hijo acotado, sin claves del cliente/proxies/registros privados; no implementa cortafuegos.
+- Seis presets ejecutados con cuantizador nativo y BF16 sintético propio; Q8 con decodificación numérica
+  independiente. Los layouts K siguen NO VERIFICADOS. Incluso con conversión 0, CLI 2 indica que faltan
+  inferencia y banco. Pruebas específicas: 99 pasadas, 48,50 s.
+- BF16 Gemma real de 23.832.066.656 bytes auditado íntegramente; receta base y seis derivadas preparadas,
+  sin conversión ni adopción. Motor activo preservado. Identidad del SDK fijada por ejecutable y 33 DLL;
+  procedencia oficial NO VERIFICADA. REA contrasta imports y estructura de la salida sintética Q8.
+- Validación completa final: **748 pasadas, 2 omitidas, 432,91 s**, con seis conversiones nativas activadas.
+  Bridge 63/4 omitidas; vscode-bridge 192; panel 19; todos salida 0. La primera suite dio 748/2 omitidas;
+  una posterior falló al recoger
+  temporales ajenos desde una prueba del proyecto generado. Corregida la raíz/directorio de ese pytest,
+  sin recortar pruebas: `tests/test_reconstruct.py`, 16 pasadas. Informe con resultados y límites:
+  `informes/modelos-g-2026-11-16/avance-g4-reconstruccion.md`. G4 parcial; G3/G5/G6 pendientes.
+- LIM-G-005 conserva muestras sintéticas y diagnósticos históricos hasta revisar la limpieza al cierre.
+
+## Continuación G1: chat y conexiones del motor (16/11/2026)
+
+- Misma rama `codex/modelos-bloque-g`, sin commits ni publicación; se conservan los cambios del avance previo.
+- `eolfi_modelos_auditar` disponible en MCP y chat: solo lectura, raíces respetadas, cabecera GGUF aun con
+  extensión `.bin`; resultados como datos, sin cargar pesos ni ejecutar plantilla. Contexto específico para
+  adjuntos/rutas `.gguf`, sin tratarlos como ejecutables nativos. La elección por un modelo real sigue
+  **NO VERIFICADA** (el motor activo tiene trabajo; no se lo ha interrumpido).
+- `modelos conexiones --pid PID` y `modelos auditar ARCHIVO --pid PID`: instantánea IP Helper TCP/UDP v4/v6
+  en Windows. Solo lectura; escuchas sin extremo remoto, IPv4 mapeada normalizada para clasificar loopback.
+  Linux/macOS devuelven NO VERIFICADO. La instantánea no demuestra aislamiento permanente ni pesos cargados.
+- CLI contra el motor real PID 34776: escucha `127.0.0.1:8090` y conexión establecida a loopback, sin filas
+  UDP en esa instantánea. Identidad de ejecutable/proveedor y límites en el informe. Auditor MCP real
+  contra Gemma Q4: hash coincide, 667 tensores, conserva NO VERIFICADO para 329 tensores K.
+- Específicas: 73 pasadas (incluye guía MCP y sockets loopback reales). Bridge 63/4 omitidas,
+  vscode-bridge 192, panel 19. Una suite completa terminó 721/1 fallo/2 omitidas: la guía todavía esperaba
+  12 herramientas, ahora son 13. Se actualizó la guía y se reforzó la prueba para exigir el auditor y su
+  carácter de solo lectura. Repetición completa: **722 pasadas, 2 omitidas**, 408,62 s, salida 0.
+  Panel real recargado y saludable: PID 32616, inicio 22:23:29, posterior al cambio del chat/MCP.
+- Evidencias y estado: `informes/modelos-g-2026-11-16/avance-g1-chat-conexiones.md`. Limpieza: LIM-G-003
+  (instantánea intermedia conservada) y LIM-G-004 (texto antiguo de modelo predeterminado en README).
+  G1 conserva límites pendientes; G2 sin activar/extender a todos los clientes y G3–G7 sin cerrar.
+
+## Reanudación 16/11/2026: bloque G y adjuntos de modelos grandes
+
+- Rama `codex/modelos-bloque-g`, en `D:\Eolfi`, desde `ca05ef4`. Sin commits ni publicación.
+- Plan definitivo copiado desde `D:\Eolfi-wt-voz\PLAN_DEFINITIVO.md` a esta copia de trabajo; el original de
+  voz no se ha modificado. G1/G2 actualizados como PARCIALES, no cerrados. G3–G7 siguen pendientes.
+- Nuevas órdenes `modelos auditar` y `modelos comprobar`. Auditor GGUF acotado, SHA-256 completo, plantilla,
+  datos del planificador y control opcional por manifiesto en arranque Python de V2/llama.cpp. No activado
+  en la configuración real ni extendido a Eolas Base. Documentación: `docs/modelos-confianza.md`.
+- Lectura real de Gemma Q4 y contraste REA: 667 tensores y hash completo; 329 tensores K con layout ambiguo.
+  Resultado **NO VERIFICADO** para sus tamaños y bytes sobrantes. No se afirma seguridad de pesos ni
+  ausencia de puertas traseras. Evidencias en `informes/modelos-g-2026-11-16/`.
+- Petición posterior del titular: adjuntar `.gguf` y cualquier otro formato con los tamaños de los modelos
+  locales. Se retira el tope fijo para subidas por bloques del chat/Analizar/Crear proyecto; memoria acotada
+  a bloques de 1 MiB y comprobación de espacio antes de leer. La ruta local existente evita duplicarlos.
+  El panel se recargó: PID 37764, inicio 21:32:41, posterior a `server.py` (21:32:38).
+- Pruebas específicas: 90 del auditor/proveedores y 65 de servidor/auditor; bridge 63/4 omitidas,
+  vscode-bridge 192 y e2e 19, con adjuntos en Chrome y axe. Prueba HTTP real de 257 MiB aprobada.
+  Subida HTTP real del BF16 local (23.832.066.656 bytes): 200 y hash comprobado por relectura de destino;
+  copia temporal eliminada, original intacto. Suite completa: 704 pasadas, 2 omitidas y un fallo móvil
+  (`test_estado_persistente_y_capturas_en_la_especificacion`, esperaba contradicted y obtuvo observed).
+  La prueba aislada pasó (44,56 s). Segunda suite completa sin la subida: **705 pasadas, 2 omitidas**,
+  411,83 s, salida 0. La causa del fallo inicial no está confirmada; el código móvil no se tocó ni se
+  ampliaron sus plazos. La incidencia inicial se conserva en el informe.
+- Informe de avance y límites: `informes/modelos-g-2026-11-16/avance.md`. Registro de limpieza ampliado
+  con LIM-G-001 y LIM-G-002; no se ha retirado nada.
 
 ## 0a. Fase 2: interfaz móvil Android (2026-11-11)
 
@@ -33,6 +208,89 @@
 - @eolfi en VS Code (11/11): falló con «bad allocation» (sin memoria) porque había dos llama-server con Gemma 12B a la vez: el de Eolas y uno huérfano en el puerto 8090 (PID 6824, desde las 18:25, `D:\EOLAS-BASE\llama\llama-server.exe -c 32000`). Cerrarlo con `taskkill /PID 6824 /F` (la herramienta no tuvo permiso). Por decisión del titular, las Fases 3 y 4 no se hicieron con @eolfi.
 
 ## 1. En curso ahora
+
+**16/11, mediodía: VAS en marcha (titular: «implementar un sistema VAS…», «un solo V2 o V1 según necesites»).**
+- Plan y auditoría: rama `vas-plan` (`D:\Eolfi-wt-vas`, commit `c5f9cfc`, `PLAN_VAS.md` y `docs/vas/`), **sin subir**: el push se denegó en esta sesión; lo decide el titular.
+- Fase 2.1 hecha: planificador de V1 con ventana deslizante, PR https://github.com/CeltiaIA/CeltiaIA/pull/11 (rama `eolas-plan-swa`, apilada sobre #10). `go test ./...` en verde. A/B en vivo, backend `llama`, 32K: 13→39 de 49 capas; 3,59→10,46 t/s (prompt corto) y 1,95→9,82 t/s (prompt de 27.710 tokens); pico de VRAM 3,1→6,7 GB, sin caídas.
+- Hallazgo: el backend nativo `eolas` (en proceso) ignora `plan.Layers` y coloca capas por su cuenta (2,0 t/s a 32K). Pendiente para la fase 2.
+- V1 restaurado: binario instalado (`5d3b6dbd…`), backend `llama`.
+- Plan VAS subido: PR https://github.com/CeltiaIA/Eolfi/pull/47 (el titular autorizó el push).
+- Fase 1.3 hecha en local: evaluador estadístico del RSI, commit `73afd36` en `rea-automejora` (`D:\Eolfi-wt-rsi`), **sin subir** (titular: «vete guardando todo en local y ya subiremos todo»). 5 pares alternados, prueba exacta de signos, intervalo por bootstrap y orden `eolfi rsi aa`. A/A simulada (desviación 0,3): 2,5 % de falsos positivos frente al 37,75 % de la regla anterior. pytest 698, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO:** A/A real con el banco (unas 2 h de modelo).
+- **Plan definitivo, voz y modelos** (titular: «genera el plan definitivo… voz a texto y todo lo demás», «comprueba que los modelos no tengan ninguna puerta trasera»): rama `voz-y-plan` (`D:\Eolfi-wt-voz`, commit `7d02f45`), **sin subir**.
+  - `PLAN_DEFINITIVO.md`: backlog único por bloques (A voz, B medir, C producto, D largo plazo, E REA, F higiene, G modelos).
+  - Voz A1–A6: `eolfi/voz.py` (motor de Windows sin conexión, whisper.cpp opcional), `/api/voz/*`, `eolfi voz`, y en el chat del panel dictado (Alt+M), lectura, modo conversación y órdenes. pytest 685, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO** con micrófono real. El reconocedor de Windows se equivoca bastante («Crea» → «Tenía»): Whisper (A8) pide permiso de descarga.
+  - Modelos: `docs/auditoria-modelos-2026-11-16.md`. Cuatro GGUF distintos de V1 y V2: 0 bytes sobrantes, plantillas sin URL ni órdenes, SHA-256 coincidente; `llama-server` solo en 127.0.0.1 con V2 generando. Sin puertas traseras ni conexiones hacia fuera. Refuerzos en el bloque G.
+  - Whisper instalado (titular: «Sí, instala Whisper»): `~/.eolfi/tools/whisper-b5454` (whisper.cpp b5454 de CPU, `6ba69e34…`; `ggml-small.bin`, `1be3a9b2…`; los dos SHA-256 coinciden con los publicados). `~/.eolfi/voz.json` con `motor: auto` → whisper. Medido con 4 frases: Whisper 4 bien (unos 6 s), Windows 1 bien (1 s). Commit `voz-y-plan` siguiente al `7d02f45`.
+- **B1 y B2 hechos en local** (titular: «Sí, sigue»): rama `vas-b1-b2` (`D:\Eolfi-wt-b1`, sobre `rea-automejora`), **sin subir**. Juez funcional dentro de `verify` (`eolfi.juez.json`, `create --juez`, solo `static`): app buena 10/10, app rota 7/10 con el motivo de cada fallo; las reparaciones ven qué falla; el modelo no puede escribir los criterios. `EOLFI_SEMILLA` da semilla y `temperature` 0. El banco «tareas» usa las dos cosas. pytest 709, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO** con un modelo real.
+- **17/11, madrugada** (titular: llevar la diferencia de los tensores K a la rama de Codex «y después B6»).
+  - **Tensores K**: rama `modelos-tensores-k` (`D:\Eolfi-wt-tk`, `c1cc178`), sobre `codex/modelos-reconstruccion` (`15cdbd7`), sin tocar `D:\Eolfi`. El auditor confirma el tamaño de un tipo K solo si los desplazamientos entre tensores lo atestiguan (si uno discrepa o no hay testigo, sigue como desconocido). Gemma 4 Q3_K_M, Q4_K_M, Q5_K_M y Q6_K: 329 tensores K confirmados en cada uno, 0 bytes sobrantes, estado `estructura_verificada`. pytest 756. Pendiente: que quien lleve la rama de Codex la fusione.
+  - **B6 (mejor intento)**: rama `vas-b1-b2`. El bucle de rondas guarda la mejor nota del juez; una ronda que empeora se deshace y se avisa al modelo; sin verde se conserva el mejor intento como parcial (`ok` falso, `parcial` verdadero) y el banco lo puntúa. pytest 729, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO** con un modelo real. Falta la memoria de ejemplos verificados.
+- **17/11, 00:10. Puesta al día** (titular: «ponte al día en los cambios»). Otra herramienta (Codex) lleva el **bloque G** en `D:\Eolfi`, rama `codex/modelos-reconstruccion` (`15cdbd7`, desde `ca05ef4`): auditor GGUF en CLI, chat y MCP, manifiesto de confianza, conexiones por PID, `modelos reconstruir` (G4) y adjuntos grandes; 722 pruebas. Usa una copia de `PLAN_DEFINITIVO.md` y la mantiene al día. Mi G1/G2 de la rama `voz-y-plan` (`5c2350f`) lo duplicaba y chocaba (mismos archivos y `EOLFI_MODELOS_CONFIANZA` con otro sentido), y se guardó con una prueba en rojo: **retirado** con el commit de reversión `c06de34`; el código de la rama vuelve a ser el de `0112e1b` (suites en verde). Diferencia útil que no se pierde: mi auditor calculaba los bytes sobrantes de los tensores K (0 en los cuatro GGUF reales); el de Codex los deja como NO VERIFICADO.
+- Banco «tareas» de la otra sesión (juez, semilla y sin caché; V2; copia fija `D:\Eolfi-wt-banco`, `52cc369`): a las 23:27 llevaba **4 muestras, las 4 con 9/9** (semillas 0, 0, 1 y 2), unos 40 min por muestra. Seguía en marcha a las 00:02 (GPU al 100 %); V1 parado mientras dura.
+- **B5 hecho en local** (titular: «Sí, sigue»; rama `vas-b1-b2`, `7022851`): encargos «contador» y «filtro» en `tools/rsi/bancos/` (fuente, encargo, criterios visibles y juez aparte) y `--banco todos`, que reparte por semilla. Jueces validados con apps de referencia en Chrome: correcta 8/8 y 10/10, inerte 1/8, y cada juez caza un fallo que los criterios no ven (bajar de 0; acentos). pytest 723. Hallazgo: el generador no conserva los `id` de la página de origen, así que los encargos piden los elementos por su `id`. **NO VERIFICADO** con un modelo real.
+- **A7 y B4 hechos en local** (titular: «Sigue con el plan»). A7 (rama `voz-y-plan`, `633e9e7`): botón «Dictar» en «Crear proyecto», petición para la IA, casos, chat web y comparación; Alt+M dicta en el cuadro con el foco; e2e 19/19 con axe. B4 (rama `vas-b1-b2`): `eolfi/telemetria.py` y `eolfi telemetria`, JSONL en `~/.eolfi/telemetria` con rondas de `assist` y muestras del banco, sin contenido; corregido que los tiempos del motor de V2 quedaban vacíos. pytest 718, bridge 63, vscode-bridge 199, e2e 19.
+- Otra sesión («Chat lateral») corre desde las 20:46 el banco «tareas» con juez y semilla (6 muestras, V2) desde la copia fija `D:\Eolfi-wt-banco` (`52cc369`), registro en el scratchpad `rsi-eval\b2.log`. V1 parado mientras dura; esa sesión lo arranca al terminar.
+- **Causa del no determinismo encontrada y corregida** (titular: «Sigue en local»; rama `vas-b1-b2`): la caché de prompt de llama-server. Misma petición a V2, semilla 0, temperatura 0: con caché, un texto en frío y otro en caliente; con `cache_prompt: false`, idéntico en frío, en caliente y tras reiniciar (7 de 7, comprobado en vivo con el código corregido). pytest completo en verde. Queda Eolas V1 (`/api/chat` no pasa `cache_prompt`) y medir el banco entero con semilla. V1 arrancado otra vez (binario instalado, `llama`).
+- **Corrida real del juez y la semilla** (titular: «Sí, lánzala»; 18:38–19:13, V2 `gemma_q4`, rama `vas-b1-b2`, dos muestras con semilla 0): muestra 0 abortó a los 23 min (respuesta cortada por longitud, `create` salió con 1); muestra 1 **9/9** en 11,7 min, primera nota máxima del banco. El juez dentro de `verify` funciona con el modelo real. **La semilla no hace iguales dos corridas** (B2 no cumple su objetivo; causa sin investigar: caché de prompt, estado del motor o GPU). Corregido en `bf0d920`: el corte por longitud es una ronda fallida y se pide una respuesta más corta; el banco anota por qué falló `create`. pytest 712, bridge 63, vscode-bridge 199, e2e 19. **NO VERIFICADO** en vivo tras la corrección. V1 arrancado otra vez a las 19:14 (binario instalado, `llama`).
+- **A/A real del RSI hecha** (14:01–17:14, V2 `gemma_q4`, 5 pares, aislada en el scratchpad `rsi-eval`): lado A 5/9, 5/9, 7/9, 1/9, 5/9; lado B 5/9, 7/9, 7/9, 5/9, 1/9. Diferencia media +0,04, intervalo al 95 % [−0,22, +0,31], p = 0,5 → **no aprueba: sin falso positivo**. Registro íntegro (11 eventos); V2 parado. Es una sola A/A: la tasa real exige repetirla; la simulada da 2,5 %. Unos 19 min por muestra (había otras tareas en el equipo). Desviación de las 10 muestras ≈ 0,24.
+- V1 arrancado otra vez a las 18:32 con el binario instalado (`5d3b6dbd…`), backend `llama`; responde 401 sin clave.
+- Siguiente: fase 1.1 (juez dentro de `verify`) y 1.2 (semilla y `temperature` 0).
+- La CI de Eolfi tampoco arranca ya (PR #46: «recent account payments have failed»): facturación de GitHub, la resuelve el titular.
+
+**16/11, tarde (titular: «para las pruebas por ahora e implementemos primero todo el plan»).** Pruebas en vivo en pausa (medición de VRAM, competición repetida, evaluación del RSI con el banco).
+- Rama `rea-automejora` (`D:\Eolfi-wt-rsi`, PR #46): solo el RSI (punto 12).
+  - RSI: superficie y regla de lecciones de V2, observación de las herramientas del chat, API `/api/rsi` y tarjeta «Automejora» en el panel (e2e con axe). Las pruebas ya no escriben en `~/.eolfi/rsi`.
+  - Se añadieron y luego se QUITARON (titular: «quita los duplicados y deja solo el RSI») unas compuestas de los puntos 8 a 11: duplicaban las PR #22 a #33, ya probadas en vivo. Hallazgo que queda: `inspect_managed_artifact` exige rutas `/…` y el REA de Windows las resuelve en la unidad de su carpeta de trabajo.
+- JADX: ya instalado desde el 13/11 (`~/.eolfi/tools/jadx-headless-mcp-0.7.1-all.jar`, SHA-256 `6e5eacf5…`, `REA_JADX_MCP_JAR`); el 16/11 REA leyó ApiDemos 6.0.18 entero (2876 clases).
+- Evaluación del RSI pedida por el titular («haz la evaluacion R.S.I»): aislada en el scratchpad (`rsi-eval`, copia de `eolas-v2.json` y registro propio con dos observaciones sembradas y marcadas), propuesta `max_tokens` 8192 → 16384, banco «tareas» con V2, 3 muestras por lado. Resultado (11:33–12:50): base 7/9, 5/9, 1/4; candidata 5/9, 1/4, 5/9 → **suspendida** (0,45 < 0,53), valor restaurado, registro íntegro. El juez contaba sobre las comprobaciones ejecutadas: corregido a 9 fijas (con ello, 0,48 frente a 0,41). El V2 que arrancó la evaluación se paró con `eolas-v2 stop` (configuración copiada).
+- Siguiente (titular: «implementar un sistema VAS, Sistema Autónomo Verificable»; permiso para ejecutar artefactos propios y cargar V1 o V2, uno a la vez): auditoría del conjunto y plan por fases con métricas.
+
+**Cierre de la noche del 15/11 (titular: «sigue implementando el plan», «descarga las dependencias…», «compila e instala»).**
+- PR #42 (registros) **fusionada** (`1d766da`, CI 14/14). `D:\celtiaia` puesto al día con `origin/main` (`4cb6b78`) por avance rápido: antes se movieron las 5 copias sin seguimiento, idénticas, a `runtime\eolas\respaldo-2026-11-15\copias-sin-seguimiento`; se conserva el cambio del titular en `docs/audit/REA-BUNDLE-CONSOLIDADO-2026-11-05.md`. Tras actualizar: V1 401/200, web `ready`, `npm test` 99/99, smoke de Fios `live` y `local-keys` OK.
+- **Causa de las caídas de Gemma en Eolas V1:** la caché de prompts de llama-server en RAM (hasta 8 GiB por defecto, ~900 MiB por prompt de 7000 tokens) rebasa el Job de 9600 MiB: «bad allocation» y `GGML_ASSERT(batch.slot_batched …)`, 4 veces en `runtime\eolas\logs\runner-gemma-4-12b-it.log`. Arreglo: `launch-eolas.ps1` añade `--cache-ram 1024` salvo que `EOLAS_LLAMA_ARGS` ya lo fije. PR https://github.com/CeltiaIA/CeltiaIA/pull/6 (rama `eolas-cache-ram`, `2ab224e`), abierta; `npm test` 96/3 omitidas. **NO VERIFICADO en vivo** (exige reiniciar V1).
+- **Dependencias de los 13 destinos** descargadas generando y verificando un proyecto por destino (`create --verify`): static, react, vue, svelte, next, fastapi, express, django, expo, desktop, tauri, cli y dotnet, todos `ok=True` sin pasos fallidos. Cachés: npm 3,9 GB, NuGet 5,3 GB, cargo 437 MB, pip 43 MB (incluyen lo que ya hubiera).
+- **Extensión 0.6.13** instalada desde `main` (`~/.eolfi/eolfi.eolfi-vscode-bridge-0.6.13.vsix`, SHA-256 `2b93cda6…194e`); sustituye a la 0.6.11; con el ajuste vacío elige eolas-v1. Falta «Reload Window»; **NO VERIFICADO** dentro de VS Code.
+- **Primera comparación V1/V2 anulada:** V1 esperaba 900 s y reintentaba 3 veces, y cada reintento empezaba de cero. La ronda 1 del generador se canceló a los 30 min (`runner-gemma-4-12b-it.log`, tarea 1517). Se pararon las dos pruebas.
+- **Arreglo del plazo:** Eolfi PR https://github.com/CeltiaIA/Eolfi/pull/43 (rama `eolas-plazo-local`, `D:\Eolfi-wt-plazo`, `24052f5`).
+  - `LOCAL_TIMEOUT = 1800` s para V1 y V2, sin repetir la petición cuando se agota el plazo.
+  - `OllamaProvider` pasa a `EolasV1Provider`, y Eolfi deja de nombrar Ollama.
+  - Pruebas:
+    - pytest 676 OK y 2 omitidas, más 1 fallo: interferencia en TEMP con un smoke de Fios; `test_reconstruct.py` da 16/16 al repetirlo;
+    - vscode-bridge 197; bridge 63; e2e 18/18;
+    - el hook `pre-push` en verde.
+- **Fios sin proveedor Ollama** (titular: «quita ollama provider» → «Quitar todo rastro de Ollama»): CELTIAIA PR https://github.com/CeltiaIA/CeltiaIA/pull/7 (rama `fios-sin-ollama`, `ab71bd9`).
+  - Fios ya no arranca `ollama.exe` ni mira el puerto 11434.
+  - Unos ajustes guardados con `ollama` se abren con Eolas.
+  - Pruebas: typecheck; `npm test` 96/3 omitidas; smokes 31 OK y 1 omitido (`gguf-large`).
+  - Se mantiene el formato de manifiestos `registry.ollama.ai` del almacén de Eolas V1, porque no es un proveedor.
+- **PR #6 (`--cache-ram`): verificada en vivo** (titular: «puedes arrancar v1 o v2 cuando necesites»).
+  - El `launch-eolas.ps1` de la rama `eolas-cache-ram` está copiado sin commit en `D:\celtiaia`, y V1 se ha reiniciado (`-Stop`, y luego `-Detach -NoBrowser`).
+  - llama-server arranca con `--cache-ram 1024`.
+  - Hallazgo: con `-Detach`, el supervisor se relanza por WMI y no hereda las variables `EOLAS_*` fijadas a mano en la consola.
+- **llama.cpp b11968 coincide con la release oficial (P2-2 cerrado):** zip descargados con su digest de GitHub verificado; los 56 archivos son idénticos a los instalados.
+- **Vista previa de Fios con `SameSite=Strict` (pendiente de CONTINUIDAD 08/11): defecto confirmado y corregido.**
+  - En Chrome 157, la CSP `sandbox` deja la vista previa con un origen opaco, y `style.css` y `app.js` recibían un 302 al login.
+  - Arreglo: un token en la ruta (`/fios-preview/<slug>/<token>/…`), atado a la sesión y al slug, en CELTIAIA PR https://github.com/CeltiaIA/CeltiaIA/pull/8 (rama `vista-previa-token`, `D:\celtiaia-wt-preview`, `d528989`).
+  - Pruebas: `npm test` 101 pruebas, 98 OK y 3 omitidas. En navegador, CSS y JS dan 200 y se aplican, en el iframe y abierta aparte.
+  - **NO VERIFICADO:** `e2e:live:owner` con el modelo, y otros navegadores.
+- **Backend nativo `eolas` (titular: «repara esto»).** Con el binario instalado (`eda8fe5`), dentro del Job, no se reproducen ni el rechazo de herramientas ni el error CUDA 208: «Hola.» en 13,7 s y `tool_call` `leer_archivo {"ruta":"README.md"}` estructurada en 15,2 s. La memoria fijada (`cuMemAllocHost`) cuenta contra el Job: CeltiaIA PR https://github.com/CeltiaIA/CeltiaIA/pull/9 (rama `eolas-nativo-memoria-fijada`, `D:\celtiaia-wt-nativo`, `f3b7b4e`) añade `EOLAS_PINNED_HOST_MB` y, si no hay memoria fijada, sube las capas desde el mapeo del GGUF. En vivo: fijada 2,04 tok/s con 8717 MiB privados; `EOLAS_PINNED_HOST_MB=0` 1,94 tok/s con 7745 MiB y salida correcta. `go vet` y `go test ./...` en verde. **Decisión:** el Job se queda en 9600 MiB; para Gemma se recomienda el backend llama (20 veces más rápido).
+- **Competición V1 contra V2 (titular: «haz las pruebas en v1 con q4 y q5 y en v2 igual»).** Mismo encargo (`create --ai` de una lista de tareas sobre una web estática), 16k de contexto, 8192 tokens de salida y sin razonamiento. Juez funcional en Chrome (`scratchpad\scripts\juez-tareas.mjs`: añadir, marcar, contar, borrar, recargar y errores JS):
+
+  | Motor | Tiempo | Rondas | Generación | Verificación Eolfi | Juez |
+  |---|---|---|---|---|---|
+  | V1 Q4 | 290 s | 1 | ~14 tok/s (KV f16, ver abajo) | OK | 1/4 (`\n` literal en el JS) |
+  | V1 Q5 | 501 s | 2 | ~8 tok/s | OK | 9/9 |
+  | V2 Q4_K_M | 101 s | 1 | 41,6 tok/s | OK | 8/9 (guarda el 🗑 en el texto) |
+  | V2 Q5 | 418 s | 1 | 9,3 tok/s | OK | 1/4 (sin lógica JS) |
+
+  - Una sola muestra por motor: la calidad no queda decidida (V1 Q4 dio 7/9 en una pasada anterior con 4096 tokens).
+  - La verificación de Eolfi aprobó los cuatro, también los que no funcionan en el navegador: no detecta errores de JS en navegador.
+  - Antes del reglaje, V2 iba a 5,3 tok/s y se cortaba en 4096 tokens: le faltaban `-fa on`, KV q8_0, una ranura y lote 512, y razonaba.
+- **Reglaje de V2 (titular: «Sí, dejarlo»).** `~/.eolfi/eolas-v2.json`: perfiles `gemma_q4` (99 capas) y `gemma` (40) con `-fa on -ctk q8_0 -ctv q8_0 -np 1 --cache-ram 1024`, lote 512, 16k; `max_tokens` 8192, `reasoning` false y perfil activo `gemma_q4`. Copias: `eolas-v2.json.respaldo-2026-11-16` y `eolas-v2.json.antes-paridad` (LIM-037). En el código, Eolfi `27dd116` en la PR #43: esos perfiles por defecto, `max_tokens` 8192 y las variables `EOLFI_EOLAS_NUM_CTX`, `EOLFI_EOLAS_NUM_PREDICT` y `EOLFI_EOLAS_NUM_GPU` para V1. Suites: pytest 679/2 omitidas, puente, puente VS Code y e2e en verde, también en el hook; subida a `origin`.
+- **Caché KV de V1.** Con `num_gpu` explícito, el planificador daba el plan por completo y la caché auto elegía f16 aunque no cupiera (Gemma Q4 a 16k desbordaba a memoria compartida). CeltiaIA PR https://github.com/CeltiaIA/CeltiaIA/pull/10 (rama `eolas-kv-auto-ajuste`, `D:\celtiaia-wt-kv`, `aaf34ff`): auto decide con la VRAM libre. `go vet` y `go test ./...` en verde. En vivo (binario de prueba con `-EolasExePath`): llama-server pasa a `-ctk q8_0 -ctv q8_0`; misma petición, 34,2 tok/s frente a 27,7 con el binario instalado. V1 vuelve a ejecutar el binario instalado.
+- **PR #8 en vivo:** `e2e-live-owner.mjs` desde su rama, contra V1 real: 14/14 (el primer intento dio 11/14 porque el worktree no tenía Fios compilado).
+- **Estabilidad de V1 con `--cache-ram 1024`:** ninguna caída en las ejecuciones largas de la competición ni en el E2E.
+- **Estado al cerrar:** V1 en marcha con el lanzador de #6 (11435 y la web en 5176); V2 parado, con el reglaje nuevo. PR abiertas: CeltiaIA #6, #7, #8, #9 y #10; Eolfi #43.
 
 **Eolas V1 o V2 en CELTIAIA, Fios y Eolfi (15/11/2026, noche; titular: «prepara celtiaia, Eolas, Fios y Eolfi para trabajar con V1 o V2… termina todo el plan»).** Eolfi: rama `eolas-mejoras` (`D:\Eolfi-wt-eolasv2`), commits `57a7fba` y `f70dac4`, PR https://github.com/CeltiaIA/Eolfi/pull/41 **fusionada** el 15/11 a las 22:03 (`c52528e`, CI en verde, fusión automática). Selector `python -m eolfi motor-local eolas-v1|eolas-v2` (`~/.eolfi/motor-local.json`, o `EOLFI_LOCAL_ENGINE`), que siguen la CLI, el generador, el panel y la extensión (`eolfi.local.engine` vacío). Clave de V1 en todas las llamadas a 11435; la extensión libera V2 ocioso antes de usar V1 (P1-5). **En este equipo el motor es eolas-v1** (una cola para web, Fios y Eolfi); el predeterminado del código sigue siendo eolas-v2. celtiaia: rama `eolas-base-fuente-unica` (`D:\celtiaia-wt-eolas`), commits `eda8fe5` y `b21d026`, subida a `origin` (CeltiaIA/CeltiaIA) el 15/11, PR https://github.com/CeltiaIA/CeltiaIA/pull/5 **fusionada** (`4cb6b78`); su CI de Windows **no llegó a ejecutarse** (GitHub: pagos fallidos o límite de gasto de la cuenta), así que solo cuentan las pruebas locales; no se usa el remoto `antiguo` (cuenta personal): `launch-eolas.ps1` crea `runtime\eolas\api.key` y se la pasa a Eolas (P2-1); Fios lee las claves de V1/V2 (`localKeys.ts`) y no pisa V2 en 8090; SHA-256 de llama.cpp b11968 en `docs/audit/` (P2-2). Copiado también, sin commit, a `D:\celtiaia` (que es el que se ejecuta) y Fios recompilado ahí (`out/` anterior en `runtime\eolas\respaldo-2026-11-15\fios-out`). Pruebas: pytest 676 OK/2 omitidas, vscode-bridge 197, bridge 63, e2e 18/18; celtiaia `npm test` 96 OK/3 omitidas, typecheck de Fios, smoke de Fios `live`, `local-keys` y `local-provider-safety` OK. En vivo con V1 y clave: 401 sin clave o con clave mala (también `DELETE /api/delete`), 200 con clave, web `ready`, generador y extensión responden. V1 y la web quedan **en marcha** (supervisor por `launch-eolas.ps1 -Detach`; parar con `launch-eolas.ps1 -Stop`). **NO VERIFICADO:** llama.cpp frente a la release oficial (red); LIM-030 (copia `D:\HYDRA-BASE\llama`) y P2-6 documentados, sin cambios. Estado completo: sección 7 de la auditoría.
 

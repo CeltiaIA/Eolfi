@@ -2,7 +2,7 @@
 // Cada envío automático de Eolfi pide permiso; «Permitir 30 minutos» vale solo para esa conversación.
 const GRANT_MS = 30 * 60 * 1000;
 
-export function createApprover({ showMessageBox, titleOf = (p) => p, beforeShow = () => null, now = () => Date.now() }) {
+export function createApprover({ showMessageBox, titleOf = (p) => p, beforeShow = () => null, now = () => Date.now(), audit = () => {} }) {
   const allowUntil = {};
   const grantKey = (provider, conversation) => `${provider}|${conversation || 'default'}`;
 
@@ -47,7 +47,11 @@ export function createApprover({ showMessageBox, titleOf = (p) => p, beforeShow 
     };
     const { response } = await showMessageBox(win, options);
     if (signal?.aborted) return false;   // respuesta tardía: no concede nada, tampoco los 30 minutos
-    if (response === 1) allowUntil[grantKey(provider, conversation)] = now() + GRANT_MS;
+    if (response === 1) {
+      allowUntil[grantKey(provider, conversation)] = now() + GRANT_MS;
+      // B8: el permiso temporal cambia qué se envía sin preguntar: queda en el registro de acciones.
+      try { audit('puente.permiso', { params: { provider, conversation: conversation || 'default', minutos: GRANT_MS / 60000 } }); } catch { /* el registro avisa por su cuenta */ }
+    }
     return response !== 2;
   }
 

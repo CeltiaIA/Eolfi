@@ -209,7 +209,7 @@ def gen_desktop(spec: dict[str, Any], w: Writer) -> None:
             # La CSP de escritorio sustituye a la del sitio estático (una sola <meta>, no dos).
             text = re.sub(r'\s*<meta http-equiv="Content-Security-Policy"[^>]*>', "", text)
             meta = f'<meta http-equiv="Content-Security-Policy" content="{CSP}">\n'
-            text = re.sub(r"(<head>\s*\n?)", lambda m: m.group(1) + "  " + meta, text, count=1)
+            text = re.sub(r"(<head>\s*\n?)", lambda m: m.group(1) + "  " + meta, text, count=1)  # noqa: B023 — re.sub la llama en esta misma vuelta
             text = text.replace("</body>", '  <script src="js/desktop.js"></script>\n</body>', 1)
         w(rel, text)
     w("renderer/js/desktop.js", DESKTOP_JS)
