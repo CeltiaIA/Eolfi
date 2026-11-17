@@ -85,9 +85,9 @@ detiene tras cada paso hasta que lo continúes.
 En `result.results.generar.verification`:
 
 - `ok` es `true`.
-- `steps` lista cada comprobación con su código de salida: `sintaxis JS del sitio (js/main.js)`,
-  `pruebas (node --test)` y `juez funcional (3/3)` (sin errores de JavaScript y axe en el tema claro y en el
-  oscuro), las tres con `exit: 0`. Sin navegador el juez no puede correr y la verificación no queda en verde.
+- `steps` lista cada comprobación con su código de salida: `sintaxis JS del sitio (js/main.js)`, la del
+  *service worker* de la PWA (`sw.js`), `pruebas (node --test)` y `juez funcional (3/3)` (sin errores de
+  JavaScript y axe en el tema claro y en el oscuro), las cuatro con `exit: 0`. Sin navegador el juez no puede correr y la verificación no queda en verde.
 
 **Si un paso falla o la verificación no se pudo ejecutar** (por ejemplo, sin Node.js), `generar` queda `partial`,
 `verified: false`, el plan termina en `done_unverified` y `note` dice «NO VERIFICADO»: el proyecto no es un
@@ -113,7 +113,7 @@ python -m eolfi --db guia.db create --from fuente --out nuevo-cli --name "Receta
 ```
 
 Genera y verifica en un solo paso, sin plan ni aprobación. **Aceptación:** código de salida `0`, `target: static`
-y el mismo objeto `verification` (`ok: true`, tres pasos con `exit: 0`). Si la verificación falla, el código de
+y el mismo objeto `verification` (`ok: true`, cuatro pasos con `exit: 0`). Si la verificación falla, el código de
 salida es `5`.
 
 ## Limpieza

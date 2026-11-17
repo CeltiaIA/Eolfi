@@ -109,6 +109,7 @@ def test_guia_con_plan_y_aprobacion(guia, api):
     ver = gen["verification"]
     assert ver["ok"] is True
     assert [(p["step"], p["exit"]) for p in ver["steps"]] == [("sintaxis JS del sitio (js/main.js)", 0),
+                                                              ("sintaxis JS del sitio (sw.js)", 0),
                                                               ("pruebas (node --test)", 0),
                                                               ("juez funcional (3/3)", 0)]
     # 6. qué conserva de la fuente, sin copiarla
@@ -133,4 +134,4 @@ def test_guia_create_desde_cli(guia, capsys):
     rep = json.loads(capsys.readouterr().out)
     assert code == 0 and rep["target"] == "static"
     ver = rep["verification"]
-    assert ver["ok"] is True and [s["exit"] for s in ver["steps"]] == [0, 0, 0]
+    assert ver["ok"] is True and [s["exit"] for s in ver["steps"]] == [0, 0, 0, 0]
