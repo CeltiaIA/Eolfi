@@ -272,3 +272,84 @@ def test_el_banco_guarda_por_que_fallo_create(monkeypatch):
     notas = []
     assert rsi_banco.banco_tareas(proveedor="eolas-v2", registro=notas.append)(0) == 0.0
     assert notas[0]["exit"] == 1 and notas[0]["error"] == "AssistError: El motor no responde"
+
+
+A11Y = {"comprobar": "accesible", "sin_problemas_accesibilidad": True}
+
+
+def test_validar_la_comprobacion_de_accesibilidad():
+    assert juez.validar({"version": 1, "pasos": [A11Y]})["pasos"] == [A11Y]
+    for malo in (False, "sí", 1):
+        with pytest.raises(juez.JuezError):
+            juez.validar({"version": 1, "pasos": [{"comprobar": "x", "sin_problemas_accesibilidad": malo}]})
+
+
+def _con_a11y(d: Path) -> Path:
+    (d / juez.ARCHIVO).write_text(json.dumps({**CRITERIOS, "pasos": CRITERIOS["pasos"] + [A11Y]}), encoding="utf-8")
+    return d
+
+
+@con_navegador
+def test_juez_real_mide_la_accesibilidad_sin_relajar_la_csp(tmp_path, monkeypatch):
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core (tests/e2e)")
+    bien = juez.paso(_con_a11y(_app(tmp_path / "bien")), "static")
+    assert (bien["exit"], bien["step"]) == (0, "juez funcional (7/7)"), bien["tail"]
+    # Campo sin etiqueta: axe lo marca como crítico; la página conserva su CSP «default-src 'self'».
+    mal = _con_a11y(_app(tmp_path / "mal"))
+    (mal / "index.html").write_text(HTML.replace(' aria-label="Tarea"', ""), encoding="utf-8")
+    p = juez.paso(mal, "static")
+    assert p["exit"] == 1 and p["judge"]["passed"] == 6
+    assert "NO: accesible (label (critical" in p["tail"]
+    monkeypatch.setenv("EOLFI_AXE", str(tmp_path / "no-hay-axe.js"))
+    p = juez.paso(tmp_path / "bien", "static")
+    assert p["exit"] == 1 and "axe-core no disponible" in p["tail"] and "NO VERIFICADO" in p["tail"]
+
+
+@con_navegador
+def test_la_plantilla_static_generada_pasa_axe(tmp_path):
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core (tests/e2e)")
+    out = _project(tmp_path)
+    (out / juez.ARCHIVO).write_text(json.dumps({"version": 1, "pasos": [
+        {"comprobar": "sin errores de JavaScript", "sin_errores_js": True}, A11Y,
+        {"clic": {"selector": "[data-theme-toggle]"}},
+        {"comprobar": "tema oscuro activo", "selector": "[data-theme-toggle]", "patron": "."},
+        {**A11Y, "comprobar": "accesible en tema oscuro"}]}), encoding="utf-8")
+    p = juez.paso(out, "static")
+    assert p["exit"] == 0, p["tail"]
+    assert "accion_fallida" not in p["judge"]
+
+
+def test_criterios_de_accesibilidad_solos_o_anadidos(tmp_path):
+    solos = juez.con_accesibilidad(None)
+    assert [p.get("comprobar") for p in solos["pasos"] if "comprobar" in p] == [
+        "sin errores de JavaScript", "sin problemas graves de accesibilidad",
+        "sin problemas graves de accesibilidad tras cambiar el tema"]
+    origen = tmp_path / "c.json"
+    origen.write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    d = tmp_path / "p"
+    d.mkdir()
+    data = juez.instalar(d, origen, accesibilidad=True)
+    assert data["pasos"][:len(CRITERIOS["pasos"])] == juez.validar(CRITERIOS)["pasos"]
+    assert data["pasos"][len(CRITERIOS["pasos"])] == {"recargar": True}
+    assert json.loads((d / juez.ARCHIVO).read_text(encoding="utf-8")) == data
+    assert juez.instalar(d, origen)["pasos"] == juez.validar(CRITERIOS)["pasos"]
+
+
+@con_navegador
+def test_create_con_accesibilidad_mide_la_plantilla_base(tmp_path):
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core (tests/e2e)")
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    out = tmp_path / "nuevo"
+    rep = create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Bicis",
+                         target="static", accesibilidad=True)
+    v = rep["verification"]
+    assert v["ok"] is True, v["steps"][-1]
+    assert [(st["step"], st["exit"]) for st in v["steps"]][-1] == ("juez funcional (3/3)", 0)
+    assert (out / juez.ARCHIVO).is_file()
+

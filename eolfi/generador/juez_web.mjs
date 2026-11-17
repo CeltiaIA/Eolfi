@@ -100,6 +100,16 @@ async function main() {
       if (!el) throw new Error('no hay ningún elemento con el texto «' + t + '»');
       el.click();`), texto);
 
+    // axe-core (C4): se evalúa desde Playwright, no como <script>, para no relajar la CSP de la app juzgada.
+    const accesibilidad = async () => {
+      if (!req.axe) throw new Error('axe-core no disponible (EOLFI_AXE o tests/e2e/node_modules): NO VERIFICADO');
+      if (!(await page.evaluate(() => typeof window.axe === 'object'))) await page.evaluate(readFileSync(req.axe, 'utf8'));
+      const r = await page.evaluate(async () => (await window.axe.run(document, {
+        resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'best-practice'] },
+      })).violations.map((v) => ({ id: v.id, impact: v.impact, n: v.nodes.length, target: (v.nodes[0]?.target || []).join(' ') })));
+      return r.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+    };
+
     await page.goto(`${origen}/${req.pagina}`, { waitUntil: 'load' });
     for (const paso of req.pasos) {
       if ('comprobar' in paso) {
@@ -121,6 +131,10 @@ async function main() {
             await asentar();
             c.ok = antes !== null && antes !== await estado(paso.cambia_al_clic);
             if (!c.ok) c.detalle = 'el clic no cambió nada visible';
+          } else if (paso.sin_problemas_accesibilidad) {
+            const graves = await accesibilidad();
+            c.ok = graves.length === 0;
+            if (!c.ok) c.detalle = graves.slice(0, 5).map((v) => `${v.id} (${v.impact}, ${v.n}): ${v.target}`).join(' | ');
           } else if (paso.sin_errores_js) {
             c.ok = errores.length === 0;
             if (!c.ok) c.detalle = errores.slice(0, 3).join(' | ');

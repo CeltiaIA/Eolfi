@@ -413,6 +413,8 @@ def _parser() -> argparse.ArgumentParser:
                     help="Descripción para que la IA implemente la lógica de negocio")
     cr.add_argument("--juez", default=None, metavar="ARCHIVO",
                     help="Criterios del juez funcional (JSON): la app se prueba en Chrome y debe cumplirlos todos")
+    cr.add_argument("--accesibilidad", action="store_true",
+                    help="Añade al juez funcional axe (WCAG A/AA) en tema claro y oscuro; la verificación lo incluye")
     cr.add_argument("--sin-autofix", dest="autofix", action="store_false", default=True,
                     help="Si la verificación falla, no pedir a la IA que corrija los errores (autofix)")
     for sp in (cr,):
@@ -1059,7 +1061,7 @@ def _dispatch(args, store: EvidenceStore) -> int:
                                  workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                                  ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
                                  progress=_progress, case_id=args.case_id, provenance=args.provenance,
-                                 autofix=args.autofix, juez=args.juez)
+                                 autofix=args.autofix, juez=args.juez, accesibilidad=args.accesibilidad)
         except Exception as exc:
             if args.ai_brief:
                 _rsi_observar("generador", "create_ai", {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ctx)

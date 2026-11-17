@@ -15,7 +15,12 @@ Formato (versión 1)::
       {"clic": {"selector": "button", "en": "comprar pan"}},
       {"comprobar": "borrar quita la tarea", "ausente": "comprar pan"},
       {"recargar": true},
-      {"comprobar": "sin errores de JavaScript", "sin_errores_js": true}]}
+      {"comprobar": "sin errores de JavaScript", "sin_errores_js": true},
+      {"comprobar": "accesible", "sin_problemas_accesibilidad": true}]}
+
+``sin_problemas_accesibilidad`` (C4, 17/11/2026) pasa axe-core por la página en su estado de ese momento y falla si
+hay problemas graves o críticos (WCAG 2.0/2.1 A y AA y buenas prácticas). axe se inyecta desde Playwright, sin
+relajar la CSP de la aplicación; si axe-core no está disponible la comprobación falla (nunca se aprueba sin medir).
 
 Hoy solo para el destino ``static`` (se sirve la carpeta tal cual). En otros destinos los criterios se anotan como
 no ejecutados y la verificación NO queda en verde: un juez que no corre no aprueba nada.
@@ -68,10 +73,11 @@ def validar(data: Any) -> dict[str, Any]:
             raise JuezError(f"paso {i}: debe ser un objeto")
         if "comprobar" in p:
             c: dict[str, Any] = {"comprobar": _texto(p["comprobar"], f"paso {i}: comprobar", 120)}
-            tipos = [k for k in ("presente", "ausente", "patron", "cuenta", "cambia_al_clic", "sin_errores_js") if k in p]
+            tipos = [k for k in ("presente", "ausente", "patron", "cuenta", "cambia_al_clic", "sin_errores_js",
+                                 "sin_problemas_accesibilidad") if k in p]
             if len(tipos) != 1:
                 raise JuezError(f"paso {i}: una comprobación lleva exactamente una de presente, ausente, patron, "
-                                "cuenta, cambia_al_clic o sin_errores_js")
+                                "cuenta, cambia_al_clic, sin_errores_js o sin_problemas_accesibilidad")
             t = tipos[0]
             if t in ("presente", "ausente", "cambia_al_clic"):
                 c[t] = _texto(p[t], f"paso {i}: {t}")
@@ -89,7 +95,7 @@ def validar(data: Any) -> dict[str, Any]:
                 c["cuenta"] = p["cuenta"]
             else:
                 if p[t] is not True:
-                    raise JuezError(f"paso {i}: «sin_errores_js» debe ser true")
+                    raise JuezError(f"paso {i}: «{t}» debe ser true")
                 c[t] = True
             limpio.append(c)
         elif "escribir" in p and isinstance(p["escribir"], dict):
@@ -130,7 +136,34 @@ def cargar(proyecto: Path) -> dict[str, Any] | None:
         raise JuezError(f"{ARCHIVO} no se puede leer: {exc}") from exc
 
 
-def instalar(proyecto: Path, origen: str | Path) -> dict[str, Any]:
+# ``create --accesibilidad`` (C4): axe en el estado inicial y tras cambiar al tema oscuro de la plantilla. Si la app
+# no tiene el botón de tema, el juez anota la acción fallida y la segunda medida se hace en el tema que haya.
+PASOS_ACCESIBILIDAD = [
+    {"comprobar": "sin problemas graves de accesibilidad", "sin_problemas_accesibilidad": True},
+    {"clic": {"selector": "[data-theme-toggle]"}},
+    {"comprobar": "sin problemas graves de accesibilidad tras cambiar el tema", "sin_problemas_accesibilidad": True},
+]
+
+
+def con_accesibilidad(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Los criterios de accesibilidad solos, o añadidos al final de otros (tras recargar la página)."""
+    if data is None:
+        return validar({"version": 1, "pasos": [
+            {"comprobar": "sin errores de JavaScript", "sin_errores_js": True}, *PASOS_ACCESIBILIDAD]})
+    return validar({**data, "pasos": [*data["pasos"], {"recargar": True}, *PASOS_ACCESIBILIDAD]})
+
+
+def _escribir(proyecto: Path, data: dict[str, Any]) -> None:
+    (Path(proyecto) / ARCHIVO).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def instalar_accesibilidad(proyecto: Path) -> dict[str, Any]:
+    data = con_accesibilidad(None)
+    _escribir(proyecto, data)
+    return data
+
+
+def instalar(proyecto: Path, origen: str | Path, *, accesibilidad: bool = False) -> dict[str, Any]:
     """Copia unos criterios validados al proyecto (lo hace ``create --juez``, nunca el modelo)."""
     try:
         data = validar(json.loads(Path(origen).read_text(encoding="utf-8")))
@@ -138,7 +171,9 @@ def instalar(proyecto: Path, origen: str | Path) -> dict[str, Any]:
         if isinstance(exc, JuezError):
             raise
         raise JuezError(f"no se pueden leer los criterios de {origen}: {exc}") from exc
-    (Path(proyecto) / ARCHIVO).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if accesibilidad:
+        data = con_accesibilidad(data)
+    _escribir(proyecto, data)
     return data
 
 
@@ -149,6 +184,15 @@ def _playwright() -> str | None:
         return declarada
     local = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "node_modules" / "playwright-core"
     return str(local) if (local / "index.mjs").is_file() else None
+
+
+def _axe() -> str | None:
+    """axe.min.js: el declarado (EOLFI_AXE) o el de las pruebas del propio Eolfi, con la versión fijada allí."""
+    declarado = os.environ.get("EOLFI_AXE")
+    if declarado:
+        return declarado if Path(declarado).is_file() else None
+    local = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "node_modules" / "axe-core" / "axe.min.js"
+    return str(local) if local.is_file() else None
 
 
 def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, str] | None = None,
@@ -169,7 +213,8 @@ def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, st
     with tempfile.TemporaryDirectory(prefix="eolfi-juez-") as tmp:
         req = Path(tmp, "peticion.json")
         req.write_text(json.dumps({"raiz": str(Path(proyecto).resolve()), "pagina": criterios["pagina"],
-                                   "pasos": criterios["pasos"], "espera_ms": 5000, "asentar_ms": 200}),
+                                   "pasos": criterios["pasos"], "espera_ms": 5000, "asentar_ms": 200,
+                                   "axe": _axe()}),
                        encoding="utf-8")
         try:
             proc = subprocess.run([node, str(DRIVER), str(req)], capture_output=True, timeout=plazo, env=run_env,

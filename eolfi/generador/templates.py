@@ -258,8 +258,27 @@ def has_form(node: Any) -> bool:
 # ---------------------------------------------------------------------------
 # Estilos (mismos para todos los destinos)
 # ---------------------------------------------------------------------------
+OSCURO_BG, OSCURO_SURFACE = "#12141a", "#1b1e26"
+
+
+def _oscuro(p: dict[str, str]) -> dict[str, str]:
+    """Primario y acento del tema oscuro (C4, 17/11/2026): los de la marca se aclaran lo justo para el contraste
+    AA sobre el fondo y la superficie oscuros; axe encontró los enlaces a 2,9:1 cuando se reutilizaban tal cual."""
+    from eolfi.generador.spec import ensure_contrast, on_color
+
+    out = {}
+    for k, minimo in (("primary", 4.5), ("accent", 3.0)):
+        c = p[k]
+        for fondo in (OSCURO_BG, OSCURO_SURFACE):
+            c = ensure_contrast(c, fondo, minimo)
+        out[k] = c
+    out["on_primary"] = on_color(out["primary"])
+    return out
+
+
 def tokens_css(spec: dict[str, Any]) -> str:
     p = spec["design"]["palette"]
+    o = _oscuro(p)
     font = spec["design"]["font"]
     font_stack = (f'"{font}", ' if font and font != "system-ui" else "") + \
         'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
@@ -285,8 +304,11 @@ def tokens_css(spec: dict[str, Any]) -> str:
 }}
 
 :root[data-theme="dark"] {{
-  --color-bg: #12141a;
-  --color-surface: #1b1e26;
+  --color-primary: {o['primary']};
+  --color-accent: {o['accent']};
+  --color-on-primary: {o['on_primary']};
+  --color-bg: {OSCURO_BG};
+  --color-surface: {OSCURO_SURFACE};
   --color-text: #e8eaf0;
   --color-muted: #a0a7b4;
 }}

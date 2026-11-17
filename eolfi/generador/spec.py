@@ -117,8 +117,12 @@ def palette(colors: list[str]) -> dict[str, str]:
     bg = base["background"]
     base["primary"] = ensure_contrast(base["primary"], bg, 4.5)
     base["accent"] = ensure_contrast(base["accent"], bg, 3.0)
-    base["text"] = ensure_contrast(base["text"], bg, 7.0)
-    base["muted"] = ensure_contrast(base["muted"], bg, 4.5)
+    # El texto y el atenuado van también sobre la superficie (tarjetas, citas): C4, 17/11/2026, axe encontró el pie
+    # de las citas («muted» sobre «surface») por debajo de 4,5:1 en la plantilla static. El primario sobre la
+    # superficie solo pinta cifras grandes (3:1 basta) y conserva el tono de la marca.
+    for k, minimo in (("text", 7.0), ("muted", 4.5)):
+        for fondo in (bg, base["surface"]):
+            base[k] = ensure_contrast(base[k], fondo, minimo)
     base["on_primary"] = on_color(base["primary"])
     return base
 
