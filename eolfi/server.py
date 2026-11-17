@@ -730,13 +730,13 @@ class EolfiApp:
         try:
             return vscode_action("workspace", timeout=4)
         except LLMError as exc:
-            raise ApiError(503, "Abre VS Code e vincula a extensión de Eolfi.") from exc
+            raise ApiError(503, "Abre VS Code y vincula la extensión de Eolfi.") from exc
 
     def local_chat_send(self, body):
         from eolfi.generador.llm import LLMError, _post, read_vscode_bridge
         prompt, project = body.get("prompt"), body.get("project")
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or not isinstance(project, str):
-            raise ApiError(400, "Mensaxe ou proxecto inválido.")
+            raise ApiError(400, "Mensaje o proyecto no válido.")
         try:
             bridge = read_vscode_bridge()
             return _post(bridge["url"] + "/v1/local-chat", {"prompt": prompt, "project": project},

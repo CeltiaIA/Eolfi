@@ -1252,7 +1252,7 @@ async function refreshLocalChatProject() {
     const { folders } = await api("/api/local-chat/workspace");
     if (folders?.length === 1) localChatProject = folders[0];
   } catch { /* VS Code pode estar pechado */ }
-  $("#local-chat-project").textContent = localChatProject || "Abre un único proxecto en VS Code e volve a esta pestana.";
+  $("#local-chat-project").textContent = localChatProject || "Abre un único proyecto en VS Code y vuelve a esta pestaña.";
 }
 
 $("#local-chat-form").addEventListener("submit", async (event) => {
@@ -1262,7 +1262,7 @@ $("#local-chat-form").addEventListener("submit", async (event) => {
   const answer = $("#local-chat-answer");
   const prompt = $("#local-chat-prompt").value.trim();
   if (!prompt || !localChatProject) {
-    answer.textContent = "Comproba que hai unha mensaxe e un proxecto aberto en VS Code.";
+    answer.textContent = "Comprueba que haya un mensaje y un proyecto abierto en VS Code.";
     return;
   }
   button.disabled = true;

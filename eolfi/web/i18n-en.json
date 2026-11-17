@@ -285,5 +285,7 @@
  "ES · Español": "ES · Español",
  "EN · English": "EN · English",
  "Idioma": "Language",
- "Idioma del panel": "Panel language"
+ "Idioma del panel": "Panel language",
+ "Abre un único proyecto en VS Code y vuelve a esta pestaña.": "Open a single project in VS Code and come back to this tab.",
+ "Comprueba que haya un mensaje y un proyecto abierto en VS Code.": "Check that there is a message and a project open in VS Code."
 }
