@@ -8,8 +8,8 @@
 - **C4 accesibilidad de los proyectos generados (17/11, rama `luis/c4-juez-accesibilidad`):** el juez funcional admite
   `{"comprobar": …, "sin_problemas_accesibilidad": true}` (axe-core inyectado desde Playwright, sin tocar la CSP;
   sin axe = NO VERIFICADO). Encontró y se corrigieron dos fallos de contraste de la plantilla `static`
-  (atenuado sobre tarjetas; primario en tema oscuro). Pendiente de C4: comprobación por defecto en `create`,
-  otros destinos, PWA, i18n y receta de despliegue.
+  (atenuado sobre tarjetas; primario en tema oscuro). `eolfi create --accesibilidad` los instala antes de
+  verificar (la plantilla base también se mide). Pendiente de C4: por defecto y en el panel, otros destinos, PWA, i18n y receta de despliegue.
 - **C5 mapa de la app (17/11, rama `luis/c5-mapa-app`):** `eolfi/web/mapa.js` dibuja en la evidencia de REA el
   grafo de llamadas (SVG por niveles, importaciones diferenciadas, lista en texto) y el mapa de pantallas y
   componentes de Android y de bundles de Apple. `grafo_llamadas` devuelve `enlaces`; las evidencias antiguas se

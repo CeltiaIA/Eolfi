@@ -129,7 +129,8 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                    ai_client=None, ai_provider: str = "eolas-v2", ai_model: str | None = None,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
                    progress: Callable[[str], None] | None = None, case_id: str | None = None,
-                   provenance: str = "", autofix: bool = False, juez: str | None = None) -> dict[str, Any]:
+                   provenance: str = "", autofix: bool = False, juez: str | None = None,
+                   accesibilidad: bool = False) -> dict[str, Any]:
     """autofix: si la verificación falla, la IA (ai_provider) intenta corregir el proyecto (ver run_autofix).
     case_id: cada fuente analizada queda en el caso (con su propio registro «analysis») y la reconstrucción
     se registra como «reconstruction», con la verificación y sus pasos. Sin verificación verde: «partial»."""
@@ -138,13 +139,14 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
     params = {"sources": sources, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
               "force": force, "reanalyze": reanalyze, "db": db, "auth": auth, "ai": bool(ai_brief),
               "ai_provider": ai_provider if (ai_brief or autofix) else None, "autofix": autofix,
-              "juez": bool(juez)}
+              "juez": bool(juez), "accesibilidad": accesibilidad}
     with case_run(store, case_id, "create", params,
                   provenance or "fuentes indicadas por el operador para una reconstrucción") as run:
         rep = _create_project(sources, store, out, name=name, target=target, do_verify=do_verify, force=force,
                               reanalyze=reanalyze, workdir=workdir, ai_brief=ai_brief, ai_client=ai_client,
                               ai_provider=ai_provider, ai_model=ai_model, ai_base_url=ai_base_url, db=db,
-                              auth=auth, progress=progress, case_id=case_id, autofix=autofix, juez=juez)
+                              auth=auth, progress=progress, case_id=case_id, autofix=autofix, juez=juez,
+                              accesibilidad=accesibilidad)
         if run.active:
             for src in rep["sources"]:
                 run.associate(src["subject"])
@@ -171,7 +173,7 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
 
 def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *, name: str, target: str,
                     do_verify: bool, force: bool, reanalyze: bool, workdir: str, ai_brief: str | None,
-                    autofix: bool = False, juez: str | None = None,
+                    autofix: bool = False, juez: str | None = None, accesibilidad: bool = False,
                     ai_client, ai_provider: str, ai_model: str | None, ai_base_url: str | None, db: str,
                     auth: bool, progress: Callable[[str], None] | None, case_id: str | None) -> dict[str, Any]:
     from eolfi.generador.generators import generate
@@ -264,7 +266,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
 
         clean = Path(tempfile.mkdtemp(prefix="eolfi-limpio-"))
         try:
-            files = generate(spec, clean)
+            files = generate(spec, clean) + _accesibilidad(clean, accesibilidad, log)
             log(f"verificando en una carpeta limpia ({clean}) antes de escribir sobre el origen…")
             ver = verify(clean, spec["target"], progress=log)
             # Lo verificado (con versiones ya fijadas y lockfiles) es lo que se copia al origen.
@@ -278,7 +280,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
             shutil.rmtree(clean, ignore_errors=True)
         log(f"{len(files)} archivos verificados y copiados a {out_path}")
     else:
-        files = generate(spec, out_path, force=force)
+        files = generate(spec, out_path, force=force) + _accesibilidad(out_path, accesibilidad, log)
         log(f"{len(files)} archivos generados en {out_path}")
     subject = f"proyecto:{out_path}"
     env = environment_string()
@@ -332,12 +334,25 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
         # cumple; lo que escriba la IA sí debe cumplirlos. El modelo no puede editarlos.
         from eolfi.generador import juez as _juez
 
-        result["juez"] = {"comprobaciones": sum(1 for p in _juez.instalar(out_path, juez)["pasos"] if "comprobar" in p)}
+        criterios = _juez.instalar(out_path, juez, accesibilidad=accesibilidad)
+        result["juez"] = {"comprobaciones": sum(1 for p in criterios["pasos"] if "comprobar" in p)}
         log(f"criterios del juez funcional instalados ({result['juez']['comprobaciones']} comprobaciones)")
     if ai_brief:
         result["assist"] = run_assist(store, out_path, ai_brief, client=ai_client, provider=ai_provider,
                                       model=ai_model, base_url=ai_base_url, progress=log)
     return result
+
+
+def _accesibilidad(proyecto: Path, activa: bool, log: Callable[[str], None]) -> list[str]:
+    """``create --accesibilidad`` (C4): criterios con axe ANTES de verificar, así la plantilla base también se mide.
+    En destinos que el juez no cubre la verificación no queda en verde (un juez que no corre no aprueba)."""
+    if not activa:
+        return []
+    from eolfi.generador import juez as _juez
+
+    _juez.instalar_accesibilidad(proyecto)
+    log("criterios de accesibilidad instalados (axe en el estado inicial y tras cambiar el tema)")
+    return [_juez.ARCHIVO]
 
 
 def _safe_autofix(store: EvidenceStore, project: Path, **kw: Any) -> dict[str, Any]:

@@ -319,3 +319,37 @@ def test_la_plantilla_static_generada_pasa_axe(tmp_path):
     p = juez.paso(out, "static")
     assert p["exit"] == 0, p["tail"]
     assert "accion_fallida" not in p["judge"]
+
+
+def test_criterios_de_accesibilidad_solos_o_anadidos(tmp_path):
+    solos = juez.con_accesibilidad(None)
+    assert [p.get("comprobar") for p in solos["pasos"] if "comprobar" in p] == [
+        "sin errores de JavaScript", "sin problemas graves de accesibilidad",
+        "sin problemas graves de accesibilidad tras cambiar el tema"]
+    origen = tmp_path / "c.json"
+    origen.write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    d = tmp_path / "p"
+    d.mkdir()
+    data = juez.instalar(d, origen, accesibilidad=True)
+    assert data["pasos"][:len(CRITERIOS["pasos"])] == juez.validar(CRITERIOS)["pasos"]
+    assert data["pasos"][len(CRITERIOS["pasos"])] == {"recargar": True}
+    assert json.loads((d / juez.ARCHIVO).read_text(encoding="utf-8")) == data
+    assert juez.instalar(d, origen)["pasos"] == juez.validar(CRITERIOS)["pasos"]
+
+
+@con_navegador
+def test_create_con_accesibilidad_mide_la_plantilla_base(tmp_path):
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core (tests/e2e)")
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    out = tmp_path / "nuevo"
+    rep = create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Bicis",
+                         target="static", accesibilidad=True)
+    v = rep["verification"]
+    assert v["ok"] is True, v["steps"][-1]
+    assert [(st["step"], st["exit"]) for st in v["steps"]][-1] == ("juez funcional (3/3)", 0)
+    assert (out / juez.ARCHIVO).is_file()
+

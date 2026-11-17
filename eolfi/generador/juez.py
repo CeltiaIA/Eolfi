@@ -136,7 +136,34 @@ def cargar(proyecto: Path) -> dict[str, Any] | None:
         raise JuezError(f"{ARCHIVO} no se puede leer: {exc}") from exc
 
 
-def instalar(proyecto: Path, origen: str | Path) -> dict[str, Any]:
+# ``create --accesibilidad`` (C4): axe en el estado inicial y tras cambiar al tema oscuro de la plantilla. Si la app
+# no tiene el botón de tema, el juez anota la acción fallida y la segunda medida se hace en el tema que haya.
+PASOS_ACCESIBILIDAD = [
+    {"comprobar": "sin problemas graves de accesibilidad", "sin_problemas_accesibilidad": True},
+    {"clic": {"selector": "[data-theme-toggle]"}},
+    {"comprobar": "sin problemas graves de accesibilidad tras cambiar el tema", "sin_problemas_accesibilidad": True},
+]
+
+
+def con_accesibilidad(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Los criterios de accesibilidad solos, o añadidos al final de otros (tras recargar la página)."""
+    if data is None:
+        return validar({"version": 1, "pasos": [
+            {"comprobar": "sin errores de JavaScript", "sin_errores_js": True}, *PASOS_ACCESIBILIDAD]})
+    return validar({**data, "pasos": [*data["pasos"], {"recargar": True}, *PASOS_ACCESIBILIDAD]})
+
+
+def _escribir(proyecto: Path, data: dict[str, Any]) -> None:
+    (Path(proyecto) / ARCHIVO).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def instalar_accesibilidad(proyecto: Path) -> dict[str, Any]:
+    data = con_accesibilidad(None)
+    _escribir(proyecto, data)
+    return data
+
+
+def instalar(proyecto: Path, origen: str | Path, *, accesibilidad: bool = False) -> dict[str, Any]:
     """Copia unos criterios validados al proyecto (lo hace ``create --juez``, nunca el modelo)."""
     try:
         data = validar(json.loads(Path(origen).read_text(encoding="utf-8")))
@@ -144,7 +171,9 @@ def instalar(proyecto: Path, origen: str | Path) -> dict[str, Any]:
         if isinstance(exc, JuezError):
             raise
         raise JuezError(f"no se pueden leer los criterios de {origen}: {exc}") from exc
-    (Path(proyecto) / ARCHIVO).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if accesibilidad:
+        data = con_accesibilidad(data)
+    _escribir(proyecto, data)
     return data
 
 
