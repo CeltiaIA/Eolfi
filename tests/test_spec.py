@@ -1,6 +1,5 @@
 """Fase 3: especificación versionada sustentada por observaciones (muestras sintéticas propias)."""
 import json
-import sys
 
 import pytest
 

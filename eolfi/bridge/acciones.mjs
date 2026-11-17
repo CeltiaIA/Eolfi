@@ -74,7 +74,9 @@ function conCerrojo(path, fn, timeoutMs = 10_000) {
       closeSync(fd);
       break;
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      // En Windows, crear el cerrojo mientras otro proceso lo borra da EPERM/EACCES (borrado pendiente): también está ocupado.
+      const ocupado = e.code === 'EEXIST' || (process.platform === 'win32' && (e.code === 'EPERM' || e.code === 'EACCES'));
+      if (!ocupado) throw e;
       try {
         if (Date.now() - statSync(lock).mtimeMs > 30_000) { unlinkSync(lock); continue; }
       } catch { /* lo retiró otro proceso */ }
