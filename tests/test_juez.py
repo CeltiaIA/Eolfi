@@ -77,7 +77,7 @@ def test_paso_sin_criterios_invalidos_destino_y_desactivado(tmp_path, monkeypatc
     p = juez.paso(tmp_path, "static")
     assert p["exit"] == 1 and "inválidos" in p["tail"]
     (tmp_path / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
-    p = juez.paso(tmp_path, "react")
+    p = juez.paso(tmp_path, "fastapi")
     assert p["exit"] == 1 and "aún no cubre" in p["tail"]              # un juez que no corre no aprueba
     monkeypatch.setattr(juez.shutil, "which", lambda _n: None)
     assert juez.paso(tmp_path, "static")["exit"] == 1
@@ -352,4 +352,29 @@ def test_create_con_accesibilidad_mide_la_plantilla_base(tmp_path):
     assert v["ok"] is True, v["steps"][-1]
     assert [(st["step"], st["exit"]) for st in v["steps"]][-1] == ("juez funcional (3/3)", 0)
     assert (out / juez.ARCHIVO).is_file()
+
+
+def test_destinos_vite_sin_compilacion_no_aprueban(tmp_path):
+    (tmp_path / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    for destino in ("react", "vue", "svelte"):
+        p = juez.paso(tmp_path, destino)
+        assert p["exit"] == 1 and "falta la compilación" in p["tail"] and "dist/index.html" in p["tail"]
+    assert "aún no cubre" in juez.paso(tmp_path, "fastapi")["tail"]
+
+
+@con_navegador
+def test_destinos_vite_juzgan_la_compilacion_de_dist(tmp_path):
+    # Sin npm install ni red: una «compilación» con la forma de la de Vite (index.html y assets/ con rutas absolutas).
+    proyecto = tmp_path / "spa"
+    dist = _app(proyecto / "dist")
+    (dist / juez.ARCHIVO).unlink()
+    (dist / "assets").mkdir()
+    (dist / "app.js").rename(dist / "assets" / "index-abc123.js")
+    (dist / "index.html").write_text(HTML.replace('src="app.js"', 'type="module" src="/assets/index-abc123.js"'),
+                                     encoding="utf-8")
+    (proyecto / "index.html").write_text("<!doctype html><title>fuente sin compilar</title>", encoding="utf-8")
+    _con_a11y(proyecto)
+    for destino in ("react", "vue", "svelte"):
+        p = juez.paso(proyecto, destino)
+        assert (p["exit"], p["step"]) == (0, "juez funcional (7/7)"), p["tail"]
 

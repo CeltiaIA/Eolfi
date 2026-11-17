@@ -70,6 +70,8 @@ after(async () => {
 async function openTools(section) {
   if (!(await page.isVisible('#tools-drawer'))) {
     await page.click('#open-chat');
+    // El botón recibe su listener en eolas-chat.js, que se carga después: un clic anterior se pierde (CI, 17/11).
+    await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
     await page.click('#eolas-chat-tools');
     await page.waitForSelector('#tools-drawer:not([hidden])');
   }
