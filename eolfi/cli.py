@@ -489,6 +489,9 @@ def _parser() -> argparse.ArgumentParser:
     r9.add_argument("destino", help="carpeta nueva (ruta absoluta) donde escribir el paquete")
     r9.add_argument("--nombre", help="nombre del entorno (obligatorio si el origen es localhost o una IP)")
     r9.add_argument("--escribir", action="store_true", help="escribe el paquete; sin esto solo informa de lo que contendría")
+    r11 = rps.add_parser("mapa-app", help="Mapa de una app Android (.apk): permisos, componentes exportados y estructura (JADX)")
+    r11.add_argument("ruta")
+    r11.add_argument("--limite", type=int, default=40, help="máximo de componentes y bibliotecas listados (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1636,6 +1639,9 @@ def main(argv: list[str] | None = None) -> int:
                 op = "entorno_agente"
                 params = {"ruta": args.ruta, "destino": args.destino, "nombre": args.nombre, "escribir": args.escribir}
                 result = rc.entorno_agente(client, args.ruta, args.destino, args.nombre, escribir=args.escribir)
+            elif args.rea_action == "mapa-app":
+                op, params = "mapa_app_android", {"ruta": args.ruta, "limite": args.limite}
+                result = rc.mapa_app_android(client, args.ruta, args.limite)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
