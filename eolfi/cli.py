@@ -512,6 +512,9 @@ def _parser() -> argparse.ArgumentParser:
     r15.add_argument("ruta")
     r15.add_argument("--abi", help="ABI del snapshot que se examina (por defecto la que elija REA)")
     r15.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
+    r16 = rps.add_parser("apple", help="Mapa de una app de Apple (.app, .zip, .ipa o .dmg): bundles, ejecutables e Info.plist, sin ejecutarla")
+    r16.add_argument("ruta")
+    r16.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r4 = rps.add_parser("comparar", help="Qué cambió entre dos versiones, con el veredicto verificable de REA")
     r4.add_argument("original")
     r4.add_argument("nueva")
@@ -1680,6 +1683,9 @@ def main(argv: list[str] | None = None) -> int:
             elif args.rea_action == "flutter":
                 op, params = "app_flutter", {"ruta": args.ruta, "abi": args.abi}
                 result = rc.app_flutter(client, args.ruta, args.abi, args.limite)
+            elif args.rea_action == "apple":
+                op, params = "mapa_app_apple", {"ruta": args.ruta}
+                result = rc.mapa_app_apple(client, args.ruta, args.limite)
             elif args.rea_action == "revisar-modelo":
                 op, params, result = "revisar_modelo", {"ruta": args.ruta}, rc.revisar_modelo(client, args.ruta)
             elif args.rea_action == "explicar":
