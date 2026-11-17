@@ -5,6 +5,11 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **B2 determinismo medido (18/11, rama `luis/b2-determinismo`):** `tools/medir_determinismo.py` (misma petición
+  N veces con `EOLFI_SEMILLA`; `--frio` descarga V1 entre peticiones). Gemma 4 12B, semilla 0: **V2 7/7**
+  idénticas (frío incluido); **V1 4/7**: frío = un texto fijo (894 car.), caliente = otro fijo (918 car.). Causa:
+  `D:\celtiaia\Eolas Base\internal\runner\runner.go:335` fuerza `cache_prompt = true` tras copiar las opciones.
+  Arreglo en CeltIA pendiente de decisión del titular. V1 y V2 parados al terminar.
 - **Honestidad del chat (17/11, rama `luis/chat-honesto`):** los defectos de una conversación real con
   gemma-4-12b (acciones «en curso» sin ejecutar, «RSI» inventado como arquitectura —RSI es Recursive
   Self-Improvement, la automejora supervisada—, fusión de pesos, licencia propia sobre pesos derivados, negar VS
@@ -24,7 +29,7 @@
   panel; `--sin-accesibilidad`) con el navegador propio de Eolfi: `eolfi navegador instalar` (ya instalado en
   `~/.eolfi/navegador`: Chrome Headless Shell 1248, playwright-core 1.64.1, axe-core 4.14.0). El juez cubre también next, express, fastapi y
   django en modo servidor (proyectos reales verificados 3/3 con axe). PWA en static (probada sin red) y `DESPLIEGUE.md`
-  en todos los destinos. Pendiente de C4: i18n de los proyectos generados, PWA, i18n y receta de despliegue.
+  en todos los destinos. Pendiente de C4: i18n de los proyectos generados.
 - **C5 mapa de la app (17/11, rama `luis/c5-mapa-app`):** `eolfi/web/mapa.js` dibuja en la evidencia de REA el
   grafo de llamadas (SVG por niveles, importaciones diferenciadas, lista en texto) y el mapa de pantallas y
   componentes de Android y de bundles de Apple. `grafo_llamadas` devuelve `enlaces`; las evidencias antiguas se
