@@ -537,3 +537,20 @@ def test_next_generator_respects_observed_methods_and_auth_routes(tmp_path):
         assert not (tmp_path / "gen2" / "app/api/auth").exists()
     finally:
         store.close()
+
+
+def test_contraste_sobre_la_superficie_y_en_tema_oscuro():
+    # C4 (17/11/2026): axe encontró el atenuado sobre las tarjetas y el primario del tema oscuro por debajo de AA.
+    import re as _re
+
+    from eolfi.generador.spec import contrast, palette
+    from eolfi.generador.templates import OSCURO_BG, OSCURO_SURFACE, _oscuro
+
+    p = palette(["#e11d48", "#ffffff", "#eeeeee", "#111111"])
+    assert contrast(p["muted"], p["surface"]) >= 4.5 and contrast(p["text"], p["surface"]) >= 7
+    for marca in ("#4f46e5", "#e11d48", "#1d4ed8", "#000080"):
+        o = _oscuro({"primary": marca, "accent": "#f59e0b"})
+        for fondo in (OSCURO_BG, OSCURO_SURFACE):
+            assert contrast(o["primary"], fondo) >= 4.5 and contrast(o["accent"], fondo) >= 3
+        assert contrast(o["on_primary"], o["primary"]) >= 4.5
+        assert _re.fullmatch(r"#[0-9a-f]{6}", o["primary"])

@@ -15,7 +15,12 @@ Formato (versión 1)::
       {"clic": {"selector": "button", "en": "comprar pan"}},
       {"comprobar": "borrar quita la tarea", "ausente": "comprar pan"},
       {"recargar": true},
-      {"comprobar": "sin errores de JavaScript", "sin_errores_js": true}]}
+      {"comprobar": "sin errores de JavaScript", "sin_errores_js": true},
+      {"comprobar": "accesible", "sin_problemas_accesibilidad": true}]}
+
+``sin_problemas_accesibilidad`` (C4, 17/11/2026) pasa axe-core por la página en su estado de ese momento y falla si
+hay problemas graves o críticos (WCAG 2.0/2.1 A y AA y buenas prácticas). axe se inyecta desde Playwright, sin
+relajar la CSP de la aplicación; si axe-core no está disponible la comprobación falla (nunca se aprueba sin medir).
 
 Hoy solo para el destino ``static`` (se sirve la carpeta tal cual). En otros destinos los criterios se anotan como
 no ejecutados y la verificación NO queda en verde: un juez que no corre no aprueba nada.
@@ -68,10 +73,11 @@ def validar(data: Any) -> dict[str, Any]:
             raise JuezError(f"paso {i}: debe ser un objeto")
         if "comprobar" in p:
             c: dict[str, Any] = {"comprobar": _texto(p["comprobar"], f"paso {i}: comprobar", 120)}
-            tipos = [k for k in ("presente", "ausente", "patron", "cuenta", "cambia_al_clic", "sin_errores_js") if k in p]
+            tipos = [k for k in ("presente", "ausente", "patron", "cuenta", "cambia_al_clic", "sin_errores_js",
+                                 "sin_problemas_accesibilidad") if k in p]
             if len(tipos) != 1:
                 raise JuezError(f"paso {i}: una comprobación lleva exactamente una de presente, ausente, patron, "
-                                "cuenta, cambia_al_clic o sin_errores_js")
+                                "cuenta, cambia_al_clic, sin_errores_js o sin_problemas_accesibilidad")
             t = tipos[0]
             if t in ("presente", "ausente", "cambia_al_clic"):
                 c[t] = _texto(p[t], f"paso {i}: {t}")
@@ -89,7 +95,7 @@ def validar(data: Any) -> dict[str, Any]:
                 c["cuenta"] = p["cuenta"]
             else:
                 if p[t] is not True:
-                    raise JuezError(f"paso {i}: «sin_errores_js» debe ser true")
+                    raise JuezError(f"paso {i}: «{t}» debe ser true")
                 c[t] = True
             limpio.append(c)
         elif "escribir" in p and isinstance(p["escribir"], dict):
@@ -151,6 +157,15 @@ def _playwright() -> str | None:
     return str(local) if (local / "index.mjs").is_file() else None
 
 
+def _axe() -> str | None:
+    """axe.min.js: el declarado (EOLFI_AXE) o el de las pruebas del propio Eolfi, con la versión fijada allí."""
+    declarado = os.environ.get("EOLFI_AXE")
+    if declarado:
+        return declarado if Path(declarado).is_file() else None
+    local = Path(__file__).resolve().parents[2] / "tests" / "e2e" / "node_modules" / "axe-core" / "axe.min.js"
+    return str(local) if local.is_file() else None
+
+
 def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, str] | None = None,
            plazo: float = PLAZO) -> dict[str, Any]:
     """Ejecuta los criterios. Devuelve ``status`` ok (con passed/total/checks), unavailable o error."""
@@ -169,7 +184,8 @@ def juzgar(proyecto: str | Path, criterios: dict[str, Any], *, env: dict[str, st
     with tempfile.TemporaryDirectory(prefix="eolfi-juez-") as tmp:
         req = Path(tmp, "peticion.json")
         req.write_text(json.dumps({"raiz": str(Path(proyecto).resolve()), "pagina": criterios["pagina"],
-                                   "pasos": criterios["pasos"], "espera_ms": 5000, "asentar_ms": 200}),
+                                   "pasos": criterios["pasos"], "espera_ms": 5000, "asentar_ms": 200,
+                                   "axe": _axe()}),
                        encoding="utf-8")
         try:
             proc = subprocess.run([node, str(DRIVER), str(req)], capture_output=True, timeout=plazo, env=run_env,
