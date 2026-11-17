@@ -173,10 +173,16 @@ En el panel: pestañas Binario / Web / Repositorio para analizar, casillas en
 ```bash
 python -m eolfi web https://ejemplo.com/            # o un .html / carpeta de sitio estático
 python -m eolfi web https://ejemplo.com/ --save estudio/   # + copia de estudio de HTML/CSS/JS
+python -m eolfi web https://ejemplo.com/ --render --paginas 10 --profundidad 2   # SPA: renderiza y rastrea el mismo origen
 python -m eolfi repo D:/proyectos/mi-app            # carpeta local
 python -m eolfi repo https://github.com/usuario/repo   # clon superficial y seguro
 ```
 
+- **Web renderizada** (`--render`, C3): abre cada página en Chrome/Edge sin interfaz (playwright-core, sin
+  descargar navegadores), espera a que la red se calme y analiza el DOM resultante: lo que una SPA construye
+  con JavaScript. Rastreo en anchura solo del mismo origen (como máximo 50 páginas y 5 saltos), con
+  robots.txt respetado, enlaces y rutas de `pushState`. Las peticiones a otros hosts se bloquean y se
+  cuentan. No rellena formularios ni pulsa botones. Sin navegador, el resultado queda NO VERIFICADO.
 - **Web**: estructura (landmarks, encabezados, formularios, esquema del DOM),
   assets, CSS (paleta, fuentes, breakpoints, variables, Grid/Flex), JS
   (bundler, APIs del navegador, endpoints), **source maps** (solo las rutas

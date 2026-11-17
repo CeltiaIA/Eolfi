@@ -28,6 +28,10 @@
   Validación final con B6, B7 y B8 juntos: pytest **790 pasadas, 8 omitidas, 412,40 s**, salida 0 (6 omitidas son
   nativas sin opt-in); bridge 63/4 omitidas; vscode-bridge 192; e2e 19; todas salida 0; `git diff --check` 0.
   No se creó el `~/.eolfi/acciones.jsonl` real. La suite anterior, solo B6/B7, dio 774/8 con salida 0.
+- **C3 hecho en local (17/11):** `eolfi web URL --render --paginas N --profundidad D`. Chrome sin interfaz vía
+  playwright-core, solo el mismo origen, robots.txt, rutas `pushState`, otros hosts bloqueados, DOM renderizado
+  analizado e indicio de SPA. `tests/test_web_render.py`: 9 pasadas, una con Chrome real sobre una SPA servida en
+  127.0.0.1. Sin interacciones; no probado contra un sitio público (NO VERIFICADO).
 - **G5 parcial (17/11):** `eolfi/modelos_actualizar.py`. `modelos actualizar --fuentes F --red` compara con Hugging Face
   y `modelos descargar ... --red` baja un archivo fijado por commit y SHA-256, sin sobrescribir; después lo
   audita (G1), deja el recibo `descarga.json` y lo registra en B8. Rechaza `EOLAS_OFFLINE=1`, hosts ajenos a HF

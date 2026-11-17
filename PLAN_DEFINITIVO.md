@@ -81,7 +81,7 @@ positivos A/A ≤ 5 %, p50 por muestra ≤ 5 min).
 |---|---|---|
 | C1 | Idiomas es/en en el panel, la API y la CLI | Pendiente |
 | C2 | Instalador y versión única: pipx o ejecutable, acceso directo, `eolfi update --check` | Pendiente |
-| C3 | `eolfi web` con páginas renderizadas (SPA) y rastreo limitado con inventario de plantillas | Pendiente |
+| C3 | `eolfi web` con páginas renderizadas (SPA) y rastreo limitado con inventario de plantillas | Hecho en local: `eolfi web URL --render [--paginas N --profundidad D]` renderiza en Chrome sin interfaz (`eolfi/sites/render.py` y `render_driver.mjs`). Rastrea en anchura solo el mismo origen (como máximo 50 páginas y 5 saltos), respeta robots.txt, sigue rutas `pushState`, bloquea los otros hosts y analiza la estructura del DOM renderizado de la portada. Avisa si parece una SPA. 9 pruebas, una con Chrome real contra una SPA local. Pendiente: interacciones (clics, formularios) y una prueba contra un sitio público autorizado |
 | C4 | Proyectos generados: e2e con Playwright y axe, PWA, i18n y receta de despliegue | Pendiente |
 | C5 | Mapa visual de la app en el panel (grafo de pantallas y llamadas de REA) | Pendiente (los datos ya salen en Mermaid, PR #24 y #25) |
 | C6 | Guías y ejemplos autorizados por flujo (lo que queda de la fase 7) | Pendiente |

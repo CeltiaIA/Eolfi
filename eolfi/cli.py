@@ -348,6 +348,9 @@ def _parser() -> argparse.ArgumentParser:
     wb.add_argument("--cross-origin", action="store_true", help="Descarga también assets de otros dominios")
     wb.add_argument("--ignore-robots", action="store_true", help="No respetar robots.txt (solo con permiso)")
     wb.add_argument("--save", default=None, help="Guarda una copia de estudio de HTML/CSS/JS en esta carpeta")
+    wb.add_argument("--render", action="store_true", help="Abre las páginas en Chrome sin interfaz (SPA) y rastrea el mismo origen")
+    wb.add_argument("--paginas", type=int, default=1, help="Con --render: páginas como máximo (1-50)")
+    wb.add_argument("--profundidad", type=int, default=1, help="Con --render: saltos de enlace desde la inicial (0-5)")
     _case_args(wb)
 
     rp = sub.add_parser("repo", help="Analiza un repositorio local o remoto")
@@ -877,7 +880,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
 
         rep = run_web(args.source, store, max_assets=args.max_assets, cross_origin=args.cross_origin,
                       ignore_robots=args.ignore_robots, save_dir=args.save, progress=_progress,
-                      case_id=args.case_id, provenance=args.provenance)
+                      case_id=args.case_id, provenance=args.provenance, render=args.render,
+                      max_pages=args.paginas, max_depth=args.profundidad)
         rep.pop("evidence_ids", None)
         _print(rep)
     elif args.cmd == "repo":

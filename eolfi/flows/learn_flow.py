@@ -17,12 +17,15 @@ REPO = SimpleNamespace(name="eolfi.repo", version="0.1.0")
 def run_web(source: str, store: EvidenceStore, *, max_assets: int = 40, cross_origin: bool = False,
             ignore_robots: bool = False, save_dir: str | None = None,
             progress: Callable[[str], None] | None = None, case_id: str | None = None,
-            provenance: str = "") -> dict[str, Any]:
+            provenance: str = "", render: bool = False, max_pages: int = 1, max_depth: int = 1) -> dict[str, Any]:
     params = {"source": source, "max_assets": max_assets, "cross_origin": cross_origin,
-              "ignore_robots": ignore_robots}
+              "ignore_robots": ignore_robots, "render": render, "max_pages": max_pages, "max_depth": max_depth}
     with case_run(store, case_id, "web", params, provenance or f"fuente web indicada por el operador: {source}") as run:
         rep = _run_web(source, store, max_assets=max_assets, cross_origin=cross_origin,
                        ignore_robots=ignore_robots, save_dir=save_dir, progress=progress)
+        if render:
+            rep["render"] = _run_render(source, store, rep, ignore_robots=ignore_robots, max_pages=max_pages,
+                                        max_depth=max_depth, progress=progress)
         _finish(run, rep)
         return rep
 
@@ -69,6 +72,67 @@ def _run_web(source: str, store: EvidenceStore, *, max_assets: int, cross_origin
         },
         "open_incognitas": len(store.list_incognitas(Status.OPEN, subject=subject)),
     }
+
+
+def _texto_visible(html: str) -> int:
+    import re
+
+    html = re.sub(r"(?is)<(script|style|noscript|template)\b.*?</\1>", " ", html)
+    return len(" ".join(re.sub(r"(?s)<[^>]+>", " ", html).split()))
+
+
+def _run_render(source: str, store: EvidenceStore, rep: dict[str, Any], *, ignore_robots: bool, max_pages: int,
+                max_depth: int, progress: Callable[[str], None] | None) -> dict[str, Any]:
+    """C3: rastreo renderizado del mismo origen y análisis estructural del DOM renderizado de la portada."""
+    import tempfile
+    from pathlib import Path
+
+    from eolfi.sites.fetch import Fetcher
+    from eolfi.sites.render import rastrear, resumen_spa
+    from eolfi.sites.webpage import analyze_web
+
+    if not source.lower().startswith(("http://", "https://")):
+        return {"estado": "no_aplica", "motivo": "--render necesita una URL http(s)"}
+    fetcher = Fetcher(respect_robots=not ignore_robots)
+    crawl = rastrear(source, max_paginas=max_pages, max_profundidad=max_depth, robots=fetcher.robots_allowed,
+                     progress=progress)
+    subject = rep["subject"]
+    if crawl.get("estado") != "ok":
+        store.add_incognita(Incognita(subject=subject, severity="low",
+                                      question=f"Página renderizada NO VERIFICADA: {crawl.get('error')}"))
+        return {"estado": crawl.get("estado"), "error": crawl.get("error")}
+    portada = next((p for p in crawl["paginas"] if p.get("estado") == "ok"), None)
+    findings = []
+    spa = None
+    if portada:
+        try:
+            estatico = _texto_visible(fetcher.get(crawl["inicio"]).text())
+        except Exception:  # noqa: BLE001 — el indicio de SPA es opcional; la página renderizada ya se obtuvo
+            estatico = None
+        spa = resumen_spa(estatico, portada)
+        if portada.get("html"):
+            with tempfile.TemporaryDirectory(prefix="eolfi-render-dom-") as tmp:
+                dom = Path(tmp) / "renderizado.html"
+                dom.write_text(portada["html"], encoding="utf-8")
+                _sub, rendered = analyze_web(str(dom), max_assets=0)
+            for f in rendered:
+                if f["operation"] in ("web_structure", "web_blueprint", "web_accessibility"):
+                    findings.append({**f, "operation": f["operation"].replace("web_", "web_rendered_", 1),
+                                     "authority": "controlled_repro", "confidence": "medium",
+                                     "limitations": "DOM tras ejecutar el JavaScript del sitio en Chrome sin "
+                                                    "interfaz; recursos externos al origen bloqueados."})
+    paginas = [{k: v for k, v in p.items() if k != "html"} for p in crawl["paginas"]]
+    resultado = {k: v for k, v in crawl.items() if k != "paginas"}
+    resultado.update(paginas=paginas, spa=spa)
+    findings.insert(0, {"operation": "web_rendered_crawl", "result": resultado, "authority": "controlled_repro",
+                        "confidence": "medium", "limitations": crawl["limite"]})
+    ids = record_findings(store, subject, WEB, findings, environment_string())
+    rep["evidence_ids"].extend(ids)
+    return {"estado": "ok", "renderizadas": crawl["renderizadas"], "excluidas": crawl["excluidas"],
+            "pendientes_sin_visitar": crawl["pendientes_sin_visitar"], "spa": spa,
+            "origenes_bloqueados": crawl["origenes_bloqueados"],
+            "paginas": [{"url": p["url"], "estado": p.get("estado"), "titulo": p.get("titulo"),
+                         "via": p.get("via"), "rutas_spa": len(p.get("rutas_spa") or [])} for p in paginas]}
 
 
 def run_repo(source: str, store: EvidenceStore, *, workdir: str = "samples/repos",
