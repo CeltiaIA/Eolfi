@@ -5,6 +5,14 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C2 instalador (17/11, rama `luis/c2-instalador`):** la rueda no llevaba `juez_web.mjs` ni `render_driver.mjs`
+  (corregido). `tools/verificar_paquete.py` (rueda sin red → entorno virtual nuevo → versión, modo, 182 archivos,
+  panel) verificado. PyInstaller 6.22.3 instalado a petición del titular en `~/.eolfi/tools/pyinstaller`;
+  `tools/construir_ejecutable.py` construye y verifica `dist/eolfi-0.8.0-windows-amd64/eolfi.exe` (SHA-256
+  `b8130597…`). El lanzador `eolfi/_ejecutable.py` acepta `-m módulo` para los relanzamientos; `verify` usa el
+  Python del sistema dentro del ejecutable. `eolfi acceso-directo` (vista previa; `--aplicar`/`--quitar`), `.lnk`
+  probado en carpeta temporal. No se creó ningún acceso en el escritorio real. Sin firma; pipx real, Linux real y
+  macOS NO VERIFICADOS.
 - **B8 unión y firma (17/11, rama `luis/b8-firma`):** las acciones del RSI se reflejan en `acciones.jsonl` como
   `rsi.<tipo>` (número y SHA-256 de su evento); `eolfi acciones verificar --rsi` detecta una reescritura del registro
   del RSI. Firma HMAC-SHA256: `eolfi acciones clave --destino`, `firmar --clave` y `verificar --clave` detectan una
