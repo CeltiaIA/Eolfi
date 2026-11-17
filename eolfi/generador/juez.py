@@ -22,8 +22,9 @@ Formato (versión 1)::
 hay problemas graves o críticos (WCAG 2.0/2.1 A y AA y buenas prácticas). axe se inyecta desde Playwright, sin
 relajar la CSP de la aplicación; si axe-core no está disponible la comprobación falla (nunca se aprueba sin medir).
 
-Hoy solo para el destino ``static`` (se sirve la carpeta tal cual). En otros destinos los criterios se anotan como
-no ejecutados y la verificación NO queda en verde: un juez que no corre no aprueba nada.
+Destinos: ``static`` (se sirve la carpeta tal cual) y, desde C4 (17/11/2026), ``react``, ``vue`` y ``svelte``: se
+sirve la compilación que deja ``npm run build`` en ``dist/`` (lo mismo que se publicaría). En otros destinos los
+criterios se anotan como no ejecutados y la verificación NO queda en verde: un juez que no corre no aprueba nada.
 """
 from __future__ import annotations
 
@@ -39,7 +40,8 @@ from typing import Any
 
 ARCHIVO = "eolfi.juez.json"
 DRIVER = Path(__file__).with_name("juez_web.mjs")
-DESTINOS = ("static",)
+# Carpeta que se sirve en cada destino: el proyecto tal cual o la compilación de Vite.
+DESTINOS = {"static": ".", "react": "dist", "vue": "dist", "svelte": "dist"}
 MAX_PASOS = 100
 PLAZO = 180
 _PAGINA = re.compile(r"[\w][\w./-]{0,120}\.html?")
@@ -246,10 +248,14 @@ def paso(proyecto: str | Path, target: str, *, env: dict[str, str] | None = None
     if os.environ.get("EOLFI_JUEZ") == "0":
         return {"step": "juez funcional (desactivado con EOLFI_JUEZ=0: NO VERIFICADO)", "exit": 0, "seconds": 0,
                 "tail": "", "judge": {"status": "omitido"}}
-    if target not in DESTINOS:
+    raiz = Path(proyecto) / DESTINOS[target] if target in DESTINOS else None
+    if raiz is None:
         j = {"status": "unavailable", "error": f"el juez funcional aún no cubre el destino «{target}»"}
+    elif not (raiz / criterios["pagina"]).is_file():
+        j = {"status": "error", "error": f"no está {DESTINOS[target]}/{criterios['pagina']}: falta la compilación "
+                                          "(npm run build)"}
     else:
-        j = juzgar(proyecto, criterios, env=env)
+        j = juzgar(raiz, criterios, env=env)
     if j["status"] != "ok":
         return {"step": "juez funcional", "exit": 1, "seconds": j.get("seconds", 0),
                 "tail": f"el juez no pudo ejecutarse: {j.get('error', j['status'])}", "judge": j}
