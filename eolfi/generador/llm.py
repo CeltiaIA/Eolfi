@@ -290,7 +290,9 @@ class EolasV1Provider(Provider):
                 raise LLMError(str(exc)) from exc
         r = _post(f"{self.base_url}/api/chat", {
             "model": self.model, "messages": msgs, "stream": False, "format": schema, "think": False,
-            "options": determinista(eolas_v1_options(), llama_server=False),
+            # B2, 18/11/2026: con caché de prompt, V1 daba un texto en frío y otro en caliente (4/7). Eolas (CeltIA)
+            # acepta ya `cache_prompt` en options; uno anterior la ignora (no está en su lista de parámetros).
+            "options": determinista(eolas_v1_options()),
         }, eolas_v1_headers(self.base_url), self.timeout, retry_timeouts=False)
         text = (r.get("message") or {}).get("content", "")
         if not text:

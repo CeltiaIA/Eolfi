@@ -9,7 +9,10 @@
   N veces con `EOLFI_SEMILLA`; `--frio` descarga V1 entre peticiones). Gemma 4 12B, semilla 0: **V2 7/7**
   idénticas (frío incluido); **V1 4/7**: frío = un texto fijo (894 car.), caliente = otro fijo (918 car.). Causa:
   `D:\celtiaia\Eolas Base\internal\runner\runner.go:335` fuerza `cache_prompt = true` tras copiar las opciones.
-  Arreglo en CeltIA pendiente de decisión del titular. V1 y V2 parados al terminar.
+  Arreglado: CeltIA respeta `cache_prompt` (PR CeltiaIA/CeltiaIA#16, rama `luis/eolas-cache-prompt`) y Eolfi
+  envía `cache_prompt: false` a V1. Con el binario de prueba `D:\celtiaia\runtime\eolas\b2-cache-prompt\eolas.exe`
+  (SHA-256 6f5d0d9b…c695): **V1 7/7** en frío y en caliente. El `eolas.exe` de producción sigue sin el arreglo
+  hasta recompilarlo desde `main`. V1 y V2 parados al terminar.
 - **Honestidad del chat (17/11, rama `luis/chat-honesto`):** los defectos de una conversación real con
   gemma-4-12b (acciones «en curso» sin ejecutar, «RSI» inventado como arquitectura —RSI es Recursive
   Self-Improvement, la automejora supervisada—, fusión de pesos, licencia propia sobre pesos derivados, negar VS

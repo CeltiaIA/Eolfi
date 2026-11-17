@@ -196,7 +196,7 @@ def test_eolas_v1_recibe_semilla_y_temperatura_cero(monkeypatch):
     p.complete("s", [{"role": "user", "content": "x"}], {"type": "object"}, "high")
     assert enviados[0]["options"]["temperature"] == 0.2 and "seed" not in enviados[0]["options"]
     assert (enviados[1]["options"]["temperature"], enviados[1]["options"]["seed"]) == (0, 3)
-    assert "cache_prompt" not in enviados[1]["options"]
+    assert enviados[1]["options"]["cache_prompt"] is False and "cache_prompt" not in enviados[0]["options"]
 
 
 def test_el_banco_pasa_criterios_y_semilla_y_anota_el_mejor_intento(monkeypatch):
