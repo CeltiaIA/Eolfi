@@ -66,6 +66,10 @@ es una implementación propia.
   última publicación o etiqueta de `CeltiaIA/Eolfi` en api.github.com, sin credenciales. Con
   `EOLAS_OFFLINE=1` no consulta la red. Nunca instala nada: solo indica cómo actualizar. Sale con 0 si está al día, 1 si hay una
   versión nueva y 2 si no se pudo comprobar.
+- Idioma (es/en): el panel tiene un selector ES/EN en la cabecera (o `?lang=en`); la CLI muestra la ayuda en
+  inglés con `--idioma en` delante del subcomando o `EOLFI_IDIOMA=en`; la API responde sus errores en inglés con
+  `?lang=en`, la cookie del panel o `Accept-Language: en`. Por defecto, castellano. La traducción es parcial: ver C1
+  en `PLAN_DEFINITIVO.md`.
 
 ## Uso rápido
 

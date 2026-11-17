@@ -39,10 +39,10 @@ MAX_JSON = 4 * 1024 * 1024   # rutas JSON: nunca necesitan más
 _STATIC = {"/": "index.html", "/app.js": "app.js", "/runtime.js": "runtime.js", "/cases.js": "cases.js",
            "/projects.js": "projects.js", "/eolas-chat.js": "eolas-chat.js",
            "/subjects.js": "subjects.js", "/theme.js": "theme.js", "/voz.js": "voz.js", "/style.css": "style.css",
-           "/favicon.svg": "favicon.svg",
+           "/favicon.svg": "favicon.svg", "/i18n.js": "i18n.js", "/i18n-en.json": "i18n-en.json",
            "/favicon.ico": "favicon.svg"}
 _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
+          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8"}
 # frame-ancestors: el panel solo se puede incrustar en VS Code (Simple Browser, esquema vscode-webview:).
 # frame-src: el panel incrusta VS Code web (code serve-web), que escucha en 127.0.0.1 en un puerto libre.
 _CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -1751,9 +1751,21 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                 # Cerrar la pestaña durante una petición AJAX es normal; no es un error del servidor.
                 self.close_connection = True
 
+        def _idioma(self) -> str:
+            """C1: ?lang=es|en, la cookie eolfi_idioma del panel o Accept-Language; por defecto castellano."""
+            from eolfi import i18n
+
+            lang = parse_qs(urlparse(self.path).query).get("lang", [None])[0]
+            return i18n.idioma_http(lang, self.headers.get("Cookie"), self.headers.get("Accept-Language"))
+
         def _json(self, status: int, obj: Any, extra: dict[str, str] | None = None):
+            idioma = self._idioma()
+            if idioma == "en" and isinstance(obj, dict) and isinstance(obj.get("error"), str):
+                from eolfi import i18n
+
+                obj = {**obj, "error": i18n.traducir(obj["error"], idioma, i18n.API_EN)}
             self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
-                       "application/json; charset=utf-8", extra)
+                       "application/json; charset=utf-8", {"Content-Language": idioma, **(extra or {})})
 
         def _check_host(self) -> bool:
             raw = (self.headers.get("Host") or "").lower()

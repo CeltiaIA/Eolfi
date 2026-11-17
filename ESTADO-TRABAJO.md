@@ -5,6 +5,13 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C1 idiomas, parcial (17/11, rama `luis/c1-idiomas`):** panel con selector ES/EN (`eolfi/web/i18n.js` +
+  `i18n-en.json`, 289/289 textos fijos; nunca traduce chats, evidencias ni casos), API con `?lang`/cookie/
+  `Accept-Language` (61/61 errores fijos, `Content-Language`) y CLI con `--idioma en` (129/129 ayudas de
+  subcomandos). Castellano por defecto. Verificado en el navegador (vista previa en 8791 con base temporal) y con
+  e2e 22/22. Pendiente: textos dinámicos del JS, errores con partes variables y ayuda de argumentos. Hallazgo: dos
+  mensajes de la API están en gallego («Abre VS Code e vincula a extensión de Eolfi.», «Mensaxe ou proxecto
+  inválido.»); no se han cambiado.
 - **Integración en `main` (17/11):** la PR #55 (`luis/integracion-17nov`, commit de fusión `1a26bf3`) ha llevado
   a `main`, en orden, las 29 PR abiertas (#19–#35, #39 y #43–#54), y GitHub las marca todas como MERGED.
   Resoluciones: los conflictos REA, por suma, se fusionaron por bloques; en la #39, superada, se conservó `main`;

@@ -126,6 +126,8 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--db", default=None,
                     help="Ruta de la base de evidencias (por defecto EOLFI_DB o ~/.eolfi/eolfi.db)")
     ap.add_argument("--version", action="version", version=f"eolfi {__version__}")
+    ap.add_argument("--idioma", choices=("es", "en"), default=None,
+                    help="Idioma de la ayuda (es o en; también EOLFI_IDIOMA)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     acc = sub.add_parser("acciones", help="Registro encadenado de acciones que cambian estado (B8)")
@@ -1691,7 +1693,11 @@ def main(argv: list[str] | None = None) -> int:
     from eolfi.dotenv import load_dotenv
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
-    args = _parser().parse_args(argv)
+    from eolfi import i18n
+
+    parser = _parser()
+    i18n.traducir_parser(parser, i18n.idioma_cli(argv))   # C1: ayuda en inglés con --idioma en o EOLFI_IDIOMA=en
+    args = parser.parse_args(argv)
     if hasattr(args, "provider") and args.provider is None:
         from eolfi.generador.llm import default_provider
 
