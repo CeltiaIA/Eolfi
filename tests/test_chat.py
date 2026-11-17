@@ -122,7 +122,9 @@ def test_trabajo_chat_usa_el_motor_eolas_v2_y_no_pisa_el_banco(tmp_path, monkeyp
     monkeypatch.setattr(eolas_v2, "inference_profile", profile)
     monkeypatch.setattr(mcp_server, "EolfiMCP", FakeMCP)
     seen = {}
-    monkeypatch.setattr(chat, "agent_turn", lambda msgs, c, mcp, progress: seen.update(msgs=msgs, c=c, mcp=mcp) or
+    monkeypatch.setattr(app, "_chat_estado", lambda: {"vscode": {"activo": False}})
+    monkeypatch.setattr(chat, "agent_turn", lambda msgs, c, mcp, progress, estado=None:
+                        seen.update(msgs=msgs, c=c, mcp=mcp, estado=estado) or
                         {"text": "Propuestas…", "tools": [{"name": "eolfi_triage", "args": "{}", "ok": True}]})
     out = app.chat({"messages": [{"role": "user", "content": "¿Qué genero?"}],
                     "attachments": [{"upload": "a" * 64, "name": "x.exe", "kind": "binario"}],
@@ -131,6 +133,7 @@ def test_trabajo_chat_usa_el_motor_eolas_v2_y_no_pisa_el_banco(tmp_path, monkeyp
     assert seen["c"]["headers"] == {"Authorization": f"Bearer {eolas_v2.api_key()}"}       # Eolas V2 con su clave
     assert seen["c"]["endpoint"] == "http://127.0.0.1:8090/v1/chat/completions"
     assert str(app.samples / ("a" * 64 + ".bin")) in seen["msgs"][-1]["content"]
+    assert seen["estado"] == {"vscode": {"activo": False}}                 # el chat recibe el estado real
 
     for bad in ({"messages": [{"role": "user", "content": "x"}], "analyze": {"kind": "inventado", "target": "y"}},
                 {"messages": [{"role": "user", "content": "x"}], "attachments": [{"upload": "../../x"}]},
