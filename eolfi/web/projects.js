@@ -14,7 +14,8 @@ const STEP = { done: ["hecho", "ok"], partial: ["parcial", "warn"], error: ["err
 const TARGETS = [["auto", "Auto (según las fuentes)"], ["static", "Web estática"], ["react", "React"], ["vue", "Vue"],
   ["svelte", "Svelte"], ["next", "Next.js"], ["fastapi", "FastAPI"], ["express", "Express"], ["django", "Django"],
   ["expo", "Móvil (Expo)"], ["desktop", "Escritorio (Electron)"], ["tauri", "Escritorio (Tauri)"],
-  ["dotnet", "Escritorio .NET (Avalonia)"], ["cli", "Línea de comandos (Python)"]];
+  ["dotnet", "Escritorio .NET (Avalonia)"], ["cli", "Línea de comandos (Python)"],
+  ["go", "Servidor y API (Go)"]];
 
 export function createProjectView({ $, el, api, setStatus }) {
   const sources = [];   // {kind, ref, label}

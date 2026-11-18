@@ -48,19 +48,19 @@ def test_solo_static_lleva_pwa(tmp_path):
 
 @pytest.mark.parametrize("destino,opciones", [
     ("static", {}), ("react", {}), ("next", {"auth": True}), ("express", {"db": "sqlite"}),
-    ("fastapi", {"db": "sqlite"}), ("django", {}), ("cli", {})])
+    ("fastapi", {"db": "sqlite"}), ("django", {}), ("cli", {}), ("go", {})])
 def test_la_receta_solo_cita_variables_que_la_plantilla_lee(tmp_path, destino, opciones):
     out = _crear(tmp_path, destino, **opciones)
     receta = (out / "DESPLIEGUE.md").read_text(encoding="utf-8")
     assert "el despliegue (hosting, proxy y HTTPS) no lo ha probado Eolfi" in receta
     codigo = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in out.rglob("*")
                        if p.is_file() and p.name != "DESPLIEGUE.md" and p.suffix in
-                       (".py", ".js", ".mjs", ".ts", ".tsx", ".json", ".html"))
+                       (".py", ".js", ".mjs", ".ts", ".tsx", ".json", ".html", ".go"))
     citadas = set(re.findall(r"\| `([A-Z][A-Z0-9_]+)` \|", receta.split("## Cabeceras")[0]))
     assert citadas == {k for k, _ in VARIABLES.get(destino, [])}
     for var in citadas:
         assert var in codigo, f"{destino}: la receta cita {var} y la plantilla no la lee"
-    if destino in ("static", "react", "next", "express", "fastapi", "django"):
+    if destino in ("static", "react", "next", "express", "fastapi", "django", "go"):
         assert "Content-Security-Policy" in receta and "add_header" in receta
     else:
         assert "## Cabeceras" not in receta

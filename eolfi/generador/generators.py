@@ -94,6 +94,7 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
     from eolfi.generador.generators_cli import gen_cli
     from eolfi.generador.generators_desktop import gen_desktop
     from eolfi.generador.generators_dotnet import gen_dotnet
+    from eolfi.generador.generators_go import gen_go
     from eolfi.generador.generators_tauri import gen_tauri
     from eolfi.generador.generators_mobile import gen_expo
     from eolfi.generador.generators_more import gen_django, gen_next, gen_svelte
@@ -101,7 +102,7 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
     {"static": gen_static, "react": gen_react, "vue": gen_vue, "svelte": gen_svelte, "next": gen_next,
      "fastapi": gen_fastapi, "express": gen_express, "django": gen_django, "expo": gen_expo,
      "desktop": gen_desktop, "tauri": gen_tauri, "cli": gen_cli,
-     "dotnet": gen_dotnet}[spec["target"]](spec, w)
+     "dotnet": gen_dotnet, "go": gen_go}[spec["target"]](spec, w)
     w("eolfi.spec.json", json.dumps(spec, indent=2, ensure_ascii=False))
     # .gitignore base + las líneas propias de cada objetivo (.gitignore.extra: build/, bin/, obj/…), sin repetir.
     # Antes .gitignore.extra se borraba sin fusionarse: p. ej. los proyectos .NET quedaban sin ignorar bin/ y obj/.
@@ -1060,6 +1061,8 @@ _RUN = {
                "python -m venv .venv && .venv/bin/pip install -r requirements.txt && "
                ".venv/bin/python manage.py migrate && .venv/bin/python manage.py runserver"),
     "express": (["npm ci || npm install", "npm test"], "npm install && npm start   # http://localhost:8000"),
+    "go": (["go vet ./...", "go test ./...", "go build -o bin/app ."],
+           "go run .   # http://127.0.0.1:8000 (PORT y HOST cambian el puerto y la dirección)"),
     "fastapi": (["pip install -r requirements.txt", "pytest -q"],
                 "python -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/uvicorn app.main:app --reload"),
 }
@@ -1197,6 +1200,8 @@ jobs:
     steps, _ = _RUN[spec["target"]]
     setup = ("      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n"
              if spec["target"] in ("fastapi", "django") else
+             "      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n"
+             if spec["target"] == "go" else
              "      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n")
     run = "\n".join(f"      - run: {s}" for s in steps)
     w(".github/workflows/ci.yml", f"""name: CI
@@ -1250,6 +1255,17 @@ RUN npm run build
 ENV NEXT_TELEMETRY_DISABLED=1
 EXPOSE 3000
 CMD ["npm", "start"]"""
+    elif t == "go":
+        body = """FROM golang:1 AS build
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -o /app .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /app /app
+ENV HOST=0.0.0.0 PORT=8000
+EXPOSE 8000
+ENTRYPOINT ["/app"]"""
     elif t in ("react", "vue", "svelte"):
         body = """FROM node:22-slim AS build
 WORKDIR /app
@@ -1312,7 +1328,8 @@ La especificación completa está en `eolfi.spec.json`.
 _RUN_EN = (("# npm run build crea los instaladores", "# npm run build creates the installers"),
            ("# npm run dist crea el instalador de tu sistema", "# npm run dist creates the installer for your system"),
            ("# escanea el QR con Expo Go", "# scan the QR code with Expo Go"),
-           ("<Proyecto>", "<Project>"), ("<comando>", "<command>"))
+           ("<Proyecto>", "<Project>"), ("<comando>", "<command>"),
+           ("(PORT y HOST cambian el puerto y la dirección)", "(PORT and HOST change the port and the address)"))
 
 
 def _readme_en(spec: dict[str, Any]) -> str:

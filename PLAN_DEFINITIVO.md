@@ -92,7 +92,7 @@ positivos A/A ≤ 5 %, p50 por muestra ≤ 5 min).
 | # | Pieza | Estado |
 |---|---|---|
 | D1 | `eolfi sync`: volver a analizar las fuentes y proponer un diff con fusión a tres bandas | Pendiente |
-| D2 | Destinos Go y Rust del generador | Pendiente |
+| D2 | Destinos Go y Rust del generador | Parcial (18/11): **Go hecho** (`eolfi/generador/generators_go.py`, `create --target go`, panel y plan del chat con «en Go»/«golang»; se elige solo con un backend Gin/Echo sin frontend): servidor web y API REST con SOLO la biblioteca estándar (`net/http` con rutas por método de Go 1.22, almacén en memoria por recurso, `{"error": …}` 404/422, cuerpo limitado a 64 KiB, tiempos de espera), la web propia dentro del ejecutable con `embed`, cabeceras de seguridad en todas las respuestas, pruebas con `httptest`, CI con `setup-go`, Dockerfile distroless y receta (HOST, PORT). Verificación: `go vet`, `go test`, `go build` y prueba de humo del ejecutable (`APP_SMOKE=1`: se pide `/api/health` y la portada), sin red (`GOPROXY=off`, `GOTOOLCHAIN=local`), también aislada; `assist` edita `*.go` y `web/` (no `go.mod`). Verificado con Go 1.27 en castellano y en inglés (`tests/test_destino_go.py`). Sin `--db sqlite` ni `--auth` (se anota) y fuera del juez funcional (NO VERIFICADO con axe). Pendiente: Rust |
 | D3 | Comparar modelos mayores cuando el banco sea fiable (fase 5 del VAS) | Pendiente |
 
 ## Bloque E: REA (lo que queda)

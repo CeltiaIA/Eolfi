@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **D2 destino Go (18/11, rama `luis/d2-go`, apilada sobre #84):** `create --target go`: servidor web y API REST en Go
+  con solo la biblioteca estándar, web embebida, cabeceras de seguridad y prueba de humo. Verificado con Go 1.27
+  (vet, test, build y humo, sin red) en castellano e inglés. Pendiente D2: Rust.
 - **Chat de Eolfi → @eolfi en VS Code (18/11, rama `luis/chat-vscode-encargos`; encargo de la sesión que falló al
   arrancar):** herramienta del chat `eolfi_vscode_encargo` (y `eolfi_vscode_encargo_estado`): propone el plan
   VERIFICADO (create con verificación, juez y accesibilidad) con destino en la carpeta abierta en VS Code, deja el

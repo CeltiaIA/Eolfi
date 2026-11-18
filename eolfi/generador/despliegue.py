@@ -18,6 +18,8 @@ VARIABLES: dict[str, list[tuple[str, str]]] = {
              ("AUTH_PASSWORD", "contraseña del inicio de sesión si se generó con `--auth`"),
              ("AUTH_SECRET", "clave de la sesión firmada si se generó con `--auth`; defínela en producción")],
     "fastapi": [("APP_DB", "ruta de la base SQLite si se generó con `--db sqlite` (por defecto `data/app.db`)")],
+    "go": [("HOST", "dirección en la que escucha (por defecto `127.0.0.1`)"),
+           ("PORT", "puerto (por defecto 8000)")],
     "django": [("DJANGO_SECRET_KEY", "obligatoria con `DJANGO_DEBUG=0`; sin ella no arranca"),
                ("DJANGO_DEBUG", "`0` en producción"),
                ("DJANGO_ALLOWED_HOSTS", "dominios separados por comas"),
@@ -96,6 +98,15 @@ PORT=8000 node src/server.js
 
 {_PROXY} Con `--db sqlite`, haz copias de seguridad de la base (`APP_DB`).
 """)
+    if t == "go":
+        return ("```bash\nCGO_ENABLED=0 go build -trimpath -o app .\n```", f"""## Arrancar en producción
+
+```bash
+PORT=8000 ./app
+```
+
+Un solo ejecutable sin dependencias, con la web dentro. {_PROXY} Los datos están en memoria: se pierden al reiniciar.
+""")
     if t == "django":
         return ("```bash\npython -m venv .venv\n.venv/bin/pip install -r requirements.txt gunicorn\n"
                 "DJANGO_DEBUG=0 DJANGO_SECRET_KEY=... .venv/bin/python manage.py check --deploy\n"
@@ -120,7 +131,7 @@ def receta(spec: dict[str, Any], headers: dict[str, str], docker: bool) -> str:
     variables = VARIABLES.get(t, [])
     tabla = ("## Variables de entorno\n\n| Variable | Para qué |\n|---|---|\n"
              + "\n".join(f"| `{k}` | {v} |" for k, v in variables) + "\n\n") if variables else ""
-    web = t in ("static", "react", "vue", "svelte", "next", "express", "fastapi", "django")
+    web = t in ("static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go")
     contenedor = ("## Contenedor\n\nEl proyecto trae `Dockerfile`: `docker build -t app .` y `docker run -p 8000:8000 "
                   "app` (con las variables de arriba).\n\n") if docker else ""
     return f"""# Despliegue de {spec["title"]}
@@ -146,6 +157,7 @@ VARIABLES_EN: dict[str, dict[str, str]] = {
              "AUTH_PASSWORD": "sign-in password if generated with `--auth`",
              "AUTH_SECRET": "key of the signed session if generated with `--auth`; set it in production"},
     "fastapi": {"APP_DB": "path of the SQLite database if generated with `--db sqlite` (`data/app.db` by default)"},
+    "go": {"HOST": "address it listens on (`127.0.0.1` by default)", "PORT": "port (8000 by default)"},
     "django": {"DJANGO_SECRET_KEY": "required with `DJANGO_DEBUG=0`; it does not start without it",
                "DJANGO_DEBUG": "`0` in production",
                "DJANGO_ALLOWED_HOSTS": "comma-separated domains",
@@ -223,6 +235,16 @@ PORT=8000 node src/server.js
 
 {_PROXY_EN} With `--db sqlite`, back up the database (`APP_DB`).
 """)
+    if t == "go":
+        return ("```bash\nCGO_ENABLED=0 go build -trimpath -o app .\n```", f"""## Run in production
+
+```bash
+PORT=8000 ./app
+```
+
+A single executable with no dependencies and the website inside. {_PROXY_EN} The data lives in memory: it is lost on
+restart.
+""")
     if t == "django":
         return ("```bash\npython -m venv .venv\n.venv/bin/pip install -r requirements.txt gunicorn\n"
                 "DJANGO_DEBUG=0 DJANGO_SECRET_KEY=... .venv/bin/python manage.py check --deploy\n"
@@ -247,7 +269,7 @@ def receta_en(spec: dict[str, Any], headers: dict[str, str], docker: bool) -> st
     variables = [(k, VARIABLES_EN[t][k]) for k, _ in VARIABLES.get(t, [])]
     tabla = ("## Environment variables\n\n| Variable | Purpose |\n|---|---|\n"
              + "\n".join(f"| `{k}` | {v} |" for k, v in variables) + "\n\n") if variables else ""
-    web = t in ("static", "react", "vue", "svelte", "next", "express", "fastapi", "django")
+    web = t in ("static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go")
     contenedor = ("## Container\n\nThe project includes a `Dockerfile`: `docker build -t app .` and `docker run -p "
                   "8000:8000 app` (with the variables above).\n\n") if docker else ""
     return f"""# Deployment of {spec["title"]}
