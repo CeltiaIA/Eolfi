@@ -24,7 +24,8 @@ METHODS = [{"name": n, "declaring_type": t, "index": i} for i, (n, t) in enumera
     [("Concat", 1), ("Trim", 1), ("Invoke", 2), ("Start", 3), ("Update", 3), (".ctor", 3), ("Next", 4), ("Get", 6)])]
 ADDRS = [{"state": "code", "address": hex(0x180001000 + 16 * i), "rva": hex(0x1000 + 16 * i), "index": i}
          for i in range(8)]
-ADDRS[5] = {"state": "no_body", "address": None, "rva": None, "index": 5}
+# Las filas de REA real dan «no-body» con guion; el resumen, «no_body» (Daggerfall Unity, 18/11).
+ADDRS[5] = {"state": "no-body", "address": None, "rva": None, "index": 5}
 LITS = [{"value": v, "value_base64": None, "index": i} for i, v in enumerate(["Hola mundo", "ok", "ﭐ︀", "Hola mundo",
                                                                             "https://ejemplo.test/api"])]
 
@@ -110,6 +111,32 @@ def test_detalle_de_un_tipo_con_rva(tmp_path):
                                              {"metodo": ".ctor", "rva": None, "estado": "no_body"}]}
     assert rc.unity_il2cpp(FakeIl2cpp(), str(root), tipo="NoExiste")["detalle_tipo"] == {
         "tipo": "NoExiste", "encontrado": False}
+
+
+def test_detalle_acepta_el_nombre_completo_de_la_lista(tmp_path):
+    """En vivo (Daggerfall Unity, 18/11): la lista da «DaggerfallWorkshop.Game.GameManager» y --tipo con ese nombre
+    salía «no encontrado» porque REA filtra por el nombre corto."""
+    root = _windows_build(tmp_path)
+    r = rc.unity_il2cpp(FakeIl2cpp(), str(root), tipo="Game.Player")["detalle_tipo"]
+    assert r["encontrado"] and r["coincidencias"] == 1 and [m["metodo"] for m in r["metodos"]] == [
+        "Start", "Update", ".ctor"]
+    r = rc.unity_il2cpp(FakeIl2cpp(), str(root), tipo="Game.Player+State")["detalle_tipo"]
+    assert r["encontrado"] and [m["metodo"] for m in r["metodos"]] == ["Next"]
+    assert rc.unity_il2cpp(FakeIl2cpp(), str(root), tipo="Otro.Player")["detalle_tipo"] == {
+        "tipo": "Otro.Player", "encontrado": False}
+
+
+def test_nombre_corto_repetido_avisa_de_los_demas(tmp_path):
+    extra = {"name": "Player", "namespace": "Red", "method_start": -1, "method_count": 0, "declaring_type": -1,
+             "index": 5}
+    # El índice 5 (un <Module>) ya cae en Assembly-CSharp; se cambia por otro «Player» de otro espacio de nombres.
+    original = TYPES[5]
+    TYPES[5] = extra
+    try:
+        r = rc.unity_il2cpp(FakeIl2cpp(), str(_windows_build(tmp_path)), tipo="Player")["detalle_tipo"]
+    finally:
+        TYPES[5] = original
+    assert r["coincidencias"] == 2 and r["otras"] == ["Red.Player"]
 
 
 def test_apk_extrae_solo_metadatos_y_binario_de_64_bits(tmp_path):

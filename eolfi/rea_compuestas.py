@@ -3097,6 +3097,13 @@ def _il2cpp_rows(client: Any, parent: str, collection: str, total: int, **flt: A
     return rows, offset is None
 
 
+def _il2cpp_state(row: dict[str, Any] | None) -> str | None:
+    """Estado de la dirección de un método con la grafía del resumen de REA («no_body»): las filas de la vista
+    `method_addresses` lo dan con guion («no-body»; visto en vivo con Daggerfall Unity, 18/11/2026)."""
+    state = (row or {}).get("state")
+    return None if state is None else str(state).replace("-", "_")
+
+
 def unity_il2cpp(client: Any, path: str, *, binario: str | None = None, tipo: str | None = None,
                  limite: int = 40) -> dict[str, Any]:
     """Qué hay en un juego o app de Unity compilado con IL2CPP (plan REA, punto 9), sin ejecutarlo.
@@ -3150,14 +3157,19 @@ def unity_il2cpp(client: Any, path: str, *, binario: str | None = None, tipo: st
             for k in range(0, min(len(own_methods), MAX_IL2CPP_METHODS), IL2CPP_PAGE):
                 rows, _ = _il2cpp_rows(client, parent, "method_addresses", IL2CPP_PAGE,
                                        indices=own_methods[k:k + IL2CPP_PAGE])
-                states.update(str(r.get("state")) for r in rows)
+                states.update(_il2cpp_state(r) for r in rows)
         lits, _ = _il2cpp_rows(client, parent, "string_literals", min(int(counts.get("string_literals") or 0), 4000))
         readable = list(dict.fromkeys(v for r in lits for v in [r.get("value")]
                                       if isinstance(v, str) and len(v) >= 4 and v.isprintable()
                                       and sum(c.isalnum() for c in v) >= len(v) // 2))
         detail = None
         if tipo:
-            named, _ = _il2cpp_rows(client, parent, "types", 50, names=[tipo])
+            # REA filtra por el nombre corto; se acepta también el completo tal como sale en «tipos_del_juego»
+            # («Espacio.Tipo» o «Espacio.Externo+Anidado»), y entonces solo cuentan los que coinciden enteros.
+            short = re.split(r"[.+]", tipo)[-1]
+            named, _ = _il2cpp_rows(client, parent, "types", 50, names=[short])
+            if short != tipo:
+                named = [t for t in named if full_name(by_index.get(int(t.get("index", -1)), t)) == tipo]
             if not named:
                 detail = {"tipo": tipo, "encontrado": False}
             else:
@@ -3167,11 +3179,13 @@ def unity_il2cpp(client: Any, path: str, *, binario: str | None = None, tipo: st
                                                                  indices=[int(m["index"]) for m in ms])[0]}
                         if binf is not None and ms else {})
                 detail = {"tipo": tipo, "encontrado": True, "coincidencias": len(named),
+                          **({"otras": [full_name(by_index.get(int(x.get("index", -1)), x)) for x in named[1:]]}
+                             if len(named) > 1 else {}),
                           "ensamblado": next((i.get("name") for i in images
                                               if (i.get("type_start") or 0) <= int(t["index"])
                                               < (i.get("type_start") or 0) + (i.get("type_count") or 0)), None),
                           "metodos": [{"metodo": m.get("name"), "rva": (addr.get(int(m["index"])) or {}).get("rva"),
-                                       "estado": (addr.get(int(m["index"])) or {}).get("state")} for m in ms]}
+                                       "estado": _il2cpp_state(addr.get(int(m["index"])))} for m in ms]}
         b = s.get("binary") or {}
         ba = b.get("artifact") or {}
         platform = [str(i.get("name")) for i in images if IL2CPP_PLATFORM.match(str(i.get("name") or ""))]
