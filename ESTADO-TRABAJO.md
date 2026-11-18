@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C4 PWA con Vite (18/11, rama `luis/c4-pwa-vite`, worktree `D:\Eolfi-wt-pwa`):** react, vue y svelte
+  instalables y sin conexión (manifiesto, icono y service worker en `public/`, registro solo en producción).
+  Probado sin red con una compilación con la forma de la de Vite; con `vite build` real NO VERIFICADO.
 - **C1 panel y API en inglés (18/11, rama `luis/c1-panel-dinamico`):** textos dinámicos del JS del panel
   (281, con plantillas «{}» que `i18n.js` reconoce), 20 errores de la API con partes variables y la ayuda de los 216
   argumentos de la CLI. Pendiente C1: avisos de la CLI por stderr.

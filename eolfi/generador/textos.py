@@ -416,6 +416,14 @@ COMENTARIOS: dict[str, str] = {
     "origen, GET): nada de terceros ni de la API. Cambia VERSION al publicar archivos nuevos para renovar la caché.":
         "origin, GET): nothing from third parties or the API. Change VERSION when publishing new files to renew the cache.",
     "Red primero (contenido al día) y caché si no hay conexión.": "Network first (up-to-date content) and cache when offline.",
+    "origen, GET): nada de terceros ni de la API. Al instalarse precarga la portada y los recursos que enlaza su":
+        "origin, GET): nothing from third parties or the API. On install it precaches the home page and the resources",
+    "index.html compilado (Vite les pone un hash en el nombre). Cambia VERSION al publicar para renovar la caché.":
+        "its built index.html links (Vite hashes their names). Change VERSION when publishing to renew the cache.",
+    "Red primero (contenido al día) y caché si no hay conexión; las rutas de la app sin red sirven la portada.":
+        "Network first (up-to-date content) and cache when offline; app routes without network serve the home page.",
+    "PWA: registra el service worker solo en la compilación de producción.":
+        "PWA: registers the service worker only in the production build.",
     "Comportamiento del sitio: tema claro/oscuro, formulario y datos de la API.":
         "Site behavior: light/dark theme, form and API data.",
     "PWA (destino static): registra el service worker si la página enlaza un manifiesto y se sirve por HTTP(S).":
