@@ -459,8 +459,8 @@ def test_servidor_que_no_arranca_o_no_responde(tmp_path, monkeypatch):
 
 def test_create_mide_por_defecto_los_destinos_con_servidor():
     assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go",
-                                   "desktop", "tauri", "expo"}
-    assert set(juez.CUBIERTOS) - set(juez.POR_DEFECTO) == {"expo"}
+                                   "desktop", "tauri", "expo", "cli", "rust"}
+    assert set(juez.CUBIERTOS) - set(juez.POR_DEFECTO) == {"expo", "cli", "rust"}
 
 
 @con_navegador
@@ -543,3 +543,112 @@ def test_el_resumen_del_servidor_conserva_el_error_aunque_la_traza_sea_larga(tmp
                    encoding="utf-8")
     resumen = juez._resumen_salida(log)
     assert "Error: arranque roto" in resumen.splitlines()[0] and resumen.endswith("Node.js v22.23.4\n")
+
+
+# ── Juez de consola: cli y rust (B1, 18/11/2026) ─────────────────────────────────────────────────────────────────
+def test_validar_criterios_de_consola():
+    ok = juez.validar({"version": 1, "consola": True, "pasos": [
+        {"ejecutar": ["info"], "entrada": "x"}, {"comprobar": "sale bien", "codigo": 0},
+        {"comprobar": "dice versión", "patron": r"\d+\.\d+"}]})
+    assert ok["consola"] is True and "pagina" not in ok
+    malos = [
+        {"consola": "si", "pasos": [{"ejecutar": []}, {"comprobar": "a", "codigo": 0}]},
+        {"consola": True, "pasos": [{"comprobar": "antes de ejecutar", "codigo": 0}]},
+        {"consola": True, "pasos": [{"ejecutar": "info"}, {"comprobar": "a", "codigo": 0}]},
+        {"consola": True, "pasos": [{"ejecutar": ["info"]}, {"comprobar": "a", "codigo": 300}]},
+        {"consola": True, "pasos": [{"ejecutar": ["info"]}, {"comprobar": "a", "codigo": 0, "contiene": "x"}]},
+        {"consola": True, "pasos": [{"ejecutar": ["info"]}, {"comprobar": "a", "presente": "x"}]},
+        {"consola": True, "pasos": [{"ejecutar": ["info"]}, {"clic": {"selector": "a"}}]},
+        {"consola": True, "pasos": [{"ejecutar": ["info"]}]},
+        {"consola": True, "pasos": [{"ejecutar": ["in\bfo"]}, {"comprobar": "a", "codigo": 0}]},
+    ]
+    for m in malos:
+        with pytest.raises(juez.JuezError):
+            juez.validar({"version": 1, **m})
+    with pytest.raises(juez.JuezError, match="consola"):
+        juez.con_accesibilidad(ok)
+
+
+def _consola(d: Path, pasos: list) -> Path:
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "src" / "demo").mkdir(parents=True)
+    (d / "src" / "demo" / "storage.py").write_text('import os\nos.environ.get("DEMO_DATA_DIR")\n', encoding="utf-8")
+    (d / juez.ARCHIVO).write_text(json.dumps({"version": 1, "consola": True, "pasos": pasos}), encoding="utf-8")
+    return d
+
+
+def test_juez_de_consola_ejecuta_compara_y_aisla_los_datos(tmp_path, monkeypatch):
+    import sys
+
+    # El «programa» es este Python: cada paso le pasa -c con un guion pequeño.
+    monkeypatch.setattr(juez, "ejecutable", lambda proyecto, target: Path(sys.executable))
+    escribe = "import os,pathlib;d=pathlib.Path(os.environ['DEMO_DATA_DIR']);d.mkdir(exist_ok=True);" \
+              "(d/'n.txt').write_text('pan');print('añadido')"
+    lee = "import os,pathlib;print((pathlib.Path(os.environ['DEMO_DATA_DIR'])/'n.txt').read_text())"
+    p_ok = _consola(tmp_path / "ok", [
+        {"ejecutar": ["-c", escribe]}, {"comprobar": "añade", "codigo": 0},
+        {"comprobar": "lo dice", "contiene": "añadido"},
+        {"ejecutar": ["-c", lee]}, {"comprobar": "persiste entre ejecuciones", "patron": r"^pan\s*$"},
+        {"comprobar": "sin trazas", "no_contiene": "Traceback"},
+        {"ejecutar": ["-c", "import os;print(os.environ['HOME'])"]},
+        {"comprobar": "HOME aislado", "contiene": "eolfi-juez-consola-"},
+        {"ejecutar": ["-c", "import sys;print(sys.stdin.read().upper())"], "entrada": "hola"},
+        {"comprobar": "lee la entrada", "contiene": "HOLA"}])
+    p = juez.paso(p_ok, "cli")
+    assert (p["exit"], p["step"]) == (0, "juez funcional (6/6)"), p["tail"]
+    # Cada juicio empieza sin datos: el archivo de la vez anterior no está.
+    p_rota = _consola(tmp_path / "rota", [
+        {"ejecutar": ["-c", lee]}, {"comprobar": "lee algo", "codigo": 0},
+        {"ejecutar": ["-c", "import sys;print('hola');sys.exit(3)"]}, {"comprobar": "sale bien", "codigo": 0},
+        {"comprobar": "dice adiós", "contiene": "adiós"}])
+    p = juez.paso(p_rota, "rust")
+    assert p["exit"] == 1 and p["step"] == "juez funcional (0/3)"
+    assert "salió con 1" in p["tail"] and "FileNotFoundError" in p["tail"]
+    assert "salió con 3" in p["tail"] and "'hola'" in p["tail"]
+
+
+def test_juez_de_consola_sin_programa_o_con_criterios_cruzados(tmp_path):
+    d = _consola(tmp_path / "cli", [{"ejecutar": ["info"]}, {"comprobar": "a", "codigo": 0}])
+    (d / "pyproject.toml").write_text('[project]\nname = "demo"\n[project.scripts]\ndemo = "demo.cli:main"\n',
+                                      encoding="utf-8")
+    p = juez.paso(d, "cli")
+    assert p["exit"] == 1 and "falta compilar o instalar" in p["tail"] and ".venv/" in p["tail"]
+    assert "no se sabe qué programa" in juez.paso(d, "rust")["tail"]
+    assert "no lo es" in juez.paso(d, "static")["tail"]
+    (d / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    assert "destino de consola" in juez.paso(d, "cli")["tail"]
+
+
+def test_cli_generado_real_pasa_el_juez_de_consola(tmp_path):
+    """El comando que genera ``create --target cli``, instalado sin red en un entorno virtual, pasa unos criterios
+    de consola de añadir, listar y borrar."""
+    import re
+    import sys
+
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    out = tmp_path / "cli"
+    create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Notas",
+                   target="cli", do_verify=False)
+    venv = out / ".venv"
+    subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True)
+    py = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    r = subprocess.run([str(py), "-m", "pip", "install", "-q", "--no-index", "--no-build-isolation", "--no-deps",
+                        "-e", str(out)], capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        pytest.skip("no se pudo instalar el comando sin red: " + r.stderr[-300:])
+    exe = juez.ejecutable(out, "cli")
+    assert exe.is_file()
+    ayuda = subprocess.run([str(exe), "--help"], capture_output=True, text=True, check=True).stdout
+    recurso = next(r for r in re.findall(r"^\s{4}([a-z_]+)\s", ayuda, re.M) if r != "info")
+    (out / juez.ARCHIVO).write_text(json.dumps({"version": 1, "consola": True, "pasos": [
+        {"ejecutar": ["--json", "info"]}, {"comprobar": "info responde", "codigo": 0},
+        {"ejecutar": [recurso, "add", "comprar pan"]}, {"comprobar": "añade", "codigo": 0},
+        {"ejecutar": ["--json", recurso, "list"]}, {"comprobar": "lista lo añadido", "contiene": "comprar pan"},
+        {"comprobar": "sin trazas", "no_contiene": "Traceback"},
+        {"ejecutar": [recurso, "add", "x" * 201]}, {"comprobar": "rechaza un nombre vacío", "codigo": 2}]}),
+        encoding="utf-8")
+    p = juez.paso(out, "cli")
+    assert (p["exit"], p["step"]) == (0, "juez funcional (5/5)"), p["tail"]

@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **B1 juez de consola (18/11, rama `luis/b1-juez-consola`):** criterios `"consola": true` con pasos `ejecutar` y
+  `comprobar` (código, contiene, no contiene, patrón) para `cli` y `rust`, en una carpeta temporal aislada. El `cli`
+  generado de verdad pasa 5/5. Rust real NO VERIFICADO; .NET (ventana nativa) pendiente.
 - **B1 juez en escritorio y móvil (18/11, rama `luis/b1-juez-escritorio`):** el juez funcional juzga `renderer/` de
   Electron, `src/` de Tauri y `dist/` de Expo web en Chrome. Electron y Tauri generados pasan juez y axe (3/3) sin
   instalar nada; Expo solo con una compilación simulada (no se mide por defecto). Falta: destinos de consola.
