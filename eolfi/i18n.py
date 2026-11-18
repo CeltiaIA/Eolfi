@@ -90,6 +90,10 @@ API_EN: dict[str, str] = {
     "'sources' debe ser una lista no vacía": "'sources' must be a non-empty list",
     "Abre VS Code y vincula la extensión de Eolfi.": "Open VS Code and link the Eolfi extension.",
     "Chat local limitado a este equipo.": "Local chat is limited to this computer.",
+    "el plan cambió desde que se propuso el encargo: revísalo en el panel":
+        "the plan changed since the task was proposed: review it in the panel",
+    "los encargos se deciden en el panel o en la extensión de VS Code":
+        "tasks are decided in the panel or in the VS Code extension",
     "Content-Length inválido": "Invalid Content-Length",
     "El puente no responde: arráncalo con  python -m eolfi bridge":
         "The bridge is not responding: start it with  python -m eolfi bridge",

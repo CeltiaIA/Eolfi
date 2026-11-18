@@ -5,6 +5,17 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Chat de Eolfi → @eolfi en VS Code (18/11, rama `luis/chat-vscode-encargos`; encargo de la sesión que falló al
+  arrancar):** herramienta del chat `eolfi_vscode_encargo` (y `eolfi_vscode_encargo_estado`): propone el plan
+  VERIFICADO (create con verificación, juez y accesibilidad) con destino en la carpeta abierta en VS Code, deja el
+  encargo PENDIENTE en la cola (`eolfi/encargos_vscode.py`, `~/.eolfi/encargos-vscode.json`) con sus riesgos
+  (escribir la carpeta, ejecutar comandos, instalar dependencias, red) y avisa a VS Code por el puente
+  (`POST /v1/encargo`, `eolfi/vscode-bridge/encargos.js`). Se aprueba o rechaza en el panel (chat → «Encargos a VS
+  Code») o en VS Code (aviso modal); aprobar arranca el trabajo «project» y VS Code sigue el progreso y ofrece el
+  resultado. Alta y decisión en el registro de acciones. Nunca sobrescribe una carpeta con contenido. Honestidad:
+  «encargo_como_hecho» si el chat da por creada una app pendiente. Pruebas: `tests/test_encargos_vscode.py`
+  (integración real con VS Code simulado: aprobar desde VS Code genera un estático verificado) y
+  `eolfi/vscode-bridge/test/encargos.test.js`. Con un VS Code real: **NO VERIFICADO**.
 - **C4 idioma de los proyectos generados (18/11, rama `luis/c4-i18n`):** `create --idioma-proyecto en` (API
   `idioma_proyecto`, selector del panel) genera interfaz, errores, ayuda de la CLI y nombres de las pruebas en
   inglés en los 13 destinos (`eolfi/generador/textos.py`, traducción en el escritor; castellano por defecto sin

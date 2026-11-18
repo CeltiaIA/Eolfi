@@ -41,6 +41,11 @@ function bubble(m) {
   for (const t of m.tools || []) {
     if (t.proyecto) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => emit("eolfi:open-project", { caseId: t.proyecto }) }, "Revisar y aprobar el plan"));
     if (t.objetivo) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => emit("eolfi:open-subject", { subject: t.objetivo }) }, "Ver informe"));
+    if (t.encargo) actions.push(el("button", { type: "button", class: "small-btn", onclick: () => {
+      const box = $("#eolas-chat-encargos-box");
+      if (box) { box.open = true; box.scrollIntoView({ block: "nearest" }); }
+      loadEncargos();
+    } }, "Revisar el encargo"));
   }
   if (m.role === "assistant" && !m.local && "speechSynthesis" in window) {
     actions.push(el("button", { type: "button", class: "small-btn leer-btn", "aria-label": "Leer esta respuesta en voz alta", onclick: () => decir(m.content) }, "Leer"));
@@ -82,6 +87,56 @@ function authCard(t) {
       onclick: () => decide("case") }, "Permitir en este caso"),
     el("button", { type: "button", class: "ghost-btn", onclick: () => decide("deny") }, "Rechazar")));
   return card;
+}
+
+// Encargos del chat a @eolfi en VS Code (18/11/2026): cola con aprobación. Aprobar aquí o en VS Code arranca el
+// trabajo verificado; mientras haya alguno en marcha se refresca solo.
+const ENCARGO_TEXT = { pendiente: "pendiente de aprobar", aprobado: "aprobado", en_curso: "en marcha", hecho: "hecho y verificado",
+  fallido: "sin verificar o fallido", rechazado: "rechazado" };
+const ENCARGO_CLASS = { pendiente: "warn", aprobado: "warn", en_curso: "warn", hecho: "ok", fallido: "bad", rechazado: "bad" };
+let encargosTimer = null;
+
+async function loadEncargos() {
+  const box = $("#eolas-chat-encargos");
+  if (!box) return;
+  clearTimeout(encargosTimer);
+  let vivos = false;
+  try {
+    const { encargos = [] } = await api("/api/vscode/encargos");
+    vivos = encargos.some((e) => ["aprobado", "en_curso"].includes(e.estado));
+    box.replaceChildren(encargos.length ? el("ul", { class: "plain" }, ...encargos.slice(0, 10).map(encargoItem))
+      : el("p", { class: "small muted" }, "No hay encargos."));
+  } catch (err) {
+    box.replaceChildren(el("p", { class: "small muted" }, `No se pudieron cargar los encargos: ${err.message}`));
+  }
+  encargosTimer = setTimeout(loadEncargos, vivos ? 2000 : 15000);
+}
+
+function encargoItem(e) {
+  const item = el("li", { class: "auth-card", role: "group", "aria-label": `Encargo ${e.nombre}` },
+    el("span", { class: "badge " + (ENCARGO_CLASS[e.estado] || "") }, ENCARGO_TEXT[e.estado] || e.estado),
+    " ", el("strong", {}, e.nombre), el("div", { class: "small muted" }, e.carpeta));
+  const progreso = (e.trabajo?.progreso || []).slice(-1)[0];
+  if (progreso && e.estado !== "hecho") item.append(el("div", { class: "small" }, progreso));
+  if (e.error || e.proyecto?.error) item.append(el("div", { class: "small bad" }, e.error || e.proyecto.error));
+  if (e.origen) item.append(el("div", { class: "small muted" }, `Decidido desde ${e.origen === "vscode" ? "VS Code" : "el panel"}`));
+  if (e.estado !== "pendiente") return item;
+  item.append(el("div", { class: "small" }, "Al aprobar, Eolfi podrá:"),
+    el("ul", { class: "small" }, ...(e.riesgos || []).map((r) => el("li", {}, r))));
+  const decide = async (accion) => {
+    item.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    try {
+      await api(`/api/vscode/encargos/${encodeURIComponent(e.id)}/${accion}`, { method: "POST", body: "{}" });
+      loadEncargos();
+    } catch (err) {
+      item.append(el("div", { class: "small bad" }, `No se pudo registrar la decisión: ${err.message}`));
+      item.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    }
+  };
+  item.append(el("div", { class: "msg-actions" },
+    el("button", { type: "button", class: "small-btn", onclick: () => decide("aprobar") }, "Aprobar y generar"),
+    el("button", { type: "button", class: "ghost-btn", onclick: () => decide("rechazar") }, "Rechazar")));
+  return item;
 }
 
 async function loadPermissions() {
@@ -266,6 +321,7 @@ async function send(text) {
     progress.remove();
     setBusy(false);
     render();
+    loadEncargos();
     refreshEngine();
   }
 }
@@ -274,6 +330,7 @@ export function initEolasChat() {
   if (!$("#eolas-chat-form")) return;
   load();
   loadPermissions();
+  loadEncargos();
   loadRsi();
   render();
   refreshEngine();

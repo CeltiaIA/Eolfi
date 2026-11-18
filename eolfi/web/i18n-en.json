@@ -291,5 +291,16 @@
  "Idioma": "Language",
  "Idioma del panel": "Panel language",
  "Abre un único proyecto en VS Code y vuelve a esta pestaña.": "Open a single project in VS Code and come back to this tab.",
- "Comprueba que haya un mensaje y un proyecto abierto en VS Code.": "Check that there is a message and a project open in VS Code."
+ "Comprueba que haya un mensaje y un proyecto abierto en VS Code.": "Check that there is a message and a project open in VS Code.",
+ "Encargos a VS Code (los apruebas tú)": "Tasks for VS Code (you approve them)",
+ "Cuando el chat encarga una aplicación a @eolfi en VS Code, no se ejecuta nada hasta que la apruebas aquí o en VS Code. Se genera con el flujo verificado de Eolfi (compilación, pruebas, juez y accesibilidad).": "When the chat asks @eolfi in VS Code for an application, nothing runs until you approve it here or in VS Code. It is generated with Eolfi's verified flow (build, tests, judge and accessibility).",
+ "No hay encargos.": "No tasks.",
+ "Revisar el encargo": "Review the task",
+ "Aprobar y generar": "Approve and generate",
+ "Al aprobar, Eolfi podrá:": "If you approve, Eolfi may:",
+ "pendiente de aprobar": "awaiting approval",
+ "hecho y verificado": "done and verified",
+ "sin verificar o fallido": "unverified or failed",
+ "rechazado": "rejected",
+ "aprobado": "approved"
 }

@@ -32,7 +32,9 @@ SYSTEM_PROMPT = (
     "para archivos y binarios, eolfi_modelos_auditar para modelos GGUF sin cargarlos (un hash no acredita "
     "seguridad de los pesos; con una carpeta lista sus .gguf para auditarlos uno a uno), eolfi_web para webs, eolfi_repo para repositorios, eolfi_informe para el informe de "
     "algo ya analizado, eolfi_biblioteca_buscar/leer para consultar código de referencia en Alejandría y "
-    "ejecutar_python para calcular o probar código, y las herramientas rea_* de REA para ingeniería inversa: las "
+    "ejecutar_python para calcular o probar código, eolfi_vscode_encargo para que @eolfi cree una aplicación en la carpeta "
+    "de VS Code (queda pendiente hasta que el titular la apruebe) y eolfi_vscode_encargo_estado para saber cómo va, y "
+    "las herramientas rea_* de REA para ingeniería inversa: las "
     "rea_inspect_* reciben la ruta de un archivo; rea_buscar encuentra cualquier otra del catálogo de REA, rea_ayuda da su "
     "esquema y rea_usar la ejecuta, también las que escriben o crean, como descompilar o extraer). Para obtener un dato o "
     "ejecutar código, LLAMA a la herramienta y espera su resultado; no escribas el código ni supongas el resultado en "
@@ -57,6 +59,25 @@ APP_TOOLS = {
             "fuentes": {"type": "array", "items": {"type": "string"}, "description": "URLs, rutas o repositorios"},
             "modo": {"type": "string", "enum": ["auto", "guiado"], "default": "auto"}},
             "required": ["nombre", "descripcion"], "additionalProperties": False}},
+    "eolfi_vscode_encargo": {
+        "description": "Encarga a @eolfi en VS Code una aplicación NUEVA (carpetas, archivos, compilación y pruebas) en "
+                       "la carpeta abierta en VS Code. Usa el flujo verificado de Eolfi (plan de proyecto y create con "
+                       "verificación, juez funcional y accesibilidad). NO ejecuta nada al llamarla: deja el encargo "
+                       "pendiente y el titular lo aprueba en el panel o en VS Code (escribir la carpeta, ejecutar "
+                       "comandos, instalar dependencias y usar la red). Exige el puente de VS Code activo.",
+        "parameters": {"type": "object", "properties": {
+            "nombre": {"type": "string", "description": "Nombre de la aplicación"},
+            "descripcion": {"type": "string", "description": "Qué debe hacer la aplicación"},
+            "fuentes": {"type": "array", "items": {"type": "string"},
+                        "description": "URLs, rutas o repositorios de referencia (opcional)"},
+            "carpeta": {"type": "string", "description": "Carpeta destino absoluta, vacía o nueva (opcional; por "
+                                                         "defecto, una subcarpeta nueva de la abierta en VS Code)"}},
+            "required": ["nombre", "descripcion"], "additionalProperties": False}},
+    "eolfi_vscode_encargo_estado": {
+        "description": "Estado real de un encargo a VS Code (pendiente, aprobado, rechazado, en curso, hecho o fallido) "
+                       "con el progreso del trabajo y si el proyecto quedó verificado. Sin encargo_id, lista los últimos.",
+        "parameters": {"type": "object", "properties": {"encargo_id": {"type": "string"}},
+                       "additionalProperties": False}},
     "eolfi_objetivos": {
         "description": "Lista los objetivos ya analizados por Eolfi (binarios, webs, repositorios, proyectos).",
         "parameters": {"type": "object", "properties": {"buscar": {"type": "string", "description": "Filtro opcional"}},
@@ -173,7 +194,9 @@ def _links(output: str) -> dict[str, str]:
     if isinstance(data.get("autorizacion_pendiente"), str):
         out["autorizacion"] = data["autorizacion_pendiente"]
         out["herramienta_pedida"] = str(data.get("herramienta") or "")
-    if isinstance(data.get("case_id"), str):
+    if isinstance(data.get("encargo_id"), str):   # encargo a VS Code: se revisa en su cola, no como plan suelto
+        out["encargo"] = data["encargo_id"]
+    elif isinstance(data.get("case_id"), str):
         out["proyecto"] = data["case_id"]
     if isinstance(data.get("subject"), str):
         out["objetivo"] = data["subject"]

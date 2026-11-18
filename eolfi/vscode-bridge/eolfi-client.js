@@ -47,6 +47,9 @@ function makeClient(base, authToken = null) {
     health: () => req('GET', '/api/health'),
     // Progreso efímero del agente: solo fases y mensajes de estado, nunca prompts ni resultados.
     agentActivity: (body) => req('POST', '/api/vscode/activity', body),
+    // Encargos del chat de Eolfi: cola con aprobación (el servidor anota que se decidió desde VS Code).
+    encargos: () => req('GET', '/api/vscode/encargos'),
+    encargoDecidir: (id, accion) => req('POST', `/api/vscode/encargos/${encodeURIComponent(id)}/${accion === 'aprobar' ? 'aprobar' : 'rechazar'}`, {}),
     // Análisis como trabajo en segundo plano, con progreso.
     async analyze(kind, body, onLog = () => {}, signal = null) {
       const { job_id: id } = await req('POST', '/api/jobs', { kind, body });

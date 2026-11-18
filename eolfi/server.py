@@ -496,6 +496,8 @@ class EolfiApp:
         rea = self._chat_rea(self._case_id(body))
         mcp = chat.Toolbox(EolfiMCP(db=self.db, roots=roots), {
             "eolfi_proponer_proyecto": self._chat_propose_project,
+            "eolfi_vscode_encargo": self._chat_vscode_encargo,
+            "eolfi_vscode_encargo_estado": self._chat_vscode_encargo_estado,
             "eolfi_objetivos": self._chat_subjects,
             "eolfi_casos": lambda _a: {"casos": [{k: c.get(k) for k in ("case_id", "name", "status", "updated_at")}
                                                  for c in self.cases_list({})["cases"][:30]]},
@@ -736,6 +738,126 @@ class EolfiApp:
                                    "sources": fuentes, "mode": "guided" if a.get("modo") == "guiado" else "auto"})
         return {"case_id": state.get("case_id"), "estado": state.get("status"), "plan": state.get("plan"),
                 "aviso": "El plan NO se ejecuta hasta que el usuario lo revise y lo apruebe en el panel."}
+
+    def _chat_vscode_encargo(self, a: dict[str, Any]) -> dict[str, Any]:
+        """Herramienta del chat: encarga a @eolfi en VS Code una aplicación nueva (18/11/2026).
+
+        Usa el flujo verificado (plan de proyecto → create con verificación, juez y accesibilidad) con destino en la
+        carpeta abierta en VS Code. NO ejecuta nada: deja el encargo pendiente en la cola; el titular lo aprueba en el
+        panel o en VS Code, que recibe el aviso por el puente."""
+        from eolfi import encargos_vscode as enc
+        from eolfi.flows.project_flow import default_out
+
+        nombre = str(a.get("nombre") or "").strip()
+        descripcion = str(a.get("descripcion") or "").strip()
+        fuentes = a.get("fuentes") or []
+        if not nombre or not descripcion:
+            raise ValueError("faltan el nombre y la descripción de la aplicación")
+        if not isinstance(fuentes, list) or not all(isinstance(x, str) for x in fuentes):
+            raise ValueError("fuentes debe ser una lista de textos")
+        vs = self._chat_estado()["vscode"]
+        if not vs.get("activo"):
+            raise ValueError("el puente de VS Code no responde: abre VS Code con la extensión @eolfi (sesión iniciada) "
+                             "y vuelve a pedirlo; sin el puente el encargo no puede llegar a VS Code")
+        carpeta = str(a.get("carpeta") or "").strip()
+        if not carpeta:
+            if not vs.get("carpetas"):
+                raise ValueError("VS Code no tiene ninguna carpeta abierta: abre una o indica la carpeta destino")
+            carpeta = default_out(nombre, base=vs["carpetas"][0])
+        destino = Path(carpeta).expanduser()
+        if not destino.is_absolute():
+            raise ValueError("la carpeta destino debe ser una ruta absoluta")
+        if destino.exists() and (not destino.is_dir() or any(destino.iterdir())):
+            raise ValueError(f"la carpeta destino {destino} ya existe y no está vacía: elige otra (no se sobrescribe)")
+        state = self.project_plan({"name": nombre, "description": descripcion, "sources": fuentes, "mode": "auto",
+                                   "out": str(destino)})
+        e = enc.crear(nombre=nombre, descripcion=descripcion, carpeta=str(destino), fuentes=fuentes,
+                      case_id=state["case_id"], plan_version=int(state["plan"]["version"]))
+        aviso = self._avisar_vscode(e)
+        return {"encargo_id": e["id"], "estado": "pendiente_aprobacion", "carpeta": e["carpeta"],
+                "case_id": e["case_id"], "riesgos": e["riesgos"], "aviso_vscode": aviso,
+                "aviso": "No se ha ejecutado nada: el titular debe aprobar el encargo en el panel o en VS Code. "
+                         "Consulta después su estado con eolfi_vscode_encargo_estado."}
+
+    def _avisar_vscode(self, e: dict[str, Any]) -> str:
+        """Lleva el encargo a VS Code (la extensión muestra Aprobar/Rechazar). Si falla, sigue aprobable en el panel."""
+        from eolfi.generador.llm import LLMError, _post, read_vscode_bridge
+
+        try:
+            b = read_vscode_bridge()
+            _post(b["url"] + "/v1/encargo", {k: e[k] for k in ("id", "nombre", "descripcion", "carpeta", "riesgos")},
+                  {"Authorization": f"Bearer {b['token']}"}, 10, retries=0)
+            return "mostrado en VS Code"
+        except (LLMError, OSError, ValueError) as exc:
+            return f"no se pudo mostrar en VS Code ({str(exc)[:120]}); se puede aprobar en el panel"
+
+    def _encargo_estado(self, e: dict[str, Any]) -> dict[str, Any]:
+        """El encargo con el estado REAL del trabajo: plan, trabajo en marcha y verificación del proyecto."""
+        out = {k: e.get(k) for k in ("id", "nombre", "descripcion", "carpeta", "fuentes", "case_id", "riesgos",
+                                    "estado", "origen", "creado", "decidido", "job_id", "error")}
+        if e.get("estado") != "aprobado":
+            return out
+        job = self.jobs.get(str(e.get("job_id") or ""))
+        if job is not None:
+            out["trabajo"] = {"estado": job.get("status"), "error": job.get("error"),
+                              "progreso": [x.get("msg") for x in (job.get("log") or [])[-8:]]}
+        try:
+            st = self.project_get(str(e["case_id"]))
+        except ApiError as exc:
+            out["proyecto"] = {"error": str(exc)}
+            return out
+        gen = (st.get("results") or {}).get("generar") or {}
+        out["proyecto"] = {"estado": st.get("status"), "verificado": gen.get("verified"),
+                           "error": gen.get("error"), "pasos": {k: v.get("status") for k, v in (st.get("results") or {}).items()}}
+        if st.get("status") == "done":
+            out["estado"] = "hecho"
+        elif st.get("status") in ("failed", "done_unverified") or (job or {}).get("status") in ("error", "cancelled"):
+            out["estado"] = "fallido"
+        elif job is not None or st.get("status") == "ready":
+            out["estado"] = "en_curso"
+        return out
+
+    def vscode_encargos(self, _q=None) -> dict[str, Any]:
+        from eolfi import encargos_vscode as enc
+
+        return {"encargos": [self._encargo_estado(e) for e in enc.listar()[:30]]}
+
+    def _chat_vscode_encargo_estado(self, a: dict[str, Any]) -> dict[str, Any]:
+        from eolfi import encargos_vscode as enc
+
+        ident = str(a.get("encargo_id") or "").strip()
+        try:
+            return self._encargo_estado(enc.obtener(ident)) if ident else self.vscode_encargos()
+        except KeyError as exc:
+            raise ValueError(str(exc.args[0])) from exc
+
+    def vscode_encargo_decidir(self, encargo_id: str, accion: str, origen: str) -> dict[str, Any]:
+        """Aprobar: aprueba la versión del plan propuesta y arranca el trabajo «project». Rechazar: no ejecuta nada."""
+        from eolfi import encargos_vscode as enc
+
+        try:
+            e = enc.obtener(encargo_id)
+        except KeyError as exc:
+            raise ApiError(404, str(exc.args[0])) from exc
+        if e.get("estado") != "pendiente":
+            raise ApiError(409, f"el encargo ya está {e.get('estado')}")
+        if accion == "aprobar":
+            st = self.project_get(str(e["case_id"]))
+            if int(st["plan"]["version"]) != int(e["plan_version"]):
+                raise ApiError(409, "el plan cambió desde que se propuso el encargo: revísalo en el panel")
+        try:
+            e = enc.decidir(encargo_id, aprobar=accion == "aprobar", origen=origen)
+        except (KeyError, ValueError) as exc:
+            raise ApiError(409, str(exc)) from exc
+        if accion == "aprobar":
+            try:
+                self.project_action(str(e["case_id"]), "approve",
+                                    {"version": int(e["plan_version"]), "note": f"encargo de VS Code aprobado ({origen})"})
+                job = self.start_job({"kind": "project", "body": {"case_id": e["case_id"], "name": e["nombre"]}})
+                e = enc.anotar(encargo_id, job_id=job["job_id"])
+            except ApiError as exc:
+                e = enc.anotar(encargo_id, error=str(exc))
+        return self._encargo_estado(e)
 
     def _chat_subjects(self, a: dict[str, Any]) -> dict[str, Any]:
         wanted = str(a.get("buscar") or "").casefold()
@@ -1940,7 +2062,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/vscode/status": app.vscode_status, "/api/clients": app.clients,
                         "/api/subjects": app.subjects, "/api/evidence": app.evidence,
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
-                        "/api/vscode/activity": app.vscode_activity,
+                        "/api/vscode/activity": app.vscode_activity, "/api/vscode/encargos": app.vscode_encargos,
                         "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
                         "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
                         "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
@@ -2036,6 +2158,13 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     if m and _CASE_ID.fullmatch(m.group(1)):
                         fn = app.case_associate if m.group(2) == "artifacts" else app.case_record
                         return self._json(200, fn(m.group(1), self._obj()))
+                    m = re.fullmatch(r"/api/vscode/encargos/([0-9a-f]{32})/(aprobar|rechazar)", path)
+                    if m:
+                        cliente = self.headers.get("X-Eolfi-Client")
+                        if cliente not in (None, "vscode"):
+                            raise ApiError(403, "los encargos se deciden en el panel o en la extensión de VS Code")
+                        return self._json(200, app.vscode_encargo_decidir(m.group(1), m.group(2),
+                                                                          "vscode" if cliente else "panel"))
                     m = re.fullmatch(r"/api/rea/autorizaciones/(aut_[0-9a-f]{16})", path)
                     if m:
                         return self._json(200, app.rea_decide(m.group(1), self._obj()))
