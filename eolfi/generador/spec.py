@@ -14,7 +14,7 @@ from typing import Any
 
 from eolfi.core.evidence import EvidenceStore
 
-TARGETS = ("static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet")
+TARGETS = ("static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go")
 
 # Palabras clave en clases/ids/landmarks -> tipo de sección que generaremos.
 SECTION_KEYWORDS = [
@@ -400,7 +400,10 @@ def _choose_target(votes: Counter, cats: dict[str, str], endpoints: Counter) -> 
     if votes["Django"] and votes["Django"] >= max(score("FastAPI", "Flask"), 1) and not (vue or react or svelte):
         return "django"
     node_be = score("Express", "Fastify", "NestJS", "Hono")
+    go_be = score("Gin", "Echo")
     frontend = vue + react + score("Svelte", "Angular", "Astro", "Tailwind CSS", "Vite")
+    if frontend == 0 and go_be and go_be > max(py, node_be):
+        return "go"          # backend en Go (Gin, Echo) → servidor Go con la biblioteca estándar (D2)
     if frontend == 0 and (py or node_be):
         return "fastapi" if py >= node_be else "express"
     if svelte > max(vue, react):

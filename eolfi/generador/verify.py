@@ -69,7 +69,9 @@ def sandbox_env(home: Path) -> dict[str, str]:
     else:
         caches = {"npm_config_cache": real_home / ".npm", "PIP_CACHE_DIR": real_home / ".cache" / "pip",
                   "ELECTRON_CACHE": real_home / ".cache" / "electron"}
-    caches.update(NUGET_PACKAGES=real_home / ".nuget" / "packages",
+    caches.update(GOCACHE=Path(os.environ.get("GOCACHE") or (local / "go-build" if os.name == "nt"
+                                                            else real_home / ".cache" / "go-build")),
+                  NUGET_PACKAGES=real_home / ".nuget" / "packages",
                   CARGO_HOME=Path(os.environ.get("CARGO_HOME") or real_home / ".cargo"),
                   RUSTUP_HOME=Path(os.environ.get("RUSTUP_HOME") or real_home / ".rustup"))
     for k, v in caches.items():
@@ -273,6 +275,26 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
             step([dotnet, "publish", str(csproj), "-c", "Release", "-r", rid, "--self-contained",
                   "-p:PublishSingleFile=true", "-o", str(root / "publish" / rid)],
                  f"publicar ejecutable autocontenido para este sistema ({rid})")
+        ok = bool(steps) and all(s["exit"] == 0 for s in steps)
+        return {"ok": ok, "steps": steps, "pinned": pinned}
+
+    if target == "go":
+        go = shutil.which("go")
+        if not go:
+            return {"ok": False, "steps": [], "error": "Go no está instalado (https://go.dev/dl)"}
+        # Solo biblioteca estándar: sin red (GOPROXY=off), sin descargar otra versión de Go y sin compilador de C.
+        genv = {"GOPROXY": "off", "GOTOOLCHAIN": "local", "GOTELEMETRY": "off", "CGO_ENABLED": "0",
+                "GOFLAGS": "-mod=readonly"}
+        exe = root / "bin" / ("app.exe" if os.name == "nt" else "app")
+        ok = step([go, "vet", "./..."], "revisar el código (go vet)", extra_env=genv)
+        if ok:
+            ok = step([go, "test", "./..."], "pruebas (go test)", extra_env=genv)
+        if ok:
+            ok = step([go, "build", "-trimpath", "-o", str(exe), "."], "compilar el ejecutable (go build)",
+                      extra_env=genv)
+        if ok:
+            step([str(exe)], "prueba de humo: arrancar el servidor y pedirle /api/health y la portada",
+                 extra_env={"APP_SMOKE": "1"}, step_timeout=120)
         ok = bool(steps) and all(s["exit"] == 0 for s in steps)
         return {"ok": ok, "steps": steps, "pinned": pinned}
 

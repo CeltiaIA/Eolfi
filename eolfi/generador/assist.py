@@ -47,13 +47,14 @@ EDITABLE = {
     "desktop": ("renderer/", "test/"),
     "tauri": ("src/", "test/", "src-tauri/src/"),
     "cli": ("src/", "tests/"),
+    "go": ("*.go", "web/"),   # go.mod no es editable (no está en TEXT_EXT): sin dependencias nuevas
     "dotnet": ("src/", "tests/"),   # .csproj no es editable (no está en TEXT_EXT)   # main.js/preload.js (seguridad de la ventana) no se tocan
 }
 FORBIDDEN = re.compile(
     r"(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|"
     r"vite\.config\.[jt]s|next\.config\.[jt]s|svelte\.config\.js|tsconfig\.json|Dockerfile|"
     r"settings\.py|manage\.py|conftest\.py|eolfi\.spec\.json|eolfi\.juez\.json)$|(^|/)(node_modules|\.venv|\.git|\.github|dist|\.next)(/|$)")
-TEXT_EXT = {".ts", ".tsx", ".js", ".mjs", ".vue", ".svelte", ".py", ".html", ".css", ".json", ".md", ".sql", ".rs", ".cs"}
+TEXT_EXT = {".ts", ".tsx", ".js", ".mjs", ".vue", ".svelte", ".py", ".html", ".css", ".json", ".md", ".sql", ".rs", ".cs", ".go"}
 
 OUTPUT_SCHEMA = {
     "type": "object",
