@@ -10,7 +10,7 @@ Reglas del catálogo:
 - Si dos frases se solapan gana la más larga («Inicia sesión para añadir datos.» antes que «Añadir»).
 - Solo frases que ve el usuario o que nombran pruebas y errores del proyecto; nunca identificadores de código.
 
-README.md y DESPLIEGUE.md siguen en castellano (pendiente en el PLAN, C4) y no se traducen a medias.
+README.md y la receta de despliegue no pasan por aquí: en inglés se escriben enteros aparte (`_readme_en`, `despliegue.receta_en` y DEPLOYMENT.md), sin traducirlos a medias.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import re
 from functools import lru_cache
 
 IDIOMAS = ("es", "en")
-NO_TRADUCIR = ("README.md", "DESPLIEGUE.md", "eolfi.spec.json")
+NO_TRADUCIR = ("README.md", "DESPLIEGUE.md", "DEPLOYMENT.md", "eolfi.spec.json")
 
 EN: dict[str, str] = {
     # ── Atributos de idioma ──

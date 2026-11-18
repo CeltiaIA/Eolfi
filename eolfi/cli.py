@@ -411,7 +411,7 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--auth", action="store_true",
                     help="Registro, inicio de sesión y token para las escrituras (FastAPI/Express)")
     cr.add_argument("--idioma-proyecto", dest="idioma_proyecto", choices=("es", "en"), default="es",
-                    help="Idioma de la interfaz y las pruebas del proyecto generado (README y DESPLIEGUE siguen en castellano)")
+                    help="Idioma de la interfaz y las pruebas del proyecto generado (README y receta de despliegue incluidos; los comentarios del código siguen en castellano)")
     cr.add_argument("--force", action="store_true", help="Escribe aunque la carpeta no esté vacía")
     cr.add_argument("--reanalyze", action="store_true", help="Vuelve a analizar fuentes ya conocidas")
     cr.add_argument("--workdir", default="samples/repos")
