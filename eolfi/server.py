@@ -436,7 +436,8 @@ class EolfiApp:
         names = [n for n in eolas_v2.available_evaluation_profiles() if n != eolas_v2.NEMO_MOE_PROFILE]
         return {"available": available, "detail": detail, "profile": st["active_profile"], "model": st["alias"],
                 "loaded": bool(st["running"]), "busy": self._gpu_busy(),
-                "profiles": [{"name": n, "alias": eolas_v2.profile_config(n)["alias"]} for n in names]}
+                "profiles": [{"name": n, "alias": eolas_v2.profile_config(n)["alias"], "label": eolas_v2.etiqueta(n)}
+                             for n in names]}
 
     def chat_set_profile(self, body: dict[str, Any]) -> dict[str, Any]:
         """El motor elegido en Eolfi pasa a ser el perfil activo de Eolas V2."""
@@ -444,7 +445,7 @@ class EolfiApp:
 
         try:
             eolas_v2.set_active_profile(str(body.get("profile") or ""))
-        except (ValueError, FileNotFoundError) as exc:
+        except (ValueError, FileNotFoundError, PermissionError) as exc:   # PermissionError: perfil no admitido
             raise ApiError(400, str(exc)) from exc
         return self.chat_status()
 
@@ -1739,6 +1740,15 @@ class EolfiApp:
         os.replace(tmp, idx)
 
 
+def _perfiles_eolas() -> dict[str, Any]:
+    """Motores instalados para la prueba y su nombre visible (la etiqueta del perfil): el panel no lleva lista propia."""
+    from eolfi import eolas_v2
+
+    cfg = eolas_v2.load_config()
+    perfiles = eolas_v2.available_evaluation_profiles(cfg)
+    return {"perfiles": perfiles, "etiquetas": {n: eolas_v2.etiqueta(n, cfg) for n in perfiles}}
+
+
 def _folder_slug(name: str) -> str:
     """«Árbol de tareas» → «arbol-de-tareas»; «日本語» se conserva; vacío → proyecto-AAAAMMDD-HHMM (M1)."""
     import unicodedata
@@ -1933,7 +1943,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
                         "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
                         "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
-                        "/api/eolas/perfiles": lambda _q: {"perfiles": __import__("eolfi.eolas_v2", fromlist=["x"]).available_evaluation_profiles()},
+                        "/api/eolas/perfiles": lambda _q: _perfiles_eolas(),
                         "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
                     if path in routes:

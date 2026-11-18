@@ -45,7 +45,9 @@ function makeEolasProvider({ vscode, localModel, modelId, limits = () => ({ ctx:
   return {
     async provideLanguageModelChatInformation() {
       const { ctx, maxTokens } = limits();
-      return [{ id: modelId, name: 'Gemma 4 12B · Eolas (local)', family: 'gemma', version: modelId, detail: 'en este equipo',
+      // El nombre sale del modelo en uso, no de una marca fija: cambiar de modelo no obliga a tocar la extensión.
+      const family = String(modelId || 'local').split(/[-:_.]/)[0] || 'local';
+      return [{ id: modelId, name: `${modelId} · Eolas (local)`, family, version: modelId, detail: 'en este equipo',
         tooltip: 'Eolas en 127.0.0.1:11435: el código no sale del equipo.', maxInputTokens: Math.max(1024, ctx - maxTokens),
         maxOutputTokens: maxTokens, capabilities: { toolCalling: true, imageInput: false } }];
     },

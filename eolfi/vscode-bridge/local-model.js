@@ -286,6 +286,18 @@ function makeLocalModel({ endpoints = DEFAULT_ENDPOINTS, model = '', fetchFn = h
 
 // Integración acordada: Eolas (llama.cpp gestionado por Eolas) con un único modelo Gemma 4 12B.
 const EOLAS_URL = 'http://127.0.0.1:11435';
+// Modelo de Eolas V1 (CeltIA): EOLAS_MODEL, o «eolas_v1_model» de eolas-v2.json (el mismo sitio que usa Eolfi en
+// Python). La constante es solo el respaldo de un eolas-v2.json antiguo y debe coincidir con eolfi/eolas_v2.py
+// DEFAULT_CONFIG (lo comprueba tests/test_modelo_unico.py).
 const EOLAS_MODEL = 'gemma-4-12b-it:latest';
+function eolasV1Model({ env = process.env, fsMod = require('node:fs') } = {}) {
+  if (env.EOLAS_MODEL) return String(env.EOLAS_MODEL);
+  const file = env.EOLFI_EOLAS_V2_CONFIG || require('node:path').join(require('node:os').homedir(), '.eolfi', 'eolas-v2.json');
+  try {
+    const cfg = JSON.parse(fsMod.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    if (cfg && typeof cfg.eolas_v1_model === 'string' && cfg.eolas_v1_model) return cfg.eolas_v1_model;
+  } catch { /* sin archivo o ilegible: respaldo */ }
+  return EOLAS_MODEL;
+}
 
-module.exports = { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS, EOLAS_URL, EOLAS_MODEL, httpFetch, eolasV2Holder };
+module.exports = { makeLocalModel, pickModel, isLoopback, DEFAULT_ENDPOINTS, EOLAS_URL, EOLAS_MODEL, eolasV1Model, httpFetch, eolasV2Holder };

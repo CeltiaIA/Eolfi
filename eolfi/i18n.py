@@ -272,6 +272,15 @@ CLI_EN: dict[str, str] = {
     "Arranca el perfil activo (o el indicado)": "Starts the active profile (or the given one)",
     "Detiene el perfil activo y arranca el otro": "Stops the active profile and starts the other one",
     "Detiene solo el llama-server que inició Eolas": "Stops only the llama-server that Eolas started",
+    "Catálogo: etiqueta, si se puede usar, roles y admisión de cada perfil":
+        "Catalogue: label, whether it can be used, roles and admission of each profile",
+    "Da de alta un GGUF local como perfil nuevo (no lo activa)": "Registers a local GGUF as a new profile (does not activate it)",
+    "Elige el perfil activo (sin arrancarlo); los nuevos deben estar admitidos":
+        "Selects the active profile (without starting it); new ones must be admitted",
+    "Asigna un perfil a un papel: rapido, completo, redactor, revisor…":
+        "Assigns a profile to a role: rapido, completo, redactor, revisor…",
+    "Ronda completa de un perfil (código y herramientas): decide su admisión. CARGA el modelo y necesita Docker":
+        "Full round for one profile (code and tools): decides its admission. LOADS the model and needs Docker",
     "Revisa la cabecera del GGUF de un perfil (o una ruta) con REA": "Reviews the GGUF header of a profile (or a path) with REA",
     "Retira un perfil que no aprueba (conserva su GGUF)": "Retires a profile that does not pass (keeps its GGUF)",
     "Desinstala un motor: retira el perfil y borra su GGUF y sus lecciones":

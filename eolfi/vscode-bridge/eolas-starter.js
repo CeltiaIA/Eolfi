@@ -6,7 +6,7 @@ const { httpFetch } = require('./local-model');
 // Sin ruta fija de una máquina: ajuste «eolfi.fallback.eolasLauncher» o, si falta, CELTIAIA_HOME\launch-eolas.ps1.
 const DEFAULT_LAUNCHER = process.env.CELTIAIA_HOME ? require('node:path').join(process.env.CELTIAIA_HOME, 'launch-eolas.ps1') : '';
 const DEFAULT_URL = 'http://127.0.0.1:11435';
-const DEFAULT_MODEL = 'gemma-4-12b-it:latest';
+const DEFAULT_MODEL = require('./local-model').EOLAS_MODEL;   // respaldo; extension.js pasa eolasV1Model()
 
 function makeEolasStarter({ launcher = DEFAULT_LAUNCHER, expectedSha256 = '', log = () => {},powershell = 'powershell.exe', endpoint = DEFAULT_URL,
   model = DEFAULT_MODEL, spawnFn = spawn, fetchFn = httpFetch, launchMs = 135000, readyMs = 30000, pollMs = 500,

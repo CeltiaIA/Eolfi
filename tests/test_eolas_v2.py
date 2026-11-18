@@ -817,13 +817,18 @@ def test_ronda_completa_decide_aprobados_y_aporta_lo_que_pasa(tmp_path, monkeypa
                "buscar_definicion": ("eolfi_biblioteca_buscar", json.dumps({"ruta": "corpus/codigo/Eolfi/eolfi/library.py"})),
                "leer_constante": ("eolfi_biblioteca_leer", '{"valor": 30000}'),
                "calcular_con_codigo": ("ejecutar_python", '{"resultado": 49345379}'),
-               "reimplementar_de_biblioteca": ("eolfi_biblioteca_leer", "```python\ndef bien(): pass\n```")}
+               "reimplementar_de_biblioteca": ("eolfi_biblioteca_leer", "```python\ndef bien(): pass\n```"),
+               # 18/11/2026: elegir la correcta, abstenerse y saber para qué sirve cada una (None: sin herramienta).
+               "elegir_entre_varias": ("ejecutar_python", '{"resultado": 102334155}'),
+               "sin_herramienta": (None, '{"lados": 6}'),
+               "para_que_sirve_cada_una": (None, json.dumps({"a": "eolfi_triage", "b": "eolfi_biblioteca_buscar",
+                                                             "c": "eolfi_biblioteca_leer", "d": "ejecutar_python"}))}
 
     def fake_chat(c, msgs, tools, **k):
         prompt = msgs[1]["content"]
         case = next(x for x in eolas_v2.TOOL_EVALUATION_CASES if x["prompt"].split("{")[0][:40] in prompt)
         tool, answer = answers[case["id"]]
-        if current["name"] == "mistral":                    # responde sin usar herramientas: lo supone
+        if current["name"] == "mistral" or tool is None:    # mistral responde sin usar herramientas: lo supone
             return {"content": answer}
         if msgs[-1]["role"] != "tool":
             return {"tool_calls": [{"id": "1", "function": {"name": tool, "arguments": '{"codigo": "print(1)"}'}}]}
@@ -833,8 +838,12 @@ def test_ronda_completa_decide_aprobados_y_aporta_lo_que_pasa(tmp_path, monkeypa
     report = eolas_v2.run_full_evaluation(profiles=["gemma_q4", "mistral"], battery="completa")
     assert report["battery"] == "completa" and "nemo_moe" not in report["summary"]
     g, m = report["summary"]["gemma_q4"], report["summary"]["mistral"]
-    assert g["herramientas"] == {"casos": 5, "primera": 5, "final": 5} and g["codigo_primera_pct"] == 100 and g["aprobado"]
-    assert m["herramientas_pct"] == 0 and not m["aprobado"]          # acertar sin usar la herramienta no cuenta
+    total = len(eolas_v2.TOOL_EVALUATION_CASES)
+    assert g["herramientas"] == {"casos": total, "primera": total, "final": total}
+    assert g["codigo_primera_pct"] == 100 and g["aprobado"]
+    # Acertar sin usar la herramienta no cuenta; ya no puede llegar al mínimo y se descarta antes de los casos sin
+    # herramienta.
+    assert m["herramientas_pct"] == 0 and not m["aprobado"] and m.get("descartado")
     assert report["mejor"] == "gemma_q4" and report["no_aprueban"] == ["mistral"]
     aportes = list((tmp_path / "aportes").rglob("*.py"))
     assert aportes and any(p.parent.name == "reimplementar_de_biblioteca" for p in aportes)
@@ -846,6 +855,21 @@ def test_objeto_json_acepta_rutas_de_windows_sin_escapar():
     assert eolas_v2._json_object(r'Aquí: {"ruta": "codigo\Eolfi\eolfi\library.py"}')["ruta"].endswith(r"eolfi\library.py")
     assert eolas_v2._json_object(json.dumps({"ruta": r"a\b.py"}))["ruta"] == r"a\b.py"
     assert eolas_v2._json_object("sin json") == {} and eolas_v2._json_object("[1]") == {}
+
+
+def test_herramientas_elegir_la_correcta_y_no_usarlas_sin_necesidad():
+    """18/11/2026: usar una herramienta que no corresponde, o alguna cuando no hace falta, es fallo."""
+    from eolfi import eolas_v2
+
+    casos = {c["id"]: c for c in eolas_v2.TOOL_EVALUATION_CASES}
+    elegir, nada, mapa = casos["elegir_entre_varias"], casos["sin_herramienta"], casos["para_que_sirve_cada_una"]
+    assert eolas_v2._tools_requirement_met(elegir, {"ejecutar_python"}, 1)
+    assert not eolas_v2._tools_requirement_met(elegir, {"ejecutar_python", "eolfi_biblioteca_buscar"}, 2)
+    assert not eolas_v2._tools_requirement_met(elegir, set(), 0)
+    assert eolas_v2._tools_requirement_met(nada, set(), 0) and eolas_v2._tools_requirement_met(mapa, set(), 0)
+    assert not eolas_v2._tools_requirement_met(nada, {"ejecutar_python"}, 1)
+    # El mapa usa los nombres reales de las herramientas que se ofrecen en la ronda.
+    assert set(mapa["expected"].values()) == {*eolas_v2.ROUND_MCP_TOOLS, eolas_v2.PYTHON_TOOL["function"]["name"]}
 
 
 def test_herramientas_basta_usar_una_de_las_exigidas():

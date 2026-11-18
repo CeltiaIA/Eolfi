@@ -126,6 +126,7 @@ def test_funciones_que_cambian_estado_estan_registradas():
         eolas_v2.restore_profile: "eolas_v2.restaurar_perfil",
         eolas_v2.remove_custom_profile: "eolas_v2.quitar_perfil",
         eolas_v2.apply_recommended_profile: "eolas_v2.recomendar_perfil",
+        eolas_v2.set_role: "eolas_v2.rol", eolas_v2.register_profile: "eolas_v2.alta_perfil",
         modelos_reconstruir.execute: "modelos.reconstruir", modelos_reconstruir.execute_smoke: "modelos.probar",
         modelos_reconstruir.adopt_profile: "eolas_v2.adoptar",
     }

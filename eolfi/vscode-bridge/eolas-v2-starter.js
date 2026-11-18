@@ -8,9 +8,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-// Alias de los perfiles Gemma por defecto (eolfi/eolas_v2.py DEFAULT_PROFILES), por si el JSON no los repite.
+// El perfil lo decide eolas-v2.json («python -m eolfi eolas-v2 activo <perfil>»), nunca la extensión. Solo por si un
+// eolas-v2.json antiguo no repite el alias de un perfil de serie, este espejo de eolfi/eolas_v2.py DEFAULT_PROFILES
+// (una prueba de Python comprueba que coinciden: tests/test_modelo_unico.py).
 const DEFAULT_ALIASES = { gemma_q4: 'gemma-4-12b-it-q4_k_m:latest', gemma: 'gemma-4-12b-it-q5_k_m:latest' };
-const DEFAULT_PROFILE = 'gemma';
 const DEFAULT_PORT = 8090;
 
 function v2Files(env = process.env) {
@@ -26,7 +27,7 @@ function readJson(file, fsMod = fs) {
 // Perfil, alias y URL que usará la extensión: el perfil activo de eolas-v2.json salvo que se pida otro.
 function v2Target({ profile = '', env = process.env, fsMod = fs } = {}) {
   const cfg = readJson(v2Files(env).config, fsMod) || {};
-  const name = String(profile || cfg.active_profile || DEFAULT_PROFILE);
+  const name = String(profile || cfg.active_profile || '');   // vacío: Eolfi arranca su perfil activo
   const alias = String(cfg.profiles?.[name]?.alias || DEFAULT_ALIASES[name] || '');
   const port = Number(cfg.port) || DEFAULT_PORT;
   return { profile: name, alias, url: `http://127.0.0.1:${port}` };
@@ -69,8 +70,8 @@ function makeEolasV2Starter({ python = 'python', cwd, env = process.env, profile
     if (starting) return starting;
     starting = (async () => {
       const t = target();
-      const args = ['-m', 'eolfi', 'eolas-v2', 'start', '--profile', t.profile];
-      log(`Arrancando Eolas V2 (perfil ${t.profile}, ${t.alias}) con ${python} ${args.join(' ')}`);
+      const args = ['-m', 'eolfi', 'eolas-v2', 'start', ...(t.profile ? ['--profile', t.profile] : [])];
+      log(`Arrancando Eolas V2 (perfil ${t.profile || 'activo'}, ${t.alias || 'el de eolas-v2.json'}) con ${python} ${args.join(' ')}`);
       const out = await new Promise((resolve, reject) => {
         let child;
         let settled = false;

@@ -17,7 +17,7 @@ const { readCodexMcpServers } = require('./codex-mcp');
 const { makeAgentTools } = require('./agent-tools'); const { registerEolasModel } = require('./lm-provider');
 const { makeCaseTools, combineTools } = require('./case-tools');
 const { makeHistory } = require('./history');
-const { makeLocalModel, EOLAS_URL, EOLAS_MODEL } = require('./local-model');
+const { makeLocalModel, EOLAS_URL, eolasV1Model } = require('./local-model');
 const { findServer } = require('./llama-starter');
 const { makeEolasStarter } = require('./eolas-starter');
 const { makeEolasV2Starter, v2Target, v2AuthHeaders } = require('./eolas-v2-starter');
@@ -510,7 +510,7 @@ function activate(context) {
         let endpoint, model, starter, lm;
         if (useV1) {
           endpoint = EOLAS_URL;
-          model = EOLAS_MODEL;
+          model = eolasV1Model();
           const launcher = String(c.get('fallback.eolasLauncher') || '').trim();
           starter = autoStart ? makeEolasStarter({ launcher: launcher || undefined, endpoint, model, authHeaders: () => v1AuthHeaders(), expectedSha256: String(c.get('fallback.eolasLauncherSha256') || ''), log: (m) => out.appendLine(m) }) : null;
           lm = makeLocalModel({ endpoints: [endpoint], model, starter, authHeaders: () => v1AuthHeaders(),

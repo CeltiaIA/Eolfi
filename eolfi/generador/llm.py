@@ -47,12 +47,12 @@ class Reply:
 
 PRESETS: dict[str, dict[str, Any]] = {
     "eolas": {"kind": "eolas-v1", "base_url": os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435"),
-              "model": os.environ.get("EOLAS_MODEL", "gemma-4-12b-it:latest"), "key_env": None,
+              "model": None, "key_env": None,   # None: eolas_v1_model() (eolas-v2.json o EOLAS_MODEL)
               "context_bytes": 60_000},
     # Motor Eolas V2 gestionado por Eolfi (llama-server local, perfil Gemma o Mistral alterno).
     "eolas-v2": {"kind": "eolas-v2", "context_bytes": 60_000},
-    # CeltIA V2 compone dos perfiles secuencialmente: uno redacta y otro revisa/compone la salida (13/11/2026: el
-    # ganador de la ronda, gemma Q5, redacta y gemma Q4 revisa; configurable en eolas-v2.json).
+    # CeltIA V2 compone dos perfiles secuencialmente: uno redacta y otro revisa/compone la salida (roles
+    # «redactor» y «revisor» de eolas-v2.json).
     "celtia-v2": {"kind": "celtia-composite", "context_bytes": 100_000},
     # Webs de chat vía el puente Electron (límite de 32 000 caracteres por mensaje).
     "deepseek-web": {"kind": "bridge", "site": "deepseek", "context_bytes": 14_000},
@@ -438,9 +438,8 @@ class EolasEngineProvider(Provider):
             profile = str(recommendation["perfil"])
             self.model = profile
         if self.auto_route:
-            profile = "mistral" if effort == "low" else "gemma_q4"
-            if not Path(eolas_v2.profile_config(profile, cfg)["model"]).is_file() or eolas_v2.is_retired(profile, cfg):
-                profile = str(cfg["active_profile"])   # un perfil retirado nunca se elige solo
+            # Roles «rapido» / «completo» de eolas-v2.json; sin GGUF o retirado, cae en el activo.
+            profile = eolas_v2.rol("rapido" if effort == "low" else "completo", cfg)
         if self.profile_locked:
             c = eolas_v2.profile_config(profile, cfg)
             runtime = eolas_v2.status()
@@ -456,7 +455,7 @@ class EolasEngineProvider(Provider):
                 {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"], ensure_ascii=False)}
                 for m in messages]
             reasoning = self.reasoning_override
-            if eolas_v2.is_mistral_profile(profile):
+            if eolas_v2.is_mistral_profile(profile, cfg):
                 msgs = _mistral_chat_messages(system, msgs[1:])
                 reasoning = False
             opts = determinista(llamacpp.request_options(c, reasoning=reasoning))
@@ -483,15 +482,34 @@ class EolasEngineProvider(Provider):
                      self.model)
 
 
-CELTIA_V2_DRAFTER = "gemma"       # 13/11/2026, titular: el ganador de la ronda al 85 % (Gemma 4 Q5) redacta…
-CELTIA_V2_REVIEWER = "gemma_q4"   # …y Gemma Q4 revisa. Antes: Mistral (retirado y eliminado) → Gemma Q4.
-
-
 def celtia_v2_roles(cfg: dict[str, Any] | None = None) -> tuple[str, str]:
-    """Redactor y revisor de CeltIA V2: `celtia_v2_redactor` / `celtia_v2_revisor` en eolas-v2.json, o los de serie."""
-    cfg = cfg or {}
-    return (str(cfg.get("celtia_v2_redactor") or CELTIA_V2_DRAFTER),
-            str(cfg.get("celtia_v2_revisor") or CELTIA_V2_REVIEWER))
+    """Redactor y revisor de CeltIA V2: roles «redactor» y «revisor» de eolas-v2.json (o las claves antiguas
+    `celtia_v2_redactor` / `celtia_v2_revisor`). Sin respaldo: si falta un perfil, se informa en vez de cambiarlo."""
+    from eolfi import eolas_v2
+
+    cfg = {**eolas_v2.DEFAULT_CONFIG, "roles": eolas_v2.DEFAULT_ROLES, **(cfg or {})}
+    return eolas_v2.rol("redactor", cfg, respaldo=False), eolas_v2.rol("revisor", cfg, respaldo=False)
+
+
+def _eolas_v2_cfg() -> dict[str, Any]:
+    from eolfi import eolas_v2
+
+    try:
+        return eolas_v2.load_config(create=False)
+    except (OSError, ValueError):
+        return {}
+
+
+def eolas_v1_model() -> str:
+    """Modelo que se pide a Eolas V1: EOLAS_MODEL o `eolas_v1_model` de eolas-v2.json."""
+    if os.environ.get("EOLAS_MODEL"):
+        return os.environ["EOLAS_MODEL"]
+    from eolfi import eolas_v2
+
+    try:
+        return str(eolas_v2.load_config(create=False)["eolas_v1_model"])
+    except (OSError, ValueError):
+        return str(eolas_v2.DEFAULT_CONFIG["eolas_v1_model"])
 
 
 class CeltiaV2ComposerProvider(Provider):
@@ -501,7 +519,7 @@ class CeltiaV2ComposerProvider(Provider):
     context_bytes = PRESETS[name]["context_bytes"]
 
     def __init__(self):
-        self.model = f"{CELTIA_V2_DRAFTER} → {CELTIA_V2_REVIEWER} (composición CeltIA V2)"
+        self.model = "{} → {} (composición CeltIA V2)".format(*celtia_v2_roles(_eolas_v2_cfg()))
         self.timeout = 1800.0
         self.last_reasoning = ""
 
@@ -601,7 +619,7 @@ def make_provider(name: str | None = None, *, model: str | None = None, base_url
         raise LLMError(f"proveedor desconocido '{name}' (opciones: {', '.join(PRESETS)})")
     p = PRESETS[name]
     if p["kind"] == "eolas-v1":
-        return EolasV1Provider(base_url or p["base_url"], model or p["model"], p["context_bytes"])
+        return EolasV1Provider(base_url or p["base_url"], model or eolas_v1_model(), p["context_bytes"])
     if p["kind"] == "bridge":
         return BridgeProvider(name, p["site"], p["context_bytes"])
     if p["kind"] == "llamacpp":

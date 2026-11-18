@@ -29,6 +29,7 @@ def _eolas_v2_aislado(tmp_path, monkeypatch):
     clave de API…) y sin arrancar el REA real del equipo (12/11/2026)."""
     monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas-v2-prueba.json"))
     monkeypatch.setenv("EOLFI_EOLAS_V2_EVALUATIONS", str(tmp_path / "evaluation-memory.json"))
+    monkeypatch.setenv("EOLFI_EOLAS_V2_ADMISION", str(tmp_path / "admision.json"))   # examen de herramientas
     monkeypatch.setenv("EOLFI_ASSIST_MEMORY", str(tmp_path / "assist-verified.jsonl"))
     monkeypatch.setenv("EOLFI_NO_REA", "1")
     monkeypatch.setenv("EOLFI_ACCIONES_FILE", str(tmp_path / "acciones.jsonl"))

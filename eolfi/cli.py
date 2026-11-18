@@ -491,6 +491,30 @@ def _parser() -> argparse.ArgumentParser:
     eo = sub.add_parser("eolas-v2", help="Motor Eolas V2: perfiles Gemma/Mistral alternos, feedback y preparación de aprendizaje")
     eos = eo.add_subparsers(dest="eolas_action", required=True)
     eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
+    # 18/11/2026 (titular: cambiar de modelo sin tocar código). El modelo se elige en eolas-v2.json con estas órdenes.
+    eos.add_parser("perfiles", help="Catálogo: etiqueta, si se puede usar, roles y admisión de cada perfil")
+    eos_alta = eos.add_parser("alta", help="Da de alta un GGUF local como perfil nuevo (no lo activa)")
+    eos_alta.add_argument("profile", help="Nombre nuevo (minúsculas, cifras y guion bajo)")
+    eos_alta.add_argument("gguf", help="Ruta del .gguf (la primera parte si viene troceado)")
+    eos_alta.add_argument("--etiqueta", default="", help="Nombre visible, p. ej. «Qwen3 14B Q4»")
+    eos_alta.add_argument("--alias", default="")
+    eos_alta.add_argument("--ctx", type=int, default=16384)
+    eos_alta.add_argument("--gpu-layers", type=int, default=99)
+    eos_alta.add_argument("--batch", type=int, default=512)
+    eos_alta.add_argument("--ubatch", type=int, default=512)
+    eos_alta.add_argument("--razonamiento", choices=["deepseek"], default=None,
+                          help="El modelo piensa en un bloque aparte (formato deepseek de llama-server)")
+    eos_alta.add_argument("--plantilla", choices=["mistral"], default=None,
+                          help="Reglas de conversación de Mistral Instruct (sin mensaje de sistema propio)")
+    eos_alta.add_argument("--sha256", default=None, help="SHA-256 revisado del GGUF (opcional)")
+    eos_activo = eos.add_parser("activo", help="Elige el perfil activo (sin arrancarlo); los nuevos deben estar admitidos")
+    eos_activo.add_argument("profile")
+    eos_rol = eos.add_parser("rol", help="Asigna un perfil a un papel: rapido, completo, redactor, revisor…")
+    eos_rol.add_argument("rol")
+    eos_rol.add_argument("profile")
+    eos_examen = eos.add_parser("examen", help="Ronda completa de un perfil (código y herramientas): decide su admisión. "
+                                              "CARGA el modelo y necesita Docker")
+    eos_examen.add_argument("profile")
     eos_plan = eos.add_parser("plan", help="Valida una reconstrucción y propone un perfil sin adoptarlo")
     eos_plan.add_argument("carpeta", help="Carpeta creada por `modelos reconstruir`, con smoke superado")
     eos_plan.add_argument("--profile", required=True, help="Nombre nuevo del perfil (minúsculas y guion bajo)")
@@ -1883,6 +1907,20 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.eolas_action == "status":
                 _print(eolas_v2.status())
+            elif args.eolas_action == "perfiles":
+                _print({"perfiles": eolas_v2.catalogo()})
+            elif args.eolas_action == "alta":
+                _print(eolas_v2.register_profile(args.profile, args.gguf, etiqueta=args.etiqueta, alias=args.alias,
+                                                 ctx=args.ctx, gpu_layers=args.gpu_layers, batch=args.batch,
+                                                 ubatch=args.ubatch, reasoning_format=args.razonamiento,
+                                                 plantilla=args.plantilla, sha256=args.sha256))
+            elif args.eolas_action == "activo":
+                _print(eolas_v2.set_active_profile(args.profile))
+            elif args.eolas_action == "rol":
+                _print(eolas_v2.set_role(args.rol, args.profile))
+            elif args.eolas_action == "examen":
+                report = eolas_v2.run_round(profiles=[args.profile], progress=_progress)
+                _print({"resumen": report.get("summary"), "admision": eolas_v2.admitido(args.profile)})
             elif args.eolas_action == "plan":
                 from eolfi.modelos_reconstruir import plan_profile
 
