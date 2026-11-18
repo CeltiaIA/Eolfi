@@ -410,6 +410,8 @@ def _parser() -> argparse.ArgumentParser:
                     help="Persistencia de los backends FastAPI/Express (sqlite: sin dependencias nuevas)")
     cr.add_argument("--auth", action="store_true",
                     help="Registro, inicio de sesión y token para las escrituras (FastAPI/Express)")
+    cr.add_argument("--idioma-proyecto", dest="idioma_proyecto", choices=("es", "en"), default="es",
+                    help="Idioma de la interfaz y las pruebas del proyecto generado (README y DESPLIEGUE siguen en castellano)")
     cr.add_argument("--force", action="store_true", help="Escribe aunque la carpeta no esté vacía")
     cr.add_argument("--reanalyze", action="store_true", help="Vuelve a analizar fuentes ya conocidas")
     cr.add_argument("--workdir", default="samples/repos")
@@ -1094,7 +1096,8 @@ def _dispatch(args, store: EvidenceStore) -> int:
                                  workdir=args.workdir, ai_brief=args.ai_brief, ai_provider=args.provider,
                                  ai_model=args.model, ai_base_url=args.base_url, db=args.backend_db, auth=args.auth,
                                  progress=_progress, case_id=args.case_id, provenance=args.provenance,
-                                 autofix=args.autofix, juez=args.juez, accesibilidad=args.accesibilidad)
+                                 autofix=args.autofix, juez=args.juez, accesibilidad=args.accesibilidad,
+                                 idioma=args.idioma_proyecto)
         except Exception as exc:
             if args.ai_brief:
                 _rsi_observar("generador", "create_ai", {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ctx)

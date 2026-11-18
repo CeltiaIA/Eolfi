@@ -1324,7 +1324,8 @@ class EolfiApp:
                                      auth=bool(body.get("auth")), progress=self._progress, case_id=case_id,
                                      autofix=body.get("autofix") is not False,
                                      accesibilidad=(body["accesibilidad"] if isinstance(body.get("accesibilidad"), bool)
-                                                    else None))
+                                                    else None),
+                                     idioma=str(body.get("idioma_proyecto") or "es"))
             except FileExistsError as exc:
                 raise ApiError(409, str(exc)) from exc
             except OverwriteSourceError as exc:

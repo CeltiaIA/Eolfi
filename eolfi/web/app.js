@@ -498,6 +498,7 @@ function wire() {
     if ($("#create-ai-base").value.trim()) body.ai_base_url = $("#create-ai-base").value.trim();
     if ($("#create-auth").checked) body.auth = true;
     if (!$("#create-a11y").checked) body.accesibilidad = false;
+    if ($("#create-idioma").value !== "es") body.idioma_proyecto = $("#create-idioma").value;
     if ($("#create-ai").value.trim()) {
       body.ai_brief = $("#create-ai").value.trim();
       body.ai_provider = $("#create-ai-provider").value;

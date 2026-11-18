@@ -45,10 +45,14 @@ from eolfi.generador.templates import SECTIONS, base_css, content_for, page_titl
 Writer = Callable[[str, str], None]
 
 
-def _writer(out: Path, written: list[str]) -> Writer:
+def _writer(out: Path, written: list[str], idioma: str = "es") -> Writer:
+    from eolfi.generador.textos import NO_TRADUCIR, traducir
+
     def w(rel: str, text: str) -> None:
         p = out / rel
         p.parent.mkdir(parents=True, exist_ok=True)
+        if Path(rel).name not in NO_TRADUCIR:   # C4: la interfaz y las pruebas generadas cambian de idioma a la vez
+            text = traducir(text, idioma)
         p.write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
         written.append(rel)
 
@@ -66,7 +70,9 @@ def _check_spec(spec: dict[str, Any]) -> None:
     """Defensa en profundidad: build_spec ya sanea título, recursos y rutas; un spec que no cumpla esas reglas
     (editado a mano o de otra versión) no se interpola en código."""
     from eolfi.generador.spec import safe_resource
+    from eolfi.generador.textos import idioma_de
 
+    idioma_de(spec)
     if not re.fullmatch(r"[\w .,:;!?()+-]*", str(spec.get("title", ""))):
         raise ValueError("spec: título con caracteres no permitidos")
     for r in (spec.get("api") or {}).get("resources", []):
@@ -81,7 +87,9 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
         raise FileExistsError(f"{out} no está vacía (usa --force para escribir encima)")
     out.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
-    w = _writer(out, written)
+    from eolfi.generador.textos import idioma_de
+
+    w = _writer(out, written, idioma_de(spec))
     from eolfi.generador.generators_backend import gen_express, gen_fastapi
     from eolfi.generador.generators_cli import gen_cli
     from eolfi.generador.generators_desktop import gen_desktop
