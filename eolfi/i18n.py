@@ -342,6 +342,10 @@ CLI_EN: dict[str, str] = {
         "Decodes a logic analyzer recording (.sr, VCD, CSV) with sigrok in the WSL REA",
     "Decodificadores de sigrok instalados, o la ayuda de uno (--ayuda ID)":
         "Installed sigrok decoders, or the help of one (--ayuda ID)",
+    "Juego o app de Unity con IL2CPP: ensamblados, tipos y métodos con su dirección (global-metadata.dat y binario "
+    "nativo), sin ejecutarlo":
+        "Unity game or app built with IL2CPP: assemblies, types and methods with their address (global-metadata.dat and "
+        "native binary), without running it",
     "Qué cambió entre dos versiones, con el veredicto verificable de REA":
         "What changed between two versions, with REA's verifiable verdict",
     "Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y exportaciones (WABT 1.0.42)":
