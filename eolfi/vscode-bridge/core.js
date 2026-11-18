@@ -177,7 +177,8 @@ async function chat(vscode, body, allowedTools, cancelToken, log, actions = null
     ...(journal ? { journal, written: calls.filter((c) => (c.name === 'eolfi_write_file' || c.name === 'eolfi_edit_file') && c.ok).length } : {}) };
 }
 
-function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}, actions = null, localChat = null }) {
+function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}, actions = null, localChat = null,
+  encargo = null }) {
   if (!token || token.length < 32) throw new Error('token demasiado corto');
   return (req, res) => {
     const raw = String(req.headers.host || '').toLowerCase();
@@ -221,6 +222,24 @@ function makeHandler({ vscode, token, getAllowedTools = () => [], log = () => {}
             : await chat(vscode, body || {}, getAllowedTools(), cts.token, log, actions);
           json(res, 200, out);
         } catch (e) { fail(e); } finally { cts.dispose?.(); }
+      });
+      return;
+    }
+    // Encargo del chat de Eolfi (18/11/2026): se valida, se contesta enseguida (202) y el aviso con Aprobar/Rechazar
+    // se muestra aparte; la decisión vuelve al servidor de Eolfi, no por esta respuesta.
+    if (req.method === 'POST' && url.pathname === '/v1/encargo') {
+      if (!encargo) return json(res, 501, { error: 'encargos no disponibles' });
+      const chunks = [];
+      let size = 0;
+      req.on('data', (c) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
+      req.on('end', () => {
+        if (size > MAX_BODY) return json(res, 413, { error: 'petición demasiado grande' });
+        let body;
+        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: 'JSON inválido' }); }
+        let valid;
+        try { valid = encargo.validate(body); } catch (e) { return json(res, e.status || 400, { error: e.message }); }
+        json(res, 202, { recibido: valid.id });
+        Promise.resolve().then(() => encargo.handle(valid)).catch((e) => log(`encargo: ${e.message || e}`));
       });
       return;
     }

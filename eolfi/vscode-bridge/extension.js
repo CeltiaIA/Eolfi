@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { makeHandler } = require('./core');
+const { validEncargo, makeEncargoHandler } = require('./encargos');
 const { makeActions, TOOL_DEFS, isSecretPath, resolveInside } = require('./workspace');
 const { makeClient, summarize } = require('./eolfi-client');
 const { makeChatHandler } = require('./chat');
@@ -58,6 +59,8 @@ function start() {
   const token = crypto.randomBytes(32).toString('hex');
   server = http.createServer(makeHandler({ vscode, token, getAllowedTools: allowedTools, log: (m) => out.appendLine(m),
     actions: makeActions(vscode),
+    encargo: { validate: validEncargo,
+      handle: makeEncargoHandler({ vscode, getClient: eolfiClient, log: (m) => out.appendLine(m) }) },
     localChat: async ({ prompt, project }, token) => {
       const folders = vscode.workspace.workspaceFolders || [];
       const current = folders.length === 1 ? folders[0].uri.fsPath : null;
@@ -70,9 +73,9 @@ function start() {
       try {
         const answer = await vscode.window.showWarningMessage(
           'Eolfi recibió una tarea del panel para ' + current,
-          { modal: true, detail: prompt }, 'Executar'
+          { modal: true, detail: prompt }, 'Ejecutar'
         );
-        if (answer !== 'Executar' || token.isCancellationRequested) return { cancelled: true };
+        if (answer !== 'Ejecutar' || token.isCancellationRequested) return { cancelled: true };
         let text = '';
         const stream = { markdown: (part) => { text += String(part?.value ?? part); }, progress: () => {},
           button: () => {}, reference: () => {}, anchor: () => {}, warning: () => {} };

@@ -37,9 +37,11 @@ LIMITES = (
     "inteligencia», MoE propio ni protocolos internos fuera de las herramientas que ves.\n"
     "- Licencias: los pesos derivados de Gemma, Mistral, Qwen u otros siguen la licencia de su origen (Gemma Terms of "
     "Use, Apache-2.0, etc.). Ni Eolfi ni el usuario pueden ponerles una licencia propia exclusiva; dilo así.\n"
-    "- Para generar una aplicación (carpetas, archivos, pruebas) usa eolfi_proponer_proyecto: crea el plan y el "
-    "titular lo aprueba en el panel; el proyecto sale verificado (compilación, pruebas, juez). No pidas al usuario que "
-    "cree a mano archivos que Eolfi puede generar.\n"
+    "- Para generar una aplicación (carpetas, archivos, pruebas) usa eolfi_vscode_encargo si el puente de VS Code está "
+    "activo (la crea en la carpeta abierta en VS Code) o eolfi_proponer_proyecto si no: ambas proponen el plan "
+    "verificado y el titular lo aprueba (panel o VS Code); el proyecto sale verificado (compilación, pruebas, juez). "
+    "Un encargo recién hecho está PENDIENTE: no digas que la aplicación ya está creada; su estado real lo da "
+    "eolfi_vscode_encargo_estado. No pidas al usuario que cree a mano archivos que Eolfi puede generar.\n"
     "- Si algo no se puede hacer, dilo claramente y propone lo que sí se puede."
 )
 
@@ -52,7 +54,7 @@ def contexto(estado: dict[str, Any] | None) -> str:
     elif vs.get("activo"):
         carpetas = ", ".join(str(c) for c in (vs.get("carpetas") or [])[:5]) or "sin carpeta abierta"
         linea = (f"- VS Code: el puente de la extensión @eolfi está ACTIVO (carpetas: {carpetas}). Eolfi SÍ se comunica "
-                 "con VS Code; no digas que no puedes conectarte.")
+                 "con VS Code; no digas que no puedes conectarte. Para crear allí una aplicación, eolfi_vscode_encargo.")
     else:
         linea = ("- VS Code: el puente de la extensión @eolfi NO responde ahora. Dilo así y explica que se activa "
                  "abriendo VS Code con la extensión de Eolfi; no inventes otra vía.")
@@ -97,6 +99,7 @@ DESCRIPCION = {
     "vscode_negado": "niega poder comunicarse con VS Code con el puente de @eolfi activo",
     "trabajo_a_mano": "pide al usuario crear a mano carpetas o archivos que Eolfi puede generar",
     "herramienta_inventada": "nombra herramientas que no existen",
+    "encargo_como_hecho": "da por creada una aplicación cuyo encargo a VS Code solo está pendiente de aprobación",
 }
 
 
@@ -118,6 +121,10 @@ def revisar(texto: str, llamadas: list[dict[str, Any]], ofrecidas: set[str] | fr
         add("accion_en_curso", m.group(0))
     if not any(c.get("ok") for c in llamadas) and (m := HECHO.search(plano)):
         add("hecho_sin_herramienta", m.group(0))
+    elif (any(c.get("name") == "eolfi_vscode_encargo" and c.get("ok") for c in llamadas)
+          and not any(c.get("name") == "eolfi_vscode_encargo_estado" and c.get("ok") for c in llamadas)
+          and (m := HECHO.search(plano))):
+        add("encargo_como_hecho", m.group(0))
     for frase in _frases(plano):     # «no puedo fusionar pesos» o «RSI no es …» son aclaraciones, no invenciones
         if (m := INVENTADO.search(frase)) and not NIEGA.search(frase):
             add("capacidad_inventada", m.group(0))

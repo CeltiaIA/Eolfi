@@ -355,6 +355,11 @@
           <p id="eolas-chat-files-help" class="small muted">Todos los formatos: .gguf, .safetensors, código, documentos, imágenes y binarios. Sin límite fijo de tamaño; se necesita espacio para guardar una copia en el equipo. Para usar tus modelos locales sin copiarlos, elige «Archivo (ruta local)».</p>
           <p id="voz-estado" class="muted small" role="status"></p>
         </form>
+        <details class="eolas-chat-vscode" id="eolas-chat-encargos-box" open>
+          <summary>Encargos a VS Code (los apruebas tú)</summary>
+          <p class="small muted">Cuando el chat encarga una aplicación a @eolfi en VS Code, no se ejecuta nada hasta que la apruebas aquí o en VS Code. Se genera con el flujo verificado de Eolfi (compilación, pruebas, juez y accesibilidad).</p>
+          <div id="eolas-chat-encargos"></div>
+        </details>
         <details class="eolas-chat-vscode">
           <summary>Permisos de REA (lo que ejecuta o abre algo vivo)</summary>
           <p class="small muted">Eolas pide permiso en el chat cuando necesita ejecutar algo (Frida, depuradores, capturas). «Una vez» vale para esa llamada exacta; «en este caso», para esa herramienta en el caso activo hasta que la revoques.</p>
