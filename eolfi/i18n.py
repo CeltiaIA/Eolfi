@@ -867,6 +867,9 @@ AVISOS_EN: dict[str, str] = {
         "  WARNING: \"pip freeze\" returned no versions: requirements.txt stays unpinned",
     "verificación aislada: carpeta personal temporal {}": "isolated verification: temporary home folder {}",
     "autofix no disponible: {}": "autofix not available: {}",
+    # flows/sync_flow.py (D1)
+    "volviendo a analizar {} como {}…": "re-analyzing {} as {}…",
+    "{} archivos escritos; copia de los anteriores en {}": "{} files written; copy of the previous ones in {}",
     # Pasos de la verificación (verify.py: «→ paso» y «  OK|FALLO (n s)»): la etiqueta se traduce entera.
     "→ {}": "→ {}",
     "  {} ({} s)": "  {} ({} s)",

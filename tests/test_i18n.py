@@ -187,7 +187,7 @@ _NEUTROS = {"{}", "eolfi: error: {}: {}", "eolfi eolas-v2: error: {}: {}", "RSI:
             "eolfi motor-local: error: {}", "eolfi rea comprobar-paquete: {}", "  {} ({} s)", "  {}: {} ({} s)",
             "→ {}", "Eolfi: {}"}
 # Archivos cuyo progreso llega a la CLI (función progress/_progress/log de los flujos que reciben `progress`).
-_CON_PROGRESO = ["eolfi/cli.py", "eolfi/core/dbpath.py", "eolfi/flows/create_flow.py", "eolfi/flows/project_flow.py",
+_CON_PROGRESO = ["eolfi/cli.py", "eolfi/core/dbpath.py", "eolfi/flows/create_flow.py", "eolfi/flows/project_flow.py", "eolfi/flows/sync_flow.py",
                  "eolfi/generador/assist.py", "eolfi/generador/verify.py", "eolfi/sites/render.py",
                  "eolfi/sites/repo.py", "eolfi/sites/webpage.py"]
 
