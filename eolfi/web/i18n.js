@@ -7,6 +7,9 @@
 //   (con el espacio en blanco normalizado) está en el diccionario, también lo que el JS añade después.
 // - Nunca se traduce el contenido del usuario ni de los objetivos: lo que esté dentro de [data-i18n-no], pre, code,
 //   textarea, script o style, ni el valor de los campos. Solo coincidencias exactas.
+// - Textos con partes variables (C1, 18/11): una clave con «{}» es una plantilla («Listo en {} s» → «Done in {} s»)
+//   que se reconoce en el texto ya escrito; cada hueco se pasa tal cual o, si es entero un texto del diccionario
+//   («NO reproducible»), traducido. En la traducción, «{}» toma los huecos en orden y «{0}», «{1}»… por posición.
 // - window.eolfiT(texto) devuelve la traducción de un texto (o el mismo texto) para el JS que la necesite.
 (() => {
   'use strict';
@@ -29,20 +32,44 @@
 
   const idioma = elegir();
   let dic = null;
+  let plantillas = [];
   window.eolfiIdioma = idioma;
-  window.eolfiT = (texto) => (dic && dic[normalizar(texto)]) || texto;
+  window.eolfiT = (texto) => (dic && traducir(normalizar(texto))) || texto;
   document.documentElement.lang = idioma;
   // La API lee esta cookie para responder sus errores en el mismo idioma que el panel.
   document.cookie = `eolfi_idioma=${idioma}; Path=/; SameSite=Strict`;
 
   function normalizar(t) { return String(t).replace(/\s+/g, ' ').trim(); }
 
+  function prepararPlantillas() {
+    const escapar = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    plantillas = Object.keys(dic).filter((k) => k.includes('{}')).map((k) => ({
+      re: new RegExp(`^${k.split('{}').map(escapar).join('(.+?)')}$`, 's'),
+      trad: dic[k],
+      fijo: k.replace(/\{\}/g, '').length,
+    })).sort((a, b) => b.fijo - a.fijo);   // la más concreta primero
+  }
+
+  // Traducción de un texto ya normalizado: exacta o por plantilla; null si no hay.
+  function traducir(clave) {
+    if (!clave) return null;
+    if (Object.prototype.hasOwnProperty.call(dic, clave)) return dic[clave];
+    for (const p of plantillas) {
+      const m = clave.match(p.re);
+      if (!m) continue;
+      const huecos = m.slice(1).map((h) => (Object.prototype.hasOwnProperty.call(dic, h) ? dic[h] : h));
+      let i = 0;
+      return p.trad.replace(/\{(\d*)\}/g, (_, n) => (n === '' ? huecos[i++] : huecos[Number(n)]) ?? '');
+    }
+    return null;
+  }
+
   function traducirTexto(nodo) {
     const padre = nodo.parentElement;
     if (!padre || padre.closest(NO)) return;
     const original = nodo.nodeValue;
     const clave = normalizar(original);
-    const trad = clave && dic[clave];
+    const trad = traducir(clave);
     if (!trad || trad === clave) return;
     const inicio = original.match(/^\s*/)[0];
     const fin = original.match(/\s*$/)[0];
@@ -54,7 +81,7 @@
     for (const a of ATRIBUTOS) {
       const v = el.getAttribute(a);
       if (!v) continue;
-      const trad = dic[normalizar(v)];
+      const trad = traducir(normalizar(v));
       if (trad && trad !== v) el.setAttribute(a, trad);
     }
   }
@@ -114,7 +141,7 @@
   if (idioma === 'en') {
     fetch('/i18n-en.json', { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => { dic = d; cuandoListo(aplicar); })
+      .then((d) => { dic = d; prepararPlantillas(); cuandoListo(aplicar); })
       .catch((e) => console.warn('Eolfi: sin diccionario inglés, el panel sigue en castellano', e));
   }
 })();

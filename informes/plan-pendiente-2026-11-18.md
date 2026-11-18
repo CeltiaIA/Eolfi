@@ -17,8 +17,8 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 | # | Qué falta | Por qué en este orden |
 |---|---|---|
 | B1 | Juez funcional en los destinos de escritorio y móvil (Electron, Tauri, .NET, Expo web). Go ya está (18/11, 3/3 con axe) | Sin juez, la accesibilidad (axe) de esos destinos queda NO VERIFICADA |
-| C4 | Comentarios del código generado en inglés con `--idioma-proyecto en`; PWA en los destinos con Vite | Lo único que queda del idioma de los proyectos |
-| C1 | Textos dinámicos del JS del panel (avisos, estados), los 16 errores de la API con partes variables, 2 ayudas de argumentos y los mensajes de la CLI en inglés | Termina el panel y la CLI en inglés |
+| C4 | PWA en los destinos con Vite (los comentarios en inglés ya están, 18/11) | Lo único que queda de los proyectos generados |
+| C1 | Los avisos de la CLI por stderr en inglés (el panel, la API y la ayuda de todos los argumentos ya están, 18/11) | Lo último del inglés de Eolfi |
 | D1 | `eolfi sync` en el panel y la API (la CLI ya está, 18/11) | Lo deja al alcance de quien no usa la CLI |
 | E3 | Exportar el paquete completo de evidencias de REA | Herramienta REA ya disponible |
 | C3 | `eolfi web --render`: interacciones (clics, formularios) | La prueba contra un sitio público sí pide autorización |
