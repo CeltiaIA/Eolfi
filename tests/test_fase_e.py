@@ -484,9 +484,10 @@ def test_job_is_stored_before_it_is_published_as_done(tmp_path):
         real(job)
     a._save_job = slow_save
     jid = a.start_job({"kind": "create", "body": {"name": "T"}})["job_id"]
-    for _ in range(300):
-        if a.jobs[jid]["status"] == "done":
-            break
+    # Hasta 30 s: el trabajo guarda varias veces (0,3 s cada una) y un runner de Windows cargado tardó más de los 3 s
+    # de antes (CI de la PR #81, 18/11/2026). El orden guardado → «done» es lo que se prueba, no la velocidad.
+    limite = time.monotonic() + 30
+    while a.jobs[jid]["status"] != "done" and time.monotonic() < limite:
         time.sleep(0.01)
     assert a.jobs[jid]["status"] == "done"
     listed = EolfiApp(db, samples).job_status({})["jobs"]
