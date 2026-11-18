@@ -286,6 +286,20 @@ async function upload(files) {
   renderAttachments();
 }
 
+const MAX_ADJUNTOS_PREVIOS = 50;
+
+// Adjuntos ya enviados en esta conversación (sin repetir; los más recientes si hay demasiados).
+function adjuntosPrevios() {
+  const vistos = new Map();
+  for (const m of chat.messages) {
+    if (m.role !== "user" || m.failed || !Array.isArray(m.adjuntos)) continue;
+    for (const a of m.adjuntos) {
+      if (a && /^[0-9a-f]{64}$/.test(a.upload || "")) { vistos.delete(a.upload); vistos.set(a.upload, { upload: a.upload, name: String(a.name || "adjunto") }); }
+    }
+  }
+  return [...vistos.values()].slice(-MAX_ADJUNTOS_PREVIOS);
+}
+
 async function send(text) {
   if (chat.busy || chat.uploading) return;
   const kind = $("#eolas-chat-kind").value;
@@ -296,6 +310,10 @@ async function send(text) {
   if (!prompt) { $("#eolas-chat-input").focus(); return; }
   const extras = [...attachments.map((a) => `📎 ${a.name}`), ...(kind ? [`🔎 ${KIND_LABEL[kind]}: ${target}`] : [])];
   const user = { role: "user", content: prompt, shown: extras.length ? `${prompt}\n\n${extras.join("\n")}` : prompt };
+  // 18/11/2026: los adjuntos de mensajes anteriores se vuelven a indicar (por su huella) para que el modelo tenga
+  // sus rutas en toda la conversación, no solo en el mensaje en que se subieron.
+  const previos = adjuntosPrevios();
+  if (attachments.length) user.adjuntos = attachments.map((a) => ({ upload: a.upload, name: a.name }));
   chat.messages.push(user);
   render();
   const progress = el("div", { class: "msg progress" }, "Enviando a Eolas…");
@@ -309,6 +327,7 @@ async function send(text) {
       name: `Chat · ${prompt.slice(0, 60)}`,
       messages: history,
       attachments: attachments.map((a) => ({ upload: a.upload, name: a.name, kind: asBinary ? "binario" : "archivo" })),
+      ...(previos.length ? { adjuntos_previos: previos } : {}),
       ...(kind ? { analyze: { kind, target } } : {}),
       ...(activeCase() ? { case_id: activeCase() } : {}),
     }, (lines) => {

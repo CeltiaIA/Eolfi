@@ -757,6 +757,7 @@ def _parser() -> argparse.ArgumentParser:
     vz = sub.add_parser("voz", help="Voz local: voz a texto y texto a voz sin que el audio salga del equipo")
     vzs = vz.add_subparsers(dest="voz_action", required=True)
     vzs.add_parser("estado", help="Motores disponibles, idioma y voces")
+    vzs.add_parser("microfonos", help="Micrófonos de Windows: cuál es el predeterminado, si está silenciado o desconectado")
     vzt = vzs.add_parser("transcribir", help="Voz a texto de un WAV (PCM de 16 bits)")
     vzt.add_argument("archivo")
     vzt.add_argument("--idioma", default=None, help="Por ejemplo es-ES")
@@ -2365,6 +2366,8 @@ def _main(argv: list[str]) -> int:
         try:
             if args.voz_action == "estado":
                 _print(voz.estado())
+            elif args.voz_action == "microfonos":
+                _print(voz.microfonos())
             elif args.voz_action == "transcribir":
                 _print(voz.transcribir(Path(args.archivo).read_bytes(), idioma=args.idioma))
             elif args.voz_action == "dictar":

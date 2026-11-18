@@ -113,6 +113,7 @@ API_EN: dict[str, str] = {
     "'sources' debe ser una lista no vacía": "'sources' must be a non-empty list",
     "Abre VS Code y vincula la extensión de Eolfi.": "Open VS Code and link the Eolfi extension.",
     "Chat local limitado a este equipo.": "Local chat is limited to this computer.",
+    "La voz solo se configura desde este equipo.": "The voice can only be configured from this computer.",
     "el plan cambió desde que se propuso el encargo: revísalo en el panel":
         "the plan changed since the task was proposed: review it in the panel",
     "los encargos se deciden en el panel o en la extensión de VS Code":
@@ -189,6 +190,7 @@ API_EN: dict[str, str] = {
     "Creación fallida: la verificación del proyecto no se superó y autofix no lo corrigió ({})":
         "Creation failed: the project verification did not pass and autofix did not fix it ({})",
     "attachments: hasta {} archivos": "attachments: up to {} files",
+    "adjuntos_previos: hasta {} archivos": "adjuntos_previos: up to {} files",
     "analyze.kind debe ser uno de {} con su destino": "analyze.kind must be one of {} with its target",
     "el encargo ya está {}": "the task is already {}",
     "{} fuera de las carpetas permitidas: {} (permitidas: {})": "{} outside the allowed folders: {} (allowed: {})",
@@ -431,6 +433,8 @@ CLI_EN: dict[str, str] = {
     "Descarta una propuesta": "Discards a proposal",
     "Devuelve una propuesta aplicada a su valor anterior": "Returns an applied proposal to its previous value",
     "Motores disponibles, idioma y voces": "Available engines, language and voices",
+    "Micrófonos de Windows: cuál es el predeterminado, si está silenciado o desconectado":
+        "Windows microphones: which one is the default, whether it is muted or unplugged",
     "Voz a texto de un WAV (PCM de 16 bits)": "Speech-to-text of a WAV (16-bit PCM)",
     "Texto a voz: escribe un WAV": "Text-to-speech: writes a WAV",
     "Graba del micrófono del equipo y lo transcribe (nada se guarda)":

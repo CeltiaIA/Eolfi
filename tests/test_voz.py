@@ -19,6 +19,13 @@ def wav(segundos=0.5, hz=16000, canales=1, bits=16, codec=1):
     return cab + datos
 
 
+@pytest.fixture(autouse=True)
+def sin_piper_del_equipo(monkeypatch, tmp_path):
+    """Estas pruebas son de las voces de Windows: sin el Piper que haya instalado en el equipo (18/11/2026)."""
+    monkeypatch.setenv("EOLFI_PIPER_VENV", str(tmp_path / "sin-piper"))
+    monkeypatch.setenv("EOLFI_PIPER_VOCES", str(tmp_path / "sin-voces"))
+
+
 @pytest.fixture
 def motor(monkeypatch):
     """Motor de Windows simulado: reconocedor es-ES y una voz; anota lo que se le pide."""
@@ -202,3 +209,57 @@ def test_api_y_cli_de_dictado(srv, microfono, capsys):  # noqa: F811
     assert req(port, "POST", "/api/voz/dictar", json.dumps({"segundos": 1}))[0] == 403    # sin cabecera anti-CSRF
     assert cli.main(["voz", "dictar", "--segundos", "1"]) == 0
     assert "hola mundo" in capsys.readouterr().out
+
+
+# ── Micrófonos del equipo (19/11/2026) ──────────────────────────────────────────────────────────────────────────
+def _mics(monkeypatch, lista):
+    monkeypatch.setattr(voz, "_powershell", lambda: "powershell.exe")
+    monkeypatch.setattr(voz, "_ps", lambda script, entorno=None, *, plazo=0:
+                        {"microfonos": lista} if script is voz._PS_MICROFONOS else pytest.fail("solo se consulta"))
+
+
+def test_microfonos_estado_y_diagnostico(monkeypatch):
+    torre = {"nombre": "Micrófono (High Definition Audio Device)", "estado": 1, "predeterminado": True,
+             "silenciado": False, "volumen": 100}
+    otra = {"nombre": "Entrada de línea", "estado": 8, "predeterminado": False, "silenciado": False, "volumen": -1}
+    _mics(monkeypatch, [otra, torre])
+    m = voz.microfonos()
+    assert m["predeterminado"] == torre["nombre"] and m["diagnostico"] is None
+    assert [(x["nombre"], x["estado"], x["volumen"]) for x in m["microfonos"]] == [
+        (torre["nombre"], "activo", 100), ("Entrada de línea", "desconectado", None)]
+    _mics(monkeypatch, {**torre, "silenciado": True})                      # un solo elemento llega como objeto
+    assert "silenciado" in voz.microfonos()["diagnostico"]
+    _mics(monkeypatch, [{**torre, "volumen": 3}])
+    assert "volumen de entrada al 3 %" in voz.microfonos()["diagnostico"]
+    _mics(monkeypatch, [otra])
+    m = voz.microfonos()
+    assert m["predeterminado"] is None and "ningún micrófono activo (1 toma(s) sin nada enchufado)" in m["diagnostico"]
+
+
+def test_si_llega_silencio_se_dice_que_revisar(motor, monkeypatch):
+    silencio = wav(1.0)[:44] + bytes(32000)
+    assert voz.nivel(silencio) == {"pico": 0, "rms": 0.0} and voz.nivel(wav(1.0))["pico"] > 7000
+    monkeypatch.setattr(voz, "microfonos", lambda: {"predeterminado": "Mic de la torre", "diagnostico": None})
+    with pytest.raises(voz.VozError, match="No llega sonido de «Mic de la torre»"):
+        voz.transcribir(silencio)
+    monkeypatch.setattr(voz, "microfonos", lambda: {"predeterminado": "Mic", "diagnostico": "«Mic» está silenciado"})
+    with pytest.raises(voz.VozError, match="está silenciado"):
+        voz.transcribir(silencio)
+    assert motor == []                                                     # el silencio no llega al reconocedor
+
+
+def test_api_y_cli_de_microfonos(srv, monkeypatch, capsys):  # noqa: F811
+    _mics(monkeypatch, [{"nombre": "Mic", "estado": 1, "predeterminado": True, "silenciado": False, "volumen": 80}])
+    port, _ = srv
+    st, m, _ = req(port, "GET", "/api/voz/microfonos")
+    assert st == 200 and m["predeterminado"] == "Mic"
+    assert cli.main(["voz", "microfonos"]) == 0 and '"Mic"' in capsys.readouterr().out
+    monkeypatch.setattr(voz, "_ps", lambda *a, **k: (_ for _ in ()).throw(voz.VozError("PowerShell roto")))
+    assert voz.microfonos() == {"disponible": False, "microfonos": [], "predeterminado": None,
+                                "diagnostico": "PowerShell roto"}
+
+
+@pytest.mark.skipif(voz._powershell() is None, reason="solo con Windows PowerShell")
+def test_microfonos_reales_del_equipo():
+    m = voz.microfonos()
+    assert m["disponible"] and all(x["estado"] in voz.ESTADOS_MIC.values() for x in m["microfonos"])

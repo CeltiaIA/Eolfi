@@ -5,6 +5,29 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Voz Piper, herramientas del chat y micrófono (19/11, rama `luis/voz-piper`, apilada sobre `luis/panel-stderr-adjuntos`/#103):**
+  - Lectura con **Piper 1.8.0** local (venv `~/.eolfi/tools/piper-venv`, voces es_ES davefx y sharvard en
+    `~/.eolfi/voces/piper`, descargadas con permiso del titular). Ajustes original, natural y pausada; `para_leer`
+    prepara el texto para el oído; el panel lee por trozos con precarga. El titular eligió sharvard mujer y davefx
+    con el ajuste natural (`~/.eolfi/voz.json`; copia previa en `voz.json.antes-piper-20261119`).
+  - **Chat**:
+    - Los adjuntos se guardan con su nombre real (`samples/adjuntos/<sha>/<nombre>`).
+    - Se recuerdan durante toda la conversación (`adjuntos_previos`).
+    - Si el modelo pasa solo el nombre, el chat lo traduce a la ruta.
+    - Nueva herramienta `eolfi_extraer_archivo` (`eolfi/archivos.py`): extracción segura de zip/tar, sin ejecutar nada.
+    - El prompt ordena actuar con «adelante» y no dar un proyecto por hecho sin su estado.
+    - Los encargos a VS Code que pide el titular desde su equipo se aprueban solos; se desactiva con
+      `{"auto_aprobar_encargos": false}` en `~/.eolfi/chat.json`.
+  - **Micrófono**:
+    - `eolfi voz microfonos` y `GET /api/voz/microfonos` leen de Core Audio cuál es el predeterminado, y si está silenciado, desconectado o con poco volumen.
+    - Si la grabación es silencio, se dice qué revisar en vez de «no se entendió».
+    - El panel muestra con qué micrófono graba.
+    - En este equipo, «Micrófono (High Definition Audio Device)» está activo, es el predeterminado, sin silenciar y al 100 %, pero graba silencio (pico 1 de 32767); la segunda toma de micrófono y la entrada de línea figuran como desconectadas. Probablemente es la conexión física. Voz real: NO VERIFICADO.
+  - **Galaxy Tab 2 (GT-P3100)**:
+    - La tableta tiene Android 4.1.2 (API 16), con el último firmware oficial P3100XXDMC1, y una GPU PowerVR SGX540 (GLES 2.0).
+    - Daggerfall Unity 1.1.1.9 exige API 23 y GLES 3.0: `adb install` → `INSTALL_FAILED_OLDER_SDK`.
+    - Una ROM no oficial subiría Android, pero no la GPU: el juego seguiría sin arrancar.
+
 - **B1 juez .NET (18/11, rama `luis/b1-juez-dotnet`):** criterios `"escritorio": true` (pulsar, seleccionar,
   escribir, comprobar presente/ausente) conducidos con UI Automation sobre el ejecutable Avalonia. Real: la app
   generada (NuGet solo de la caché) pasa 4/5 con una comprobación imposible a propósito. Rust real del juez de

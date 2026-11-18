@@ -205,6 +205,46 @@ test('adjuntos por mensaje: un usuario sube 5 y se le avisa del resto; el titula
   await page.click('#eolas-chat-clear');
 });
 
+// 18/11/2026: en el segundo mensaje el modelo solo tenía el nombre del adjunto («que-tal-socio.sh») y las herramientas
+// fallaban. El chat reenvía por su huella los adjuntos de mensajes anteriores para que el servidor dé sus rutas.
+test('el chat reenvía los adjuntos de mensajes anteriores', async () => {
+  const enviados = [];
+  await page.route('**/api/jobs**', async (route) => {
+    const req = route.request();
+    if (req.method() === 'POST') {
+      enviados.push(JSON.parse(req.postData()));
+      return route.fulfill({ status: 202, json: { job_id: `simulado${enviados.length}` } });
+    }
+    if (/[?&]id=simulado/.test(req.url())) {
+      return route.fulfill({ json: { status: 'done', log: [], next: 0, elapsed: 0,
+        result: { text: 'Hecho.', model: 'simulado', tools: [] } } });
+    }
+    return route.continue();
+  });
+  try {
+    await page.goto(BASE + '/#chat');
+    await page.reload();
+    await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
+    await page.click('#eolas-chat-clear');
+    await page.fill('#eolas-chat-input', 'Mira este guion');
+    await page.setInputFiles('#eolas-chat-files', [{ name: 'que-tal-socio.sh', mimeType: 'text/x-sh', buffer: Buffer.from('echo hola') }]);
+    await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 1);
+    await page.click('#eolas-chat-send');
+    await page.locator('#eolas-chat-log .msg', { hasText: 'Hecho.' }).first().waitFor();
+    await page.fill('#eolas-chat-input', 'adelante, analízalo');
+    await page.click('#eolas-chat-send');
+    await expectEventually(() => enviados.length === 2);
+    const [primero, segundo] = enviados.map((e) => e.body);
+    assert.equal(primero.attachments[0].name, 'que-tal-socio.sh');
+    assert.equal(primero.adjuntos_previos, undefined);
+    assert.deepEqual(segundo.attachments, []);
+    assert.deepEqual(segundo.adjuntos_previos, [{ upload: primero.attachments[0].upload, name: 'que-tal-socio.sh' }]);
+  } finally {
+    await page.unroute('**/api/jobs**');
+  }
+  await page.click('#eolas-chat-clear');
+});
+
 test('adjuntar antes de que cargue el módulo del chat no pierde los archivos', async () => {
   // Reproduce el runner lento: el módulo llega 1,5 s tarde y los archivos se eligen antes de que haya listener.
   await page.route('**/eolas-chat.js', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
@@ -585,6 +625,85 @@ test('voz: dictar escribe en el chat sin enviar, las órdenes no se escriben y t
   await axe('dictado en crear proyecto');
   assert.deepEqual(errors, []);
 });
+
+// 18/11/2026: lectura con Piper (voz neuronal local). Contexto propio y CSP real: el audio llega como blob:.
+function wavSilencio(segundos, hz = 22050) {
+  const datos = Buffer.alloc(Math.round(segundos * hz) * 2);
+  const cab = Buffer.alloc(44);
+  cab.write('RIFF', 0); cab.writeUInt32LE(36 + datos.length, 4); cab.write('WAVE', 8); cab.write('fmt ', 12);
+  cab.writeUInt32LE(16, 16); cab.writeUInt16LE(1, 20); cab.writeUInt16LE(1, 22); cab.writeUInt32LE(hz, 24);
+  cab.writeUInt32LE(hz * 2, 28); cab.writeUInt16LE(2, 32); cab.writeUInt16LE(16, 34); cab.write('data', 36);
+  cab.writeUInt32LE(datos.length, 40);
+  return Buffer.concat([cab, datos]);
+}
+
+test('voz: con Piper lee por trozos, elige voz y ajuste, y Esc corta la lectura', async () => {
+  const ctx = await browser.newContext();
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('pageerror', (e) => errs.push(String(e)));
+  p.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/.test(m.text())) errs.push(m.text()); });
+  const voces = [{ modelo: 'C:/v/es_ES-davefx-medium.onnx', nombre: 'es_ES-davefx-medium', idioma: 'es-ES', hablantes: 1 },
+    { modelo: 'C:/v/es_ES-sharvard-medium.onnx', nombre: 'es_ES-sharvard-medium', idioma: 'es-ES', hablantes: 2 }];
+  let piper = { disponible: true, modelo: voces[1].modelo, hablante: 1, ajuste: 'natural', voces };
+  const estado = () => ({ motor_activo: 'windows', idioma: 'es-ES', voz_a_texto: true, texto_a_voz: true, local: true,
+    lectura_activa: 'piper', ajustes: ['original', 'natural', 'pausada'], piper });
+  const pedidos = [], configs = [];
+  await p.route('**/api/voz/estado', (r) => r.fulfill({ json: estado() }));
+  await p.route('**/api/voz/config', async (r) => {
+    const body = JSON.parse(r.request().postData());
+    configs.push(body);
+    piper = { ...piper, ...body.piper };
+    await r.fulfill({ json: estado() });
+  });
+  await p.route('**/api/voz/hablar', async (r) => {
+    pedidos.push(JSON.parse(r.request().postData()).texto);
+    await r.fulfill({ contentType: 'audio/wav', body: wavSilencio(1.5) });
+  });
+  try {
+    await p.goto(BASE + '/#chat');
+    await p.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
+    await p.waitForSelector('.voz-lectura:not([hidden])');
+    const opciones = await p.$$eval('#voz-voz option', (os) => os.map((o) => [o.textContent, o.selected]));
+    assert.deepEqual(opciones, [['davefx', false], ['sharvard · hombre', false], ['sharvard · mujer', true]]);
+    assert.equal(await p.inputValue('#voz-ajuste'), 'natural');
+    // Cambiar el ajuste guarda la voz elegida y la presenta en voz alta.
+    await p.selectOption('#voz-ajuste', 'pausada');
+    await p.waitForFunction(() => document.querySelector('#voz-ajuste').value === 'pausada');
+    assert.deepEqual(configs, [{ piper: { modelo: voces[1].modelo, hablante: 1, ajuste: 'pausada' } }]);
+    await expectEventually(() => pedidos.includes('Hola, así sueno con esta voz.'));
+    await p.keyboard.press('Escape');
+    // Una respuesta larga se lee por trozos (el siguiente se pide mientras suena el actual) y sin el código.
+    await p.check('#voz-leer');
+    pedidos.length = 0;
+    const frase = 'Esta es una frase de prueba bastante larga para que la respuesta tenga varios trozos al leerla. ';
+    await p.evaluate((t) => window.dispatchEvent(new CustomEvent('eolfi:chat-reply', { detail: { text: t } })),
+      `${frase.repeat(3)}\n\n\`\`\`python\nprint(1)\n\`\`\`\n${frase.repeat(2)}`);
+    await expectEventually(() => pedidos.length >= 2);
+    assert.ok(pedidos.every((t) => t.length <= 3500 && !t.includes('print(1)')), JSON.stringify(pedidos));
+    assert.ok(pedidos[0].length <= 280);
+    await p.keyboard.press('Escape');
+    await p.waitForFunction(() => /Voz detenida/.test(document.querySelector('#voz-estado').textContent));
+    const pedidosAlParar = pedidos.length;
+    await p.waitForTimeout(1800);
+    assert.ok(pedidos.length <= pedidosAlParar + 1, 'tras Esc no sigue pidiendo audio');
+    await p.evaluate(AXE);   // por evaluate: la CSP real del panel (sin bypass) bloquea un <script> inline
+    const r = await p.evaluate(async () => (await axe.run(document, { resultTypes: ['violations'] })).violations
+      .filter((v) => ['serious', 'critical'].includes(v.impact)).map((v) => v.id));
+    assert.deepEqual(r, []);
+    assert.deepEqual(errs, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+async function expectEventually(cond, ms = 8000) {
+  const t0 = Date.now();
+  while (!cond()) {
+    if (Date.now() - t0 > ms) throw new Error('la condición no se cumplió a tiempo');
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 
 test('idioma: el panel en inglés con ?lang=en, sin tocar el contenido, y vuelta al castellano (C1)', async () => {
   // Contexto propio: la elección se guarda en localStorage y no debe afectar a las otras pruebas.

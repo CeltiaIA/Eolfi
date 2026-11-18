@@ -19,6 +19,7 @@ import http.client
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -46,7 +47,7 @@ _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=
           ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8"}
 # frame-ancestors: el panel solo se puede incrustar en VS Code (Simple Browser, esquema vscode-webview:).
 # frame-src: el panel incrusta VS Code web (code serve-web), que escucha en 127.0.0.1 en un puerto libre.
-_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; "
         "connect-src 'self'; frame-src http://127.0.0.1:*; frame-ancestors 'self' vscode-webview:; "
         "base-uri 'none'; form-action 'none'")
 _LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
@@ -477,16 +478,24 @@ class EolfiApp:
         limite = chat.limite_adjuntos(nivel)
         if not isinstance(raw, list) or (limite is not None and len(raw) > limite):
             raise ApiError(400, f"attachments: hasta {limite} archivos")
-        attachments = []
-        for att in raw:
-            up = att.get("upload") if isinstance(att, dict) else None
-            if not isinstance(up, str) or not re.fullmatch(r"[0-9a-f]{64}", up):
-                raise ApiError(400, "adjunto inválido")
-            path = self.samples / f"{up}.bin"
-            if not path.is_file():
-                raise ApiError(404, "adjunto no encontrado: vuelve a adjuntarlo")
-            attachments.append({"name": str(att.get("name") or "adjunto")[:200], "path": str(path),
-                                "kind": "binario" if att.get("kind") == "binario" else "archivo"})
+        previos = body.get("adjuntos_previos") or []
+        if not isinstance(previos, list) or len(previos) > chat.MAX_ADJUNTOS_PREVIOS:
+            raise ApiError(400, f"adjuntos_previos: hasta {chat.MAX_ADJUNTOS_PREVIOS} archivos")
+        attachments = [self._chat_adjunto(att) for att in raw]
+        # 18/11/2026: los adjuntos de mensajes anteriores también se ven (antes, en el segundo mensaje el modelo solo
+        # tenía el nombre y las herramientas fallaban con «que-tal-socio.sh»). No cuentan para el límite: ya se subieron.
+        vistos = {a["path"] for a in attachments}
+        anteriores = []
+        for att in previos:
+            try:
+                a = self._chat_adjunto(att)
+            except ApiError as exc:
+                if exc.status == 404:      # un adjunto antiguo que ya no está no impide seguir hablando
+                    continue
+                raise
+            if a["path"] not in vistos:
+                vistos.add(a["path"])
+                anteriores.append(a)
         analyze = body.get("analyze") or None
         if analyze is not None:
             kind, target = analyze.get("kind") if isinstance(analyze, dict) else None, str((analyze or {}).get("target") or "").strip()
@@ -505,7 +514,8 @@ class EolfiApp:
         rea = self._chat_rea(self._case_id(body))
         mcp = chat.Toolbox(EolfiMCP(db=self.db, roots=roots), {
             "eolfi_proponer_proyecto": self._chat_propose_project,
-            "eolfi_vscode_encargo": self._chat_vscode_encargo,
+            "eolfi_vscode_encargo": lambda a: self._chat_vscode_encargo(a, nivel),
+            "eolfi_extraer_archivo": self._chat_extraer_archivo,
             "eolfi_vscode_encargo_estado": self._chat_vscode_encargo_estado,
             "eolfi_objetivos": self._chat_subjects,
             "eolfi_casos": lambda _a: {"casos": [{k: c.get(k) for k in ("case_id", "name", "status", "updated_at")}
@@ -513,7 +523,8 @@ class EolfiApp:
             "eolfi_automejora": lambda _a: self.rsi_overview(),
             **(self._chat_rea_composites(rea, self._case_id(body)) if rea is not None else {}),
         }, rea=rea)
-        context = chat.with_context(messages, attachments, analyze)
+        mcp.adjuntos = {**{a["name"]: a["path"] for a in anteriores}, **{a["name"]: a["path"] for a in attachments}}
+        context = chat.with_context(messages, attachments, analyze, anteriores)
         try:
             return self._chat_answer(context, remote, mcp)
         finally:
@@ -748,13 +759,48 @@ class EolfiApp:
         return {"case_id": state.get("case_id"), "estado": state.get("status"), "plan": state.get("plan"),
                 "aviso": "El plan NO se ejecuta hasta que el usuario lo revise y lo apruebe en el panel."}
 
-    def _chat_vscode_encargo(self, a: dict[str, Any]) -> dict[str, Any]:
+    def _chat_adjunto(self, att: Any) -> dict[str, Any]:
+        """Adjunto subido → archivo con su nombre real (enlace duro a la copia por huella, o copia si no se puede).
+
+        Así las herramientas ven la extensión (un .zip ya no sale como «unknown») y el modelo lee rutas reconocibles."""
+        up = att.get("upload") if isinstance(att, dict) else None
+        if not isinstance(up, str) or not re.fullmatch(r"[0-9a-f]{64}", up):
+            raise ApiError(400, "adjunto inválido")
+        path = self.samples / f"{up}.bin"
+        if not path.is_file():
+            raise ApiError(404, "adjunto no encontrado: vuelve a adjuntarlo")
+        name = str(att.get("name") or "adjunto")[:200]
+        segura = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", Path(name.replace("\\", "/")).name).strip(" .") or "adjunto"
+        con_nombre = self.samples / "adjuntos" / up / segura[:120]
+        if not con_nombre.is_file():
+            con_nombre.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(path, con_nombre)
+            except OSError:
+                shutil.copy2(path, con_nombre)
+        return {"name": name, "path": str(con_nombre), "kind": "binario" if att.get("kind") == "binario" else "archivo"}
+
+    def _chat_extraer_archivo(self, a: dict[str, Any]) -> dict[str, Any]:
+        """Herramienta del chat: extrae un .zip/.tar(.gz/.bz2/.xz) en una carpeta nueva de samples/, sin ejecutar nada."""
+        from eolfi import archivos
+
+        ruta = str(a.get("ruta") or "").strip()
+        if not ruta:
+            raise ValueError("falta la ruta del archivo comprimido")
+        p = Path(ruta).expanduser().resolve()
+        muestras = self.samples.resolve()
+        if not (muestras == p or muestras in p.parents):   # los adjuntos viven en samples/; lo demás, carpetas permitidas
+            self._check_root(p, "ruta")
+        self._progress(f"Extrayendo {Path(ruta).name}…")
+        return archivos.extraer(ruta, self.samples / "extraidos")
+
+    def _chat_vscode_encargo(self, a: dict[str, Any], nivel: str = "usuario") -> dict[str, Any]:
         """Herramienta del chat: encarga a @eolfi en VS Code una aplicación nueva (18/11/2026).
 
         Usa el flujo verificado (plan de proyecto → create con verificación, juez y accesibilidad) con destino en la
         carpeta abierta en VS Code. NO ejecuta nada: deja el encargo pendiente en la cola; el titular lo aprueba en el
         panel o en VS Code, que recibe el aviso por el puente."""
-        from eolfi import encargos_vscode as enc
+        from eolfi import chat as chat_cfg, encargos_vscode as enc
         from eolfi.flows.project_flow import default_out
 
         nombre = str(a.get("nombre") or "").strip()
@@ -782,6 +828,17 @@ class EolfiApp:
                                    "out": str(destino)})
         e = enc.crear(nombre=nombre, descripcion=descripcion, carpeta=str(destino), fuentes=fuentes,
                       case_id=state["case_id"], plan_version=int(state["plan"]["version"]))
+        if nivel == "titular" and chat_cfg.auto_aprobar_encargos():
+            # 18/11/2026, titular: «crear proyecto automáticamente a través de @eolfi en VS Code». Lo pide el titular
+            # desde su equipo: se aprueba y arranca sin otro paso (sigue sin sobrescribir una carpeta con contenido).
+            # Desde otro dispositivo, o con la opción desactivada, queda pendiente como antes.
+            st = self.vscode_encargo_decidir(e["id"], "aprobar", origen="titular (chat, aprobación automática)")
+            aviso = self._avisar_vscode(e)
+            return {"encargo_id": e["id"], "estado": st.get("estado"), "carpeta": e["carpeta"], "case_id": e["case_id"],
+                    "job_id": st.get("job_id"), "riesgos": e["riesgos"], "aviso_vscode": aviso,
+                    "aviso": "Aprobado automáticamente porque lo pidió el titular desde este equipo: el proyecto se "
+                             "está creando y verificando AHORA, pero todavía NO está hecho. Consulta su estado con "
+                             "eolfi_vscode_encargo_estado antes de decir que está terminado."}
         aviso = self._avisar_vscode(e)
         return {"encargo_id": e["id"], "estado": "pendiente_aprobacion", "carpeta": e["carpeta"],
                 "case_id": e["case_id"], "riesgos": e["riesgos"], "aviso_vscode": aviso,
@@ -2111,6 +2168,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                                                         __import__("eolfi.chat", fromlist=["x"]).limite_adjuntos(self._nivel())},
                         "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
                         "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
+                        "/api/voz/microfonos": lambda _q: __import__("eolfi.voz", fromlist=["x"]).microfonos(),
                         "/api/eolas/perfiles": lambda _q: _perfiles_eolas(),
                         "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
@@ -2237,6 +2295,16 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                                                               voz=body.get("voz")), "audio/wav")
                         except voz.VozError as exc:
                             raise ApiError(400, str(exc)) from exc
+                    if path == "/api/voz/config":
+                        # Voz de lectura (Piper, ajuste): cambia ~/.eolfi/voz.json, así que solo desde este equipo.
+                        if self._nivel() != "titular":
+                            raise ApiError(403, "La voz solo se configura desde este equipo.")
+                        from eolfi import voz as _voz
+                        try:
+                            _voz.guardar({k: v for k, v in self._obj().items() if k in ("lectura", "piper")})
+                        except _voz.VozError as exc:
+                            raise ApiError(400, str(exc)) from exc
+                        return self._json(200, _voz.estado())
                     if path == "/api/chat/motor":
                         return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":

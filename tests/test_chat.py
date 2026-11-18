@@ -132,7 +132,9 @@ def test_trabajo_chat_usa_el_motor_eolas_v2_y_no_pisa_el_banco(tmp_path, monkeyp
     assert out["text"] == "Propuestas…" and out["model"].startswith("gemma-q4") and used == ["gemma_q4"]
     assert seen["c"]["headers"] == {"Authorization": f"Bearer {eolas_v2.api_key()}"}       # Eolas V2 con su clave
     assert seen["c"]["endpoint"] == "http://127.0.0.1:8090/v1/chat/completions"
-    assert str(app.samples / ("a" * 64 + ".bin")) in seen["msgs"][-1]["content"]
+    con_nombre = app.samples / "adjuntos" / ("a" * 64) / "x.exe"           # con su nombre y extensión reales
+    assert str(con_nombre) in seen["msgs"][-1]["content"] and con_nombre.read_bytes() == b"MZ"
+    assert seen["mcp"].adjuntos == {"x.exe": str(con_nombre)}
     assert seen["estado"] == {"vscode": {"activo": False}}                 # el chat recibe el estado real
 
     for bad in ({"messages": [{"role": "user", "content": "x"}], "analyze": {"kind": "inventado", "target": "y"}},
