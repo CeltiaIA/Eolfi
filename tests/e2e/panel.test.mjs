@@ -524,6 +524,23 @@ test('idioma: el panel en inglés con ?lang=en, sin tocar el contenido, y vuelta
     return [a.textContent, b.textContent];
   });
   assert.deepEqual(r, ['Export', 'Exportar']);
+  // Textos con partes variables (plantillas con «{}»): los huecos pasan tal cual o traducidos si son un texto
+  // entero del diccionario; las llaves de un dato no se confunden con un hueco.
+  const dinamicos = await p.evaluate(async () => {
+    const textos = ['Listo en 3.2 s', 'Repetición: NO reproducible', 'Mostrando 3 de 10 objetivos.',
+      'Caso «x {y}» creado y activo.', 'Proyecto go sin verificación satisfactoria', 'Sin incógnitas abiertas.'];
+    const nodos = textos.map((t) => { const n = document.createElement('p'); n.textContent = t; return n; });
+    document.querySelector('.tools').append(...nodos);
+    const enEvidencia = document.createElement('p'); enEvidencia.textContent = 'Listo en 9 s';
+    document.getElementById('evidence').append(enEvidencia);
+    await new Promise((ok) => setTimeout(ok, 50));
+    const out = nodos.map((n) => n.textContent).concat(enEvidencia.textContent, window.eolfiT('Listo en 1 s'));
+    nodos.forEach((n) => n.remove()); enEvidencia.remove();
+    return out;
+  });
+  assert.deepEqual(dinamicos, ['Done in 3.2 s', 'Repetition: NOT reproducible', 'Showing 3 of 10 targets.',
+    'Case "x {y}" created and active.', 'go project without a successful verification', 'No open unknowns.',
+    'Listo en 9 s', 'Done in 1 s']);
   assert.match(await p.evaluate(() => document.cookie), /eolfi_idioma=en/);
   // Volver al castellano con el selector: se guarda y la página se recarga.
   await p.selectOption('#idioma', 'es');

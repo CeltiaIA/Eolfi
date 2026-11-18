@@ -18,7 +18,7 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 |---|---|---|
 | B1 | Juez funcional en los destinos de escritorio y móvil (Electron, Tauri, .NET, Expo web). Go ya está (18/11, 3/3 con axe) | Sin juez, la accesibilidad (axe) de esos destinos queda NO VERIFICADA |
 | C4 | Despliegue real en un hosting (comentarios en inglés y PWA con Vite hechos el 18/11) | Pide un hosting y permiso para publicar |
-| C1 | Textos dinámicos del JS del panel (avisos, estados), los 16 errores de la API con partes variables, 2 ayudas de argumentos y los mensajes de la CLI en inglés | Termina el panel y la CLI en inglés |
+| C1 | Los avisos de la CLI por stderr en inglés (el panel, la API y la ayuda de todos los argumentos ya están, 18/11) | Lo último del inglés de Eolfi |
 | D1 | `eolfi sync`: volver a analizar las fuentes de un proyecto y proponer un diff con fusión a tres bandas | Pieza grande; sin dependencias externas |
 | E3 | Exportar el paquete completo de evidencias de REA | Herramienta REA ya disponible |
 | C3 | `eolfi web --render`: interacciones (clics, formularios) | La prueba contra un sitio público sí pide autorización |

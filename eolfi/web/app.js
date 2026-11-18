@@ -1266,12 +1266,12 @@ $("#local-chat-form").addEventListener("submit", async (event) => {
     return;
   }
   button.disabled = true;
-  answer.textContent = "Confirma a tarefa en VS Code. Agardando por Eolfi…";
+  answer.textContent = "Confirma el encargo en VS Code. Esperando a Eolfi…";
   try {
     const result = await api("/api/local-chat/send", {
       method: "POST", body: JSON.stringify({ prompt, project: localChatProject }),
     });
-    answer.textContent = result.cancelled ? "Tarefa cancelada." : (result.text || "Eolfi rematou sen resposta de texto.");
+    answer.textContent = result.cancelled ? "Encargo cancelado." : (result.text || "Eolfi terminó sin respuesta de texto.");
   } catch (error) {
     answer.textContent = error.message;
   } finally {
