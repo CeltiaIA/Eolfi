@@ -597,6 +597,9 @@ CLI_EN: dict[str, str] = {
         "Another folder for the launcher (instead of the desktop or the menu)",
     "Pares base/candidata (mínimo 5)": "Base/candidate pairs (minimum 5)",
     "Permite consultar api.github.com (sin credenciales)": "Allows querying api.github.com (no credentials)",
+    "Sirve por HTTPS con este certificado (el móvil solo deja usar el micrófono con HTTPS)":
+        "Serve over HTTPS with this certificate (phones only allow the microphone over HTTPS)",
+    "Clave privada del certificado de --cert": "Private key for the --cert certificate",
     "Permite escuchar fuera de localhost": "Allows listening outside localhost",
     "Persistencia de los backends FastAPI/Express (sqlite: sin dependencias nuevas)":
         "Persistence of the FastAPI/Express backends (sqlite: no new dependencies)",
@@ -725,6 +728,8 @@ CLI_EN: dict[str, str] = {
 # `progress` (create, web, repo, verify, autofix/assist). Con «{}» la parte variable pasa tal cual. Lo que viene de
 # una excepción o de una herramienta externa sigue en su idioma.
 AVISOS_EN: dict[str, str] = {
+    "eolfi: --key necesita --cert": "eolfi: --key requires --cert",
+    "eolfi: no se pudo cargar el certificado ({})": "eolfi: could not load the certificate ({})",
     # cli.py
     "Eolfi: --verify está obsoleta y no hace nada (la verificación siempre es obligatoria); se retirará en una "
     "versión posterior.":

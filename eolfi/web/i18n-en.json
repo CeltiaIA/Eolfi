@@ -722,5 +722,6 @@
  "Eolfi{}": "Eolfi{}",
  "Chat · {}": "Chat · {}",
  "{}{} · SDK {}–{}": "{}{} · SDK {}–{}",
- "HTTP {}": "HTTP {}"
+ "HTTP {}": "HTTP {}",
+ "El micrófono necesita HTTPS: arranca Eolfi con «serve --cert» o ábrelo en este equipo (localhost).": "The microphone needs HTTPS: start Eolfi with “serve --cert” or open it on this computer (localhost)."
 }

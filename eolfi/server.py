@@ -2088,7 +2088,8 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         if token and q.get("token"):
                             # Cookie y redirección a la URL sin token: no queda en el historial ni en registros.
                             return self._send(303, b"", "text/plain; charset=utf-8", {
-                                "Set-Cookie": f"eolfi_token={token}; HttpOnly; SameSite=Strict; Path=/",
+                                "Set-Cookie": f"eolfi_token={token}; HttpOnly; SameSite=Strict; Path=/"
+                                              + ("; Secure" if getattr(self.server, "tls", False) else ""),
                                 "Location": path})
                         f = WEB_DIR / _STATIC[path]
                         return self._send(200, f.read_bytes(), _CTYPE[f.suffix])
@@ -2320,8 +2321,23 @@ def make_server(db: str, host: str = "127.0.0.1", port: int = 8777,
     return httpd
 
 
+def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None = None) -> ThreadingHTTPServer:
+    """HTTPS con el certificado del titular (C7, 18/11/2026). En el móvil, el navegador solo deja usar el micrófono
+    en un contexto seguro (https o localhost): sin esto, el dictado del panel no funciona desde otro dispositivo.
+    El saludo TLS se hace en el hilo de cada petición, no en el que acepta conexiones."""
+    import ssl
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(str(cert), str(key) if key else None)
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
+    httpd.tls = True
+    return httpd
+
+
 def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool = False,
-          samples_dir: str | Path = "samples") -> int:
+          samples_dir: str | Path = "samples", cert: str | Path | None = None,
+          key: str | Path | None = None) -> int:
     if host not in _LOOPBACK and not allow_remote:
         print(f"eolfi: negando escuchar en {host}: usa --allow-remote si de verdad lo quieres "
               f"(la API puede analizar archivos locales).", file=sys.stderr)
@@ -2332,6 +2348,15 @@ def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool
         print(f"eolfi: no se pudo escuchar en {host}:{port} ({exc.strerror or exc}). "
               f"¿Puerto ocupado? Prueba con --port.", file=sys.stderr)
         return 2
+    if cert:
+        import ssl
+
+        try:
+            con_tls(httpd, cert, key)
+        except (OSError, ssl.SSLError) as exc:
+            httpd.server_close()
+            print(f"eolfi: no se pudo cargar el certificado ({exc})", file=sys.stderr)
+            return 2
     shown = host
     if host in ("0.0.0.0", "::", "[::]"):
         import socket
@@ -2340,7 +2365,7 @@ def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool
             shown = socket.gethostbyname(socket.gethostname())   # 0.0.0.0 no se puede abrir en el navegador
         except OSError:
             shown = "127.0.0.1"
-    url = f"http://{shown}:{httpd.server_address[1]}"
+    url = f"{'https' if getattr(httpd, 'tls', False) else 'http'}://{shown}:{httpd.server_address[1]}"
     if httpd.token:
         url += f"/?token={httpd.token}"
         print("eolfi: modo remoto. Abre esta URL (contiene el token de acceso de esta ejecución):", flush=True)

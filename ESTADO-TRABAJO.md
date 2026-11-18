@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C7 panel en el móvil (18/11, rama `luis/c7-movil`):** por `http://IP` el móvil oculta el micrófono (sin contexto
+  seguro). `eolfi serve --cert PEM [--key PEM]` sirve por HTTPS (cookie `Secure`) y el panel lo explica. Android
+  real o emulador: NO VERIFICADO (no hay ninguno conectado).
 - **B1 juez de consola (18/11, rama `luis/b1-juez-consola`):** criterios `"consola": true` con pasos `ejecutar` y
   `comprobar` (código, contiene, no contiene, patrón) para `cli` y `rust`, en una carpeta temporal aislada. El `cli`
   generado de verdad pasa 5/5. Rust real NO VERIFICADO; .NET (ventana nativa) pendiente.
