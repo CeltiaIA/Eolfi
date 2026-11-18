@@ -5,6 +5,10 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C3 interacciones de `eolfi web --render` (18/11, rama `luis/c3-render-interacciones`):** `--interactuar N`
+  pulsa controles sin efectos (pestañas, desplegables, botones que no envían formularios) y sigue lo que aparece;
+  solo GET/HEAD, nada de envíos, controles con efecto saltados, diálogos descartados. Inventario de formularios.
+  Verificado con Chrome real contra una tienda local (ningún POST/DELETE llegó al servidor). Sitio público: pendiente.
 - **E3 paquete completo de evidencias de REA (18/11, rama `luis/e3-paquete-rea`):** `eolfi rea [--caso ID]
   --paquete CARPETA <acción> …` guarda en una carpeta NUEVA (nunca sobrescribe; se comprueba antes de arrancar REA)
   el paquete de la sesión de REA tal cual lo escribe `export_evidence_bundle` (sin sobrescribir), `resultado.json`,

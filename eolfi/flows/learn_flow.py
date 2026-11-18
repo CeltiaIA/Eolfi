@@ -17,15 +17,17 @@ REPO = SimpleNamespace(name="eolfi.repo", version="0.1.0")
 def run_web(source: str, store: EvidenceStore, *, max_assets: int = 40, cross_origin: bool = False,
             ignore_robots: bool = False, save_dir: str | None = None,
             progress: Callable[[str], None] | None = None, case_id: str | None = None,
-            provenance: str = "", render: bool = False, max_pages: int = 1, max_depth: int = 1) -> dict[str, Any]:
+            provenance: str = "", render: bool = False, max_pages: int = 1, max_depth: int = 1,
+            interact: int = 0) -> dict[str, Any]:
     params = {"source": source, "max_assets": max_assets, "cross_origin": cross_origin,
-              "ignore_robots": ignore_robots, "render": render, "max_pages": max_pages, "max_depth": max_depth}
+              "ignore_robots": ignore_robots, "render": render, "max_pages": max_pages, "max_depth": max_depth,
+              **({"interact": interact} if interact else {})}
     with case_run(store, case_id, "web", params, provenance or f"fuente web indicada por el operador: {source}") as run:
         rep = _run_web(source, store, max_assets=max_assets, cross_origin=cross_origin,
                        ignore_robots=ignore_robots, save_dir=save_dir, progress=progress)
         if render:
             rep["render"] = _run_render(source, store, rep, ignore_robots=ignore_robots, max_pages=max_pages,
-                                        max_depth=max_depth, progress=progress)
+                                        max_depth=max_depth, progress=progress, interact=interact)
         _finish(run, rep)
         return rep
 
@@ -82,7 +84,7 @@ def _texto_visible(html: str) -> int:
 
 
 def _run_render(source: str, store: EvidenceStore, rep: dict[str, Any], *, ignore_robots: bool, max_pages: int,
-                max_depth: int, progress: Callable[[str], None] | None) -> dict[str, Any]:
+                max_depth: int, progress: Callable[[str], None] | None, interact: int = 0) -> dict[str, Any]:
     """C3: rastreo renderizado del mismo origen y análisis estructural del DOM renderizado de la portada."""
     import tempfile
     from pathlib import Path
@@ -95,7 +97,7 @@ def _run_render(source: str, store: EvidenceStore, rep: dict[str, Any], *, ignor
         return {"estado": "no_aplica", "motivo": "--render necesita una URL http(s)"}
     fetcher = Fetcher(respect_robots=not ignore_robots)
     crawl = rastrear(source, max_paginas=max_pages, max_profundidad=max_depth, robots=fetcher.robots_allowed,
-                     progress=progress)
+                     progress=progress, interactuar=interact)
     subject = rep["subject"]
     if crawl.get("estado") != "ok":
         store.add_incognita(Incognita(subject=subject, severity="low",
@@ -131,8 +133,14 @@ def _run_render(source: str, store: EvidenceStore, rep: dict[str, Any], *, ignor
     return {"estado": "ok", "renderizadas": crawl["renderizadas"], "excluidas": crawl["excluidas"],
             "pendientes_sin_visitar": crawl["pendientes_sin_visitar"], "spa": spa,
             "origenes_bloqueados": crawl["origenes_bloqueados"],
+            **({"peticiones_no_get_bloqueadas": crawl["peticiones_no_get_bloqueadas"]} if interact else {}),
             "paginas": [{"url": p["url"], "estado": p.get("estado"), "titulo": p.get("titulo"),
-                         "via": p.get("via"), "rutas_spa": len(p.get("rutas_spa") or [])} for p in paginas]}
+                         "via": p.get("via"), "rutas_spa": len(p.get("rutas_spa") or []),
+                         "formularios": len(p.get("formularios") or []),
+                         "peticiones": len(p.get("peticiones") or []),
+                         **({"pulsados": len((p.get("interacciones") or {}).get("pulsados") or []),
+                             "saltados": len((p.get("interacciones") or {}).get("saltados") or [])}
+                            if interact else {})} for p in paginas]}
 
 
 def run_repo(source: str, store: EvidenceStore, *, workdir: str = "samples/repos",
