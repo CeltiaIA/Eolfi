@@ -43,6 +43,46 @@ python -m eolfi modelos descargar --repo propietario/repositorio-GGUF --archivo 
   auditoría y `verificacion` (`banco: NO VERIFICADO`, adopción pendiente). Código 0 = descargado y auditado.
 - Cada descarga queda en el registro de acciones (B8, `modelos.descargar`).
 
+## 3. Cambiar de modelo sin tocar código
+
+El modelo se elige en un solo sitio, `~/.eolfi/eolas-v2.json`. Ningún otro módulo de Eolfi, ni el panel ni la
+extensión de VS Code, nombra un modelo: lo leen de ahí. La prueba `tests/test_modelo_unico.py` falla si alguien vuelve
+a escribir un nombre de modelo en el código.
+
+```powershell
+python -m eolfi eolas-v2 perfiles                       # catálogo: etiqueta, si se puede usar, roles y admisión
+python -m eolfi eolas-v2 alta qwen3_q4 D:\AI\Hydra\gguf\Qwen3-14B-Q4_K_M.gguf --etiqueta "Qwen3 14B Q4" --ctx 16384
+python -m eolfi eolas-v2 examen qwen3_q4                # ronda completa: código y herramientas (carga el modelo, Docker)
+python -m eolfi eolas-v2 activo qwen3_q4                # perfil de chat, generador y VS Code
+python -m eolfi eolas-v2 rol revisor qwen3_q4           # o solo un papel: rapido, completo, redactor, revisor
+```
+
+- **Alta.** Un GGUF local pasa a ser un perfil con su etiqueta (nombre visible), su contexto y capas en la GPU, si
+  piensa en un bloque aparte (`--razonamiento deepseek`) y si usa las reglas de Mistral Instruct (`--plantilla
+  mistral`). Solo se admiten opciones de llama-server acotadas (`-fa`, `-ctk`, `-ctv`, `-np`, `--cache-ram`).
+  El alta no activa el modelo ni lo arranca.
+- **Roles.** `roles` en `eolas-v2.json` dice qué perfil hace cada papel: `rapido` y `completo` para el proveedor
+  automático, y `redactor` y `revisor` para CeltIA V2. Si el perfil de un rol falta, no tiene GGUF, está retirado o
+  no está admitido, se usa el perfil activo. Las claves antiguas `celtia_v2_redactor` y `celtia_v2_revisor` siguen
+  valiendo.
+- **Eolas V1.** El modelo que se pide a CeltIA va en `eolas_v1_model`. `EOLAS_MODEL` lo sustituye en una sola
+  ejecución.
+
+### Examen de herramientas (requisito para los modelos nuevos)
+
+Un modelo nuevo (dado de alta o reconstruido) no se puede activar ni recibir un rol hasta aprobar la ronda completa.
+La ronda exige al menos el 85 % a la primera en código y en herramientas. Las herramientas se examinan en cuatro
+aspectos:
+
+1. **Usarlas:** identificar un binario, buscar y leer en Alejandría, calcular ejecutando código y reimplementar lo leído.
+2. **Elegir la correcta entre varias:** usar una que no corresponde es fallo.
+3. **No usarlas cuando no hacen falta:** responder sin llamadas.
+4. **Saber para qué sirve cada una:** sin llamarlas, decir cuál usaría para cada tarea.
+
+El resultado queda en `~/.eolfi/eolas-v2/admision.json` con la huella del GGUF (ruta y tamaño). Un examen deja de
+valer en dos casos: si el archivo cambia o si el examen es anterior a las pruebas actuales. Entonces hay que repetirlo.
+Los perfiles de serie ya pasaron por las rondas de motores: para ellos el examen es recomendable, pero no obligatorio.
+
 ## Límites
 
 - El hash publicado demuestra que se recibió lo publicado, no que los pesos sean seguros ni mejores.

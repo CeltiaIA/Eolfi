@@ -178,7 +178,7 @@ function renderProfiles(st) {
   if (st.remote || !st.profiles?.length) { pick.hidden = true; return; }
   pick.hidden = false;
   if (document.activeElement !== pick) {
-    pick.replaceChildren(...st.profiles.map((p) => el("option", { value: p.name }, `${p.name} · ${p.alias}`)));
+    pick.replaceChildren(...st.profiles.map((p) => el("option", { value: p.name }, `${p.label || p.name} · ${p.alias}`)));
     pick.value = st.profile;
   }
   pick.disabled = chat.busy || !!st.busy;

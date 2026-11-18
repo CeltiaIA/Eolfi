@@ -13,7 +13,9 @@ def main():
     cfg = engine.load_config()
     original = cfg['active_profile']
     try:
-        for profile in ('gemma_q4', 'nemo_q4'):
+        # Perfiles a medir: los indicados en la línea de órdenes o todos los instalados (sin nombres fijos, 18/11/2026).
+        perfiles = sys.argv[1:] or [p for p in engine.available_evaluation_profiles(cfg) if p != engine.NEMO_MOE_PROFILE]
+        for profile in perfiles:
             started = time.monotonic()
             engine.switch(profile)
             load = round(time.monotonic()-started, 3)

@@ -374,7 +374,9 @@ def test_prueba_en_vivo_solo_lista_motores_instalados(srv, monkeypatch):
     monkeypatch.setattr(eolas_v2, "available_evaluation_profiles", lambda cfg=None: ["gemma_q4", "gemma3_q4"])
     port, _ = srv
     status, data, _h = req(port, "GET", "/api/eolas/perfiles")
-    assert status == 200 and data == {"perfiles": ["gemma_q4", "gemma3_q4"]}
+    assert status == 200 and data["perfiles"] == ["gemma_q4", "gemma3_q4"]
+    # 18/11/2026: el nombre visible lo da la etiqueta del perfil (el panel ya no lleva su propia lista).
+    assert data["etiquetas"] == {"gemma_q4": "Gemma 4 12B Q4", "gemma3_q4": "Gemma 3 12B Q4"}
 
 
 def test_perfiles_disponibles_excluyen_retirados_y_sin_gguf(tmp_path, monkeypatch):

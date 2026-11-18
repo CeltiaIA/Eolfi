@@ -822,13 +822,8 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden && chat.visible) { refreshLive(true); pollBridge(); }
 });
 
-const E2E_PROFILES = [
-  ["gemma_q4", "Gemma 12B Q4"], ["gemma", "Gemma 12B Q5"],
-  ["mistral", "Mistral 7B Q4"], ["nemo_q4", "Mistral Nemo 12B Q4"], ["nemo_moe", "Mistral Nemo 12B Q4 · MoE"], ["nemo_q5", "Mistral Nemo 12B Q5"],
-  ["qwen14_q4", "Qwen2.5 14B Q4"], ["qwen14_q3", "Qwen2.5 14B Q3"], ["qwen14_q5", "Qwen2.5 14B Q5"],
-  ["gemma3_q4", "Gemma 3 12B Q4"], ["gemma3_q3", "Gemma 3 12B Q3"], ["gemma3_q5", "Gemma 3 12B Q5"],
-  ["msmall_q4", "Mistral Small 24B Q4"], ["msmall_q3", "Mistral Small 24B Q3"], ["msmall_q5", "Mistral Small 24B Q5"],
-];
+// Los nombres visibles de los motores los da el servidor (la «etiqueta» de cada perfil en eolas-v2.json): un modelo
+// nuevo aparece aquí sin tocar el panel (18/11/2026).
 // Lecciones aprendidas por motor: qué causas de fallo ha registrado Eolfi y cuáles se aplican.
 async function loadLessons() {
   const box = $("#eolas-lessons");
@@ -854,8 +849,8 @@ function initEolasE2E() {
   const choices = $("#eolas-e2e-profiles");
   // Solo los motores INSTALADOS (14/11/2026): sin los retirados ni los que ya no tienen su GGUF en el disco.
   choices.replaceChildren(el("span", { class: "small muted" }, "Comprobando qué motores están instalados…"));
-  api("/api/eolas/perfiles").then(({ perfiles = [] }) => {
-    const labels = new Map(E2E_PROFILES);
+  api("/api/eolas/perfiles").then(({ perfiles = [], etiquetas = {} }) => {
+    const labels = new Map(Object.entries(etiquetas));
     choices.replaceChildren(...(perfiles.length ? perfiles.map((id) => el("label", {},
       el("input", { type: "checkbox", value: id, checked: "checked" }), " ", labels.get(id) || id))
       : [el("span", { class: "small muted" }, "No hay motores instalados para la prueba.")]));

@@ -1,10 +1,22 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-17 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-18 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Modelo en un solo sitio y examen de herramientas (18/11, rama `luis/modelo-unico`; titular: «que si se cambia el
+  modelo no haya que estar cambiando cosas» y «que los .gguf elegidos cumplan requisitos de uso de las
+  herramientas»):** el modelo se elige en `~/.eolfi/eolas-v2.json` (perfil activo, `roles`, `eolas_v1_model`);
+  cada perfil lleva `etiqueta`, `reasoning_format` y `plantilla`; órdenes `eolas-v2 perfiles|alta|examen|activo|rol`;
+  el panel y VS Code leen los nombres del servidor/configuración. Un perfil nuevo no se activa ni recibe rol sin
+  aprobar la ronda (`admision.json`, con huella del GGUF); la ronda añade 3 casos: elegir la herramienta correcta,
+  no usarlas sin necesidad y saber para qué sirve cada una. Guardián `tests/test_modelo_unico.py`. Guía:
+  `docs/modelos-actualizar.md` §3. **NO VERIFICADO** con un modelo real (examen = GPU + Docker).
+- **Causa del par «filtro» del banco (18/11):** la memoria de ejemplos verificados (`~/.eolfi/assist-verified.jsonl`)
+  crece con cada `create` en verde y entra en el prompt siguiente: la 2.ª corrida de un par ve un ejemplo más
+  (6661 frente a 6982 tokens en la ronda 1). El juez es estable (3 juicios por proyecto, 10/10). Arreglo pendiente:
+  el banco congela la memoria por corrida. El banco ya dejó 4 ejemplos «filtro» en la memoria real (no borrados).
 - **B2 determinismo medido (18/11, rama `luis/b2-determinismo`):** `tools/medir_determinismo.py` (misma petición
   N veces con `EOLFI_SEMILLA`; `--frio` descarga V1 entre peticiones). Gemma 4 12B, semilla 0: **V2 7/7**
   idénticas (frío incluido); **V1 4/7**: frío = un texto fijo (894 car.), caliente = otro fijo (918 car.). Causa:
