@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **B1 juez en escritorio y móvil (18/11, rama `luis/b1-juez-escritorio`):** el juez funcional juzga `renderer/` de
+  Electron, `src/` de Tauri y `dist/` de Expo web en Chrome. Electron y Tauri generados pasan juez y axe (3/3) sin
+  instalar nada; Expo solo con una compilación simulada (no se mide por defecto). Falta: destinos de consola.
 - **A9 dictado en VS Code y Fios (18/11, ramas `luis/a9-voz-vscode` en Eolfi y `luis/fios-dictado` en CeltIA):**
   `POST /api/voz/dictar` / `eolfi voz dictar` graba del micrófono del equipo con MCI de Windows (temporal borrado,
   uno a la vez, comprueba el motor antes) y transcribe. VS Code: «Eolfi: dictar al chat» deja el texto en el chat

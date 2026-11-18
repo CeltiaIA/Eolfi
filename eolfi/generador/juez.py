@@ -25,6 +25,12 @@ relajar la CSP de la aplicación; si axe-core no está disponible la comprobaci�
 Destinos: ``static`` (se sirve la carpeta tal cual) y, desde C4 (17/11/2026), ``react``, ``vue`` y ``svelte``: se
 sirve la compilación que deja ``npm run build`` en ``dist/`` (lo mismo que se publicaría). En otros destinos los
 criterios se anotan como no ejecutados y la verificación NO queda en verde: un juez que no corre no aprueba nada.
+
+Escritorio y móvil (B1, 18/11/2026): ``desktop`` (Electron) juzga ``renderer/``, ``tauri`` juzga ``src/`` y ``expo``
+la versión web que deja ``npm run build:web`` (``expo export``) en ``dist/``, servidas en Chrome como un sitio. Límite:
+no es la ventana de Electron, WebView2/WebKit ni la app nativa de Android/iOS; lo que dependa del puente nativo
+(preload, comandos de Tauri, módulos nativos de Expo) no se juzga. Expo no se mide por defecto con axe en ``create``
+(su compilación web real no está verificada en este equipo); con criterios del titular sí se juzga.
 """
 from __future__ import annotations
 
@@ -42,12 +48,17 @@ from typing import Any
 ARCHIVO = "eolfi.juez.json"
 DRIVER = Path(__file__).with_name("juez_web.mjs")
 # Carpeta que se sirve en cada destino: el proyecto tal cual o la compilación de Vite.
-DESTINOS = {"static": ".", "react": "dist", "vue": "dist", "svelte": "dist"}
+DESTINOS = {"static": ".", "react": "dist", "vue": "dist", "svelte": "dist",
+            "desktop": "renderer", "tauri": "src", "expo": "dist"}
+# Cómo se obtiene esa carpeta cuando falta (las de desktop y tauri son la propia fuente).
+_COMPILAR = {"react": "npm run build", "vue": "npm run build", "svelte": "npm run build", "expo": "npm run build:web"}
 # Destinos con servidor propio (C4, 17/11/2026): se arranca la app en un puerto local (127.0.0.1), se espera a que
 # responda, se juzga por URL y se para el árbol de procesos. Usa lo que verify ya instaló (.venv, node_modules,
 # compilación de Next); no instala nada.
 SERVIDORES = ("next", "express", "fastapi", "django", "go")   # go: el ejecutable bin/app de la verificación (B1)
 CUBIERTOS = (*DESTINOS, *SERVIDORES)
+# Destinos en los que ``create`` instala por defecto los criterios de accesibilidad (decisión del titular, C4).
+POR_DEFECTO = tuple(t for t in CUBIERTOS if t != "expo")
 ARRANQUE = 90
 MAX_PASOS = 100
 PLAZO = 180
@@ -380,8 +391,8 @@ def paso(proyecto: str | Path, target: str, *, env: dict[str, str] | None = None
     elif raiz is None:
         j = {"status": "unavailable", "error": f"el juez funcional aún no cubre el destino «{target}»"}
     elif not (raiz / criterios["pagina"]).is_file():
-        j = {"status": "error", "error": f"no está {DESTINOS[target]}/{criterios['pagina']}: falta la compilación "
-                                          "(npm run build)"}
+        como = f"falta la compilación ({_COMPILAR[target]})" if target in _COMPILAR else "falta la interfaz"
+        j = {"status": "error", "error": f"no está {DESTINOS[target]}/{criterios['pagina']}: {como}"}
     else:
         j = juzgar(raiz, criterios, env=env)
     if j["status"] != "ok":

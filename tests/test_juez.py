@@ -381,6 +381,9 @@ def test_destinos_vite_sin_compilacion_no_aprueban(tmp_path):
         p = juez.paso(tmp_path, destino)
         assert p["exit"] == 1 and "falta la compilación" in p["tail"] and "dist/index.html" in p["tail"]
     assert "aún no cubre" in juez.paso(tmp_path, "dotnet")["tail"]
+    p = juez.paso(tmp_path, "expo")
+    assert p["exit"] == 1 and "dist/index.html" in p["tail"] and "npm run build:web" in p["tail"]
+    assert "falta la interfaz" in juez.paso(tmp_path, "desktop")["tail"]
 
 
 @con_navegador
@@ -455,7 +458,39 @@ def test_servidor_que_no_arranca_o_no_responde(tmp_path, monkeypatch):
 
 
 def test_create_mide_por_defecto_los_destinos_con_servidor():
-    assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go"}
+    assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go",
+                                   "desktop", "tauri", "expo"}
+    assert set(juez.CUBIERTOS) - set(juez.POR_DEFECTO) == {"expo"}
+
+
+@con_navegador
+@pytest.mark.parametrize("destino,carpeta", [("desktop", "renderer"), ("tauri", "src")])
+def test_escritorio_juzga_la_interfaz_generada_con_axe(tmp_path, destino, carpeta):
+    """B1 (18/11/2026): la interfaz real que generan Electron y Tauri pasa el juez y axe en Chrome, sin npm install
+    (la carpeta juzgada es la propia fuente)."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core")
+    out = tmp_path / destino
+    create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Bicis",
+                   target=destino, do_verify=False)
+    assert (out / carpeta / "index.html").is_file()
+    juez.instalar_accesibilidad(out)
+    p = juez.paso(out, destino)
+    assert (p["exit"], p["step"]) == (0, "juez funcional (3/3)"), p["tail"]
+
+
+@con_navegador
+def test_expo_juzga_la_version_web_de_dist(tmp_path):
+    proyecto = tmp_path / "movil"
+    dist = _app(proyecto / "dist")
+    (dist / juez.ARCHIVO).unlink()
+    _con_a11y(proyecto)
+    p = juez.paso(proyecto, "expo")
+    assert p["exit"] == 0, p["tail"]
 
 
 @con_navegador

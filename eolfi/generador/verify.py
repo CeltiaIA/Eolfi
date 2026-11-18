@@ -405,7 +405,8 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
             ok = step([npm, "run", "typecheck"], "comprobar tipos (tsc)")
         if ok:
             ok = step([npm, "test"], "pruebas (Jest + Testing Library)")
-        if ok and fresh:
+        if ok and (fresh or ((root / "eolfi.juez.json").is_file() and not (root / "dist").is_dir())):
+            # El juez funcional (B1) juzga esta versión web: sin ella no aprueba.
             step([npm, "run", "build:web"], "empaquetar versión web (expo export)")
         ok = bool(steps) and all(s["exit"] == 0 for s in steps)
         return {"ok": ok, "steps": steps, "pinned": pinned}
