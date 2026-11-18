@@ -143,3 +143,74 @@ def test_aplicar_verifica_en_una_carpeta_limpia(proyecto):
     assert r["applied"] is True
     assert r["verification"]["ok"] is True, r["verification"]
     assert r["verification"]["steps"]
+
+
+# ── D1 en el panel: trabajo «sync» de la API (18/11/2026) ─────────────────────────────────────────────────────────
+def _trabajo(port, body):
+    import time
+
+    from tests.test_server import req
+
+    st, job, _ = req(port, "POST", "/api/jobs", json.dumps({"kind": "sync", "body": body}), {"X-Eolfi": "1"})
+    assert st == 202, job
+    for _ in range(600):
+        st, d, _ = req(port, "GET", f"/api/jobs?id={job['job_id']}")
+        if d["status"] not in ("queued", "running"):
+            return d
+        time.sleep(0.1)
+    raise AssertionError("el trabajo no terminó")
+
+
+def test_api_sync_propone_y_aplica(proyecto, tmp_path):
+    import threading
+
+    from eolfi.server import make_server
+
+    _store, site, out = proyecto
+    httpd = make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        d = _trabajo(port, {"project": str(out)})
+        assert d["status"] == "done" and d["result"]["changes"] == [] and "al día" in d["result"]["note"]
+        _cambiar_fuente(site)
+        d = _trabajo(port, {"project": str(out)})
+        assert d["status"] == "done" and d["result"]["applied"] is False
+        assert any(c["ruta"] == "css/tokens.css" for c in d["result"]["changes"])
+        assert "#e11d48" in (out / "css" / "tokens.css").read_text(encoding="utf-8")     # proponer no escribe
+        assert any("volviendo a analizar" in l["msg"] for l in d["log"])                  # progreso en el registro
+        d = _trabajo(port, {"project": str(out), "aplicar": True})
+        assert d["status"] == "done", d.get("error")
+        assert d["result"]["applied"] is True and d["result"]["verification"]["ok"] is True
+        assert "#2563eb" in (out / "css" / "tokens.css").read_text(encoding="utf-8")
+        # Errores: sin carpeta, sin especificación.
+        d = _trabajo(port, {})
+        assert d["status"] == "error" and d["code"] == 400 and "project" in d["error"]
+        d = _trabajo(port, {"project": str(tmp_path)})
+        assert d["status"] == "error" and d["code"] == 400 and "eolfi.spec.json" in d["error"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_api_sync_con_conflicto_queda_como_error_no_verificado(proyecto, tmp_path):
+    import threading
+
+    from eolfi.server import make_server
+
+    _store, site, out = proyecto
+    tokens = out / "css" / "tokens.css"
+    texto = tokens.read_text(encoding="utf-8")
+    linea = next(l for l in texto.splitlines() if "#e11d48" in l)
+    tokens.write_text(texto.replace(linea, linea.replace("#e11d48", "#111111")), encoding="utf-8")
+    _cambiar_fuente(site)
+    httpd = make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples")
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        d = _trabajo(httpd.server_address[1], {"project": str(out), "aplicar": True})
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert d["status"] == "error" and d["code"] == 422
+    assert d["error"].startswith("Sincronización aplicada pero NO VERIFICADA: NO VERIFICADO: hay conflictos")
+    assert ".eolfi-sync" in d["error"] and "<<<<<<< tuyo" in tokens.read_text(encoding="utf-8")

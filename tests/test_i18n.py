@@ -104,11 +104,13 @@ def test_textos_fijos_del_panel_cubiertos_y_diccionario_valido():
     dic = json.loads((RAIZ / "eolfi" / "web" / "i18n-en.json").read_text(encoding="utf-8"))
     assert all(isinstance(v, str) and v.strip() for v in dic.values())
     # Ninguna clave huérfana: cada texto del diccionario aparece en el panel o en su JS.
-    web = "".join((RAIZ / "eolfi" / "web" / n).read_text(encoding="utf-8") for n in
-                  ("index.html", "app.js", "cases.js", "eolas-chat.js", "projects.js", "subjects.js", "voz.js"))
+    web = "".join((RAIZ / "eolfi" / "web" / n).read_text(encoding="utf-8") for n in ("index.html", *i18n_panel.JS))
     web_norm = i18n_panel.normalizar(web.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
+    # Literales del JS con «{}» en cada hueco, también los que el detector no cuenta como texto de la interfaz.
+    literales = {i18n_panel.normalizar(t) for n in i18n_panel.JS
+                 for t, _p in i18n_panel._literales((RAIZ / "eolfi" / "web" / n).read_text(encoding="utf-8"))}
     huerfanas = [k for k in dic if k not in web_norm and k not in i18n_panel.textos_panel()
-                 and k not in i18n_panel.textos_js()]
+                 and k not in i18n_panel.textos_js() and k not in literales]
     assert not huerfanas, huerfanas[:20]
 
 

@@ -72,6 +72,8 @@ def cobertura() -> dict[str, object]:
 JS = ("app.js", "cases.js", "eolas-chat.js", "mapa.js", "projects.js", "subjects.js", "voz.js")
 _CASTELLANO = re.compile(r"[áéíóúñ¿¡]|\b(?:el|la|los|las|del|que|con|para|por|una?|se|sin|no|hay|de|en|y|ya|aún|ni)\b",
                          re.I)
+_FRASE = re.compile(r"^(?:\{\}\s*)*[:·—✓✗⬆]?\s*(?:\{\}\s*)*[A-ZÁÉÍÓÚÑ¿¡]")
+_NO_FRASE = re.compile(r"https?://|[\[\]=]|^[A-Z][A-Z0-9_]+$|^[A-Z]:[\\/]")   # y rutas de ejemplo (C:\…)
 # Literales que no son texto de la interfaz (identificadores, clases, valores de la API, consultas, selectores).
 NO_SON_TEXTO = re.compile(r"^[\w.:#\[\]=\"'/-]+$|^(?:sin-caso|proj-change-no)$")
 
@@ -155,7 +157,12 @@ def textos_js() -> dict[str, str]:
         for texto, _plantilla in _literales((WEB / nombre).read_text(encoding="utf-8")):
             t = normalizar(texto)
             sin_huecos = t.replace("{}", " ")
-            if (len(t) < 3 or not re.search(r"[A-Za-zÁÉÍÓÚáéíóúñ]{3}", sin_huecos) or not _CASTELLANO.search(sin_huecos)
+            # 18/11/2026: antes solo contaba lo que tenía tildes o palabras como «de»/«la», y se saltaba un centenar
+            # de textos reales («Trabajando… {} s», «Puente parado»). Ahora también lo que empieza como una frase
+            # (mayúscula o símbolo de la interfaz), salvo selectores y URL.
+            frase = _FRASE.match(t) and not _NO_FRASE.search(t)
+            if (len(t) < 3 or not re.search(r"[A-Za-zÁÉÍÓÚáéíóúñ]{3}", sin_huecos)
+                    or not (_CASTELLANO.search(sin_huecos) or frase)
                     or NO_SON_TEXTO.match(t) or "<" in t or t.startswith(("/api/", "#", "."))):
                 continue
             vistos.setdefault(t, nombre)

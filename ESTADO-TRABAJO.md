@@ -16,7 +16,9 @@
   `comprobar-paquete` dio ok. Límite: cada orden es una sesión de REA; el paquete cubre solo ese análisis.
 - **D1 `eolfi sync` (18/11, rama `luis/d1-sync`):** vuelve a analizar las fuentes de un proyecto generado y
   propone los cambios con fusión a tres bandas (base regenerada, fuente nueva y lo tuyo); `--aplicar` con copia y
-  verificación limpia. 12 pruebas. Falta: panel/API y prueba con un repo remoto real.
+  verificación limpia. 12 pruebas. Panel y API (rama `luis/d1-sync-panel`): trabajo `sync` y bloque en «Crear
+  proyecto»; e2e en Chrome con axe. De paso: el detector de textos del JS del panel se saltaba ~100 textos sin
+  tildes («Trabajando… {} s», «Puente parado»): ahora los cuenta y están traducidos (382/382). Falta: repo remoto real.
 - **C4 PWA con Vite (18/11, rama `luis/c4-pwa-vite`, worktree `D:\Eolfi-wt-pwa`):** react, vue y svelte
   instalables y sin conexión (manifiesto, icono y service worker en `public/`, registro solo en producción).
   Probado sin red con una compilación con la forma de la de Vite; con `vite build` real NO VERIFICADO.

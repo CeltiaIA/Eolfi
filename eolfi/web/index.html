@@ -222,6 +222,16 @@
         </form>
         <div id="create-result" class="small"></div>
         </details>
+        <details id="sync-box" class="small proj-classic">
+          <summary>Sincronizar un proyecto con sus fuentes</summary>
+          <p class="small muted">Vuelve a analizar las fuentes de un proyecto creado con Eolfi y propone los cambios. Lo que cambiaste tú se conserva (fusión a tres bandas); si choca con la fuente, se marca como conflicto. Aplicar guarda antes una copia en .eolfi-sync/ y verifica el resultado.</p>
+          <form id="sync-form" class="row">
+            <input id="sync-project" placeholder="Carpeta del proyecto (con eolfi.spec.json)" aria-label="Carpeta del proyecto">
+            <button type="button" class="pick" data-pick="sync-project" title="Elegir carpeta del proyecto" aria-label="Elegir carpeta del proyecto"><span aria-hidden="true">📁</span></button>
+            <button type="submit" id="sync-go">Ver cambios</button>
+          </form>
+          <div id="sync-result" class="small"></div>
+        </details>
       </div>
 
       <div id="panel-subjects" role="region" aria-label="Objetivos" tabindex="0" hidden>

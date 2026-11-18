@@ -157,7 +157,7 @@ class EolfiApp:
     # -- trabajos en segundo plano (análisis largos, crear y verificar) ---------------
     # POST /api/jobs {"kind": "create"|"web"|"repo"|"triage", "body": {...}} -> {"job_id"}
     # GET  /api/jobs?id=…&since=N -> {"status": running|done|error, "log": [...], "next": N, "result"|"error"}
-    JOB_KINDS = ("create", "web", "repo", "triage", "project", "eolas-e2e", "chat", "autofix")
+    JOB_KINDS = ("create", "web", "repo", "triage", "project", "eolas-e2e", "chat", "autofix", "sync")
     MAX_JOBS = 50
     MAX_RUNNING = 3
 
@@ -185,9 +185,9 @@ class EolfiApp:
             raise ApiError(400, f"kind debe ser uno de {', '.join(self.JOB_KINDS)} y body un objeto")
         fn = {"create": self.create, "web": lambda b: self.learn("web", b), "project": self.project_run,
               "repo": lambda b: self.learn("repo", b), "triage": self.triage_path,
-              "eolas-e2e": self.eolas_e2e, "chat": self.chat, "autofix": self.autofix}[kind]
+              "eolas-e2e": self.eolas_e2e, "chat": self.chat, "autofix": self.autofix, "sync": self.sync}[kind]
         job = {"id": secrets.token_hex(8), "kind": kind, "status": "queued", "log": [], "started": time.time(),
-               "label": str(payload.get("name") or payload.get("source") or payload.get("path")
+               "label": str(payload.get("name") or payload.get("source") or payload.get("path") or payload.get("project")
                             or ", ".join(map(str, payload.get("sources") or []))
                             or (f"Banco · {payload.get('battery') or ('json' if payload.get('suite') else 'pregunta')} · "
                                 f"{', '.join(map(str, payload.get('profiles') or []))}" if kind == "eolas-e2e" else ""))[:160],
@@ -221,6 +221,11 @@ class EolfiApp:
                         final = {"status": "error", "code": 422,
                                  "error": "Creación fallida: la verificación del proyecto no se superó"
                                           + (f" y autofix no lo corrigió ({fix.get('summary')})" if fix else "")}
+                if kind == "sync" and isinstance(result, dict) and result.get("applied")                         and (result.get("verification") or {}).get("ok") is False:
+                    motivo = (result.get("verification") or {}).get("error") or "la verificación falló"
+                    final = {"status": "error", "code": 422,
+                             "error": f"Sincronización aplicada pero NO VERIFICADA: {motivo}; copia de lo anterior en "
+                                      f"{result.get('backup')}"}
                 if kind == "autofix" and isinstance(result, dict) and result.get("ok") is False:
                     final = {"status": "error", "code": 422,
                              "error": f"Autofix sin estado verde: {result.get('summary')}; archivos restaurados"}
@@ -1481,6 +1486,36 @@ class EolfiApp:
                                    progress=self._progress)
             except AssistError as exc:
                 raise ApiError(400 if "no es un proyecto" in str(exc) else 502, str(exc)) from exc
+            finally:
+                s.close()
+
+    def sync(self, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/jobs {"kind": "sync", "body": {"project": DIR, "aplicar"?: bool}} (D1): vuelve a analizar las
+        fuentes y propone los cambios con fusión a tres bandas; con «aplicar», los escribe (con copia) y verifica."""
+        from eolfi.flows.sync_flow import _fuente_de, sync_project
+
+        project = str(body.get("project") or "").strip()
+        if not project:
+            raise ApiError(400, "falta «project»: la carpeta de un proyecto generado por Eolfi")
+        self._check_root(project, "carpeta del proyecto")
+        spec_path = Path(project) / "eolfi.spec.json"
+        if not spec_path.is_file():
+            raise ApiError(400, f"{project} no tiene eolfi.spec.json: no es un proyecto creado con «eolfi create»")
+        try:
+            fuentes = json.loads(spec_path.read_text(encoding="utf-8")).get("sources") or []
+        except (OSError, ValueError) as exc:
+            raise ApiError(400, f"eolfi.spec.json ilegible: {exc}") from exc
+        for f in fuentes:   # las fuentes locales, dentro de las carpetas permitidas, como al crear
+            src = _fuente_de(str((f or {}).get("subject") or "")) if isinstance(f, dict) else None
+            if src:
+                self._check_local_source(src)
+        with self._job("create:" + str(Path(project).resolve())):   # mismo cerrojo que crear en esa carpeta
+            s = self.store()
+            try:
+                return sync_project(s, project, aplicar=body.get("aplicar") is True, verificar=True,
+                                    workdir=str(self.samples / "repos"), progress=self._progress)
+            except (FileNotFoundError, ValueError) as exc:
+                raise ApiError(400, str(exc)) from exc
             finally:
                 s.close()
 
