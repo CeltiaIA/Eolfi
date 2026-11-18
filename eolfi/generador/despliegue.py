@@ -69,6 +69,10 @@ Sube la carpeta del proyecto a cualquier hosting estático (GitHub Pages, Netlif
 
 Publica el contenido de `dist/` en un hosting estático. Es una aplicación de una sola página: las rutas
 desconocidas deben servir `index.html` (en nginx, `try_files $uri /index.html;`).
+
+- La aplicación es instalable (PWA): `public/` lleva `manifest.webmanifest`, `icon.svg` y `sw.js`, que Vite copia a
+  `dist/`. El *service worker* solo se registra en la compilación, guarda en caché solo los archivos propios (no la
+  API) y exige **HTTPS** (o `localhost`). Al publicar cambios, cambia `VERSION` en `public/sw.js`.
 """)
     if t == "next":
         return ("```bash\nnpm ci\nnpm run build\n```", f"""## Arrancar en producción
@@ -206,6 +210,10 @@ Upload the project folder to any static hosting (GitHub Pages, Netlify, Cloudfla
 
 Publish the contents of `dist/` on a static hosting. It is a single-page app: unknown routes must serve
 `index.html` (in nginx, `try_files $uri /index.html;`).
+
+- The app is installable (PWA): `public/` has `manifest.webmanifest`, `icon.svg` and `sw.js`, which Vite copies to
+  `dist/`. The *service worker* is only registered in the build, caches only the project's own files (not the API)
+  and requires **HTTPS** (or `localhost`). When publishing changes, change `VERSION` in `public/sw.js`.
 """)
     if t == "next":
         return ("```bash\nnpm ci\nnpm run build\n```", f"""## Run in production

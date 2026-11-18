@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C4 PWA con Vite (18/11, rama `luis/c4-pwa-vite`, worktree `D:\Eolfi-wt-pwa`):** react, vue y svelte
+  instalables y sin conexión (manifiesto, icono y service worker en `public/`, registro solo en producción).
+  Probado sin red con una compilación con la forma de la de Vite; con `vite build` real NO VERIFICADO.
 - **C4 comentarios en inglés (18/11, rama `luis/c4-comentarios-en`):** con `--idioma-proyecto en` los
   comentarios y docstrings del código generado salen en inglés (catálogo `textos.COMENTARIOS`, línea entera por
   clave); guardián en los 15 destinos. Pruebas propias en inglés: fastapi, cli, django, go y rust en verde.

@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 from eolfi.generador import templates as tpl
-from eolfi.generador.generators import (CSP, SECURITY_HEADERS, VITE_SECURITY, Writer, _page_sections, _pascal, _routes, _ts_api_client, _vite_index,
+from eolfi.generador.generators import (CSP, SECURITY_HEADERS, SW_REGISTRO, VITE_SECURITY, Writer, _pwa_vite, _page_sections, _pascal, _routes, _ts_api_client, _vite_index,
                                     STATIC_JS)
 from eolfi.generador.templates import SECTIONS, base_css, content_for, tokens_css
 
@@ -244,7 +244,8 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 
 mount(App, { target: document.getElementById("app")! });
-""")
+""" + SW_REGISTRO)
+    _pwa_vite(spec, w)
     w("src/App.test.ts", f"""import {{ describe, expect, it }} from "vitest";
 import {{ render }} from "svelte/server";
 import App from "./App.svelte";
