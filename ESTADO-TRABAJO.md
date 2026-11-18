@@ -5,6 +5,12 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **B8 firma automática (18/11, rama `luis/b8-firma-automatica`):** con `EOLFI_ACCIONES_FIRMA_AUTO=1` y la clave en
+  `EOLFI_ACCIONES_CLAVE`, cada evento de Python va seguido, en el mismo cerrojo, de su `acciones.firma` (origen
+  «auto»): sin cola sin firmar. Sin clave, clave ilegible o junto al registro, la acción no se bloquea: queda un
+  `acciones.firma` fallido con el motivo y `verificar --clave` lo cuenta en `firmas_fallidas`. Límites: los eventos
+  del puente Node solo quedan cubiertos por la firma siguiente; recortar el final del registro sigue sin detectarse
+  sin anclas; la clave debe ser legible por el proceso que escribe. 3 pruebas nuevas en `tests/test_acciones_firma.py`.
 - **C3 interacciones de `eolfi web --render` (18/11, rama `luis/c3-render-interacciones`):** `--interactuar N`
   pulsa controles sin efectos (pestañas, desplegables, botones que no envían formularios) y sigue lo que aparece;
   solo GET/HEAD, nada de envíos, controles con efecto saltados, diálogos descartados. Inventario de formularios.

@@ -19,10 +19,21 @@ de 32 bytes (``generar_clave``) que el titular guarda fuera del alcance de quien
 un medio extraíble) y solo aporta al firmar o verificar. ``verificar_firmas`` recalcula cada HMAC: sin la clave no se
 puede reescribir ni recortar lo firmado sin que se note.
 
+Firma automática (18/11/2026): con ``EOLFI_ACCIONES_FIRMA_AUTO=1`` y la clave en ``EOLFI_ACCIONES_CLAVE``, cada evento
+que escribe Python va seguido, dentro del mismo cerrojo, de su ``acciones.firma`` (origen «auto»): no queda cola sin
+firmar entre una firma a mano y la siguiente. Si la clave falta, no se lee o está junto al registro, la acción no se
+bloquea: se escribe un ``acciones.firma`` fallido con el motivo, que ``verificar_firmas`` cuenta aparte.
+
 Límites:
 - Lo posterior a la última firma o ancla solo tiene la protección de la cadena: quien escribe el archivo puede
   reescribir esa cola, o quitar los últimos eventos junto con la última firma (``verificar_firmas`` informa de
-  cuántos eventos quedan sin firmar; para saber si faltan firmas hay que conservar su número fuera).
+  cuántos eventos quedan sin firmar; para saber si faltan firmas hay que conservar su número fuera). La firma
+  automática acorta esa cola a cero en los eventos de Python, pero no impide recortar el final del registro.
+- Los eventos del puente Node no se firman solos: quedan cubiertos cuando se firma un evento posterior (el HMAC de
+  una cabeza cubre toda la cadena anterior) o con ``firmar``.
+- Con firma automática la clave tiene que estar disponible para el proceso que escribe el registro: protege contra
+  quien puede editar el archivo pero no leer la clave (otra cuenta, otra unidad con permisos), no contra el propio
+  proceso.
 - HMAC es simétrico: quien tenga la clave puede firmar. Si la clave queda en el mismo equipo y cuenta que el
   registro, la firma no protege más que la cadena.
 - ``anclar`` copia la cabeza a un archivo externo y ``verificar_anclas`` detecta una reescritura anterior a la última
@@ -140,25 +151,54 @@ class _Cerrojo:
         self.path.unlink(missing_ok=True)
 
 
+def firma_auto() -> bool:
+    return os.environ.get("EOLFI_ACCIONES_FIRMA_AUTO", "").strip().lower() in ("1", "true", "si", "sí", "yes")
+
+
+def _escribir(path: Path, last: dict[str, Any] | None, operacion: str, *, params: dict[str, Any] | None,
+              resultado: Any, ok: bool, error: str | None, origen: str | None) -> dict[str, Any]:
+    evento = {"schema": SCHEMA, "seq": (int(last["seq"]) + 1) if last else 1,
+              "fecha": datetime.now(timezone.utc).isoformat(), "operacion": operacion,
+              "origen": origen or os.environ.get("EOLFI_ACCION_ORIGEN") or "local",
+              "pid": os.getpid(), "ok": bool(ok), "params": _limpio(params or {}),
+              "resultado": _limpio(resultado), "error": _limpio(error),
+              "prev": last["sha256"] if last else CERO}
+    evento["sha256"] = _digest(evento)
+    with path.open("a", encoding="utf-8", newline="\n") as fh:
+        fh.write(_canon(evento) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    return evento
+
+
+def _firma_auto(path: Path, evento: dict[str, Any]) -> dict[str, Any]:
+    """Firma ``evento`` (la cabeza recién escrita) con la clave de EOLFI_ACCIONES_CLAVE; nunca lanza."""
+    seq, cabeza = evento["seq"], evento["sha256"]
+    try:
+        archivo = os.environ.get("EOLFI_ACCIONES_CLAVE")
+        if archivo and Path(archivo).resolve().parent == path.resolve().parent:
+            raise ValueError("la clave está junto al registro: no se firma con ella")
+        clave = _leer_clave(archivo)
+    except (OSError, ValueError) as exc:
+        return _escribir(path, evento, "acciones.firma", params={"hasta_seq": seq, "cabeza": cabeza},
+                         resultado=None, ok=False, error=f"firma automática no hecha: {exc}", origen="auto")
+    return _escribir(path, evento, "acciones.firma",
+                     params={"hasta_seq": seq, "cabeza": cabeza, "clave_id": _clave_id(clave)},
+                     resultado={"hmac": _hmac(clave, seq, cabeza)}, ok=True, error=None, origen="auto")
+
+
 def anotar(operacion: str, *, params: dict[str, Any] | None = None, resultado: Any = None,
            ok: bool = True, error: str | None = None, origen: str | None = None) -> dict[str, Any] | None:
-    """Añade un evento a la cadena. Devuelve el evento, o None si el registro está desactivado."""
+    """Añade un evento a la cadena. Devuelve el evento, o None si el registro está desactivado. Con firma
+    automática, el evento va seguido de su ``acciones.firma`` dentro del mismo cerrojo."""
     if not activo():
         return None
     path = registro_file()
     with _Cerrojo(path):
-        last = _ultimo(path)
-        evento = {"schema": SCHEMA, "seq": (int(last["seq"]) + 1) if last else 1,
-                  "fecha": datetime.now(timezone.utc).isoformat(), "operacion": operacion,
-                  "origen": origen or os.environ.get("EOLFI_ACCION_ORIGEN") or "local",
-                  "pid": os.getpid(), "ok": bool(ok), "params": _limpio(params or {}),
-                  "resultado": _limpio(resultado), "error": _limpio(error),
-                  "prev": last["sha256"] if last else CERO}
-        evento["sha256"] = _digest(evento)
-        with path.open("a", encoding="utf-8", newline="\n") as fh:
-            fh.write(_canon(evento) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+        evento = _escribir(path, _ultimo(path), operacion, params=params, resultado=resultado, ok=ok, error=error,
+                           origen=origen)
+        if firma_auto() and operacion != "acciones.firma":
+            _firma_auto(path, evento)
     return evento
 
 
@@ -372,9 +412,12 @@ def verificar_firmas(clave_archivo: str | Path | None = None) -> dict[str, Any]:
         return {**estado, "firmas": 0}
     todos = eventos()
     por_seq = {e["seq"]: e["sha256"] for e in todos}
-    validas, otras, firmado = 0, 0, 0
+    validas, otras, fallidas, firmado = 0, 0, 0, 0
     for e in todos:
         if e.get("operacion") != "acciones.firma":
+            continue
+        if not e.get("ok", True):
+            fallidas += 1          # firma automática que no pudo hacerse: no firma nada
             continue
         p, r = e.get("params") or {}, e.get("resultado") or {}
         if p.get("clave_id") != kid:
@@ -389,8 +432,8 @@ def verificar_firmas(clave_archivo: str | Path | None = None) -> dict[str, Any]:
         validas += 1
         firmado = max(firmado, seq)
     cola = [e for e in todos if e["seq"] > firmado and e.get("operacion") != "acciones.firma"]
-    return {**estado, "firmas": validas, "firmas_de_otra_clave": otras, "firmado_hasta": firmado,
-            "sin_firmar_al_final": len(cola), "clave_id": kid,
+    return {**estado, "firmas": validas, "firmas_de_otra_clave": otras, "firmas_fallidas": fallidas,
+            "firmado_hasta": firmado, "sin_firmar_al_final": len(cola), "clave_id": kid,
             **({"aviso": "ninguna firma con esta clave"} if not validas else {})}
 
 

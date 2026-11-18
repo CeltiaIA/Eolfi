@@ -1814,7 +1814,8 @@ def _main(argv: list[str]) -> int:
                 if args.clave or os.environ.get("EOLFI_ACCIONES_CLAVE"):
                     firmas = acciones.verificar_firmas(args.clave)
                     result = {**result, "firmas": {k: firmas.get(k) for k in (
-                        "ok", "firmas", "firmas_de_otra_clave", "firmado_hasta", "sin_firmar_al_final", "clave_id",
+                        "ok", "firmas", "firmas_de_otra_clave", "firmas_fallidas", "firmado_hasta",
+                        "sin_firmar_al_final", "clave_id",
                         "firma_rota", "motivo", "aviso") if k in firmas}, "ok": result["ok"] and firmas["ok"]}
             except (OSError, ValueError) as exc:
                 result = {**result, "ok": False, "firmas": {"ok": False, "error": str(exc)}}
