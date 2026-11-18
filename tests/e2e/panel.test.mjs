@@ -451,6 +451,47 @@ test('crear proyecto: modo guiado se detiene, la instrucción que cambia el plan
   assert.match(await page.textContent('#proj-view'), /Especificación v1/);
 });
 
+test('sincronizar un proyecto (D1): propone sin escribir, aplicar pide confirmación y verifica', async () => {
+  const site = join(tmp, 'sync-sitio');
+  const out = join(tmp, 'sync-proyecto');
+  // Proyecto de prueba generado con la plantilla (sin verificación: es un dato de la prueba, no un producto).
+  execFileSync(PY, ['-c', [
+    'import sys, pathlib',
+    'from tests.fixtures import build_site',
+    'from eolfi.core.evidence import EvidenceStore',
+    'from eolfi.flows.create_flow import create_project',
+    'site = build_site(pathlib.Path(sys.argv[1]))',
+    'create_project([str(site)], EvidenceStore(":memory:"), sys.argv[2], name="Bicis", target="static", do_verify=False)',
+  ].join('\n'), site, out], { cwd: ROOT });
+  await page.goto(BASE + '/');
+  await page.waitForSelector('#version:not(:empty)');
+  await openTools('create');
+  await page.click('#sync-box summary');
+  await page.fill('#sync-project', out);
+  await page.click('#sync-go');
+  await page.waitForSelector('#sync-result [role="status"] strong', { timeout: 60000 });
+  assert.match(await page.textContent('#sync-result'), /Al día/);
+  // La fuente cambia: se proponen cambios y nada se escribe hasta aplicar.
+  const css = join(site, 'css', 'app.css');
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(css, readFileSync(css, 'utf8').replace('#e11d48', '#2563eb'));
+  const tokens = join(out, 'css', 'tokens.css');
+  await page.click('#sync-go');
+  await page.waitForSelector('#sync-result details.step', { timeout: 60000 });
+  assert.match(await page.textContent('#sync-result'), /Cambios propuestos/);
+  assert.match(readFileSync(tokens, 'utf8'), /#e11d48/);
+  await axe('cambios propuestos de la sincronización');
+  let dialogo = '';
+  page.once('dialog', (d) => { dialogo = d.message(); d.accept(); });
+  await page.click('#sync-result button');
+  await page.waitForFunction(() => /Verificado|NO VERIFICADO/.test(document.querySelector('#sync-result')?.textContent || ''),
+    null, { timeout: 240000 });
+  assert.match(dialogo, /\.eolfi-sync/);
+  assert.match(await page.textContent('#sync-result'), /✓ Verificado/);
+  assert.match(readFileSync(tokens, 'utf8'), /#2563eb/);
+  await axe('sincronización aplicada');
+});
+
 test('voz: dictar escribe en el chat sin enviar, las órdenes no se escriben y todo es accesible', async () => {
   let recibido = null;
   let texto = 'analiza este archivo';

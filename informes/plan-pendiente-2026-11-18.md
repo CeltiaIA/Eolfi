@@ -18,8 +18,8 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 |---|---|---|
 | B1 | Juez funcional en los destinos de escritorio y móvil (Electron, Tauri, .NET, Expo web). Go ya está (18/11, 3/3 con axe) | Sin juez, la accesibilidad (axe) de esos destinos queda NO VERIFICADA |
 | C4 | Despliegue real en un hosting (comentarios en inglés y PWA con Vite hechos el 18/11) | Pide un hosting y permiso para publicar |
-| C1 | Los avisos de la CLI por stderr en inglés (el panel, la API y la ayuda de todos los argumentos ya están, 18/11) | Lo último del inglés de Eolfi |
-| D1 | `eolfi sync` en el panel y la API (la CLI ya está, 18/11) | Lo deja al alcance de quien no usa la CLI |
+| C1 | **Hecho (18/11):** también los avisos de la CLI por stderr (`StderrTraducido` + `AVISOS_EN`, comprobado con AST) | — |
+| D1 | **Hecho (18/11):** CLI, API y panel. Falta solo probarlo con un repositorio remoto real (pide red) | — |
 | E3 | Exportar el paquete completo de evidencias de REA | **Hecho (18/11):** `--paquete CARPETA` y `comprobar-paquete`; REA real importó el paquete (5 registros) |
 | C3 | `eolfi web --render`: interacciones (clics, formularios) | La prueba contra un sitio público sí pide autorización |
 | A9 | Voz en el chat `@eolfi` de VS Code y en Fios (reutilizando `/api/voz`) | Probarlo de verdad pide un VS Code real y micrófono |
