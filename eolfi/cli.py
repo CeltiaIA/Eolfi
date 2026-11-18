@@ -608,7 +608,12 @@ def _parser() -> argparse.ArgumentParser:
     # REA a través de Eolfi (plan PLAN_REA.md): mismas herramientas compuestas que usa el chat de Eolas V2.
     rp = sub.add_parser("rea", help="Ingeniería inversa con REA a través de Eolfi (estático: nunca ejecuta el objetivo)")
     rp.add_argument("--caso", default=None, help="Registra el resultado en este caso (artefacto, evidencia e incógnitas)")
+    rp.add_argument("--paquete", default=None, metavar="CARPETA",
+                    help="Guarda en esta carpeta nueva el paquete completo: evidencias de REA, resultado, caso y "
+                         "manifiesto con SHA-256")
     rps = rp.add_subparsers(dest="rea_action", required=True)
+    rcp = rps.add_parser("comprobar-paquete", help="Comprueba los SHA-256 de un paquete hecho con --paquete (sin REA)")
+    rcp.add_argument("carpeta")
     r1 = rps.add_parser("revisar-modelo", help="Cabecera de un GGUF/safetensors y si la cuantización coincide")
     r1.add_argument("ruta")
     r2 = rps.add_parser("explicar", help="Explica un ejecutable: importaciones, cadenas y funciones clave (Ghidra)")
@@ -2082,8 +2087,16 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return 0
     if args.cmd == "rea":
-        from eolfi import rea_client, rea_compuestas as rc
+        from eolfi import rea_client, rea_compuestas as rc, rea_paquete
 
+        if args.rea_action == "comprobar-paquete":
+            try:
+                comprobado = rea_paquete.comprobar(args.carpeta)
+            except (OSError, ValueError) as exc:
+                print(f"eolfi rea comprobar-paquete: {exc}", file=sys.stderr)
+                return 2
+            _print(comprobado)
+            return 0 if comprobado["ok"] else 1
         if args.caso:
             # 14/11/2026: el caso se comprobaba DESPUÉS del análisis, y un identificador mal escrito tiraba minutos de
             # Ghidra sin mostrar nada. Ahora se comprueba antes de empezar.
@@ -2100,6 +2113,13 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 check.close()
         motor = getattr(args, "motor", "ghidra")
+        carpeta_paquete = None
+        if args.paquete:   # E3: se comprueba antes del análisis para no perderlo por una carpeta ocupada
+            try:
+                carpeta_paquete = rea_paquete.preparar(args.paquete)
+            except (OSError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
         wsl = args.rea_action in ("recuperar-js", "firmware", "dotnet") or motor == "kuna"
         cmd = rea_client.wsl_rea_command() if wsl else None
         if wsl and not cmd:
@@ -2231,6 +2251,13 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 op, params = "comparar_versiones", {"original": args.original, "nueva": args.nueva}
                 result = rc.comparar_versiones(client, args.original, args.nueva)
+            respuesta_rea = None
+            if carpeta_paquete is not None:   # con la sesión de REA aún abierta: su paquete cubre este análisis
+                try:
+                    en_wsl = (wsl and motor != "kuna") or args.rea_action in ("senal", "decodificadores", "swift")
+                    respuesta_rea = rea_paquete.exportar_rea(client, carpeta_paquete, wsl=en_wsl)
+                except (ValueError, RuntimeError, OSError) as exc:
+                    respuesta_rea = {"error": f"no se pudo exportar el paquete de REA: {str(exc)[:300]}"}
         except (ValueError, RuntimeError) as exc:
             # Error de REA o ruta no válida: el mensaje, sin traza (EOLFI_DEBUG la muestra). El RSI lo anota igual
             # (un plazo agotado es el síntoma que propone ampliar rea.timeout).
@@ -2240,6 +2267,8 @@ def main(argv: list[str] | None = None) -> int:
             hint = (" Kuna solo admite ELF y Mach-O de una arquitectura; para PE usa --motor ghidra."
                     if motor == "kuna" and "unsupported_provider" in str(exc) else "")
             print(f"eolfi rea {args.rea_action}: {exc}{hint}", file=sys.stderr)
+            if carpeta_paquete is not None and not any(carpeta_paquete.iterdir()):
+                carpeta_paquete.rmdir()   # sin análisis no hay paquete: no se deja una carpeta vacía
             return 1
         except Exception as exc:
             _rsi_observar("rea", op, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
@@ -2248,6 +2277,7 @@ def main(argv: list[str] | None = None) -> int:
             client.close()
         _rsi_observar("rea", op, {"ok": not result.get("error"), "error": str(result.get("error") or "")}
                       if isinstance(result, dict) else result)
+        paquete_caso = None
         if args.caso:   # plan REA, punto 6: lo analizado queda en el caso
             # Alias: un «import EvidenceStore» aquí lo haría local a TODA la función y rompería las demás órdenes.
             from eolfi import rea_caso
@@ -2256,11 +2286,24 @@ def main(argv: list[str] | None = None) -> int:
             store = _EvidenceStore(args.db)
             try:
                 result["caso"] = rea_caso.registrar(store, args.caso, op, params, result)
+                if carpeta_paquete is not None:
+                    from eolfi.core.cases import CaseStore
+
+                    paquete_caso = CaseStore(store).package(args.caso)
             except (ValueError, OSError) as exc:
                 # El análisis ya está hecho: se muestra igual, con el error del registro, en vez de perderlo.
                 result["caso_error"] = str(exc)
             finally:
                 store.close()
+        if carpeta_paquete is not None:
+            from eolfi.rea_caso import rea_version
+
+            try:
+                result["paquete"] = rea_paquete.cerrar(
+                    carpeta_paquete, operacion=op, params=params, resultado=result, rea_version=rea_version(),
+                    respuesta_rea=respuesta_rea, paquete_caso=paquete_caso, caso=args.caso)
+            except (ValueError, OSError) as exc:
+                result["paquete_error"] = str(exc)
         _print(result)
         return 0
     if args.cmd == "telemetria":

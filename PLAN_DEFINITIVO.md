@@ -17,7 +17,7 @@ Revisado sobre `origin/main` (`1d766da`), las 22 PR abiertas y los cinco planes.
 | `PLAN_CORRECCIONES.md` (fases 1 a 5) | Cerrado. Queda M7 (`--ignore-scripts` al instalar dependencias), descartado a propósito |
 | `PLAN_MEJORAS_2026-11-05.md` (fases A a E) | A–D y E1–E3 cerradas. **Pendientes E4 y E5** (bloques C y D de este plan) |
 | `PLAN_INGENIERIA_INVERSA_EOLFI.md` (fases 0 a 7) | Cerrado salvo **guías y ejemplos por flujo** (fase 7) |
-| `PLAN_REA.md` (puntos 1 a 12) | Código hecho en las PR #20 a #35 y #46, **sin fusionar**. Pendiente: probar la autorización por caso con un modelo, exportar el paquete completo de REA, mapa visual en el panel |
+| `PLAN_REA.md` (puntos 1 a 12) | Código hecho en las PR #20 a #35 y #46, **sin fusionar**. Pendiente: probar la autorización por caso con un modelo y el mapa visual en el panel (el paquete completo de REA, hecho en E3) |
 | `PLAN_VAS.md` (fases 0 a 5) | Hecho: 2.1 (planificador, CeltiaIA #11) y 1.3 (evaluador estadístico, en local). El resto, pendiente |
 
 Comprobado en el código de `main`:
@@ -101,7 +101,7 @@ positivos A/A ≤ 5 %, p50 por muestra ≤ 5 min).
 |---|---|---|
 | E1 | Fusionar las PR de REA #20 a #35 en una rama de integración, en orden | Hecho (17/11): la PR #55 llevó a `main`, en orden, las 29 PR abiertas, entre ellas #20–#35 |
 | E2 | Probar en vivo la autorización por caso con un modelo | NO VERIFICADO |
-| E3 | Exportar el paquete completo de evidencias de REA | Pendiente |
+| E3 | Exportar el paquete completo de evidencias de REA | Hecho (18/11): `eolfi rea … --paquete CARPETA` y `eolfi rea comprobar-paquete` |
 | E4 | Herramientas: Npcap, sigrok, Cutter (cada una pide permiso; Npcap instala un controlador) | Pendiente |
 
 ## Bloque G: modelos (confianza, actualización y reconstrucción)

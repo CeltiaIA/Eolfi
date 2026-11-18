@@ -406,6 +406,8 @@ CLI_EN: dict[str, str] = {
         "native binary), without running it",
     "Qué cambió entre dos versiones, con el veredicto verificable de REA":
         "What changed between two versions, with REA's verifiable verdict",
+    "Comprueba los SHA-256 de un paquete hecho con --paquete (sin REA)":
+        "Checks the SHA-256 hashes of a package made with --paquete (without REA)",
     "Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y exportaciones (WABT 1.0.42)":
         "WebAssembly module without running it: validity, sections, imports and exports (WABT 1.0.42)",
     "Observaciones, casos de regresión, propuestas, reglas y registro":
@@ -595,6 +597,8 @@ CLI_EN: dict[str, str] = {
         "Records artifacts and result in this case (eolfi case create …)",
     "Registra el resultado en este caso (artefacto, evidencia e incógnitas)":
         "Records the result in this case (artifact, evidence and unknowns)",
+    "Guarda en esta carpeta nueva el paquete completo: evidencias de REA, resultado, caso y manifiesto con SHA-256":
+        "Saves the full package in this new folder: REA evidence, result, case and a manifest with SHA-256",
     "Registro, inicio de sesión y token para las escrituras (FastAPI/Express)":
         "Sign-up, sign-in and a token for writes (FastAPI/Express)",
     "Reglas de conversación de Mistral Instruct (sin mensaje de sistema propio)":
