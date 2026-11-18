@@ -58,6 +58,11 @@
         "title": "Eolfi: abrir el chat (@eolfi)"
       },
       {
+        "command": "eolfi.dictar",
+        "title": "Eolfi: dictar al chat (micrófono del equipo)",
+        "icon": "$(mic)"
+      },
+      {
         "command": "eolfi.chatHelp",
         "title": "Eolfi: abrir el chat con la ayuda del agente",
         "icon": "$(comment-discussion)"
@@ -256,6 +261,13 @@
           "default": "",
           "editPresentation": "multilineText",
           "description": "Instrucciones propias para las respuestas de @eolfi con cualquier modelo (tono, idioma, longitud, formato…). No pueden saltarse los límites de seguridad."
+        },
+        "eolfi.dictadoSegundos": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Segundos que graba «Eolfi: dictar al chat». Graba Eolfi (no VS Code) con el micrófono predeterminado del equipo; el audio no se guarda ni sale del equipo y el texto queda en el chat sin enviar."
         },
         "eolfi.chatParticipant": {
           "type": "boolean",

@@ -6,6 +6,11 @@ Motores:
 - ``whisper``: whisper.cpp, si el titular lo instala y lo declara en la configuración (``whisper.bin`` y
   ``whisper.modelo``). Solo voz a texto.
 
+Dictado (A9, 18/11/2026): ``dictar`` graba del micrófono predeterminado del equipo durante N segundos (1-30) con
+MCI de Windows (``winmm.dll``, sin instalar nada), en WAV PCM de 16 bits, 16 kHz, mono, en una carpeta temporal que se
+borra al terminar, y lo transcribe. Lo usan clientes sin micrófono propio, como la extensión de VS Code (su proceso
+no puede grabar). Solo un dictado a la vez; el audio nunca se guarda ni sale del equipo.
+
 Configuración: ``~/.eolfi/voz.json`` (o ``EOLFI_VOZ_CONFIG``). ``motor`` es ``auto`` (whisper si está, si no windows),
 ``windows`` o ``whisper``. El audio de entrada es WAV PCM de 16 bits; se valida antes de pasarlo a ningún programa.
 """
@@ -19,6 +24,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -26,6 +32,7 @@ from typing import Any
 MAX_BYTES = 4 * 1024 * 1024       # ≈ 2 min a 16 kHz mono; coincide con el tope de las rutas JSON del servidor
 MAX_SEGUNDOS = 120
 MAX_TEXTO = 4000
+MAX_DICTADO = 30
 PLAZO = 120
 MOTORES = ("auto", "windows", "whisper")
 _IDIOMA = re.compile(r"[a-z]{2}-[A-Z]{2}")
@@ -162,6 +169,38 @@ $s.Dispose()
 """
 
 
+# Graba del micrófono predeterminado con MCI. La ruta y la duración llegan por variables de entorno.
+_PS_GRABAR = r'''
+$ErrorActionPreference = 'Stop'
+Add-Type -Namespace EolfiVoz -Name Mci -MemberDefinition @"
+[DllImport("winmm.dll", CharSet = CharSet.Unicode)]
+public static extern int mciSendString(string cmd, System.Text.StringBuilder ret, int len, IntPtr hwnd);
+[DllImport("winmm.dll", CharSet = CharSet.Unicode)]
+public static extern bool mciGetErrorString(int err, System.Text.StringBuilder buf, int len);
+"@
+function M([string]$c) {
+  $r = [EolfiVoz.Mci]::mciSendString($c, $null, 0, [IntPtr]::Zero)
+  if ($r -ne 0) {
+    $e = New-Object System.Text.StringBuilder 256
+    [void][EolfiVoz.Mci]::mciGetErrorString($r, $e, 256)
+    throw ("MCI: " + $e.ToString())
+  }
+}
+$ms = [int]$env:EOLFI_VOZ_MS
+M 'open new type waveaudio alias eolfidictado'
+try {
+  M 'set eolfidictado time format ms bitspersample 16 channels 1 samplespersec 16000 bytespersec 32000 alignment 2'
+  M 'record eolfidictado'
+  Start-Sleep -Milliseconds $ms
+  M 'stop eolfidictado'
+  M ('save eolfidictado "' + $env:EOLFI_VOZ_WAV + '"')
+} finally {
+  [void][EolfiVoz.Mci]::mciSendString('close eolfidictado', $null, 0, [IntPtr]::Zero)
+}
+'{"ok":true}'
+'''
+
+
 def _powershell() -> str | None:
     """Windows PowerShell 5.1: es la que trae System.Speech (PowerShell 7 no)."""
     if os.name != "nt":
@@ -275,6 +314,50 @@ def transcribir(data: bytes, *, idioma: str | None = None) -> dict[str, Any]:
     return {"texto": texto, "motor": motor, "idioma": lang, "segundos": info["segundos"],
             "confianza": round(sum(conf) / len(conf), 3) if conf else None,
             "ms": int((time.monotonic() - t0) * 1000), "local": True}
+
+
+_dictando = threading.Lock()
+
+
+def _segundos_dictado(segundos: Any) -> float:
+    try:
+        seg = float(segundos)
+    except (TypeError, ValueError):
+        raise VozError("segundos de dictado no válidos") from None
+    if not 1 <= seg <= MAX_DICTADO:
+        raise VozError(f"el dictado dura entre 1 y {MAX_DICTADO} s")
+    return seg
+
+
+def grabar(segundos: Any) -> bytes:
+    """Graba ``segundos`` del micrófono predeterminado (WAV PCM 16 bits, 16 kHz, mono). No guarda nada."""
+    seg = _segundos_dictado(segundos)
+    work = Path(tempfile.mkdtemp(prefix="eolfi-voz-"))
+    try:
+        wav = work / "dictado.wav"
+        _ps(_PS_GRABAR, {"EOLFI_VOZ_MS": str(int(seg * 1000)), "EOLFI_VOZ_WAV": str(wav)}, plazo=seg + 30)
+        try:
+            data = wav.read_bytes()
+        except FileNotFoundError:
+            raise VozError("no se grabó nada: ¿hay micrófono y permiso de Windows para las aplicaciones de escritorio?") from None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    validar_wav(data)
+    return data
+
+
+def dictar(segundos: Any, *, idioma: str | None = None) -> dict[str, Any]:
+    """Graba del micrófono del equipo y lo transcribe. Comprueba antes de grabar que hay motor de voz a texto."""
+    seg = _segundos_dictado(segundos)
+    cfg = cargar()
+    _motor(cfg, _windows(), _whisper(cfg))          # sin motor no se graba: el titular no habla para nada
+    if not _dictando.acquire(blocking=False):
+        raise VozError("ya hay un dictado en curso")
+    try:
+        data = grabar(seg)
+    finally:
+        _dictando.release()
+    return {**transcribir(data, idioma=idioma), "origen": "micrófono del equipo", "audio_guardado": False}
 
 
 def hablar(texto: str, *, idioma: str | None = None, voz: str | None = None) -> bytes:

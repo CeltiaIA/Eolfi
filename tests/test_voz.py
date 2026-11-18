@@ -141,3 +141,64 @@ def test_motor_real_de_windows_de_ida_y_vuelta(monkeypatch):
         pytest.skip("este Windows no tiene voz o reconocedor para es-ES")
     r = voz.transcribir(voz.hablar("Analiza este archivo y dime qué hace."))
     assert r["motor"] == "windows" and "archivo" in r["texto"].lower()
+
+
+# ── Dictado desde el micrófono del equipo (A9, 18/11/2026) ──────────────────────────────────────────────────────
+@pytest.fixture
+def microfono(motor, monkeypatch):
+    """Grabación simulada: el guion de MCI escribe un WAV donde se le pide; el resto, el motor simulado."""
+    real = voz._ps
+    grabaciones = []
+
+    def ps(script, entorno=None, *, plazo=0):
+        if script is voz._PS_GRABAR:
+            grabaciones.append((dict(entorno), plazo))
+            Path(entorno["EOLFI_VOZ_WAV"]).write_bytes(wav(int(entorno["EOLFI_VOZ_MS"]) / 1000))
+            return {"ok": True}
+        return real(script, entorno, plazo=plazo)
+    monkeypatch.setattr(voz, "_ps", ps)
+    return grabaciones
+
+
+def test_dictar_graba_transcribe_y_no_guarda(microfono):
+    r = voz.dictar(2, idioma="es-ES")
+    assert r["texto"] == "hola mundo" and r["segundos"] == 2.0 and r["audio_guardado"] is False
+    (entorno, plazo), = microfono
+    assert entorno["EOLFI_VOZ_MS"] == "2000" and plazo == 32
+    assert not Path(entorno["EOLFI_VOZ_WAV"]).parent.exists()          # la carpeta temporal se borra
+    for malo in (0, 31, "x", None):
+        with pytest.raises(voz.VozError):
+            voz.dictar(malo)
+    assert len(microfono) == 1                                          # duraciones malas: no se graba
+
+
+def test_dictar_sin_motor_ni_grabacion(monkeypatch):
+    monkeypatch.setattr(voz, "_estado_windows", {"disponible": False, "reconocedores": [], "voces": []})
+    grabado = []
+    monkeypatch.setattr(voz, "grabar", lambda s: grabado.append(s))
+    with pytest.raises(voz.VozError, match="motor"):
+        voz.dictar(3)
+    assert grabado == []                                                # sin motor no se pide hablar
+
+
+def test_dictar_sin_microfono_y_uno_a_la_vez(motor, monkeypatch):
+    monkeypatch.setattr(voz, "_ps", lambda *a, **k: {"ok": True})       # MCI no escribió nada
+    with pytest.raises(voz.VozError, match="micrófono"):
+        voz.dictar(1)
+    assert voz._dictando.acquire(blocking=False)
+    try:
+        with pytest.raises(voz.VozError, match="en curso"):
+            voz.dictar(1)
+    finally:
+        voz._dictando.release()
+
+
+def test_api_y_cli_de_dictado(srv, microfono, capsys):  # noqa: F811
+    port, _ = srv
+    st, r, _ = req(port, "POST", "/api/voz/dictar", json.dumps({"segundos": 1}), {"X-Eolfi": "1"})
+    assert st == 200 and r["texto"] == "hola mundo"
+    st, r, _ = req(port, "POST", "/api/voz/dictar", json.dumps({"segundos": 99}), {"X-Eolfi": "1"})
+    assert st == 400 and "entre 1 y 30" in r["error"]
+    assert req(port, "POST", "/api/voz/dictar", json.dumps({"segundos": 1}))[0] == 403    # sin cabecera anti-CSRF
+    assert cli.main(["voz", "dictar", "--segundos", "1"]) == 0
+    assert "hola mundo" in capsys.readouterr().out

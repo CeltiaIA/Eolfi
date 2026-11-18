@@ -760,6 +760,9 @@ def _parser() -> argparse.ArgumentParser:
     vzt = vzs.add_parser("transcribir", help="Voz a texto de un WAV (PCM de 16 bits)")
     vzt.add_argument("archivo")
     vzt.add_argument("--idioma", default=None, help="Por ejemplo es-ES")
+    vzm = vzs.add_parser("dictar", help="Graba del micrófono del equipo y lo transcribe (nada se guarda)")
+    vzm.add_argument("--segundos", type=float, default=8, help="Duración de la grabación (1-30 s)")
+    vzm.add_argument("--idioma", default=None)
     vzd = vzs.add_parser("decir", help="Texto a voz: escribe un WAV")
     vzd.add_argument("texto")
     vzd.add_argument("--out", required=True, help="Archivo WAV de salida")
@@ -2361,6 +2364,8 @@ def _main(argv: list[str]) -> int:
                 _print(voz.estado())
             elif args.voz_action == "transcribir":
                 _print(voz.transcribir(Path(args.archivo).read_bytes(), idioma=args.idioma))
+            elif args.voz_action == "dictar":
+                _print(voz.dictar(args.segundos, idioma=args.idioma))
             elif args.voz_action == "decir":
                 data = voz.hablar(args.texto, idioma=args.idioma, voz=args.voz)
                 Path(args.out).write_bytes(data)

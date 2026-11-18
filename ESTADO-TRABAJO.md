@@ -5,6 +5,11 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **A9 dictado en VS Code y Fios (18/11, ramas `luis/a9-voz-vscode` en Eolfi y `luis/fios-dictado` en CeltIA):**
+  `POST /api/voz/dictar` / `eolfi voz dictar` graba del micrófono del equipo con MCI de Windows (temporal borrado,
+  uno a la vez, comprueba el motor antes) y transcribe. VS Code: «Eolfi: dictar al chat» deja el texto en el chat
+  sin enviar. Fios: botón 🎤 al borrador vía Eolfi local (Fios sigue negando el micrófono). Micrófono real y VS Code
+  real: NO VERIFICADO.
 - **B8 firma automática (18/11, rama `luis/b8-firma-automatica`):** con `EOLFI_ACCIONES_FIRMA_AUTO=1` y la clave en
   `EOLFI_ACCIONES_CLAVE`, cada evento de Python va seguido, en el mismo cerrojo, de su `acciones.firma` (origen
   «auto»): sin cola sin firmar. Sin clave, clave ilegible o junto al registro, la acción no se bloquea: queda un

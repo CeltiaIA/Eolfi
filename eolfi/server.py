@@ -2213,12 +2213,15 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         if self.headers.get("X-Eolfi-Client"):   # solo el titular, desde el panel; nunca un cliente
                             raise ApiError(403, "las propuestas de automejora se deciden en el panel de Eolfi")
                         return self._json(200, app.rsi_act(m.group(1), m.group(2)))
-                    if path in ("/api/voz/transcribir", "/api/voz/hablar"):
+                    if path in ("/api/voz/transcribir", "/api/voz/hablar", "/api/voz/dictar"):
                         from eolfi import voz
 
                         try:
                             if path == "/api/voz/transcribir":   # cuerpo: el WAV tal cual; nada se guarda
                                 return self._json(200, voz.transcribir(self._body(), idioma=q.get("idioma")))
+                            if path == "/api/voz/dictar":        # A9: graba del micrófono del equipo (VS Code)
+                                body = self._obj()
+                                return self._json(200, voz.dictar(body.get("segundos", 8), idioma=body.get("idioma")))
                             body = self._obj()
                             return self._send(200, voz.hablar(str(body.get("texto") or ""), idioma=body.get("idioma"),
                                                               voz=body.get("voz")), "audio/wav")
