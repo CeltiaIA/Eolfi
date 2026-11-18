@@ -46,7 +46,7 @@ DESTINOS = {"static": ".", "react": "dist", "vue": "dist", "svelte": "dist"}
 # Destinos con servidor propio (C4, 17/11/2026): se arranca la app en un puerto local (127.0.0.1), se espera a que
 # responda, se juzga por URL y se para el árbol de procesos. Usa lo que verify ya instaló (.venv, node_modules,
 # compilación de Next); no instala nada.
-SERVIDORES = ("next", "express", "fastapi", "django")
+SERVIDORES = ("next", "express", "fastapi", "django", "go")   # go: el ejecutable bin/app de la verificación (B1)
 CUBIERTOS = (*DESTINOS, *SERVIDORES)
 ARRANQUE = 90
 MAX_PASOS = 100
@@ -229,6 +229,11 @@ def arranque(proyecto: Path, target: str, puerto: int) -> tuple[list[str], dict[
         if target == "fastapi":
             return [str(py), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", p], {}
         return [str(py), "manage.py", "runserver", f"127.0.0.1:{p}", "--noreload"], {}
+    if target == "go":
+        exe = proyecto / "bin" / ("app.exe" if os.name == "nt" else "app")
+        if not exe.is_file():
+            raise JuezError("no está bin/app (lo compila la verificación con go build)")
+        return [str(exe)], {"PORT": p, "HOST": "127.0.0.1"}
     node = shutil.which("node")
     if node is None:
         raise JuezError("Node.js no está instalado")

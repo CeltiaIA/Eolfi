@@ -451,10 +451,11 @@ def test_servidor_que_no_arranca_o_no_responde(tmp_path, monkeypatch):
     for destino in ("fastapi", "django"):
         assert "no está el entorno virtual .venv" in juez.paso(sin_venv, destino)["tail"]
     assert "no está node_modules/next" in juez.paso(sin_venv, "next")["tail"]
+    assert "no está bin/app" in juez.paso(sin_venv, "go")["tail"]
 
 
 def test_create_mide_por_defecto_los_destinos_con_servidor():
-    assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django"}
+    assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go"}
 
 
 @con_navegador
@@ -477,6 +478,24 @@ def test_plantillas_con_servidor_reales_pasan_el_juez_y_axe(tmp_path, destino, m
     juez.instalar_accesibilidad(out)
     p = juez.paso(out, destino)
     assert (p["exit"], p["step"]) == (0, "juez funcional (3/3)"), p["tail"]
+
+
+@con_navegador
+@pytest.mark.skipif(not shutil.which("go"), reason="requiere Go")
+def test_go_real_pasa_la_verificacion_con_el_juez_y_axe(tmp_path):
+    """B1 (18/11/2026): create --target go con verificación completa: go vet, test, build, humo y, por defecto, el
+    juez con axe sobre el ejecutable compilado (la web va dentro), sin red."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    if juez._axe() is None:
+        pytest.skip("requiere axe-core")
+    r = create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), tmp_path / "go",
+                       name="Bicis", target="go")
+    pasos = r["verification"]["steps"]
+    assert r["verification"]["ok"], pasos
+    assert pasos[-1]["step"] == "juez funcional (3/3)", pasos
 
 
 def test_el_resumen_del_servidor_conserva_el_error_aunque_la_traza_sea_larga(tmp_path):
