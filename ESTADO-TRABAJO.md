@@ -24,7 +24,8 @@
   Probado sin red con una compilación con la forma de la de Vite; con `vite build` real NO VERIFICADO.
 - **C1 panel y API en inglés (18/11, rama `luis/c1-panel-dinamico`):** textos dinámicos del JS del panel
   (281, con plantillas «{}» que `i18n.js` reconoce), 20 errores de la API con partes variables y la ayuda de los 216
-  argumentos de la CLI. Pendiente C1: avisos de la CLI por stderr.
+  argumentos de la CLI. Avisos por stderr (rama `luis/c1-avisos-cli`): `--idioma en` traduce línea a línea los
+  avisos y el progreso (create real de un estático, verificado: todo en inglés). Con esto C1 queda hecho.
 - **C4 comentarios en inglés (18/11, rama `luis/c4-comentarios-en`):** con `--idioma-proyecto en` los
   comentarios y docstrings del código generado salen en inglés (catálogo `textos.COMENTARIOS`, línea entera por
   clave); guardián en los 15 destinos. Pruebas propias en inglés: fastapi, cli, django, go y rust en verde.

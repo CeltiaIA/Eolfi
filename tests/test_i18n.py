@@ -177,3 +177,93 @@ def test_todas_las_ayudas_de_argumentos_tienen_traduccion():
     assert len(ayudas) > 200
     faltan = sorted({h for h in ayudas if h not in i18n.CLI_EN})
     assert not faltan, faltan
+
+
+# ── Avisos de la CLI por stderr (C1, 18/11/2026) ─────────────────────────────────────────────────────────────────
+import ast  # noqa: E402
+
+# Mensajes que dicen lo mismo en inglés (prefijo de orden + texto variable de una excepción o de REA).
+_NEUTROS = {"{}", "eolfi: error: {}: {}", "eolfi eolas-v2: error: {}: {}", "RSI: {}", "eolfi rea {}: {}{}", "voz: {}",
+            "eolfi motor-local: error: {}", "eolfi rea comprobar-paquete: {}", "  {} ({} s)", "  {}: {} ({} s)",
+            "→ {}", "Eolfi: {}"}
+# Archivos cuyo progreso llega a la CLI (función progress/_progress/log de los flujos que reciben `progress`).
+_CON_PROGRESO = ["eolfi/cli.py", "eolfi/core/dbpath.py", "eolfi/flows/create_flow.py", "eolfi/flows/project_flow.py",
+                 "eolfi/generador/assist.py", "eolfi/generador/verify.py", "eolfi/sites/render.py",
+                 "eolfi/sites/repo.py", "eolfi/sites/webpage.py"]
+
+
+def _plantilla(nodo) -> list[str]:
+    """Textos posibles de un literal o una f-string («{}» en cada parte variable); [] si no es literal. Una
+    expresión «A if c else B» da sus dos ramas, también dentro de una suma."""
+    if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str):
+        return [nodo.value]
+    if isinstance(nodo, ast.JoinedStr):
+        return ["".join(v.value if isinstance(v, ast.Constant) else "{}" for v in nodo.values)]
+    if isinstance(nodo, ast.BinOp) and isinstance(nodo.op, ast.Add):
+        izq, der = _plantilla(nodo.left), _plantilla(nodo.right)
+        return [x + y for x in izq for y in der]
+    if isinstance(nodo, ast.IfExp):
+        return _plantilla(nodo.body) + _plantilla(nodo.orelse)
+    return []
+
+
+def _avisos_stderr() -> set[str]:
+    textos: set[str] = set()
+
+    def anotar(t):
+        textos.update(x for x in t if x.strip())
+
+    for ruta in _CON_PROGRESO:
+        arbol = ast.parse((RAIZ / ruta).read_text(encoding="utf-8"))
+        for n in ast.walk(arbol):
+            if not (isinstance(n, ast.Call) and n.args):
+                continue
+            nombre = getattr(n.func, "id", None)
+            if ruta.endswith("dbpath.py") and nombre == "log":
+                anotar(["Eolfi: " + x for x in _plantilla(n.args[0])])   # _log escribe «Eolfi: {msg}»
+            elif nombre == "print" and any(k.arg == "file" and ast.unparse(k.value) == "sys.stderr" for k in n.keywords):
+                anotar(_plantilla(n.args[0]))
+            elif nombre in ("progress", "_progress", "log"):
+                anotar(_plantilla(n.args[0]))
+            elif nombre == "step" and len(n.args) > 1 and ruta.endswith("verify.py"):
+                anotar(_plantilla(n.args[1]))       # etiqueta del paso: «→ etiqueta»
+    return textos
+
+
+def test_todos_los_avisos_por_stderr_tienen_traduccion():
+    avisos = _avisos_stderr()
+    assert len(avisos) > 100, len(avisos)
+    faltan = sorted(a for a in avisos - _NEUTROS if a not in i18n.AVISOS_EN)
+    assert not faltan, faltan
+
+
+def test_stderr_traducido_por_lineas_y_con_partes_variables():
+    import io
+
+    destino = io.StringIO()
+    s = i18n.StderrTraducido(destino)
+    s.write("Informe en ")              # una línea en varias escrituras
+    s.write("C:/x/informe.json\n→ pruebas (pytest)\n  FALLO (2.5 s)\nsalida ajena\nsin salto")
+    assert destino.getvalue() == "Report at C:/x/informe.json\n→ tests (pytest)\n  FAILED (2.5 s)\nsalida ajena\n"
+    s.flush()
+    assert destino.getvalue().endswith("salida ajena\nsin salto")
+    # Un hueco que es a su vez una plantilla también se traduce (etiquetas de paso con partes variables).
+    assert i18n.traducir("→ sintaxis JS del sitio (js/main.js)", "en", i18n.AVISOS_EN) == "→ site JS syntax (js/main.js)"
+    assert i18n.traducir("  OK: juez funcional (3/3) (1.5 s)", "en", i18n.AVISOS_EN) == \
+        "  OK: functional judge (3/3) (1.5 s)"
+
+
+def test_cli_en_ingles_avisa_en_ingles_y_no_toca_el_json(tmp_path, capsys, monkeypatch):
+    from eolfi import rea_client
+
+    monkeypatch.setattr(rea_client, "ReaClient", lambda *a, **k: pytest.fail("no debía arrancar REA"))
+    db = str(tmp_path / "x.db")
+    assert main(["--idioma", "en", "--db", db, "rea", "--caso", "no-existe", "inventario", "a.exe"]) == 2
+    err = capsys.readouterr().err
+    assert "case not found: no-existe. Use the identifier from" in err and "caso no encontrado" not in err
+    assert not isinstance(sys.stderr, i18n.StderrTraducido)          # se restaura al terminar
+    assert main(["--db", db, "rea", "--caso", "no-existe", "inventario", "a.exe"]) == 2
+    assert "caso no encontrado: no-existe" in capsys.readouterr().err   # en castellano por defecto
+    monkeypatch.setenv("EOLFI_IDIOMA", "en")
+    assert main(["--db", db, "case", "list"]) == 0
+    assert json.loads(capsys.readouterr().out) == []                     # el JSON de la salida no cambia
