@@ -234,6 +234,8 @@ test('el chat reenvía los adjuntos de mensajes anteriores', async () => {
     await page.fill('#eolas-chat-input', 'adelante, analízalo');
     await page.click('#eolas-chat-send');
     await expectEventually(() => enviados.length === 2);
+    // Hasta que llega la segunda respuesta el chat sigue consultando /api/jobs: sin la simulación daría 404.
+    await page.locator('#eolas-chat-log .msg', { hasText: 'Hecho.' }).nth(1).waitFor();
     const [primero, segundo] = enviados.map((e) => e.body);
     assert.equal(primero.attachments[0].name, 'que-tal-socio.sh');
     assert.equal(primero.adjuntos_previos, undefined);
