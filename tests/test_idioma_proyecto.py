@@ -1,6 +1,8 @@
 """C4 (18/11/2026): idioma de los proyectos generados (--idioma-proyecto es|en)."""
+import io
 import re
 import shutil
+import tokenize
 
 import pytest
 
@@ -73,8 +75,8 @@ def test_castellano_por_defecto_y_sin_cambios(tmp_path, fuentes):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_en_ingles_no_queda_castellano_en_el_codigo(tmp_path, fuentes, target):
-    """Interfaz, mensajes de error y nombres de las pruebas generadas en inglés; los comentarios siguen en
-    castellano (pendiente C4). README y DEPLOYMENT.md, aparte (test_readme_y_receta_en_ingles)."""
+    """Interfaz, mensajes de error y nombres de las pruebas generadas en inglés (los comentarios, en
+    test_en_ingles_los_comentarios_tambien). README y DEPLOYMENT.md, aparte (test_readme_y_receta_en_ingles)."""
     restos = []
     for db in ("memory", "sqlite"):
         out = _generar(fuentes, tmp_path / db, target, idioma="en", db=db)
@@ -96,6 +98,68 @@ def test_en_ingles_no_queda_castellano_en_el_codigo(tmp_path, fuentes, target):
                           "gestiona {res}", "lista {res}", "No hay migraciones", "Bearer nada", ">Entrar<"):
                 assert frase not in texto, (f, frase)
     assert not restos, restos
+
+
+# Palabras que delatan castellano en un comentario (sin «a», «no» ni «o», que también son inglés).
+CASTELLANO = re.compile(r"[áéíóúñ¿¡]|\b(?:el|la|los|las|del|que|con|para|por|una?|se|sin|cada|desde|solo|como|y|en|al|es|"
+                        r"nada|aún|purga|pie|bloqueado|prefijo|ruta|esquema)\b", re.I)
+
+
+def _comentarios(f, texto):
+    """Texto de los comentarios (y docstrings de Python) de un archivo generado, línea a línea."""
+    if f.suffix == ".py":
+        out, previo = [], tokenize.NEWLINE
+        for tok in tokenize.generate_tokens(io.StringIO(texto).readline):
+            if tok.type == tokenize.COMMENT:
+                out.append(tok.string.lstrip("#"))
+            elif (tok.type == tokenize.STRING and previo in (tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT)
+                  and tok.string.lstrip("rbuRBU").startswith(('"""', "\'\'\'"))):
+                out += tok.string.splitlines()
+            if tok.type not in (tokenize.COMMENT, tokenize.NL):
+                previo = tok.type
+        return out
+    out = []
+    if f.suffix in (".js", ".mjs", ".ts", ".tsx", ".go", ".rs", ".cs", ".css", ".svelte", ".vue", ".kts"):
+        out += [l for m in re.finditer(r"/\*(.*?)\*/", texto, re.S) for l in m.group(1).splitlines()]
+        if f.suffix != ".css":
+            out += re.findall(r"(?:^|[\s;,({])//(.*)$", texto, re.M)
+    if f.suffix in (".html", ".svelte", ".vue", ".xml", ".axaml", ".csproj"):
+        out += [l for m in re.finditer(r"<!--(.*?)-->", texto, re.S) for l in m.group(1).splitlines()]
+    if f.suffix in (".toml", ".yml", ".yaml", ".sh", ".ps1") or f.name in ("Dockerfile", ".gitignore", ".dockerignore"):
+        out += re.findall(r"(?:^|\s)#(.*)$", texto, re.M)
+    if f.suffix == ".sql":
+        out += re.findall(r"--(.*)$", texto, re.M)
+    return out
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_en_ingles_los_comentarios_tambien(tmp_path, fuentes, target):
+    """C4 (18/11/2026): con --idioma-proyecto en, los comentarios y docstrings del código generado en inglés
+    (memoria y SQLite, con y sin inicio de sesión). En castellano no cambian (test_castellano_por_defecto_y_sin_cambios)."""
+    restos = []
+    for db in ("memory", "sqlite"):
+        for auth in (True, False):
+            s, subs = fuentes
+            spec = build_spec(s, subs, name="Shop", target=target)
+            spec["conventions"]["auth"] = auth
+            spec["options"] = {"auth": auth, "db": db}
+            spec["idioma"] = "en"
+            out = tmp_path / f"{db}-{auth}"
+            generate(spec, out)
+            for f, texto in _textos(out):
+                if f.name in textos.NO_TRADUCIR:
+                    continue
+                restos += [f"{f.relative_to(out)}: {c.strip()}" for c in _comentarios(f, texto) if CASTELLANO.search(c)]
+    assert not restos, sorted(set(restos))
+
+
+def test_un_comentario_se_traduce_entero():
+    """La línea entera gana a las frases cortas del catálogo que contiene («no existe», «Nombre»): sin mezclas
+    como «Name de un elemento»."""
+    assert textos.traducir("// Una ruta de la API que no existe responde JSON, no la web.", "en") == \
+        "// An API route that does not exist answers JSON, not the web."
+    assert textos.traducir("/// Nombre de un elemento: sin espacios a los lados y de 1 a 200 caracteres.", "en") == \
+        "/// Name of an item: no surrounding spaces and 1 to 200 characters."
 
 
 def test_la_portada_y_sus_pruebas_cambian_a_la_vez(tmp_path, fuentes):

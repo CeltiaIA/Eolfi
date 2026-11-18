@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C4 comentarios en inglés (18/11, rama `luis/c4-comentarios-en`):** con `--idioma-proyecto en` los
+  comentarios y docstrings del código generado salen en inglés (catálogo `textos.COMENTARIOS`, línea entera por
+  clave); guardián en los 15 destinos. Pruebas propias en inglés: fastapi, cli, django, go y rust en verde.
 - **D2 destino Go (18/11, rama `luis/d2-go`, apilada sobre #84):** `create --target go`: servidor web y API REST en Go
   con solo la biblioteca estándar, web embebida, cabeceras de seguridad y prueba de humo. Verificado con Go 1.27
   (vet, test, build y humo, sin red) en castellano e inglés. Pendiente D2: Rust.
