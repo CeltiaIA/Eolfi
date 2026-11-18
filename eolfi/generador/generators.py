@@ -413,21 +413,86 @@ def _pwa(spec: dict[str, Any], w: Writer, paginas: list[str]) -> None:
 
     p = spec["design"]["palette"]
     titulo = spec["title"]
-    w("manifest.webmanifest", json.dumps({
-        "name": titulo, "short_name": titulo[:12], "lang": "es", "start_url": "./index.html", "scope": "./",
-        "display": "standalone", "background_color": p["background"], "theme_color": p["primary"],
-        "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}],
-    }, indent=2, ensure_ascii=False))
-    inicial = tpl.html.escape((titulo.strip()[:1] or "E").upper())
-    w("icon.svg", f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="{tpl.html.escape(titulo)}">
-  <rect width="512" height="512" rx="96" fill="{p['primary']}"/>
-  <text x="256" y="330" font-family="system-ui, sans-serif" font-size="260" font-weight="700" text-anchor="middle" fill="{p.get('on_primary', '#ffffff')}">{inicial}</text>
-</svg>
-""")
+    _manifiesto_e_icono(spec, w, "", "./index.html")
     archivos = ["./" + x for x in (*paginas, "css/tokens.css", "css/base.css", "js/main.js", "manifest.webmanifest",
                                    "icon.svg")]
     version = "v-" + hashlib.sha256(json.dumps([titulo, archivos, p], sort_keys=True).encode()).hexdigest()[:12]
     w("sw.js", SW_JS.replace("__VERSION__", version).replace("__ARCHIVOS__", json.dumps(archivos)))
+
+
+# PWA de los destinos con Vite (C4, 18/11/2026). Los archivos de `public/` se copian tal cual a la raíz de la
+# compilación; los de `assets/` llevan un hash en el nombre que no se conoce al generar, así que el service worker los
+# lee del index.html compilado al instalarse.
+SW_VITE_JS = """// Service worker de la PWA (generado por Eolfi). Solo guarda en caché los archivos PROPIOS del sitio (mismo
+// origen, GET): nada de terceros ni de la API. Al instalarse precarga la portada y los recursos que enlaza su
+// index.html compilado (Vite les pone un hash en el nombre). Cambia VERSION al publicar para renovar la caché.
+const VERSION = "__VERSION__";
+const BASICOS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
+
+async function precargar() {
+  const c = await caches.open(VERSION);
+  await c.addAll(BASICOS);
+  const html = await (await c.match("./index.html")).text();
+  const enlazados = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => new URL(m[1], self.location.href))
+    .filter((u) => u.origin === self.location.origin && /[.](?:js|css|svg|png|woff2?)$/.test(u.pathname));
+  await c.addAll([...new Set(enlazados.map((u) => u.pathname))]);
+}
+
+self.addEventListener("install", (e) => { e.waitUntil(precargar().then(() => self.skipWaiting())); });
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(caches.keys()
+    .then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
+self.addEventListener("fetch", (e) => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  // Red primero (contenido al día) y caché si no hay conexión; las rutas de la app sin red sirven la portada.
+  e.respondWith(fetch(e.request).then((r) => {
+    if (r.ok) { const copia = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copia)); }
+    return r;
+  }).catch(() => caches.match(e.request, { ignoreSearch: true })
+    .then((r) => r || (e.request.mode === "navigate" ? caches.match("./index.html") : Response.error()))));
+});
+"""
+
+# Registro en src/main.ts(x): solo en la compilación (en desarrollo el refresco en caliente no debe quedar en caché).
+SW_REGISTRO = """
+// PWA: registra el service worker solo en la compilación de producción.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => { /* sin PWA */ });
+  });
+}
+"""
+
+
+def _manifiesto_e_icono(spec: dict[str, Any], w: Writer, base: str, inicio: str) -> None:
+    p = spec["design"]["palette"]
+    titulo = spec["title"]
+    w(f"{base}manifest.webmanifest", json.dumps({
+        "name": titulo, "short_name": titulo[:12], "lang": "es", "start_url": inicio, "scope": "./",
+        "display": "standalone", "background_color": p["background"], "theme_color": p["primary"],
+        "icons": [{"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}],
+    }, indent=2, ensure_ascii=False))
+    inicial = tpl.html.escape((titulo.strip()[:1] or "E").upper())
+    w(f"{base}icon.svg", f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="{tpl.html.escape(titulo)}">
+  <rect width="512" height="512" rx="96" fill="{p['primary']}"/>
+  <text x="256" y="330" font-family="system-ui, sans-serif" font-size="260" font-weight="700" text-anchor="middle" fill="{p.get('on_primary', '#ffffff')}">{inicial}</text>
+</svg>
+""")
+
+
+def _pwa_vite(spec: dict[str, Any], w: Writer) -> None:
+    """PWA de react, vue y svelte: manifiesto, icono y service worker en public/ (los copia Vite a dist/)."""
+    import hashlib
+
+    _manifiesto_e_icono(spec, w, "public/", "./")
+    version = "v-" + hashlib.sha256(json.dumps([spec["title"], spec["target"], spec["design"]["palette"]],
+                                               sort_keys=True).encode()).hexdigest()[:12]
+    w("public/sw.js", SW_VITE_JS.replace("__VERSION__", version))
 
 
 def gen_static(spec: dict[str, Any], w: Writer) -> None:
@@ -707,7 +772,8 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
-""")
+""" + SW_REGISTRO)
+    _pwa_vite(spec, w)
     w("src/App.test.tsx", f"""import {{ describe, expect, it }} from "vitest";
 import {{ renderToString }} from "react-dom/server";
 import App, {{ routes }} from "./App";
@@ -760,6 +826,9 @@ def _vite_index(spec: dict[str, Any], entry: str) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="{tpl.html.escape(spec["title"])}: proyecto generado con Eolfi." />
     <title>{tpl.html.escape(spec["title"])}</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="{spec["design"]["palette"]["primary"]}" />
   </head>
   <body>
     <div id="app"></div>
@@ -1005,7 +1074,8 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 
 createApp(App).provide(RouterKey, createRouter()).mount("#app");
-""")
+""" + SW_REGISTRO)
+    _pwa_vite(spec, w)
     w("src/App.test.ts", f"""import {{ describe, expect, it }} from "vitest";
 import {{ createSSRApp }} from "vue";
 import {{ renderToString }} from "vue/server-renderer";

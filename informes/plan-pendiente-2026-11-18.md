@@ -17,7 +17,7 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 | # | Qué falta | Por qué en este orden |
 |---|---|---|
 | B1 | Juez funcional en los destinos de escritorio y móvil (Electron, Tauri, .NET, Expo web). Go ya está (18/11, 3/3 con axe) | Sin juez, la accesibilidad (axe) de esos destinos queda NO VERIFICADA |
-| C4 | PWA en los destinos con Vite (los comentarios en inglés ya están, 18/11) | Lo único que queda de los proyectos generados |
+| C4 | Despliegue real en un hosting (comentarios en inglés y PWA con Vite hechos el 18/11) | Pide un hosting y permiso para publicar |
 | C1 | Los avisos de la CLI por stderr en inglés (el panel, la API y la ayuda de todos los argumentos ya están, 18/11) | Lo último del inglés de Eolfi |
 | D1 | `eolfi sync` en el panel y la API (la CLI ya está, 18/11) | Lo deja al alcance de quien no usa la CLI |
 | E3 | Exportar el paquete completo de evidencias de REA | **Hecho (18/11):** `--paquete CARPETA` y `comprobar-paquete`; REA real importó el paquete (5 registros) |

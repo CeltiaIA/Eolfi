@@ -39,11 +39,72 @@ def test_static_trae_manifiesto_icono_y_service_worker_coherentes(tmp_path):
     assert "/api/" in sw and "url.origin !== self.location.origin" in sw  # ni terceros ni la API
 
 
-def test_solo_static_lleva_pwa(tmp_path):
+def test_los_backends_no_llevan_pwa(tmp_path):
     out = _crear(tmp_path, "fastapi")                     # su web estática sale de la misma plantilla
     paginas = list(out.rglob("*.html"))
     assert paginas and not list(out.rglob("sw.js"))
     assert all('rel="manifest"' not in h.read_text(encoding="utf-8") for h in paginas)
+
+
+@pytest.mark.parametrize("destino,entrada", [("react", "src/main.tsx"), ("vue", "src/main.ts"), ("svelte", "src/main.ts")])
+def test_los_destinos_con_vite_llevan_pwa_en_public(tmp_path, destino, entrada):
+    """C4 (18/11/2026): manifiesto, icono y service worker en public/ (Vite los copia a dist/), enlazados desde
+    index.html y registrados solo en la compilación de producción."""
+    out = _crear(tmp_path, destino)
+    m = json.loads((out / "public/manifest.webmanifest").read_text(encoding="utf-8"))
+    assert m["display"] == "standalone" and m["start_url"] == "./" and m["icons"][0]["src"] == "icon.svg"
+    assert (out / "public/icon.svg").is_file()
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert '<link rel="manifest" href="/manifest.webmanifest" />' in html and 'name="theme-color"' in html
+    sw = (out / "public/sw.js").read_text(encoding="utf-8")
+    assert "/api/" in sw and "url.origin !== self.location.origin" in sw and "index.html" in sw
+    main = (out / entrada).read_text(encoding="utf-8")
+    assert 'if (import.meta.env.PROD && "serviceWorker" in navigator)' in main and "sw.js" in main
+
+
+def _compilacion_como_vite(out: Path) -> Path:
+    """dist/ con la forma de `vite build`: public/ copiado a la raíz, el index con el script con hash y la CSP de
+    la compilación, y un JS que pinta la página y registra el service worker como el main generado en producción."""
+    from eolfi.generador.generators import CSP_META
+
+    dist = out / "dist"
+    shutil.copytree(out / "public", dist)
+    html = (out / "index.html").read_text(encoding="utf-8")
+    html = re.sub(r'<script type="module" src="[^"]+"></script>',
+                  '<script type="module" crossorigin src="/assets/index-a1b2c3.js"></script>', html)
+    html = html.replace("<head>", f'<head>\n    <meta http-equiv="Content-Security-Policy" content="{CSP_META}" />')
+    (dist / "index.html").write_text(html, encoding="utf-8")
+    main = next((out / "src").glob("main.ts*")).read_text(encoding="utf-8")
+    registro = main[main.index("// PWA:"):].replace("import.meta.env.PROD", "true").replace(
+        "${import.meta.env.BASE_URL}", "/")
+    (dist / "assets").mkdir()
+    (dist / "assets/index-a1b2c3.js").write_text(
+        'const raiz = document.getElementById("root") || document.getElementById("app");\n'
+        'const h1 = document.createElement("h1");\n'
+        'h1.textContent = location.pathname === "/about" ? "Acerca" : "Inicio";\n'
+        "raiz.append(h1);\n" + registro, encoding="utf-8")
+    return dist
+
+
+@pytest.mark.skipif(not shutil.which("node") or juez._playwright() is None, reason="requiere Node.js y Playwright")
+@pytest.mark.parametrize("destino", ["react", "vue", "svelte"])
+def test_la_pwa_de_vite_funciona_sin_conexion_en_un_navegador_real(tmp_path, destino):
+    """Con una compilación con la forma de la de Vite (con `npm install` y `vite build` reales, NO VERIFICADO: exige
+    red): el service worker toma el control, precarga los recursos con hash que enlaza el index y, sin red, la
+    portada y una ruta de la SPA cargan desde la caché."""
+    dist = _compilacion_como_vite(_crear(tmp_path, destino))
+    env = {**os.environ, "EOLFI_PLAYWRIGHT": juez._playwright()}
+    from eolfi import navegador
+
+    if not os.environ.get("EOLFI_BROWSER_PATH") and navegador.ejecutable():
+        env["EOLFI_BROWSER_PATH"] = str(navegador.ejecutable())
+    p = subprocess.run(["node", str(ROOT / "tests" / "pwa_sin_conexion.mjs"), str(dist), "/about"],
+                       capture_output=True, text=True, timeout=120, env=env, check=False)
+    r = json.loads(p.stdout or "{}")
+    assert "error" not in r and r["errores"] == [], (r, p.stderr[-500:])
+    assert r["manifiesto"] == "/manifest.webmanifest" and r["controlada"] is True
+    assert r["h1_sin_red"] == "Inicio" and r["about_sin_red"] == "Acerca"
+    assert r["terceros_sin_red"] == "falla"
 
 
 @pytest.mark.parametrize("destino,opciones", [
