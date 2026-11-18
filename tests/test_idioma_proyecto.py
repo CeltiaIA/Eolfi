@@ -73,8 +73,8 @@ def test_castellano_por_defecto_y_sin_cambios(tmp_path, fuentes):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_en_ingles_no_queda_castellano_en_el_codigo(tmp_path, fuentes, target):
-    """Interfaz, mensajes de error y nombres de las pruebas generadas en inglés; README, DESPLIEGUE y los
-    comentarios siguen en castellano (pendiente C4)."""
+    """Interfaz, mensajes de error y nombres de las pruebas generadas en inglés; los comentarios siguen en
+    castellano (pendiente C4). README y DEPLOYMENT.md, aparte (test_readme_y_receta_en_ingles)."""
     restos = []
     for db in ("memory", "sqlite"):
         out = _generar(fuentes, tmp_path / db, target, idioma="en", db=db)
@@ -104,8 +104,36 @@ def test_la_portada_y_sus_pruebas_cambian_a_la_vez(tmp_path, fuentes):
     assert '<html lang="en">' in html and "Skip to content" in html and ">Home<" in html
     pruebas = "\n".join(t for f, t in _textos(out) if "test" in f.name)
     assert '<html lang="en">' in pruebas
-    assert (out / "README.md").read_text(encoding="utf-8") == (
-        _generar(fuentes, tmp_path / "es", "static", idioma="es") / "README.md").read_text(encoding="utf-8")
+    readme = (out / "README.md").read_text(encoding="utf-8")
+    assert "## Run" in readme and "## Verify" in readme and "DEPLOYMENT.md" in readme
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_readme_y_receta_en_ingles(tmp_path, fuentes, target):
+    """C4 (18/11/2026): en inglés, README.md y DEPLOYMENT.md enteros en inglés (sin DESPLIEGUE.md) y con las mismas
+    órdenes, variables y cabeceras que la versión en castellano."""
+    from eolfi.generador.despliegue import VARIABLES, VARIABLES_EN
+
+    en = _generar(fuentes, tmp_path / "en", target, idioma="en")
+    es = _generar(fuentes, tmp_path / "es", target, idioma="es")
+    assert not (en / "DESPLIEGUE.md").exists() and not (es / "DEPLOYMENT.md").exists()
+    for nombre_en, nombre_es in (("README.md", "README.md"), ("DEPLOYMENT.md", "DESPLIEGUE.md")):
+        texto_en = (en / nombre_en).read_text(encoding="utf-8")
+        texto_es = (es / nombre_es).read_text(encoding="utf-8")
+        # Fuera de los datos del proyecto (nombre de la fuente, título), nada en castellano.
+        limpio = texto_en.replace("Mi Tienda", "").replace("Inicio", "")
+        for linea in limpio.splitlines():
+            assert not re.search(r"[áéíóúñ¿¡]", linea) or "`local:" in linea or "`repo:" in linea, (nombre_en, linea)
+        for palabra in ("Arrancar", "Verificar", "Publicar", "Compilar", "Despliegue", "Cabeceras", "Variables de"):
+            assert palabra not in texto_en, (nombre_en, palabra)
+        # Mismas órdenes: cada bloque de código coincide salvo los comentarios traducidos.
+        bloques = lambda s: [re.sub(r"\s+#.*", "", b).replace("<Proyecto>", "<Project>").replace("<comando>", "<command>")
+                             for b in re.findall(r"```[a-z]*\n(.*?)```", s, re.DOTALL)]
+        assert bloques(texto_en) == bloques(texto_es), nombre_en
+    receta = (en / "DEPLOYMENT.md").read_text(encoding="utf-8")
+    assert "the deployment (hosting, proxy and HTTPS) has not been tested by Eolfi" in receta
+    citadas = set(re.findall(r"\| `([A-Z][A-Z0-9_]+)` \|", receta.split("## Security headers")[0]))
+    assert citadas == {k for k, _ in VARIABLES.get(target, [])} == set(VARIABLES_EN.get(target, {}))
 
 
 def test_cli_y_api_pasan_el_idioma(monkeypatch, tmp_path):
