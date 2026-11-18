@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **D1 `eolfi sync` (18/11, rama `luis/d1-sync`):** vuelve a analizar las fuentes de un proyecto generado y
+  propone los cambios con fusión a tres bandas (base regenerada, fuente nueva y lo tuyo); `--aplicar` con copia y
+  verificación limpia. 12 pruebas. Falta: panel/API y prueba con un repo remoto real.
 - **C4 comentarios en inglés (18/11, rama `luis/c4-comentarios-en`):** con `--idioma-proyecto en` los
   comentarios y docstrings del código generado salen en inglés (catálogo `textos.COMENTARIOS`, línea entera por
   clave); guardián en los 15 destinos. Pruebas propias en inglés: fastapi, cli, django, go y rust en verde.

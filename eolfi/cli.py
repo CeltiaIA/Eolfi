@@ -451,6 +451,15 @@ def _parser() -> argparse.ArgumentParser:
     afx.add_argument("--model", default=None)
     afx.add_argument("--base-url", default=None)
 
+    syn = sub.add_parser("sync", help="Vuelve a analizar las fuentes de un proyecto generado y propone los cambios "
+                                      "con fusión a tres bandas (tus cambios se conservan)")
+    syn.add_argument("project", help="Carpeta de un proyecto creado con 'eolfi create'")
+    syn.add_argument("--aplicar", action="store_true",
+                     help="Escribe los cambios (con copia de lo que toca en .eolfi-sync/) y verifica el resultado")
+    syn.add_argument("--sin-verificar", dest="verificar", action="store_false", default=True,
+                     help="Con --aplicar: no verificar (el resultado queda NO VERIFICADO)")
+    syn.add_argument("--workdir", default="repos", help="Dónde clonar los repos remotos")
+
     rpt = sub.add_parser("report", help="Informe HTML o Markdown de un objetivo (con umbral para CI)")
     rpt.add_argument("subject", help="Objetivo: sha256, prefijo, nombre o ruta ya analizada")
     rpt.add_argument("--format", choices=["html", "md", "json"], default="html")
@@ -1145,6 +1154,15 @@ def _dispatch(args, store: EvidenceStore) -> int:
             raise ValueError(str(exc)) from exc
         _print(rep)
         return 0 if rep["ok"] else 5
+    elif args.cmd == "sync":
+        from eolfi.flows.sync_flow import sync_project
+
+        rep = sync_project(store, args.project, aplicar=args.aplicar, verificar=args.verificar, workdir=args.workdir,
+                           progress=_progress)
+        _print(rep)
+        if rep["summary"]["conflicto"]:
+            return 3
+        return 0 if not rep["applied"] or rep["verification"]["ok"] else 5
     elif args.cmd == "report":
         from eolfi.core.report import build_report, fails, render_html, render_markdown
         from eolfi.flows.create_flow import resolve_subject

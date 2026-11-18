@@ -372,4 +372,11 @@ CLI_EN: dict[str, str] = {
         "Launcher for \"eolfi up\" on the desktop or the menu (preview unless --aplicar)",
     "Crea una clave de firma de 32 bytes (guárdala fuera del equipo)": "Creates a 32-byte signing key (keep it off the computer)",
     "Firma con HMAC-SHA256 la cabeza de la cadena": "Signs the head of the chain with HMAC-SHA256",
+    # ── Ayudas de los argumentos (C1, 18/11/2026) ──
+    "Vuelve a analizar las fuentes de un proyecto generado y propone los cambios con fusión a tres bandas (tus cambios se conservan)":
+        "Re-analyzes a generated project's sources and proposes the changes with a three-way merge (your changes are kept)",
+    "Escribe los cambios (con copia de lo que toca en .eolfi-sync/) y verifica el resultado":
+        "Writes the changes (with a copy of what it touches in .eolfi-sync/) and verifies the result",
+    "Con --aplicar: no verificar (el resultado queda NO VERIFICADO)":
+        "With --aplicar: do not verify (the result stays NOT VERIFIED)",
 }
