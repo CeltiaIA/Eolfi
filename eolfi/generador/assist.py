@@ -47,7 +47,8 @@ EDITABLE = {
     "desktop": ("renderer/", "test/"),
     "tauri": ("src/", "test/", "src-tauri/src/"),
     "cli": ("src/", "tests/"),
-    "go": ("*.go", "web/"),   # go.mod no es editable (no está en TEXT_EXT): sin dependencias nuevas
+    "go": ("*.go", "web/"),
+    "rust": ("src/", "tests/"),   # Cargo.toml no es editable (no está en TEXT_EXT): sin dependencias nuevas   # go.mod no es editable (no está en TEXT_EXT): sin dependencias nuevas
     "dotnet": ("src/", "tests/"),   # .csproj no es editable (no está en TEXT_EXT)   # main.js/preload.js (seguridad de la ventana) no se tocan
 }
 FORBIDDEN = re.compile(

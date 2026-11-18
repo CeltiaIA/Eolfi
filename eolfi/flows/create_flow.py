@@ -286,7 +286,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
             log(f"verificando en una carpeta limpia ({clean}) antes de escribir sobre el origen…")
             ver = verify(clean, spec["target"], progress=log)
             # Lo verificado (con versiones ya fijadas y lockfiles) es lo que se copia al origen.
-            extra = [f for f in ("package-lock.json", "src-tauri/Cargo.lock") if (clean / f).is_file()]
+            extra = [f for f in ("package-lock.json", "src-tauri/Cargo.lock", "Cargo.lock") if (clean / f).is_file()]
             for rel in dict.fromkeys(files + extra):
                 dst = out_path / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)

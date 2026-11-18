@@ -48,7 +48,7 @@ def test_allowed_paths():
                 ".github/workflows/ci.yml", "node_modules/x/index.js", "src/x.exe", "eolfi.spec.json"):
         assert not _allowed("react", bad), bad
     assert _allowed("static", "catalogo.html") and not _allowed("static", "scripts/serve.mjs")
-    assert set(EDITABLE) == {"static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go"}
+    assert set(EDITABLE) == {"static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go", "rust"}
     assert _allowed("go", "server.go") and _allowed("go", "web/index.html")
     assert not _allowed("go", "go.mod") and not _allowed("go", "cmd/x.go") and not _allowed("go", "go.sum")
     assert _allowed("expo", "src/components/Section.tsx") and not _allowed("expo", "app.json")

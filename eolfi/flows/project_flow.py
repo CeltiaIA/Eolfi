@@ -26,13 +26,15 @@ from eolfi.core.evidence import EvidenceStore
 PLAN_FORMAT = 1
 MODES = ("auto", "guided")
 TARGETS = ("auto", "react", "vue", "svelte", "next", "static", "fastapi", "express", "django", "expo", "desktop",
-           "tauri", "dotnet", "cli", "go")
+           "tauri", "dotnet", "cli", "go", "rust")
 _TARGET_WORDS = [
     (r"\bnext(\.js)?\b", "next"), (r"\breact\b", "react"), (r"\bvue\b", "vue"), (r"\bsvelte\b", "svelte"),
     (r"\bfastapi\b", "fastapi"), (r"\bexpress\b", "express"), (r"\bdjango\b", "django"),
     (r"\b(m[oó]vil|android|ios|expo)\b", "expo"), (r"\btauri\b", "tauri"),
-    (r"\b(\.net|dotnet|c#|avalonia)\b", "dotnet"), (r"\b(golang|en go|con go)\b", "go"), (r"\belectron\b", "desktop"),
-    (r"\b(escritorio|desktop)\b", "desktop"), (r"\b(l[ií]nea de comandos|cli|terminal)\b", "cli"),
+    (r"\b(\.net|dotnet|c#|avalonia)\b", "dotnet"), (r"\b(golang|en go|con go)\b", "go"),
+    (r"\belectron\b", "desktop"), (r"\b(escritorio|desktop)\b", "desktop"),
+    # Después de «escritorio» (una app de escritorio en Rust es Tauri) y antes de «línea de comandos».
+    (r"\brust\b", "rust"), (r"\b(l[ií]nea de comandos|cli|terminal)\b", "cli"),
     (r"\b(est[aá]tic[oa]|html est[aá]tico)\b", "static"),
 ]
 _OPTION_WORDS = [(r"\b(sqlite|base de datos|bbdd|persistencia)\b", "sqlite", "base de datos SQLite"),

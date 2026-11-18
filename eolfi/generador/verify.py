@@ -38,6 +38,7 @@ _ENV_KEEP = {
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
     "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_CERT",
     "NPM_CONFIG_REGISTRY", "NPM_CONFIG_CAFILE", "NVM_HOME", "NVM_SYMLINK", "PYTHONIOENCODING",
+    "CARGO_NET_OFFLINE",   # quien verifica puede pedir a Cargo que use solo su caché
 }
 
 
@@ -275,6 +276,25 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
             step([dotnet, "publish", str(csproj), "-c", "Release", "-r", rid, "--self-contained",
                   "-p:PublishSingleFile=true", "-o", str(root / "publish" / rid)],
                  f"publicar ejecutable autocontenido para este sistema ({rid})")
+        ok = bool(steps) and all(s["exit"] == 0 for s in steps)
+        return {"ok": ok, "steps": steps, "pinned": pinned}
+
+    if target == "rust":
+        cargo = shutil.which("cargo")
+        if not cargo:
+            return {"ok": False, "steps": [], "error": "Rust (cargo) no está instalado (https://rustup.rs)"}
+        from eolfi import compat_toml as tomllib
+
+        cmd = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["package"]["name"]
+        exe = root / "target" / "release" / (cmd + (".exe" if os.name == "nt" else ""))
+        # La primera compilación resuelve serde y serde_json (de la caché de Cargo o de crates.io) y deja Cargo.lock.
+        ok = step([cargo, "build", "--release"], "compilar el comando (cargo build --release)")
+        if ok:
+            ok = step([cargo, "test", "--release"], "pruebas (cargo test)")
+        if ok:
+            datos = root / "target" / "datos-prueba-de-humo"
+            step([str(exe), "--json", "info"], f"ejecutar el comando compilado ({cmd} --json info)",
+                 extra_env={cmd.replace("-", "_").upper() + "_DATA_DIR": str(datos)})
         ok = bool(steps) and all(s["exit"] == 0 for s in steps)
         return {"ok": ok, "steps": steps, "pinned": pinned}
 

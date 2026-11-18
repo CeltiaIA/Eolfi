@@ -95,6 +95,7 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
     from eolfi.generador.generators_desktop import gen_desktop
     from eolfi.generador.generators_dotnet import gen_dotnet
     from eolfi.generador.generators_go import gen_go
+    from eolfi.generador.generators_rust import gen_rust
     from eolfi.generador.generators_tauri import gen_tauri
     from eolfi.generador.generators_mobile import gen_expo
     from eolfi.generador.generators_more import gen_django, gen_next, gen_svelte
@@ -102,7 +103,7 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
     {"static": gen_static, "react": gen_react, "vue": gen_vue, "svelte": gen_svelte, "next": gen_next,
      "fastapi": gen_fastapi, "express": gen_express, "django": gen_django, "expo": gen_expo,
      "desktop": gen_desktop, "tauri": gen_tauri, "cli": gen_cli,
-     "dotnet": gen_dotnet, "go": gen_go}[spec["target"]](spec, w)
+     "dotnet": gen_dotnet, "go": gen_go, "rust": gen_rust}[spec["target"]](spec, w)
     w("eolfi.spec.json", json.dumps(spec, indent=2, ensure_ascii=False))
     # .gitignore base + las líneas propias de cada objetivo (.gitignore.extra: build/, bin/, obj/…), sin repetir.
     # Antes .gitignore.extra se borraba sin fusionarse: p. ej. los proyectos .NET quedaban sin ignorar bin/ y obj/.
@@ -116,7 +117,7 @@ def generate(spec: dict[str, Any], out_dir: str | Path, *, force: bool = False) 
         written.remove(".gitignore.extra")
     w(".gitignore", "\n".join(ignore) + "\n")
     _ci(spec, w)
-    if spec["conventions"].get("docker") and spec["target"] not in ("expo", "desktop", "tauri", "cli", "dotnet"):
+    if spec["conventions"].get("docker") and spec["target"] not in ("expo", "desktop", "tauri", "cli", "dotnet", "rust"):
         _docker(spec, w)
     from eolfi.generador.despliegue import receta, receta_en
 
@@ -1061,6 +1062,8 @@ _RUN = {
                "python -m venv .venv && .venv/bin/pip install -r requirements.txt && "
                ".venv/bin/python manage.py migrate && .venv/bin/python manage.py runserver"),
     "express": (["npm ci || npm install", "npm test"], "npm install && npm start   # http://localhost:8000"),
+    "rust": (["cargo build --release", "cargo test"],
+             "cargo run -- --help   # cargo install --path . instala el comando"),
     "go": (["go vet ./...", "go test ./...", "go build -o bin/app ."],
            "go run .   # http://127.0.0.1:8000 (PORT y HOST cambian el puerto y la dirección)"),
     "fastapi": (["pip install -r requirements.txt", "pytest -q"],
@@ -1132,6 +1135,29 @@ jobs:
         with:
           name: app-${{ matrix.rid }}
           path: publish/${{ matrix.rid }}
+""")
+        return
+    if spec["target"] == "rust":
+        w(".github/workflows/ci.yml", """name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - run: cargo test --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.os }}
+          path: target/release/
 """)
         return
     if spec["target"] == "cli":
@@ -1329,7 +1355,8 @@ _RUN_EN = (("# npm run build crea los instaladores", "# npm run build creates th
            ("# npm run dist crea el instalador de tu sistema", "# npm run dist creates the installer for your system"),
            ("# escanea el QR con Expo Go", "# scan the QR code with Expo Go"),
            ("<Proyecto>", "<Project>"), ("<comando>", "<command>"),
-           ("(PORT y HOST cambian el puerto y la dirección)", "(PORT and HOST change the port and the address)"))
+           ("(PORT y HOST cambian el puerto y la dirección)", "(PORT and HOST change the port and the address)"),
+           ("# cargo install --path . instala el comando", "# cargo install --path . installs the command"))
 
 
 def _readme_en(spec: dict[str, Any]) -> str:
