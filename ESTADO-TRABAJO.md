@@ -5,6 +5,18 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **E3 paquete completo de evidencias de REA (18/11, rama `luis/e3-paquete-rea`):** `eolfi rea [--caso ID]
+  --paquete CARPETA <acción> …` guarda en una carpeta NUEVA (nunca sobrescribe; se comprueba antes de arrancar REA)
+  el paquete de la sesión de REA tal cual lo escribe `export_evidence_bundle` (sin sobrescribir), `resultado.json`,
+  `caso.json` (el caso ya con el análisis, importable con `eolfi case import`) y `manifiesto.json` (SHA-256 y tamaño
+  de cada archivo, versión de REA, plataforma, recuentos y límites). `eolfi rea comprobar-paquete CARPETA` recalcula
+  los SHA-256 (solo integridad). Código: `eolfi/rea_paquete.py`; pruebas: `tests/test_rea_paquete.py`. Verificado con
+  REA real: inventario de `C:\Windows\System32\notepad.exe` (SHA-256 2d0b3948…f158f), estático, en una base
+  temporal: 5 registros, 1 artefacto, 0 incógnitas; REA `import_evidence_bundle` validó e importó los 5 registros y
+  `comprobar-paquete` dio ok. Límite: cada orden es una sesión de REA; el paquete cubre solo ese análisis.
+- **D1 `eolfi sync` (18/11, rama `luis/d1-sync`):** vuelve a analizar las fuentes de un proyecto generado y
+  propone los cambios con fusión a tres bandas (base regenerada, fuente nueva y lo tuyo); `--aplicar` con copia y
+  verificación limpia. 12 pruebas. Falta: panel/API y prueba con un repo remoto real.
 - **C4 PWA con Vite (18/11, rama `luis/c4-pwa-vite`, worktree `D:\Eolfi-wt-pwa`):** react, vue y svelte
   instalables y sin conexión (manifiesto, icono y service worker en `public/`, registro solo en producción).
   Probado sin red con una compilación con la forma de la de Vite; con `vite build` real NO VERIFICADO.

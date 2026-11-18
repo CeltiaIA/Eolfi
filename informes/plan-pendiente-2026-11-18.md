@@ -9,7 +9,7 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 |---|---|
 | Hechos | A1–A8, B2, B3, B4, C5, D2 (Go y Rust, pendientes de fusionar), E1, F2 (Eolfi), F4 |
 | Parciales | B1, B6, B7, B8, C1, C2, C3, C4, C6, G1, G2, G3, G4, G5, G6 |
-| Sin empezar | A9, C7, D1, D3, E3, E4, F3, G7 |
+| Sin empezar | A9, C7, D3, E4, F3, G7 |
 | Sin verificar en real | B5, E2 |
 
 ## 1. Lo que puedo hacer sin permisos especiales (orden propuesto)
@@ -19,8 +19,8 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 | B1 | Juez funcional en los destinos de escritorio y móvil (Electron, Tauri, .NET, Expo web). Go ya está (18/11, 3/3 con axe) | Sin juez, la accesibilidad (axe) de esos destinos queda NO VERIFICADA |
 | C4 | Despliegue real en un hosting (comentarios en inglés y PWA con Vite hechos el 18/11) | Pide un hosting y permiso para publicar |
 | C1 | Los avisos de la CLI por stderr en inglés (el panel, la API y la ayuda de todos los argumentos ya están, 18/11) | Lo último del inglés de Eolfi |
-| D1 | `eolfi sync`: volver a analizar las fuentes de un proyecto y proponer un diff con fusión a tres bandas | Pieza grande; sin dependencias externas |
-| E3 | Exportar el paquete completo de evidencias de REA | Herramienta REA ya disponible |
+| D1 | `eolfi sync` en el panel y la API (la CLI ya está, 18/11) | Lo deja al alcance de quien no usa la CLI |
+| E3 | Exportar el paquete completo de evidencias de REA | **Hecho (18/11):** `--paquete CARPETA` y `comprobar-paquete`; REA real importó el paquete (5 registros) |
 | C3 | `eolfi web --render`: interacciones (clics, formularios) | La prueba contra un sitio público sí pide autorización |
 | A9 | Voz en el chat `@eolfi` de VS Code y en Fios (reutilizando `/api/voz`) | Probarlo de verdad pide un VS Code real y micrófono |
 | C7 | Revisar el panel en el móvil (interfaz Android) con la voz | Necesita un móvil o emulador para verificarlo |

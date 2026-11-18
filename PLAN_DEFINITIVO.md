@@ -17,7 +17,7 @@ Revisado sobre `origin/main` (`1d766da`), las 22 PR abiertas y los cinco planes.
 | `PLAN_CORRECCIONES.md` (fases 1 a 5) | Cerrado. Queda M7 (`--ignore-scripts` al instalar dependencias), descartado a propósito |
 | `PLAN_MEJORAS_2026-11-05.md` (fases A a E) | A–D y E1–E3 cerradas. **Pendientes E4 y E5** (bloques C y D de este plan) |
 | `PLAN_INGENIERIA_INVERSA_EOLFI.md` (fases 0 a 7) | Cerrado salvo **guías y ejemplos por flujo** (fase 7) |
-| `PLAN_REA.md` (puntos 1 a 12) | Código hecho en las PR #20 a #35 y #46, **sin fusionar**. Pendiente: probar la autorización por caso con un modelo, exportar el paquete completo de REA, mapa visual en el panel |
+| `PLAN_REA.md` (puntos 1 a 12) | Código hecho en las PR #20 a #35 y #46, **sin fusionar**. Pendiente: probar la autorización por caso con un modelo y el mapa visual en el panel (el paquete completo de REA, hecho en E3) |
 | `PLAN_VAS.md` (fases 0 a 5) | Hecho: 2.1 (planificador, CeltiaIA #11) y 1.3 (evaluador estadístico, en local). El resto, pendiente |
 
 Comprobado en el código de `main`:
@@ -91,7 +91,7 @@ positivos A/A ≤ 5 %, p50 por muestra ≤ 5 min).
 
 | # | Pieza | Estado |
 |---|---|---|
-| D1 | `eolfi sync`: volver a analizar las fuentes y proponer un diff con fusión a tres bandas | Pendiente |
+| D1 | `eolfi sync`: volver a analizar las fuentes y proponer un diff con fusión a tres bandas | Hecho (18/11): `eolfi sync PROYECTO` regenera la **base** desde `eolfi.spec.json` (la generación es determinista: sin cambios en las fuentes no propone nada), vuelve a analizar las fuentes (rutas y URL de la especificación) y genera la versión **fuente** con la misma tecnología, nombre, idioma y opciones, y la compara con **lo tuyo** archivo a archivo: lo que no tocaste se actualiza, lo que cambiaron los dos se fusiona por líneas y lo que choca queda con marcas (`<<<<<<< tuyo`/`>>>>>>> fuente`); los archivos que no son de la plantilla no se tocan. Sin `--aplicar` solo propone (diff por archivo y cambios de la especificación: páginas, secciones, recursos y paleta). Con `--aplicar` copia antes lo que toca en `.eolfi-sync/<fecha>/`, escribe, registra la evidencia `project_synced` y verifica en una carpeta limpia (con conflictos sin resolver queda NO VERIFICADO; `--sin-verificar` también). Código de salida 3 con conflictos. Pruebas `tests/test_sync.py` (12): fusión por líneas y un proyecto real editado con la fuente cambiada (propuesta sin escribir, aplicar conservando lo tuyo, conflicto en la misma línea y verificación). Sin panel ni API todavía; con un repositorio remoto real NO VERIFICADO |
 | D2 | Destinos Go y Rust del generador | Hecho (18/11): **Go** (`eolfi/generador/generators_go.py`, `create --target go`, panel y plan del chat con «en Go»/«golang»; se elige solo con un backend Gin/Echo sin frontend): servidor web y API REST con SOLO la biblioteca estándar (`net/http` con rutas por método de Go 1.22, almacén en memoria por recurso, `{"error": …}` 404/422, cuerpo limitado a 64 KiB, tiempos de espera), la web propia dentro del ejecutable con `embed`, cabeceras de seguridad en todas las respuestas, pruebas con `httptest`, CI con `setup-go`, Dockerfile distroless y receta (HOST, PORT). Verificación: `go vet`, `go test`, `go build` y prueba de humo del ejecutable (`APP_SMOKE=1`: se pide `/api/health` y la portada), sin red (`GOPROXY=off`, `GOTOOLCHAIN=local`), también aislada; `assist` edita `*.go` y `web/` (no `go.mod`). Verificado con Go 1.27 en castellano y en inglés (`tests/test_destino_go.py`). Sin `--db sqlite` ni `--auth` (se anota). Juez funcional con axe (B1, 18/11): arranca `bin/app` en 127.0.0.1 y pasa 3/3 en un `create --target go` real. **Rust** (`eolfi/generador/generators_rust.py`, `create --target rust`, «en Rust» en el plan del chat; se elige solo cuando las fuentes son una herramienta con clap): comando de línea de comandos para Windows, macOS y Linux con la misma interfaz que el destino `cli` de Python (`info`, `list`/`add`/`show`/`remove` por recurso, `--json`, códigos 0/1/2, datos en la carpeta del usuario de cada sistema con escritura atómica), solo `serde` y `serde_json`, pruebas unitarias y del ejecutable de verdad, CI en los tres sistemas con `--locked`. Verificación: `cargo build --release`, `cargo test` y el ejecutable compilado (`--json info`); deja `Cargo.lock`. Verificado con Rust 1.98 en castellano e inglés, también aislado y sin red (caché de Cargo; `CARGO_NET_OFFLINE` pasa a la verificación) (`tests/test_destino_rust.py`). macOS y Linux: NO VERIFICADOS en local (los cubre el CI generado) |
 | D3 | Comparar modelos mayores cuando el banco sea fiable (fase 5 del VAS) | Pendiente |
 
@@ -101,7 +101,7 @@ positivos A/A ≤ 5 %, p50 por muestra ≤ 5 min).
 |---|---|---|
 | E1 | Fusionar las PR de REA #20 a #35 en una rama de integración, en orden | Hecho (17/11): la PR #55 llevó a `main`, en orden, las 29 PR abiertas, entre ellas #20–#35 |
 | E2 | Probar en vivo la autorización por caso con un modelo | NO VERIFICADO |
-| E3 | Exportar el paquete completo de evidencias de REA | Pendiente |
+| E3 | Exportar el paquete completo de evidencias de REA | Hecho (18/11): `eolfi rea … --paquete CARPETA` y `eolfi rea comprobar-paquete` |
 | E4 | Herramientas: Npcap, sigrok, Cutter (cada una pide permiso; Npcap instala un controlador) | Pendiente |
 
 ## Bloque G: modelos (confianza, actualización y reconstrucción)

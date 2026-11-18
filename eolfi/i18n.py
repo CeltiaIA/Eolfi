@@ -406,6 +406,8 @@ CLI_EN: dict[str, str] = {
         "native binary), without running it",
     "Qué cambió entre dos versiones, con el veredicto verificable de REA":
         "What changed between two versions, with REA's verifiable verdict",
+    "Comprueba los SHA-256 de un paquete hecho con --paquete (sin REA)":
+        "Checks the SHA-256 hashes of a package made with --paquete (without REA)",
     "Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y exportaciones (WABT 1.0.42)":
         "WebAssembly module without running it: validity, sections, imports and exports (WABT 1.0.42)",
     "Observaciones, casos de regresión, propuestas, reglas y registro":
@@ -431,6 +433,12 @@ CLI_EN: dict[str, str] = {
     "Crea una clave de firma de 32 bytes (guárdala fuera del equipo)": "Creates a 32-byte signing key (keep it off the computer)",
     "Firma con HMAC-SHA256 la cabeza de la cadena": "Signs the head of the chain with HMAC-SHA256",
     # ── Ayudas de los argumentos (C1, 18/11/2026) ──
+    "Vuelve a analizar las fuentes de un proyecto generado y propone los cambios con fusión a tres bandas (tus cambios se conservan)":
+        "Re-analyzes a generated project's sources and proposes the changes with a three-way merge (your changes are kept)",
+    "Escribe los cambios (con copia de lo que toca en .eolfi-sync/) y verifica el resultado":
+        "Writes the changes (with a copy of what it touches in .eolfi-sync/) and verifies the result",
+    "Con --aplicar: no verificar (el resultado queda NO VERIFICADO)":
+        "With --aplicar: do not verify (the result stays NOT VERIFIED)",
     ".app, .zip, .ipa o ejecutable Mach-O": ".app, .zip, .ipa or Mach-O executable",
     "A/A simulada con esa desviación típica, sin cargar nada":
         "Simulated A/A with that standard deviation, without loading anything",
@@ -595,6 +603,8 @@ CLI_EN: dict[str, str] = {
         "Records artifacts and result in this case (eolfi case create …)",
     "Registra el resultado en este caso (artefacto, evidencia e incógnitas)":
         "Records the result in this case (artifact, evidence and unknowns)",
+    "Guarda en esta carpeta nueva el paquete completo: evidencias de REA, resultado, caso y manifiesto con SHA-256":
+        "Saves the full package in this new folder: REA evidence, result, case and a manifest with SHA-256",
     "Registro, inicio de sesión y token para las escrituras (FastAPI/Express)":
         "Sign-up, sign-in and a token for writes (FastAPI/Express)",
     "Reglas de conversación de Mistral Instruct (sin mensaje de sistema propio)":
