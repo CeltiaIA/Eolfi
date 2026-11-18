@@ -11,8 +11,10 @@
   `D:\celtiaia\Eolas Base\internal\runner\runner.go:335` fuerza `cache_prompt = true` tras copiar las opciones.
   Arreglado: CeltIA respeta `cache_prompt` (PR CeltiaIA/CeltiaIA#16, rama `luis/eolas-cache-prompt`) y Eolfi
   envía `cache_prompt: false` a V1. Con el binario de prueba `D:\celtiaia\runtime\eolas\b2-cache-prompt\eolas.exe`
-  (SHA-256 6f5d0d9b…c695): **V1 7/7** en frío y en caliente. El `eolas.exe` de producción sigue sin el arreglo
-  hasta recompilarlo desde `main`. V1 y V2 parados al terminar.
+  (SHA-256 6f5d0d9b…c695): **V1 7/7** en frío y en caliente. Producción recompilada
+  el 18/11 con `build-eolas.ps1` desde `main` de CeltIA (`6ed403e`, fuente limpia, SHA-256 bfc275aa…6d8; copia del
+  anterior en `runtime\eolas\eolas.exe.bak-2026-11-18`): **V1 7/7** (huella 8a3da9…, igual que el de prueba) y
+  `go test ./...` verde. Pendiente B2: banco completo con semilla. V1 y V2 parados al terminar.
 - **Honestidad del chat (17/11, rama `luis/chat-honesto`):** los defectos de una conversación real con
   gemma-4-12b (acciones «en curso» sin ejecutar, «RSI» inventado como arquitectura —RSI es Recursive
   Self-Improvement, la automejora supervisada—, fusión de pesos, licencia propia sobre pesos derivados, negar VS
