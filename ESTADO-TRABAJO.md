@@ -5,6 +5,12 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C4 idioma de los proyectos generados (18/11, rama `luis/c4-i18n`):** `create --idioma-proyecto en` (API
+  `idioma_proyecto`, selector del panel) genera interfaz, errores, ayuda de la CLI y nombres de las pruebas en
+  inglés en los 13 destinos (`eolfi/generador/textos.py`, traducción en el escritor; castellano por defecto sin
+  cambios). Guardián `tests/test_idioma_proyecto.py`. Probados en inglés con sus pruebas: fastapi, cli, tauri y
+  estático (`create` con verificación). Pendiente: README/DESPLIEGUE/comentarios en inglés y que `assist` conozca
+  el idioma; el resto de destinos en inglés NO VERIFICADO con sus pruebas (instalan dependencias).
 - **Modelo en un solo sitio y examen de herramientas (18/11, rama `luis/modelo-unico`; titular: «que si se cambia el
   modelo no haya que estar cambiando cosas» y «que los .gguf elegidos cumplan requisitos de uso de las
   herramientas»):** el modelo se elige en `~/.eolfi/eolas-v2.json` (perfil activo, `roles`, `eolas_v1_model`);
