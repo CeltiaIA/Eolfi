@@ -798,6 +798,9 @@ def _parser() -> argparse.ArgumentParser:
     sv.add_argument("--samples", default="samples", help="Carpeta donde guardar los archivos subidos")
     sv.add_argument("--reload", action="store_true", help="Reinicia al cambiar el código de eolfi/")
     sv.add_argument("--allow-remote", action="store_true", help="Permite escuchar fuera de localhost")
+    sv.add_argument("--cert", default=None, metavar="PEM",
+                    help="Sirve por HTTPS con este certificado (el móvil solo deja usar el micrófono con HTTPS)")
+    sv.add_argument("--key", default=None, metavar="PEM", help="Clave privada del certificado de --cert")
     sv.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; "
                          "en modo remoto, solo samples/ y generated/")
@@ -2405,7 +2408,10 @@ def _main(argv: list[str]) -> int:
             return server.serve_with_reload([a for a in argv if a != "--reload"])
         if args.root:   # el proceso con --reload hereda la variable
             os.environ["EOLFI_ROOTS"] = os.pathsep.join(args.root)
-        return server.serve(args.db, args.host, args.port, args.allow_remote, args.samples)
+        if args.key and not args.cert:
+            print("eolfi: --key necesita --cert", file=sys.stderr)
+            return 2
+        return server.serve(args.db, args.host, args.port, args.allow_remote, args.samples, args.cert, args.key)
     store = EvidenceStore(args.db)
     try:
         return _dispatch(args, store)

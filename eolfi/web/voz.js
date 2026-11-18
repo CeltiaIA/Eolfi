@@ -259,7 +259,11 @@ export async function initVoz(hooks) {
   voz.destinos = [{ input: $("#eolas-chat-input"), boton: $("#voz-mic"), estado: $("#voz-estado"), chat: true }];
   voz.destino = voz.destinos[0];
   if (stt) for (const sel of OTROS) anadirDictado(sel);
-  if (!stt) aviso(puede ? "Voz a texto no disponible: no hay motor local (mira «eolfi voz estado»)." : "Este navegador no permite grabar audio.");
+  if (!stt) {
+    // En el móvil por http://IP el navegador oculta el micrófono (no es un contexto seguro): se dice cómo arreglarlo.
+    if (!window.isSecureContext) aviso("El micrófono necesita HTTPS: arranca Eolfi con «serve --cert» o ábrelo en este equipo (localhost).");
+    else aviso(puede ? "Voz a texto no disponible: no hay motor local (mira «eolfi voz estado»)." : "Este navegador no permite grabar audio.");
+  }
   else aviso(`Voz local lista (motor «${voz.estado.motor_activo}», ${voz.estado.idioma}). Alt+M para dictar.`);
   for (const d of voz.destinos) d.boton.addEventListener("click", () => (voz.grabando ? parar() : empezar(d)));
   $("#voz-conversar").addEventListener("click", () => {
