@@ -21,7 +21,7 @@ Fuente: `PLAN_DEFINITIVO.md` en `main` más las ramas de hoy (#85 Go y la de Rus
 | C1 | Los avisos de la CLI por stderr en inglés (el panel, la API y la ayuda de todos los argumentos ya están, 18/11) | Lo último del inglés de Eolfi |
 | D1 | `eolfi sync` en el panel y la API (la CLI ya está, 18/11) | Lo deja al alcance de quien no usa la CLI |
 | E3 | Exportar el paquete completo de evidencias de REA | **Hecho (18/11):** `--paquete CARPETA` y `comprobar-paquete`; REA real importó el paquete (5 registros) |
-| C3 | `eolfi web --render`: interacciones (clics, formularios) | La prueba contra un sitio público sí pide autorización |
+| C3 | **Interacciones hechas (18/11):** `--interactuar N` sin efectos (solo GET, sin envíos) e inventario de formularios. Falta: prueba contra un sitio público autorizado | Pide autorización |
 | A9 | Voz en el chat `@eolfi` de VS Code y en Fios (reutilizando `/api/voz`) | Probarlo de verdad pide un VS Code real y micrófono |
 | C7 | Revisar el panel en el móvil (interfaz Android) con la voz | Necesita un móvil o emulador para verificarlo |
 | B8 | Firma automática del registro de acciones (hoy la firma HMAC es a mano) | Cierra el registro encadenado |

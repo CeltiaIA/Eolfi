@@ -8,7 +8,12 @@ Límites deliberados:
 - Solo el mismo origen que la página inicial (más los hosts que el operador añada); el resto de peticiones del
   navegador se bloquean y se cuentan.
 - Rastreo en anchura con tope de páginas (``max_paginas``) y de profundidad; robots.txt se respeta salvo
-  ``--ignore-robots``. No rellena formularios ni pulsa botones: solo carga URLs.
+  ``--ignore-robots``. Sin ``interactuar`` solo carga URLs.
+- Con ``interactuar`` (C3, 18/11/2026) pulsa hasta N controles por página (botones que no envían formularios,
+  pestañas, desplegables, menús) y anota lo que cambia; las rutas y enlaces que aparecen así entran en el rastreo.
+  Nunca envía formularios ni escribe en campos, se salta los controles con nombre de acción con efecto (borrar,
+  comprar, pagar, enviar, cerrar sesión…) y, mientras interactúa, solo deja salir peticiones GET/HEAD: las demás se
+  bloquean y se anotan. Los formularios se inventarían sin rellenarlos.
 - Necesita Node.js, playwright-core y un Chrome/Edge instalado; si falta algo, el resultado es ``unavailable``,
   no un análisis vacío. No descarga navegadores.
 - Ejecutar el JavaScript de un sitio ajeno es ejecutar código no confiable en un navegador aislado sin perfil;
@@ -32,8 +37,9 @@ _NO_HTML = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".css", ".
             ".pdf", ".zip", ".gz", ".mp4", ".mp3", ".wav", ".woff", ".woff2", ".ttf", ".wasm", ".map", ".txt")
 MAX_PAGINAS = 50
 MAX_PROFUNDIDAD = 5
+MAX_INTERACCIONES = 30
 
-Renderer = Callable[[list[str], list[str]], dict[str, Any]]
+Renderer = Callable[..., dict[str, Any]]   # (urls, hosts) y, con interacciones, interactuar=N
 
 
 def _playwright() -> str | None:
@@ -43,14 +49,14 @@ def _playwright() -> str | None:
 
 
 def render(urls: list[str], allow_hosts: list[str], *, timeout: float = 30.0, settle: float = 5.0,
-           max_html: int = 2 * 1024 * 1024, max_requests: int = 400) -> dict[str, Any]:
+           max_html: int = 2 * 1024 * 1024, max_requests: int = 400, interactuar: int = 0) -> dict[str, Any]:
     """Renderiza las URLs en un solo navegador. Devuelve la respuesta del controlador."""
     node = shutil.which("node")
     if node is None:
         return {"status": "unavailable", "error": "Node.js no está instalado: no se puede renderizar"}
     req = {"urls": urls, "allow_hosts": sorted({h.lower().strip("[]") for h in allow_hosts}),
            "timeout_ms": int(timeout * 1000), "settle_ms": int(settle * 1000), "max_html": max_html,
-           "max_requests": max_requests}
+           "max_requests": max_requests, "interact": max(0, min(int(interactuar), MAX_INTERACCIONES))}
     env = dict(os.environ)
     pw = _playwright()
     if pw:
@@ -60,7 +66,7 @@ def render(urls: list[str], allow_hosts: list[str], *, timeout: float = 30.0, se
         path.write_text(json.dumps(req), encoding="utf-8")
         try:
             proc = subprocess.run([node, str(DRIVER), str(path)], capture_output=True, env=env, check=False,
-                                  timeout=(timeout + settle) * max(1, len(urls)) + 60)
+                                  timeout=(timeout + settle) * max(1, len(urls)) * (1 + interactuar // 3) + 60)
         except subprocess.TimeoutExpired:
             return {"status": "timeout", "error": "el renderizador no terminó a tiempo"}
     try:
@@ -87,8 +93,10 @@ def _origen(url: str) -> str:
 
 def rastrear(inicio: str, *, max_paginas: int = 10, max_profundidad: int = 2,
              robots: Callable[[str], bool] | None = None, renderer: Renderer | None = None,
-             hosts_extra: list[str] | None = None, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
-    """Rastreo en anchura del mismo origen, renderizando cada nivel en un lote."""
+             hosts_extra: list[str] | None = None, progress: Callable[[str], None] | None = None,
+             interactuar: int = 0) -> dict[str, Any]:
+    """Rastreo en anchura del mismo origen, renderizando cada nivel en un lote. Con ``interactuar``, además pulsa
+    hasta N controles sin efectos por página y sigue las rutas y enlaces que aparecen."""
     log = progress or (lambda _m: None)
     max_paginas = max(1, min(int(max_paginas), MAX_PAGINAS))
     max_profundidad = max(0, min(int(max_profundidad), MAX_PROFUNDIDAD))
@@ -98,7 +106,10 @@ def rastrear(inicio: str, *, max_paginas: int = 10, max_profundidad: int = 2,
     origen = _origen(start)
     host = urllib.parse.urlsplit(start).hostname or ""
     allow = [host, *(hosts_extra or [])]
-    renderer = renderer or (lambda urls, hosts: render(urls, hosts))
+    interactuar = max(0, min(int(interactuar), MAX_INTERACCIONES))
+    renderer = renderer or (lambda urls, hosts, **kw: render(urls, hosts, **kw))
+    extra = {"interactuar": interactuar} if interactuar else {}
+    no_get: set[str] = set()
     robots = robots or (lambda _u: True)
 
     vistas: set[str] = {start}
@@ -121,19 +132,24 @@ def rastrear(inicio: str, *, max_paginas: int = 10, max_profundidad: int = 2,
         if not lote:
             break
         log(f"renderizando {len(lote)} página(s) de profundidad {profundidad}…")
-        res = renderer([u for u, _ in lote], allow)
+        res = renderer([u for u, _ in lote], allow, **extra)
         if res.get("status") != "ok":
             return {"estado": res.get("status", "error"), "error": res.get("error"), "paginas": paginas,
                     "limite": "Sin navegador no hay análisis renderizado: NO VERIFICADO"}
         navegador = res.get("browser")
         bloqueados.update(res.get("blocked_origins") or [])
+        no_get.update(res.get("blocked_non_get") or [])
         siguiente: list[tuple[str, str]] = []
         for (url, via), item in zip(lote, res.get("pages") or [], strict=False):
             pagina = {"url": url, "profundidad": profundidad, "via": via, "estado": item.get("status"),
                       "http": item.get("http"), "titulo": item.get("title"), "url_final": item.get("final_url"),
                       "texto_caracteres": item.get("text_chars"), "html_bytes": item.get("html_bytes"),
                       "recortado": item.get("truncated"), "errores_js": item.get("page_errors") or [],
-                      "enlaces": 0, "rutas_spa": [], "html": item.get("html")}
+                      "enlaces": 0, "rutas_spa": [], "html": item.get("html"),
+                      "formularios": item.get("forms") or [], "peticiones": item.get("requests") or [],
+                      "dialogos": item.get("dialogs") or []}
+            if interactuar:
+                pagina["interacciones"] = item.get("interactions") or {"pulsados": [], "saltados": []}
             if item.get("status") != "ok":
                 pagina["error"] = item.get("error")
                 paginas.append(pagina)
@@ -148,10 +164,18 @@ def rastrear(inicio: str, *, max_paginas: int = 10, max_profundidad: int = 2,
                     continue
                 mismos.append(n)
             rutas = [n for n in (normalizar(r) for r in item.get("routes") or []) if n and _origen(n) == origen]
+            # Lo que solo aparece tras pulsar un control también se rastrea.
+            tras_pulsar = []
+            for paso in (item.get("interactions") or {}).get("pulsados") or []:
+                for u in [*(paso.get("enlaces_nuevos") or []), *(paso.get("rutas_nuevas") or []), paso.get("url") or ""]:
+                    n = normalizar(u) if u else None
+                    if n and _origen(n) == origen:
+                        tras_pulsar.append(n)
             pagina["enlaces"] = len(set(mismos))
             pagina["rutas_spa"] = sorted(set(rutas))[:50]
             paginas.append(pagina)
-            for n, como in [*((m, "enlace") for m in mismos), *((r, "ruta_spa") for r in rutas)]:
+            for n, como in [*((m, "enlace") for m in mismos), *((r, "ruta_spa") for r in rutas),
+                            *((t, "interaccion") for t in tras_pulsar)]:
                 if n not in vistas:
                     vistas.add(n)
                     siguiente.append((n, como))
@@ -160,9 +184,13 @@ def rastrear(inicio: str, *, max_paginas: int = 10, max_profundidad: int = 2,
     return {"estado": "ok", "inicio": start, "navegador": navegador, "max_paginas": max_paginas,
             "max_profundidad": max_profundidad, "renderizadas": len(renderizadas), "paginas": paginas,
             "pendientes_sin_visitar": len(nivel) if nivel else 0, "excluidas": excluidas,
-            "origenes_bloqueados": sorted(bloqueados),
-            "limite": "Solo carga URLs del mismo origen; no rellena formularios ni pulsa botones. Rutas que solo "
-                      "aparecen tras una interacción quedan fuera."}
+            "origenes_bloqueados": sorted(bloqueados), "interactuar": interactuar,
+            "peticiones_no_get_bloqueadas": sorted(no_get),
+            "limite": ("Solo carga URLs del mismo origen; no rellena formularios ni pulsa botones. Rutas que solo "
+                       "aparecen tras una interacción quedan fuera." if not interactuar else
+                       f"Pulsa como máximo {interactuar} controles sin efectos por página; nunca envía formularios "
+                       "ni escribe en campos y solo deja salir peticiones GET/HEAD. Lo que exige rellenar un "
+                       "formulario, iniciar sesión o una acción con efecto queda fuera.")}
 
 
 def resumen_spa(estatico_texto: int | None, renderizada: dict[str, Any]) -> dict[str, Any]:

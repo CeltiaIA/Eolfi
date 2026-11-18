@@ -503,6 +503,10 @@ CLI_EN: dict[str, str] = {
         "Also checks the RSI chain and that each mirrored event matches",
     "Con --render: páginas como máximo (1-50)": "With --render: maximum pages (1-50)",
     "Con --render: saltos de enlace desde la inicial (0-5)": "With --render: link hops from the first page (0-5)",
+    "Con --render: pulsa hasta N controles sin efectos por página (0-30); nunca envía formularios y solo deja salir "
+    "peticiones GET":
+        "With --render: presses up to N side-effect-free controls per page (0-30); never submits forms and only "
+        "lets GET requests out",
     "Con estado: recalcula el SHA-256 del ejecutable": "With estado: recomputes the executable's SHA-256",
     "Confirmo el borrado irreversible": "I confirm the irreversible deletion",
     "Confirmo la autorización para ejecutar (obligatorio)": "I confirm the authorization to run (required)",
