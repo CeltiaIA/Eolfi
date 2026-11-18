@@ -177,7 +177,9 @@ class EolfiApp:
             if snapshot:   # el registro se guarda como mucho cada minuto, fuera del cerrojo
                 self._save_job(job)
 
-    def start_job(self, body: dict[str, Any]) -> dict[str, Any]:
+    def start_job(self, body: dict[str, Any], nivel: str = "usuario") -> dict[str, Any]:
+        """`nivel` lo pone el servidor según la conexión (titular en este equipo); hoy solo cambia el límite de
+        adjuntos del chat."""
         import secrets
 
         kind, payload = body.get("kind"), body.get("body") or {}
@@ -185,7 +187,8 @@ class EolfiApp:
             raise ApiError(400, f"kind debe ser uno de {', '.join(self.JOB_KINDS)} y body un objeto")
         fn = {"create": self.create, "web": lambda b: self.learn("web", b), "project": self.project_run,
               "repo": lambda b: self.learn("repo", b), "triage": self.triage_path,
-              "eolas-e2e": self.eolas_e2e, "chat": self.chat, "autofix": self.autofix, "sync": self.sync}[kind]
+              "eolas-e2e": self.eolas_e2e, "chat": lambda b: self.chat(b, nivel=nivel), "autofix": self.autofix,
+              "sync": self.sync}[kind]
         job = {"id": secrets.token_hex(8), "kind": kind, "status": "queued", "log": [], "started": time.time(),
                "label": str(payload.get("name") or payload.get("source") or payload.get("path") or payload.get("project")
                             or ", ".join(map(str, payload.get("sources") or []))
@@ -365,7 +368,7 @@ class EolfiApp:
             out["error"] = row["error"]
         return out
 
-    def repeat_job(self, job_id: str) -> dict[str, Any]:
+    def repeat_job(self, job_id: str, nivel: str = "usuario") -> dict[str, Any]:
         job = self.jobs.get(job_id)
         if job is None:
             row = self._stored_job(job_id)
@@ -374,7 +377,7 @@ class EolfiApp:
             job = {"kind": row["kind"], "body": json.loads(row["body"] or "{}")}
         if job.get("status") in ("queued", "running"):
             raise ApiError(409, "ese trabajo sigue en marcha")
-        return self.start_job({"kind": job["kind"], "body": job.get("body") or {}})
+        return self.start_job({"kind": job["kind"], "body": job.get("body") or {}}, nivel)
 
     def job_status(self, q: dict[str, str]) -> dict[str, Any]:
         if not q.get("id"):   # sin id: los de esta ejecución y el historial guardado (más recientes primero)
@@ -461,7 +464,7 @@ class EolfiApp:
                 return "El banco de motores está usando la GPU; el chat estará disponible cuando termine."
         return None
 
-    def chat(self, body: dict[str, Any]) -> dict[str, Any]:
+    def chat(self, body: dict[str, Any], nivel: str = "usuario") -> dict[str, Any]:
         """Chat del panel: el modelo de Eolas V2 decide qué herramientas de Eolfi usar y responde con sus resultados."""
         from eolfi import chat
         from eolfi.mcp_server import EolfiMCP
@@ -471,8 +474,9 @@ class EolfiApp:
         except ValueError as exc:
             raise ApiError(400, str(exc)) from exc
         raw = body.get("attachments") or []
-        if not isinstance(raw, list) or len(raw) > chat.MAX_ATTACHMENTS:
-            raise ApiError(400, f"attachments: hasta {chat.MAX_ATTACHMENTS} archivos")
+        limite = chat.limite_adjuntos(nivel)
+        if not isinstance(raw, list) or (limite is not None and len(raw) > limite):
+            raise ApiError(400, f"attachments: hasta {limite} archivos")
         attachments = []
         for att in raw:
             up = att.get("upload") if isinstance(att, dict) else None
@@ -1965,6 +1969,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
             self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
                        "application/json; charset=utf-8", {"Content-Language": idioma, **(extra or {})})
 
+        def _nivel(self) -> str:
+            """Titular si la conexión sale de este equipo; desde otro dispositivo (modo remoto), usuario normal."""
+            return "titular" if self.client_address[0] in _LOOPBACK else "usuario"
+
         def _check_host(self) -> bool:
             raw = (self.headers.get("Host") or "").lower()
             host = raw[: raw.find("]") + 1] if raw.startswith("[") else raw.split(":")[0]
@@ -2099,7 +2107,8 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         "/api/subjects": app.subjects, "/api/evidence": app.evidence,
                         "/api/incognitas": app.incognitas, "/api/fs/list": app.fs_list, "/api/jobs": app.job_status,
                         "/api/vscode/activity": app.vscode_activity, "/api/vscode/encargos": app.vscode_encargos,
-                        "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": app.chat_status,
+                        "/api/local-chat/workspace": app.local_chat_workspace, "/api/chat/estado": lambda q: {**app.chat_status(q), "max_adjuntos":
+                                                        __import__("eolfi.chat", fromlist=["x"]).limite_adjuntos(self._nivel())},
                         "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
                         "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
                         "/api/eolas/perfiles": lambda _q: _perfiles_eolas(),
@@ -2160,7 +2169,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     if path in ("/api/web", "/api/repo"):
                         return self._json(200, app.learn(path.rsplit("/", 1)[1], self._obj()))
                     if path == "/api/jobs":
-                        return self._json(202, app.start_job(self._obj()))
+                        return self._json(202, app.start_job(self._obj(), self._nivel()))
                     if path == "/api/eolas/lecciones":
                         from eolfi import eolas_v2 as _ev2
 
@@ -2250,7 +2259,7 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             data, q.get("name", "upload"), q.get("mode", "local"), q.get("providers")))
                     m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/repeat", path)
                     if m:
-                        return self._json(202, app.repeat_job(m.group(1)))
+                        return self._json(202, app.repeat_job(m.group(1), self._nivel()))
                     m = re.fullmatch(r"/api/incognitas/([0-9a-f]{16})/resolve", path)
                     if m:
                         body = self._obj()
@@ -2289,6 +2298,40 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
             self._route("DELETE")
 
     return Handler
+
+
+class _SalidaTolerante:
+    """stdout/stderr que no tumban el servidor si ya no hay quien los lea.
+
+    18/11/2026: el panel de 8777 lo había lanzado un proceso que ya no existía; cada petición escribe su línea de
+    registro en stderr, en Windows esa escritura daba OSError, el hilo moría sin responder y el navegador recibía una
+    respuesta vacía en todo («no carga ni responde»). Con salida None (pythonw) pasaba lo mismo. Lo que no se puede
+    escribir se descarta; el servidor sigue atendiendo."""
+
+    def __init__(self, stream: Any):
+        self._s = stream
+
+    def write(self, text: str) -> int:
+        try:
+            return self._s.write(text) if self._s is not None else len(text)
+        except (OSError, ValueError):
+            return len(text)
+
+    def flush(self) -> None:
+        try:
+            if self._s is not None:
+                self._s.flush()
+        except (OSError, ValueError):
+            pass
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._s, name)
+
+
+def _salidas_tolerantes() -> None:
+    for name in ("stdout", "stderr"):
+        if not isinstance(getattr(sys, name), _SalidaTolerante):
+            setattr(sys, name, _SalidaTolerante(getattr(sys, name)))
 
 
 class _Server(ThreadingHTTPServer):
@@ -2338,6 +2381,7 @@ def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None
 def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool = False,
           samples_dir: str | Path = "samples", cert: str | Path | None = None,
           key: str | Path | None = None) -> int:
+    _salidas_tolerantes()
     if host not in _LOOPBACK and not allow_remote:
         print(f"eolfi: negando escuchar en {host}: usa --allow-remote si de verdad lo quieres "
               f"(la API puede analizar archivos locales).", file=sys.stderr)

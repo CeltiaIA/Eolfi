@@ -6,9 +6,13 @@ import { initVoz, decir } from "./voz.js";
 
 const STORE_KEY = "eolfi.eolasChat";
 const AUTO_PROMPT = "Analiza lo que te adjunto y propón qué se podría generar con Eolfi a partir de ello.";
+// 18/11/2026: con 6 adjuntos el servidor rechazaba el mensaje entero al enviarlo. Ahora el límite lo da el servidor
+// en /api/chat/estado (max_adjuntos: 5 usuario, 10 premium, null = titular sin límite fijo); se avisa al adjuntar y no
+// se suben los que sobran. Si aún no se sabe, se pregunta antes de subir; si no hay respuesta, el de un usuario.
+const MAX_ADJUNTOS_USUARIO = 5;
 const KIND_LABEL = { archivo: "archivo", binario: "binario", url: "web", repositorio: "repositorio", repo: "repositorio" };
 
-const chat = { messages: [], attachments: [], busy: false, uploading: 0 };
+const chat = { messages: [], attachments: [], busy: false, uploading: 0, maxAdjuntos: undefined };
 
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(chat.messages.slice(-40))); } catch { /* sin almacenamiento */ }
@@ -244,6 +248,7 @@ async function refreshEngine(st) {
   try {
     st = st || await api("/api/chat/estado");
     renderProfiles(st);
+    if ("max_adjuntos" in st) chat.maxAdjuntos = st.max_adjuntos;
     const ok = st.available && !st.busy;
     out.className = ok ? "ok" : "bad";
     out.textContent = st.busy || (st.available ? `Motor Eolas V2: ${st.detail}` : st.detail);
@@ -254,7 +259,16 @@ async function refreshEngine(st) {
 }
 
 async function upload(files) {
-  for (const file of files) {
+  if (chat.maxAdjuntos === undefined) await refreshEngine();
+  const max = chat.maxAdjuntos === undefined ? MAX_ADJUNTOS_USUARIO : chat.maxAdjuntos;
+  const libres = max == null ? files.length : Math.max(0, max - chat.attachments.length - chat.uploading);
+  const sobran = files.slice(libres);
+  if (sobran.length) {
+    chat.messages.push({ role: "assistant", local: true, content: `Solo se pueden adjuntar ${max} archivos por mensaje. `
+      + `No se adjuntaron: ${sobran.map((f) => f.name).join(", ")}. Envíalos en otro mensaje o quita alguno.` });
+    render();
+  }
+  for (const file of files.slice(0, libres)) {
     chat.uploading += 1;
     setBusy(chat.busy);
     try {

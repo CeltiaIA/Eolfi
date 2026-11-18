@@ -9,6 +9,7 @@
   escribir, comprobar presente/ausente) conducidos con UI Automation sobre el ejecutable Avalonia. Real: la app
   generada (NuGet solo de la caché) pasa 4/5 con una comprobación imposible a propósito. Rust real del juez de
   consola: 5/5. El juez cubre ya todos los destinos.
+- **Panel: «no carga ni responde» y adjuntos por nivel (18/11, rama `luis/panel-stderr-adjuntos`):** el panel de 8777 lo había lanzado un proceso ya cerrado; cada petición escribía su registro en un stderr sin lector, en Windows daba OSError y el navegador recibía respuestas vacías. `serve` usa ahora salidas que descartan lo que no se puede escribir. Adjuntos del chat por nivel que decide el servidor por la conexión (titular en este equipo sin límite fijo, usuario 5, premium 10 pero aún sin cuentas para asignarlo); el chat avisa al adjuntar y no sube los que sobran (antes el servidor rechazaba el mensaje entero). Pruebas: `tests/test_panel_adjuntos_salida.py` (9, una reproduce el servidor huérfano) y e2e nueva. En vivo en 8777 (relanzado con registro en `~/.eolfi/panel-8777*.log`): 6 adjuntos y respuesta de Gemma Q5. Suites: pytest 1286/8, e2e 26/26, puentes 70 y 211.
 - **C7 panel en el móvil (18/11, rama `luis/c7-movil`):** por `http://IP` el móvil oculta el micrófono (sin contexto
   seguro). `eolfi serve --cert PEM [--key PEM]` sirve por HTTPS (cookie `Secure`) y el panel lo explica. Android
   real o emulador: NO VERIFICADO (no hay ninguno conectado).

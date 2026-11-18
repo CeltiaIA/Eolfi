@@ -468,6 +468,8 @@
  "No se pudo cargar la automejora: {}": "Self-improvement could not be loaded: {}",
  "No se pudo consultar Eolas: {}": "Eolas could not be queried: {}",
  "No se pudo adjuntar {}: {}": "Could not attach {}: {}",
+ "Solo se pueden adjuntar {} archivos por mensaje.": "Only {} files can be attached per message.",
+ "No se adjuntaron: {}. Envíalos en otro mensaje o quita alguno.": "Not attached: {}. Send them in another message or remove some.",
  "No se pudo completar: {}": "Could not complete: {}",
  "No se pudo cambiar el motor: {}": "Could not change the engine: {}",
  "quién la llama": "who calls it",
