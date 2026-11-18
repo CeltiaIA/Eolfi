@@ -523,6 +523,73 @@ function wire() {
     } catch (err) { renderCreate({ error: err.message }); }
     finally { $("#create-go").disabled = false; }
   });
+
+  // D1: sincronizar un proyecto con sus fuentes. Primero se proponen los cambios; aplicar es un segundo paso explícito.
+  $("#sync-form").addEventListener("submit", (e) => { e.preventDefault(); runSync(false); });
+}
+
+const syncLines = [];
+async function runSync(aplicar) {
+  const project = $("#sync-project").value.trim();
+  if (!project) { renderSync({ error: "Indica la carpeta del proyecto." }); return; }
+  $("#sync-go").disabled = true;
+  syncLines.length = 0;
+  renderSync({ pending: aplicar ? "Aplicando y verificando…" : "Volviendo a analizar las fuentes…" });
+  try {
+    const r = await runJob("sync", { project, ...(aplicar ? { aplicar: true } : {}) }, (lines, elapsed) => {
+      syncLines.push(...lines.map((l) => l.msg));
+      renderSync({ pending: `Trabajando… ${Math.round(elapsed)} s`, lines: syncLines.slice(-8) });
+    });
+    renderSync(r, project);
+  } catch (err) { renderSync({ error: err.message }); }
+  finally { $("#sync-go").disabled = false; }
+}
+
+const SYNC_ACCIONES = { nuevo: "nuevo", actualizado: "actualizado", borrado: "borrado", fusionado: "fusionado",
+  conflicto: "conflicto" };
+function renderSync(r, project) {
+  const box = $("#sync-result");
+  if (r.pending) {
+    box.replaceChildren(el("p", { class: "muted", role: "status" }, r.pending),
+      ...(r.lines?.length ? [el("pre", { class: "small job-log" }, r.lines.join("\n"))] : []));
+    return;
+  }
+  if (r.error) { box.replaceChildren(el("p", { class: "bad", role: "alert" }, r.error)); return; }
+  const changes = r.changes || [];
+  const s = r.summary || {};
+  const conflictos = s.conflicto || 0;
+  const v = r.verification;
+  const head = !changes.length
+    ? el("p", { role: "status" }, el("strong", {}, "✓ Al día"), " · el proyecto ya coincide con sus fuentes")
+    : el("p", { class: conflictos ? "bad" : "", role: conflictos ? "alert" : "status" },
+      el("strong", {}, r.applied ? "Cambios aplicados" : "Cambios propuestos"),
+      ` · ${changes.length} archivo(s)`, conflictos ? ` · ${conflictos} con conflicto` : "");
+  const spec = r.spec_changes && Object.keys(r.spec_changes).length
+    ? [el("details", {}, el("summary", {}, "Cambios en la especificación"),
+      el("pre", { "data-i18n-no": "" }, JSON.stringify(r.spec_changes, null, 2)))] : [];
+  const lista = changes.map((c) => el("details", { class: "step" },
+    el("summary", {}, el("span", { class: "badge " + (c.accion === "conflicto" ? "bad" : "ok") },
+      SYNC_ACCIONES[c.accion] || c.accion), " ", el("code", {}, c.ruta), c.motivo ? ` · ${c.motivo}` : ""),
+    c.diff ? el("pre", { "data-i18n-no": "" }, c.diff) : el("p", { class: "muted" }, "Sin diferencias de texto que mostrar.")));
+  const acciones = [];
+  if (!r.applied && changes.some((c) => c.accion !== "conflicto" || c.conflictos)) {
+    acciones.push(el("p", {}, el("button", { type: "button", class: "small-btn", onclick: () => {
+      const t = (x) => (window.eolfiT ? window.eolfiT(x) : x);   // el diálogo no pasa por el DOM: se traduce aquí
+      const aviso = conflictos
+        ? t(`Hay ${conflictos} archivo(s) con conflicto: se escribirán con marcas «<<<<<<< tuyo» que tendrás que resolver y el proyecto quedará NO VERIFICADO.`) + "\n\n"
+        : "";
+      if (confirm(aviso + t(`Se guardará una copia de lo que se toca en .eolfi-sync/ y después se verificará. ¿Aplicar los cambios en ${project}?`))) runSync(true);
+    } }, "Aplicar cambios")));
+  }
+  const verif = r.applied && v ? [
+    el("p", { class: v.ok ? "" : "bad", role: v.ok ? "status" : "alert" },
+      el("strong", {}, v.ok ? "✓ Verificado" : "NO VERIFICADO"), v.error ? ` · ${v.error}` : ""),
+    ...(v.steps || []).map((st) => el("div", { class: "step" }, el("span", { class: "badge " + (st.exit === 0 ? "ok" : "bad") },
+      st.exit === 0 ? "OK" : "FALLO"), `${st.step} (${st.seconds} s)`)),
+  ] : [];
+  box.replaceChildren(head,
+    ...(r.backup ? [el("p", { class: "small" }, "Copia de lo anterior: ", el("code", {}, r.backup))] : []),
+    ...verif, ...spec, ...lista, ...acciones);
 }
 
 // Progreso en vivo de «Crear»: últimas líneas del registro del trabajo.

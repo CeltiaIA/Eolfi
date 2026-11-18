@@ -1776,6 +1776,23 @@ def _progress(msg: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    from eolfi import i18n
+
+    if i18n.idioma_cli(argv) != "en":
+        return _main(argv)
+    # C1 (18/11/2026): con --idioma en, los avisos por stderr también en inglés. La salida estándar (JSON) no cambia.
+    anterior = sys.stderr
+    sys.stderr = i18n.StderrTraducido(anterior)
+    try:
+        return _main(argv)
+    finally:
+        try:
+            sys.stderr.flush()
+        finally:
+            sys.stderr = anterior
+
+
+def _main(argv: list[str]) -> int:
     from eolfi.dotenv import load_dotenv
 
     load_dotenv()   # secretos del .env (no pisa variables ya definidas; nunca se muestran)
