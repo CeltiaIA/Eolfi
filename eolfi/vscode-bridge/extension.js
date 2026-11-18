@@ -13,6 +13,7 @@ const { validEncargo, makeEncargoHandler } = require('./encargos');
 const { makeActions, TOOL_DEFS, isSecretPath, resolveInside } = require('./workspace');
 const { makeClient, summarize } = require('./eolfi-client');
 const { makeChatHandler } = require('./chat');
+const dictado = require('./dictado');
 const { reaConfig, McpClient } = require('./rea');
 const { readCodexMcpServers } = require('./codex-mcp');
 const { makeAgentTools } = require('./agent-tools'); const { registerEolasModel } = require('./lm-provider');
@@ -457,6 +458,16 @@ function activate(context) {
     vscode.commands.registerCommand('eolfi.openPanel', guard(async () => { await eolfiClient(); openPanel(lastSubject ? `#objetivo/${encodeURIComponent(lastSubject)}` : ''); })),
     vscode.commands.registerCommand('eolfi.lastReport', guard(async () => showReport(lastSubject))),
     vscode.commands.registerCommand('eolfi.openChat', () => openChat(false)),
+    vscode.commands.registerCommand('eolfi.dictar', guard(async () => {
+      const client = await eolfiClient();
+      const cfg = vscode.workspace.getConfiguration('eolfi');
+      const segundos = dictado.segundosDictado(cfg.get('dictadoSegundos'));
+      const r = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+        title: `Eolfi: escuchando ${segundos} s con el micrófono del equipo… habla ahora` },
+      () => dictado.dictar(client, { segundos, participante: cfg.get('chatParticipant') !== false,
+        abrirChat: (q) => vscode.commands.executeCommand('workbench.action.chat.open', { mode: 'ask', ...q }) }));
+      if (!r.ok) vscode.window.showWarningMessage(`Eolfi: ${r.motivo}`);
+    })),
     vscode.commands.registerCommand('eolfi.chatHelp', guard(chatButton)),
     vscode.commands.registerCommand('eolfi.configureLocalModel', guard(async () => {
       llamacfg.loadConfig({ findServer });   // la crea con Gemma 4 si no existe

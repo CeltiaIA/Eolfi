@@ -45,6 +45,9 @@ function makeClient(base, authToken = null) {
     // Canje del código de vinculación por un token (lo único que se hace sin token).
     exchange: (code, name) => request(base, 'POST', '/api/clients/token', { code, name }),
     health: () => req('GET', '/api/health'),
+    // A9: Eolfi graba del micrófono del equipo y transcribe (la extensión no puede grabar); el audio no se guarda.
+    dictar: (segundos, idioma) => req('POST', '/api/voz/dictar', { segundos, ...(idioma ? { idioma } : {}) },
+      (Number(segundos) + 150) * 1000),
     // Progreso efímero del agente: solo fases y mensajes de estado, nunca prompts ni resultados.
     agentActivity: (body) => req('POST', '/api/vscode/activity', body),
     // Encargos del chat de Eolfi: cola con aprobación (el servidor anota que se decidió desde VS Code).

@@ -433,6 +433,9 @@ CLI_EN: dict[str, str] = {
     "Motores disponibles, idioma y voces": "Available engines, language and voices",
     "Voz a texto de un WAV (PCM de 16 bits)": "Speech-to-text of a WAV (16-bit PCM)",
     "Texto a voz: escribe un WAV": "Text-to-speech: writes a WAV",
+    "Graba del micrófono del equipo y lo transcribe (nada se guarda)":
+        "Records from this computer's microphone and transcribes it (nothing is stored)",
+    "Duración de la grabación (1-30 s)": "Recording length (1-30 s)",
     "Elige motor, idioma o voz": "Chooses engine, language or voice",
     # Comandos de las ramas de C2 y B8 (luis/c2-instalador, luis/b8-firma), cubiertos antes de fusionarse.
     "Navegador, Playwright y axe propios de Eolfi para el juez funcional (en ~/.eolfi/navegador)":
