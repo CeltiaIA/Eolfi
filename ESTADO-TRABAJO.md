@@ -14,7 +14,10 @@
   (SHA-256 6f5d0d9b…c695): **V1 7/7** en frío y en caliente. Producción recompilada
   el 18/11 con `build-eolas.ps1` desde `main` de CeltIA (`6ed403e`, fuente limpia, SHA-256 bfc275aa…6d8; copia del
   anterior en `runtime\eolas\eolas.exe.bak-2026-11-18`): **V1 7/7** (huella 8a3da9…, igual que el de prueba) y
-  `go test ./...` verde. Pendiente B2: banco completo con semilla. V1 y V2 parados al terminar.
+  `go test ./...` verde. **Banco completo con semilla** (18/11, `rsi aa --banco todos --proveedor eolas
+  --muestras 5` desde `D:\Eolfi` en `b1c669c`): 4/5 pares idénticos; filtro semilla 2 dio 10/10 y 9/10 (ambas con
+  verify verde). A/A sin falso positivo. Pendiente: repetir «filtro» semilla 2 conservando los proyectos para ver si
+  difiere el código o el juez. Registro: scratchpad `b2-banco-aa-v1.log`. V1 y V2 parados al terminar.
 - **Honestidad del chat (17/11, rama `luis/chat-honesto`):** los defectos de una conversación real con
   gemma-4-12b (acciones «en curso» sin ejecutar, «RSI» inventado como arquitectura —RSI es Recursive
   Self-Improvement, la automejora supervisada—, fusión de pesos, licencia propia sobre pesos derivados, negar VS
