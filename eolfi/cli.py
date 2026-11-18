@@ -686,6 +686,13 @@ def _parser() -> argparse.ArgumentParser:
     r18.add_argument("--anotaciones", help="clases de anotación, p. ej. uart=rx-data")
     r18.add_argument("--formato", help="formato de entrada de sigrok (por defecto lo detecta)")
     r18.add_argument("--limite", type=int, default=40, help="máximo de la muestra (40)")
+    r20 = rps.add_parser("unity", help="Juego o app de Unity con IL2CPP: ensamblados, tipos y métodos con su dirección "
+                                       "(global-metadata.dat y binario nativo), sin ejecutarlo")
+    r20.add_argument("ruta", help="carpeta de la compilación, .apk, .ipa, .zip o global-metadata.dat")
+    r20.add_argument("--binario", help="GameAssembly.dll/.so/.dylib, libil2cpp.so o UnityFramework de 64 bits "
+                                       "(por defecto lo busca junto a los metadatos)")
+    r20.add_argument("--tipo", help="nombre exacto de un tipo: sus métodos con la RVA")
+    r20.add_argument("--limite", type=int, default=40, help="máximo de elementos por lista (40)")
     r19 = rps.add_parser("decodificadores", help="Decodificadores de sigrok instalados, o la ayuda de uno (--ayuda ID)")
     r19.add_argument("consulta", nargs="?", help="texto que buscar en el identificador o el nombre")
     r19.add_argument("--ayuda", metavar="ID", help="canales, opciones y anotaciones de un decodificador")
@@ -2198,6 +2205,9 @@ def main(argv: list[str] | None = None) -> int:
                 op, params = "decodificar_senal", {"ruta": args.ruta, "decodificadores": args.decodificadores}
                 result = rc.decodificar_senal(client, args.ruta, args.decodificadores, anotaciones=args.anotaciones,
                                               formato=args.formato, limite=args.limite, ruta_rea=rea_client.wsl_path)
+            elif args.rea_action == "unity":
+                op, params = "unity_il2cpp", {"ruta": args.ruta, "binario": args.binario, "tipo": args.tipo}
+                result = rc.unity_il2cpp(client, args.ruta, binario=args.binario, tipo=args.tipo, limite=args.limite)
             elif args.rea_action == "decodificadores":
                 op, params = "decodificadores_senal", {"consulta": args.consulta, "decodificador": args.ayuda}
                 result = rc.decodificadores_senal(client, args.consulta, decodificador=args.ayuda)
