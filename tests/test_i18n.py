@@ -107,7 +107,8 @@ def test_textos_fijos_del_panel_cubiertos_y_diccionario_valido():
     web = "".join((RAIZ / "eolfi" / "web" / n).read_text(encoding="utf-8") for n in
                   ("index.html", "app.js", "cases.js", "eolas-chat.js", "projects.js", "subjects.js", "voz.js"))
     web_norm = i18n_panel.normalizar(web.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
-    huerfanas = [k for k in dic if k not in web_norm and k not in i18n_panel.textos_panel()]
+    huerfanas = [k for k in dic if k not in web_norm and k not in i18n_panel.textos_panel()
+                 and k not in i18n_panel.textos_js()]
     assert not huerfanas, huerfanas[:20]
 
 
@@ -115,3 +116,62 @@ def test_contenido_marcado_no_se_traduce():
     html = (RAIZ / "eolfi" / "web" / "index.html").read_text(encoding="utf-8")
     for ident in ("chat-log", "eolas-chat-log", "evidence", "incognitas", "case-body"):
         assert re.search(rf'id="{ident}" data-i18n-no', html), ident
+
+
+def test_textos_del_js_del_panel_cubiertos():
+    """C1 (18/11/2026): los avisos y estados que escribe el JS del panel, fijos o con partes variables (plantillas
+    con «{}»), están todos en el diccionario inglés y cada plantilla tiene los mismos huecos que su traducción."""
+    c = i18n_panel.cobertura_js()
+    assert c["textos"] > 250 and c["faltan"] == [], c["faltan"][:20]
+    dic = i18n_panel.diccionario()
+    for k, v in dic.items():
+        assert k.count("{}") == len(re.findall(r"\{\d*\}", v)), (k, v)
+
+
+def test_traducir_por_plantilla():
+    cat = {"modo inválido: {}": "invalid mode: {}", "{} de {}": "{1} by {0}", "carpeta": "folder",
+           "{} fuera de {}": "{} outside {}", "x": "y"}
+    assert i18n.traducir("modo inválido: rápido", "en", cat) == "invalid mode: rápido"
+    assert i18n.traducir("modo inválido: rápido", "es", cat) == "modo inválido: rápido"
+    assert i18n.traducir("a de b", "en", cat) == "b by a"
+    assert i18n.traducir("carpeta fuera de C:/x", "en", cat) == "folder outside C:/x"   # hueco traducido
+    assert i18n.traducir("x", "en", cat) == "y" and i18n.traducir("otra cosa", "en", cat) == "otra cosa"
+
+
+def test_errores_con_partes_variables_de_la_api_tienen_plantilla():
+    """Cada error de eolfi/server.py escrito con f-string tiene su plantilla («{}» en cada hueco) en el catálogo,
+    salvo los que son solo el texto de una excepción."""
+    fuente = (RAIZ / "eolfi" / "server.py").read_text(encoding="utf-8")
+    trozos = re.findall(r'(?:ApiError\(\d+,\s*|"error":\s*)((?:f"[^"]*"\s*)+)', fuente)
+    plantillas = {re.sub(r"\{[^{}]*\}", "{}", "".join(re.findall(r'f"([^"]*)"', t))) for t in trozos}
+    plantillas = {p for p in plantillas if re.search(r"[a-záéíóúñ]{3}", p.replace("{}", ""))}
+    assert len(plantillas) >= 15, plantillas
+    faltan = sorted(p for p in plantillas if p not in i18n.API_EN)
+    assert not faltan, faltan
+
+
+def test_api_traduce_un_error_con_parte_variable(srv):  # noqa: F811
+    port, _ = srv
+    st, body, cab = req(port, "GET", "/api/incognitas?status=raro&lang=en")
+    assert st == 400 and body["error"] == "invalid status: raro" and cab["Content-Language"] == "en"
+    st, body, _ = req(port, "GET", "/api/incognitas?status=raro")
+    assert body["error"] == "status inválido: raro"
+
+
+def _ayudas_argumentos(p: argparse.ArgumentParser) -> list[str]:
+    out = []
+    for a in p._actions:
+        if isinstance(a, argparse._SubParsersAction):
+            for sub in a.choices.values():
+                out += _ayudas_argumentos(sub)
+        elif a.help and a.help is not argparse.SUPPRESS and a.dest not in ("help", "version"):
+            out.append(a.help)
+    return out
+
+
+def test_todas_las_ayudas_de_argumentos_tienen_traduccion():
+    """C1 (18/11/2026): también la ayuda de cada argumento (antes faltaban; las de argparse ya vienen en inglés)."""
+    ayudas = _ayudas_argumentos(_parser())
+    assert len(ayudas) > 200
+    faltan = sorted({h for h in ayudas if h not in i18n.CLI_EN})
+    assert not faltan, faltan
