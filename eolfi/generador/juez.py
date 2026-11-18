@@ -46,6 +46,22 @@ llevan ``"consola": true`` y sus pasos ejecutan el programa, sin shell, y compru
 ``contiene``, ``no_contiene`` y ``patron`` miran la salida estándar; ``codigo``, el código de salida. Cada juicio corre
 en una carpeta temporal nueva que hace de carpeta de datos (``*_DATA_DIR`` del proyecto) y de HOME/APPDATA: no toca
 los datos del titular y los pasos de un mismo juicio comparten estado. Cada ejecución tiene 30 s.
+
+Escritorio nativo (B1, 18/11/2026): en ``dotnet`` (Avalonia) los criterios llevan ``"escritorio": true``; se abre el
+ejecutable compilado (``bin/Release``) y se conduce con UI Automation de Windows (el controlador de los pasos
+``desktop`` de observe), solo dentro de las ventanas de ese proceso::
+
+    {"version": 1, "escritorio": true, "pasos": [
+      {"comprobar": "abre la portada", "presente": "Bicis"},
+      {"seleccionar": {"nombre": "Contacto"}},
+      {"comprobar": "muestra el contacto", "presente": "Escríbenos"},
+      {"pulsar": {"nombre": "Enviar"}},
+      {"escribir": {"id": "Busqueda", "texto": "casco"}},
+      {"comprobar": "sin error", "ausente": "Error"}]}
+
+``pulsar`` invoca un botón, ``seleccionar`` elige una pestaña o un elemento de lista y ``escribir`` pone un valor.
+``presente``/``ausente`` buscan en el título de las ventanas y en el nombre y el valor de sus elementos tras la
+acción anterior. Solo en Windows; al terminar se cierran las ventanas (y, si no, se termina el proceso).
 """
 from __future__ import annotations
 
@@ -72,7 +88,9 @@ _COMPILAR = {"react": "npm run build", "vue": "npm run build", "svelte": "npm ru
 # compilación de Next); no instala nada.
 SERVIDORES = ("next", "express", "fastapi", "django", "go")   # go: el ejecutable bin/app de la verificación (B1)
 CONSOLA = ("cli", "rust")
-CUBIERTOS = (*DESTINOS, *SERVIDORES, *CONSOLA)
+ESCRITORIO = ("dotnet",)
+CUBIERTOS = (*DESTINOS, *SERVIDORES, *CONSOLA, *ESCRITORIO)
+PLAZO_ESCRITORIO = 60
 # Destinos en los que ``create`` instala por defecto los criterios de accesibilidad (decisión del titular, C4):
 # los que se juzgan en Chrome, salvo Expo.
 POR_DEFECTO = tuple(t for t in (*DESTINOS, *SERVIDORES) if t != "expo")
@@ -104,6 +122,10 @@ def validar(data: Any) -> dict[str, Any]:
         if data["consola"] is not True:
             raise JuezError("«consola» debe ser true")
         return _validar_consola(data)
+    if "escritorio" in data:
+        if data["escritorio"] is not True:
+            raise JuezError("«escritorio» debe ser true")
+        return _validar_escritorio(data)
     pagina = data.get("pagina", "index.html")
     if not isinstance(pagina, str) or not _PAGINA.fullmatch(pagina) or ".." in pagina.split("/"):
         raise JuezError("«pagina» debe ser un archivo .html dentro del proyecto")
@@ -214,6 +236,44 @@ def _validar_consola(data: dict[str, Any]) -> dict[str, Any]:
     return {"version": 1, "consola": True, "pasos": limpio}
 
 
+def _objetivo(k: Any, campo: str) -> dict[str, str]:
+    if not isinstance(k, dict) or ("id" in k) == ("nombre" in k):
+        raise JuezError(f"{campo}: lleva exactamente uno de «id» (AutomationId) o «nombre»")
+    return {"id": _texto(k["id"], f"{campo}: id")} if "id" in k else {"nombre": _texto(k["nombre"], f"{campo}: nombre")}
+
+
+def _validar_escritorio(data: dict[str, Any]) -> dict[str, Any]:
+    pasos = data.get("pasos")
+    if not isinstance(pasos, list) or not 1 <= len(pasos) <= MAX_PASOS:
+        raise JuezError(f"«pasos» debe ser una lista de 1 a {MAX_PASOS} elementos")
+    limpio: list[dict[str, Any]] = []
+    for i, p in enumerate(pasos, 1):
+        if not isinstance(p, dict):
+            raise JuezError(f"paso {i}: debe ser un objeto")
+        if "pulsar" in p or "seleccionar" in p:
+            accion = "pulsar" if "pulsar" in p else "seleccionar"
+            limpio.append({accion: _objetivo(p[accion], f"paso {i}: {accion}")})
+        elif "escribir" in p:
+            e = p["escribir"]
+            texto = e.get("texto") if isinstance(e, dict) else None
+            if not isinstance(texto, str) or len(texto) > 2000:
+                raise JuezError(f"paso {i}: «texto» debe ser un texto de hasta 2000 caracteres")
+            limpio.append({"escribir": {**_objetivo({k: v for k, v in e.items() if k != "texto"},
+                                                    f"paso {i}: escribir"), "texto": texto}})
+        elif "comprobar" in p:
+            c: dict[str, Any] = {"comprobar": _texto(p["comprobar"], f"paso {i}: comprobar", 120)}
+            tipos = [k for k in ("presente", "ausente") if k in p]
+            if len(tipos) != 1:
+                raise JuezError(f"paso {i}: una comprobación de escritorio lleva exactamente una de presente o ausente")
+            c[tipos[0]] = _texto(p[tipos[0]], f"paso {i}: {tipos[0]}")
+            limpio.append(c)
+        else:
+            raise JuezError(f"paso {i}: acción de escritorio desconocida (pulsar, seleccionar, escribir o comprobar)")
+    if not any("comprobar" in p for p in limpio):
+        raise JuezError("los criterios no tienen ninguna comprobación")
+    return {"version": 1, "escritorio": True, "pasos": limpio}
+
+
 def cargar(proyecto: Path) -> dict[str, Any] | None:
     """Criterios del proyecto, o None si no trae. Un archivo inválido lanza JuezError (no se ignora)."""
     f = Path(proyecto) / ARCHIVO
@@ -238,8 +298,8 @@ PASOS_ACCESIBILIDAD = [
 
 def con_accesibilidad(data: dict[str, Any] | None) -> dict[str, Any]:
     """Los criterios de accesibilidad solos, o añadidos al final de otros (tras recargar la página)."""
-    if data is not None and data.get("consola"):
-        raise JuezError("la accesibilidad (axe) no se aplica a criterios de consola")
+    if data is not None and (data.get("consola") or data.get("escritorio")):
+        raise JuezError("la accesibilidad (axe) solo se aplica a criterios web")
     if data is None:
         return validar({"version": 1, "pasos": [
             {"comprobar": "sin errores de JavaScript", "sin_errores_js": True}, *PASOS_ACCESIBILIDAD]})
@@ -447,6 +507,10 @@ def ejecutable(proyecto: Path, target: str) -> Path:
 
     exe = ".exe" if os.name == "nt" else ""
     try:
+        if target == "dotnet":
+            csproj = next((proyecto / "src").glob("*/*.csproj"))
+            hallados = sorted((csproj.parent / "bin" / "Release").glob(f"*/{csproj.stem}{exe}"))
+            return hallados[-1] if hallados else csproj.parent / "bin" / "Release" / "net10.0" / (csproj.stem + exe)
         if target == "cli":
             scripts = tomllib.loads((proyecto / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
             return proyecto / ".venv" / ("Scripts" if os.name == "nt" else "bin") / (next(iter(scripts)) + exe)
@@ -538,6 +602,88 @@ def juzgar_consola(proyecto: str | Path, target: str, criterios: dict[str, Any],
     return res
 
 
+def _textos(ventanas: Any) -> str:
+    partes: list[str] = []
+    for w in ventanas if isinstance(ventanas, list) else [ventanas]:
+        if not isinstance(w, dict):
+            continue
+        partes.append(str(w.get("title") or ""))
+        for e in w.get("elements") or []:
+            if isinstance(e, dict):
+                partes += [str(e.get("name") or ""), str(e.get("value") or "")]
+    return "\n".join(p for p in partes if p)
+
+
+def _ejecutor_escritorio(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[str, str]) -> dict[str, Any]:
+    from eolfi.observe.session import _desktop_step, _Normalizer
+
+    return _desktop_step(step, argv, cwd, env, _Normalizer(cwd, {}))
+
+
+def juzgar_escritorio(proyecto: str | Path, target: str, criterios: dict[str, Any], *,
+                      env: dict[str, str] | None = None) -> dict[str, Any]:
+    proyecto = Path(proyecto)
+    total = sum(1 for p in criterios["pasos"] if "comprobar" in p)
+    try:
+        exe = ejecutable(proyecto, target)
+    except JuezError as exc:
+        return {"status": "error", "total": total, "passed": 0, "error": str(exc)}
+    if not exe.is_file():
+        return {"status": "error", "total": total, "passed": 0,
+                "error": f"no está {_rel(exe, proyecto)}: falta compilar (dotnet build -c Release)"}
+    acciones: list[dict[str, Any]] = []
+    comprobaciones: list[tuple[str, dict[str, Any]]] = []
+    ultima = "_inicio"
+    for i, p in enumerate(criterios["pasos"], 1):
+        if "comprobar" in p:
+            comprobaciones.append((ultima, p))
+            continue
+        k = p.get("pulsar") or p.get("seleccionar") or p["escribir"]
+        a: dict[str, Any] = {"id": f"a{i}", "do": "invoke" if "pulsar" in p else
+                             "select" if "seleccionar" in p else "set_value"}
+        a.update({"automation_id": k["id"]} if "id" in k else {"name": k["nombre"]})
+        if "escribir" in p:
+            a["value"] = k["texto"]
+        acciones.append(a)
+        ultima = a["id"]
+    t0 = time.monotonic()
+    step = {"timeout": PLAZO_ESCRITORIO, "actions": acciones, "close": True, "screenshots": False}
+    with tempfile.TemporaryDirectory(prefix="eolfi-juez-escritorio-") as tmp:
+        run_env = dict(env or os.environ)
+        for k in ("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME"):
+            run_env[k] = tmp
+        rec = _ejecutor_escritorio(step, [str(exe)], Path(tmp), run_env)
+    hechas = {a.get("id"): a for a in rec.get("actions") or [] if isinstance(a, dict)}
+    if not hechas:
+        return {"status": "error", "total": total, "passed": 0,
+                "error": rec.get("error") or f"UI Automation no devolvió nada ({rec.get('status')})"}
+    res: dict[str, Any] = {"status": "ok", "total": total, "ejecutable": _rel(exe, proyecto)}
+    fallida = next((a for a in rec["actions"] if isinstance(a, dict) and a.get("status") == "error"), None)
+    if fallida:
+        res["accion_fallida"] = f"{fallida.get('target') or fallida.get('id')}: {fallida.get('error', '')}"[:300]
+    checks: list[dict[str, Any]] = []
+    for aid, p in comprobaciones:
+        a = hechas.get(aid)
+        if a is None or a.get("status") == "error":
+            checks.append({"nombre": p["comprobar"], "ok": False,
+                           "detalle": "la acción anterior no se pudo hacer" if a else "no llegó a ejecutarse"})
+            continue
+        texto = _textos(a.get("windows"))
+        if "presente" in p:
+            ok, detalle = p["presente"] in texto, "no aparece en las ventanas"
+        else:
+            ok, detalle = p["ausente"] not in texto, "aparece en las ventanas"
+        c = {"nombre": p["comprobar"], "ok": ok}
+        if not ok:
+            c["detalle"] = f"{detalle}; se ve: {texto.replace(chr(10), ' | ')[:160]!r}"
+        checks.append(c)
+    if rec.get("killed_after_close"):
+        res["aviso"] = "la aplicación no se cerró al cerrar sus ventanas: se terminó"
+    res.update({"checks": checks, "passed": sum(1 for c in checks if c["ok"]), "ejecutadas": len(checks),
+                "seconds": round(time.monotonic() - t0, 2)})
+    return res
+
+
 def paso(proyecto: str | Path, target: str, *, env: dict[str, str] | None = None) -> dict[str, Any] | None:
     """El paso «juez funcional» para ``verify``: None si el proyecto no trae criterios. Sale con 0 solo si TODAS
     las comprobaciones pasan; si el juez no puede correr, sale con 1 y dice por qué (nunca verde sin juez)."""
@@ -552,14 +698,17 @@ def paso(proyecto: str | Path, target: str, *, env: dict[str, str] | None = None
         return {"step": "juez funcional (desactivado con EOLFI_JUEZ=0: NO VERIFICADO)", "exit": 0, "seconds": 0,
                 "tail": "", "judge": {"status": "omitido"}}
     raiz = Path(proyecto) / DESTINOS[target] if target in DESTINOS else None
-    if criterios.get("consola") or target in CONSOLA:
-        if not criterios.get("consola"):
-            j = {"status": "error", "error": f"«{target}» es un destino de consola: los criterios llevan "
-                                             "«consola»: true y pasos ejecutar/comprobar"}
-        elif target not in CONSOLA:
-            j = {"status": "error", "error": f"criterios de consola en un destino que no lo es («{target}»)"}
-        else:
-            j = juzgar_consola(proyecto, target, criterios, env=env)
+    modo = "consola" if criterios.get("consola") else "escritorio" if criterios.get("escritorio") else "web"
+    esperado = "consola" if target in CONSOLA else "escritorio" if target in ESCRITORIO else "web"
+    if modo != esperado and (modo != "web" or target in CUBIERTOS):
+        como = {"consola": "«consola»: true y pasos ejecutar/comprobar",
+                "escritorio": "«escritorio»: true y pasos pulsar/seleccionar/escribir/comprobar",
+                "web": "pasos web (sin «consola» ni «escritorio»)"}[esperado]
+        j = {"status": "error", "error": f"criterios de {modo} en el destino «{target}», que pide {como}"}
+    elif modo == "consola":
+        j = juzgar_consola(proyecto, target, criterios, env=env)
+    elif modo == "escritorio":
+        j = juzgar_escritorio(proyecto, target, criterios, env=env)
     elif target in SERVIDORES:
         try:
             with servido(Path(proyecto), target, env=env) as url:

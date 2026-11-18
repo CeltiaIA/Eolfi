@@ -1,5 +1,6 @@
 """Juez funcional dentro de verify (B1) y generación reproducible (B2), PLAN_DEFINITIVO.md."""
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -77,7 +78,7 @@ def test_paso_sin_criterios_invalidos_destino_y_desactivado(tmp_path, monkeypatc
     p = juez.paso(tmp_path, "static")
     assert p["exit"] == 1 and "inválidos" in p["tail"]
     (tmp_path / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
-    p = juez.paso(tmp_path, "dotnet")
+    p = juez.paso(tmp_path, "otro")
     assert p["exit"] == 1 and "aún no cubre" in p["tail"]              # un juez que no corre no aprueba
     monkeypatch.setattr(juez.shutil, "which", lambda _n: None)
     assert juez.paso(tmp_path, "static")["exit"] == 1
@@ -380,7 +381,8 @@ def test_destinos_vite_sin_compilacion_no_aprueban(tmp_path):
     for destino in ("react", "vue", "svelte"):
         p = juez.paso(tmp_path, destino)
         assert p["exit"] == 1 and "falta la compilación" in p["tail"] and "dist/index.html" in p["tail"]
-    assert "aún no cubre" in juez.paso(tmp_path, "dotnet")["tail"]
+    assert "aún no cubre" in juez.paso(tmp_path, "otro")["tail"]
+    assert "pide «escritorio»: true" in juez.paso(tmp_path, "dotnet")["tail"]
     p = juez.paso(tmp_path, "expo")
     assert p["exit"] == 1 and "dist/index.html" in p["tail"] and "npm run build:web" in p["tail"]
     assert "falta la interfaz" in juez.paso(tmp_path, "desktop")["tail"]
@@ -459,8 +461,8 @@ def test_servidor_que_no_arranca_o_no_responde(tmp_path, monkeypatch):
 
 def test_create_mide_por_defecto_los_destinos_con_servidor():
     assert set(juez.CUBIERTOS) == {"static", "react", "vue", "svelte", "next", "express", "fastapi", "django", "go",
-                                   "desktop", "tauri", "expo", "cli", "rust"}
-    assert set(juez.CUBIERTOS) - set(juez.POR_DEFECTO) == {"expo", "cli", "rust"}
+                                   "desktop", "tauri", "expo", "cli", "rust", "dotnet"}
+    assert set(juez.CUBIERTOS) - set(juez.POR_DEFECTO) == {"expo", "cli", "rust", "dotnet"}
 
 
 @con_navegador
@@ -565,7 +567,7 @@ def test_validar_criterios_de_consola():
     for m in malos:
         with pytest.raises(juez.JuezError):
             juez.validar({"version": 1, **m})
-    with pytest.raises(juez.JuezError, match="consola"):
+    with pytest.raises(juez.JuezError, match="solo se aplica a criterios web"):
         juez.con_accesibilidad(ok)
 
 
@@ -614,9 +616,9 @@ def test_juez_de_consola_sin_programa_o_con_criterios_cruzados(tmp_path):
     p = juez.paso(d, "cli")
     assert p["exit"] == 1 and "falta compilar o instalar" in p["tail"] and ".venv/" in p["tail"]
     assert "no se sabe qué programa" in juez.paso(d, "rust")["tail"]
-    assert "no lo es" in juez.paso(d, "static")["tail"]
+    assert "criterios de consola en el destino «static»" in juez.paso(d, "static")["tail"]
     (d / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
-    assert "destino de consola" in juez.paso(d, "cli")["tail"]
+    assert "pide «consola»: true" in juez.paso(d, "cli")["tail"]
 
 
 def test_cli_generado_real_pasa_el_juez_de_consola(tmp_path):
@@ -651,4 +653,124 @@ def test_cli_generado_real_pasa_el_juez_de_consola(tmp_path):
         {"ejecutar": [recurso, "add", "x" * 201]}, {"comprobar": "rechaza un nombre vacío", "codigo": 2}]}),
         encoding="utf-8")
     p = juez.paso(out, "cli")
+    assert (p["exit"], p["step"]) == (0, "juez funcional (5/5)"), p["tail"]
+
+
+# ── Juez de escritorio nativo: .NET/Avalonia con UI Automation (B1, 18/11/2026) ──────────────────────────────────
+ESCRITORIO = {"version": 1, "escritorio": True, "pasos": [
+    {"comprobar": "abre la portada", "presente": "Bicis"},
+    {"pulsar": {"nombre": "Contacto"}},
+    {"comprobar": "muestra el contacto", "presente": "Escríbenos"},
+    {"escribir": {"id": "Busqueda", "texto": "casco"}},
+    {"comprobar": "sin error", "ausente": "Error"}]}
+
+
+def test_validar_criterios_de_escritorio():
+    ok = juez.validar(ESCRITORIO)
+    assert ok["escritorio"] is True and ok["pasos"][3] == {"escribir": {"id": "Busqueda", "texto": "casco"}}
+    malos = [
+        {"escritorio": 1, "pasos": [{"comprobar": "a", "presente": "x"}]},
+        {"escritorio": True, "pasos": [{"pulsar": {"id": "a", "nombre": "b"}}, {"comprobar": "a", "presente": "x"}]},
+        {"escritorio": True, "pasos": [{"pulsar": {}}, {"comprobar": "a", "presente": "x"}]},
+        {"escritorio": True, "pasos": [{"escribir": {"id": "a"}}, {"comprobar": "a", "presente": "x"}]},
+        {"escritorio": True, "pasos": [{"comprobar": "a", "codigo": 0}]},
+        {"escritorio": True, "pasos": [{"clic": {"selector": "a"}}, {"comprobar": "a", "presente": "x"}]},
+        {"escritorio": True, "pasos": [{"pulsar": {"nombre": "a"}}]},
+    ]
+    for m in malos:
+        with pytest.raises(juez.JuezError):
+            juez.validar({"version": 1, **m})
+
+
+def _dotnet(d: Path) -> Path:
+    (d / "src" / "Bicis").mkdir(parents=True)
+    (d / "src" / "Bicis" / "Bicis.csproj").write_text("<Project/>", encoding="utf-8")
+    (d / juez.ARCHIVO).write_text(json.dumps(ESCRITORIO), encoding="utf-8")
+    return d
+
+
+def test_juez_de_escritorio_traduce_los_pasos_y_lee_las_ventanas(tmp_path, monkeypatch):
+    d = _dotnet(tmp_path / "app")
+    assert "falta compilar" in juez.paso(d, "dotnet")["tail"]
+    exe = d / "src" / "Bicis" / "bin" / "Release" / "net10.0" / ("Bicis.exe" if os.name == "nt" else "Bicis")
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    pedidos = []
+
+    def ventana(*textos):
+        return [{"title": "Bicis", "elements": [{"name": t} for t in textos]}]
+
+    def ejecutor(step, argv, cwd, env):
+        pedidos.append((step, argv, env))
+        return {"status": "partial", "actions": [
+            {"id": "_inicio", "status": "ok", "windows": ventana("Portada")},
+            {"id": "a2", "status": "ok", "target": "name:Contacto", "windows": ventana("Escríbenos")},
+            {"id": "a4", "status": "error", "target": "id:Busqueda", "error": "no se encontró el elemento"}]}
+    monkeypatch.setattr(juez, "_ejecutor_escritorio", ejecutor)
+    p = juez.paso(d, "dotnet")
+    (step, argv, env), = pedidos
+    assert argv == [str(exe)] and step["close"] is True
+    assert step["actions"] == [{"id": "a2", "do": "invoke", "name": "Contacto"},
+                               {"id": "a4", "do": "set_value", "automation_id": "Busqueda", "value": "casco"}]
+    assert env["APPDATA"] != os.environ.get("APPDATA")
+    assert p["exit"] == 1 and p["step"] == "juez funcional (2/3)"
+    assert "NO: sin error (la acción anterior no se pudo hacer)" in p["tail"]
+    assert "id:Busqueda: no se encontró el elemento" in p["tail"]
+    monkeypatch.setattr(juez, "_ejecutor_escritorio", lambda *a: {"status": "unavailable", "error": "solo Windows"})
+    assert "solo Windows" in juez.paso(d, "dotnet")["tail"]
+
+
+@pytest.mark.skipif(os.name != "nt" or not shutil.which("dotnet"), reason="requiere Windows y el SDK de .NET")
+def test_dotnet_avalonia_real_pasa_el_juez_de_escritorio(tmp_path):
+    """La app Avalonia que genera ``create --target dotnet``, restaurada solo desde la caché local de NuGet (sin red)
+    y compilada, se abre y se conduce con UI Automation: cambia de pestaña y el juez lee lo que se ve."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    cache = Path.home() / ".nuget" / "packages"
+    if not (cache / "avalonia").is_dir():
+        pytest.skip("Avalonia no está en la caché local de NuGet")
+    out = tmp_path / "app"
+    create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Bicis",
+                   target="dotnet", do_verify=False)
+    for orden in (["restore", "--source", str(cache)], ["build", "-c", "Release", "--no-restore"]):
+        r = subprocess.run([shutil.which("dotnet"), *orden], cwd=out, capture_output=True, text=True, check=False)
+        if r.returncode != 0:
+            pytest.skip("no se pudo compilar sin red: " + r.stdout[-300:])
+    (out / juez.ARCHIVO).write_text(json.dumps({"version": 1, "escritorio": True, "pasos": [
+        {"comprobar": "abre con el título", "presente": "Bicis"},
+        {"comprobar": "portada visible", "presente": "Una base moderna"},
+        {"seleccionar": {"nombre": "Sobre"}},
+        {"comprobar": "muestra Sobre", "presente": "Carga en milisegundos"},
+        {"comprobar": "ya no muestra las opiniones", "ausente": "Lo pusimos en marcha"},
+        {"comprobar": "lo que no existe no aparece", "presente": "Texto que no está en la app"}]}), encoding="utf-8")
+    p = juez.paso(out, "dotnet")
+    assert (p["exit"], p["step"]) == (1, "juez funcional (4/5)"), p["tail"]
+    assert "NO: lo que no existe no aparece" in p["tail"]
+
+
+@pytest.mark.skipif(not shutil.which("cargo"), reason="requiere Rust (cargo)")
+def test_rust_generado_real_pasa_el_juez_de_consola(tmp_path):
+    """El comando que genera ``create --target rust``, compilado sin red (``cargo build --release --offline``),
+    pasa criterios de consola de añadir, listar y rechazar una acción desconocida."""
+    from eolfi.core.evidence import EvidenceStore
+    from eolfi.flows.create_flow import create_project
+    from tests.fixtures import build_site
+
+    out = tmp_path / "rust"
+    create_project([str(build_site(tmp_path / "site"))], EvidenceStore(":memory:"), out, name="Notas",
+                   target="rust", do_verify=False)
+    r = subprocess.run([shutil.which("cargo"), "build", "--release", "--offline"], cwd=out, capture_output=True,
+                       text=True, check=False)
+    if r.returncode != 0:
+        pytest.skip("no se pudo compilar sin red: " + r.stderr[-300:])
+    (out / juez.ARCHIVO).write_text(json.dumps({"version": 1, "consola": True, "pasos": [
+        {"ejecutar": ["--json", "info"]}, {"comprobar": "info responde", "codigo": 0},
+        {"ejecutar": ["products", "add", "casco", "-d", "talla M"]}, {"comprobar": "añade", "codigo": 0},
+        {"ejecutar": ["--json", "products", "list"]}, {"comprobar": "lista lo añadido", "contiene": "casco"},
+        {"comprobar": "con su descripción", "patron": "talla M"},
+        {"ejecutar": ["products", "volar"]}, {"comprobar": "rechaza una acción desconocida", "codigo": 2}]}),
+        encoding="utf-8")
+    p = juez.paso(out, "rust")
     assert (p["exit"], p["step"]) == (0, "juez funcional (5/5)"), p["tail"]

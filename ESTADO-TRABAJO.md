@@ -5,6 +5,10 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **B1 juez .NET (18/11, rama `luis/b1-juez-dotnet`):** criterios `"escritorio": true` (pulsar, seleccionar,
+  escribir, comprobar presente/ausente) conducidos con UI Automation sobre el ejecutable Avalonia. Real: la app
+  generada (NuGet solo de la caché) pasa 4/5 con una comprobación imposible a propósito. Rust real del juez de
+  consola: 5/5. El juez cubre ya todos los destinos.
 - **C7 panel en el móvil (18/11, rama `luis/c7-movil`):** por `http://IP` el móvil oculta el micrófono (sin contexto
   seguro). `eolfi serve --cert PEM [--key PEM]` sirve por HTTPS (cookie `Secure`) y el panel lo explica. Android
   real o emulador: NO VERIFICADO (no hay ninguno conectado).
