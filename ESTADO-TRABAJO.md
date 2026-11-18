@@ -32,8 +32,11 @@
   `docs/modelos-actualizar.md` §3. **NO VERIFICADO** con un modelo real (examen = GPU + Docker).
 - **Causa del par «filtro» del banco (18/11):** la memoria de ejemplos verificados (`~/.eolfi/assist-verified.jsonl`)
   crece con cada `create` en verde y entra en el prompt siguiente: la 2.ª corrida de un par ve un ejemplo más
-  (6661 frente a 6982 tokens en la ronda 1). El juez es estable (3 juicios por proyecto, 10/10). Arreglo pendiente:
-  el banco congela la memoria por corrida. El banco ya dejó 4 ejemplos «filtro» en la memoria real (no borrados).
+  (6661 frente a 6982 tokens en la ronda 1). El juez es estable (3 juicios por proyecto, 10/10). Arreglado (#77):
+  el banco congela la memoria por corrida. El banco ya dejó 4 ejemplos «filtro» en la memoria real (no borrados;
+  borrarlos pide el OK del titular). **A/A repetido con el arreglo (18/11): 5/5 pares idénticos**
+  (7/9, 8/8, 10/10, 7/9, 8/8 en los dos lados), p = 1, sin falso positivo; la memoria real sigue con 4
+  registros. Registro: scratchpad `b2-banco-aa-v1-memoria-fija-2.log`. V1 parado al terminar.
 - **B2 determinismo medido (18/11, rama `luis/b2-determinismo`):** `tools/medir_determinismo.py` (misma petición
   N veces con `EOLFI_SEMILLA`; `--frio` descarga V1 entre peticiones). Gemma 4 12B, semilla 0: **V2 7/7**
   idénticas (frío incluido); **V1 4/7**: frío = un texto fijo (894 car.), caliente = otro fijo (918 car.). Causa:
