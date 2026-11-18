@@ -113,8 +113,18 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
                  juez_en_verify: bool = True, encargo_nombre: str = "tareas") -> Callable[..., float]:
     """``juez_en_verify``: el proyecto lleva los criterios del juez funcional, así que ``verify`` prueba la app en
     Chrome y las rondas de reparación ven qué falla (B1). La puntuación la sigue dando el juez externo, que el
-    proyecto no ve. La semilla del par llega a la generación por ``EOLFI_SEMILLA`` (B2)."""
+    proyecto no ve. La semilla del par llega a la generación por ``EOLFI_SEMILLA`` (B2).
+
+    Memoria congelada (B2, 18/11/2026): ``create`` guarda un ejemplo en la memoria de ejemplos verificados cada vez que
+    sale en verde, y el siguiente ``create`` lo lee en su prompt. En el banco eso hacía que la segunda corrida de un
+    par viera un ejemplo más que la primera («filtro» semilla 2: 10/10 frente a 9/10, 6661 frente a 6982 tokens de
+    entrada en la ronda 1). Ahora se hace una foto de la memoria al crear el banco y cada corrida trabaja con su propia
+    copia: los dos lados de un par ven lo mismo y el banco no escribe en la memoria real del usuario."""
+    from eolfi.generador.assist import assist_memory_file
+
     e = encargo(encargo_nombre)
+    origen = assist_memory_file()
+    foto = origen.read_bytes() if origen.is_file() else b""
 
     def correr(semilla: int | None = None) -> float:
         work = Path(tempfile.mkdtemp(prefix=f"eolfi-rsi-{e['nombre']}-"))
@@ -127,7 +137,11 @@ def banco_tareas(*, proveedor: str, modelo: str | None = None, entorno: dict[str
                 cmd += ["--model", modelo]
             if juez_en_verify:
                 cmd += ["--juez", str(e["criterios"])]
-            fijo = {} if semilla is None else {"EOLFI_SEMILLA": str(int(semilla))}
+            memoria = work / "assist-verified.jsonl"   # copia de la foto: lo que escriba esta corrida se borra
+            memoria.write_bytes(foto)
+            fijo = {"EOLFI_ASSIST_MEMORY": str(memoria)}
+            if semilla is not None:
+                fijo["EOLFI_SEMILLA"] = str(int(semilla))
             run = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                  timeout=timeout, cwd=ROOT, env={**os.environ, **fijo, **(entorno or {})}, check=False)
             if run.returncode != 0 and _parcial(run.stdout) and proyecto.is_dir():

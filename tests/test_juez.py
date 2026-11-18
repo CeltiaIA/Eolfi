@@ -221,6 +221,27 @@ def test_el_banco_pasa_criterios_y_semilla_y_anota_el_mejor_intento(monkeypatch)
                if "comprobar" in p) == 10
 
 
+def test_el_banco_congela_la_memoria_de_ejemplos_para_que_los_dos_lados_vean_lo_mismo(monkeypatch, tmp_path):
+    """B2, 18/11/2026: la 2.ª corrida de un par veía el ejemplo que guardó la 1.ª; ahora cada una parte de la foto."""
+    real = tmp_path / "assist-verified.jsonl"
+    real.write_text('{"ejemplo": "anterior"}\n', encoding="utf-8")
+    monkeypatch.setenv("EOLFI_ASSIST_MEMORY", str(real))
+    vistas = []
+
+    def run(cmd, **kw):
+        memoria = Path(kw["env"]["EOLFI_ASSIST_MEMORY"])
+        vistas.append(memoria.read_text(encoding="utf-8"))
+        with memoria.open("a", encoding="utf-8") as f:   # create en verde guarda un ejemplo nuevo
+            f.write('{"ejemplo": "nuevo"}\n')
+        return subprocess.CompletedProcess(cmd, 1, "", "falla")
+    monkeypatch.setattr(rsi_banco.subprocess, "run", run)
+    banco = rsi_banco.banco_tareas(proveedor="eolas-v2")
+    banco(0)
+    banco(0)
+    assert vistas == ['{"ejemplo": "anterior"}\n'] * 2                      # mismo prompt en los dos lados
+    assert real.read_text(encoding="utf-8") == '{"ejemplo": "anterior"}\n'   # la memoria real no cambia
+
+
 # ── Corte por longitud: una ronda fallida, no el fin del trabajo (16/11/2026) ───────────────────────────────────
 
 class _SeCorta(FakeClient):
