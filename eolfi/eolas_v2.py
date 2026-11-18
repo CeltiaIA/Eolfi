@@ -36,14 +36,14 @@ DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
     "gemma_q4": {
         "etiqueta": "Gemma 4 12B Q4", "reasoning_format": "deepseek",
         "alias": "gemma-4-12b-it-q4_k_m:latest",
-        "model": r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q4_K_M.gguf",
+        "model": r"D:\Alejandria\corpus\modelos.gguf\objetos\sha256\43\43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6\pesos.gguf",
         "ctx": 16384, "gpu_layers": 99, "batch": 512, "ubatch": 512,
         "extra_args": ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"],
     },
     "gemma": {
         "etiqueta": "Gemma 4 12B Q5", "reasoning_format": "deepseek",
         "alias": "gemma-4-12b-it-q5_k_m:latest",
-        "model": r"D:\AI\Hydra\gguf\gemma-4-12b-it-Q5_K_M.gguf",
+        "model": r"D:\Alejandria\corpus\modelos.gguf\objetos\sha256\32\32c554c7d1338a23837ae39b3db482213a4a642f96df3b2619f516a2375d16cd\pesos.gguf",
         "ctx": 16384, "gpu_layers": 40, "batch": 512, "ubatch": 512,
         "extra_args": ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"],
     },
