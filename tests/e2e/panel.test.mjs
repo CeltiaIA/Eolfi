@@ -161,6 +161,50 @@ test('adjuntar GGUF, safetensors y otros formatos desde el chat', async () => {
   await page.fill('#eolas-chat-input', '');
 });
 
+// 18/11/2026: con 6 adjuntos el servidor rechazaba el mensaje entero al enviarlo («attachments: hasta 5 archivos»).
+// El límite lo da el servidor por la conexión: usuario 5, premium 10, titular (este equipo) sin límite fijo.
+const SEIS = Array.from({ length: 6 }, (_, i) => ({ name: `f${i + 1}.png`, mimeType: 'image/png', buffer: Buffer.from(`png-${i}`) }));
+
+async function quitarAdjuntos() {
+  while (await page.locator('#eolas-chat-attachments button').count()) await page.locator('#eolas-chat-attachments button').first().click();
+}
+
+test('adjuntos por mensaje: un usuario sube 5 y se le avisa del resto; el titular, todos', async () => {
+  await page.route('**/api/chat/estado', async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), max_adjuntos: 5 } });
+  });
+  try {
+    await page.goto(BASE + '/#chat');
+    await page.reload();
+    await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
+    await page.waitForFunction(() => !/^Comprobando/.test(document.querySelector('#eolas-chat-engine')?.textContent || 'Comprobando'));
+    await page.fill('#eolas-chat-input', 'Revisar adjuntos sin enviarlos');
+    await page.setInputFiles('#eolas-chat-files', SEIS);
+    await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 5);
+    const aviso = page.locator('#eolas-chat-log .msg', { hasText: 'No se adjuntaron: f6.png' });
+    await aviso.waitFor();
+    assert.match(await aviso.textContent(), /Solo se pueden adjuntar 5 archivos por mensaje/);
+    assert.equal(await page.locator('#eolas-chat-log .msg.user').count(), 0);   // nada se envió
+    await axe('aviso de límite de adjuntos');
+    await quitarAdjuntos();
+  } finally {
+    await page.unroute('**/api/chat/estado');
+  }
+  // Sin el límite simulado, el servidor ve la conexión desde este equipo (titular): entran los 6.
+  await page.reload();
+  await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
+  // El límite se fija al recibir /api/chat/estado, justo antes de pintar el estado del motor.
+  await page.waitForFunction(() => !/^Comprobando/.test(document.querySelector('#eolas-chat-engine')?.textContent || 'Comprobando'));
+  assert.equal((await (await page.request.get(BASE + '/api/chat/estado')).json()).max_adjuntos, null);
+  await page.fill('#eolas-chat-input', 'Revisar adjuntos sin enviarlos');
+  await page.setInputFiles('#eolas-chat-files', SEIS);
+  await page.waitForFunction(() => document.querySelectorAll('#eolas-chat-attachments li').length === 6);
+  await quitarAdjuntos();
+  await page.fill('#eolas-chat-input', '');
+  await page.click('#eolas-chat-clear');
+});
+
 test('adjuntar antes de que cargue el módulo del chat no pierde los archivos', async () => {
   // Reproduce el runner lento: el módulo llega 1,5 s tarde y los archivos se eligen antes de que haya listener.
   await page.route('**/eolas-chat.js', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });

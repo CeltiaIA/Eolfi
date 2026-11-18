@@ -20,7 +20,17 @@ from typing import Any, Callable
 ANALYSIS_KINDS = ("archivo", "binario", "url", "repositorio")
 MAX_MESSAGES = 40
 MAX_MESSAGE_CHARS = 8000
-MAX_ATTACHMENTS = 5
+MAX_ATTACHMENTS = 5   # usuario normal; el límite de cada nivel está en LIMITES_ADJUNTOS
+# Adjuntos por mensaje según quién pide (18/11/2026, titular: «para mí los que necesite para generar el proyecto,
+# para los users solo 5 de cada vez y si premium 10»). El nivel lo decide el servidor por la conexión, nunca el
+# navegador. None = sin límite fijo (sigue valiendo el tamaño máximo de la petición). «premium» aún no se asigna a
+# nadie: Eolfi no tiene cuentas que lo distingan.
+LIMITES_ADJUNTOS: dict[str, int | None] = {"titular": None, "premium": 10, "usuario": MAX_ATTACHMENTS}
+
+
+def limite_adjuntos(nivel: str) -> int | None:
+    """Adjuntos por mensaje del nivel; uno desconocido cuenta como usuario normal."""
+    return LIMITES_ADJUNTOS.get(nivel, MAX_ATTACHMENTS)
 MAX_TOOL_OUTPUT = 6000
 MAX_ROUNDS = 8
 CHAT_TOOLS = ("eolfi_triage", "eolfi_web", "eolfi_repo", "eolfi_informe", "eolfi_biblioteca_buscar",
