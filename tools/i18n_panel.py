@@ -3,7 +3,7 @@
 Extrae, con el espacio en blanco normalizado igual que ``eolfi/web/i18n.js``, cada nodo de texto visible y los
 atributos ``title``, ``placeholder`` y ``aria-label``. Sin argumentos imprime la cobertura; con ``--faltan`` lista
 los textos que no tienen traducción.
-Uso: python tools/i18n_panel.py [--faltan]
+Uso: python tools/i18n_panel.py [--js] [--faltan]   (--js: los textos del JS del panel)
 """
 from __future__ import annotations
 
@@ -65,9 +65,113 @@ def cobertura() -> dict[str, object]:
     return {"textos": len(textos), "traducidos": len(textos) - len(faltan), "faltan": faltan}
 
 
+# ── Textos del JS del panel (C1, 18/11/2026) ─────────────────────────────────────────────────────────────────────
+# Los avisos y estados que el JS escribe en la página. Un texto fijo se traduce si está entero en el diccionario; uno
+# con partes variables (`… ${x} …`) se describe en el diccionario como plantilla con «{}» en cada hueco
+# («Listo en {} s») y i18n.js la reconoce en la página ya escrita.
+JS = ("app.js", "cases.js", "eolas-chat.js", "mapa.js", "projects.js", "subjects.js", "voz.js")
+_CASTELLANO = re.compile(r"[áéíóúñ¿¡]|\b(?:el|la|los|las|del|que|con|para|por|una?|se|sin|no|hay|de|en|y|ya|aún|ni)\b",
+                         re.I)
+# Literales que no son texto de la interfaz (identificadores, clases, valores de la API, consultas, selectores).
+NO_SON_TEXTO = re.compile(r"^[\w.:#\[\]=\"'/-]+$|^(?:sin-caso|proj-change-no)$")
+
+
+def _literales(src: str) -> list[tuple[str, bool]]:
+    """Literales de cadena de un JS: (texto, es_plantilla). Las plantillas `…${x}…` salen con «{}» en cada hueco.
+    Salta comentarios y expresiones regulares; basta para el JS propio del panel (no es un analizador completo)."""
+    out: list[tuple[str, bool]] = []
+    i, n, previo = 0, len(src), ""
+    while i < n:
+        c = src[i]
+        if src.startswith("//", i):
+            i = src.find("\n", i)
+            i = n if i < 0 else i
+            continue
+        if src.startswith("/*", i):
+            i = src.find("*/", i + 2)
+            i = n if i < 0 else i + 2
+            continue
+        if c == "/" and previo in "(,=:[!&|?{};+" + "\n":
+            j = i + 1
+            clase = False
+            while j < n and (src[j] != "/" or clase):
+                if src[j] == "\\":
+                    j += 1
+                elif src[j] == "[":
+                    clase = True
+                elif src[j] == "]":
+                    clase = False
+                elif src[j] == "\n":
+                    break
+                j += 1
+            i, previo = j + 1, "x"
+            continue
+        if c in "'\"":
+            j, buf = i + 1, []
+            while j < n and src[j] != c and src[j] != "\n":
+                if src[j] == "\\" and j + 1 < n:
+                    buf.append({"n": "\n", "t": "\t"}.get(src[j + 1], src[j + 1]))
+                    j += 2
+                    continue
+                buf.append(src[j])
+                j += 1
+            out.append(("".join(buf), False))
+            i, previo = j + 1, "x"
+            continue
+        if c == "`":
+            j, buf, plantilla = i + 1, [], False
+            while j < n and src[j] != "`":
+                if src[j] == "\\" and j + 1 < n:
+                    buf.append({"n": "\n", "t": "\t"}.get(src[j + 1], src[j + 1]))
+                    j += 2
+                    continue
+                if src.startswith("${", j):
+                    prof, k = 1, j + 2
+                    while k < n and prof:
+                        prof += {"{": 1, "}": -1}.get(src[k], 0)
+                        k += 1
+                    out += _literales(src[j + 2:k - 1])   # los textos dentro del hueco también cuentan
+                    buf.append("{}")
+                    plantilla = True
+                    j = k
+                    continue
+                buf.append(src[j])
+                j += 1
+            out.append(("".join(buf), plantilla))
+            i, previo = j + 1, "x"
+            continue
+        if not c.isspace():
+            previo = c
+        elif c == "\n" and previo in ";{}":
+            pass
+        i += 1
+    return out
+
+
+def textos_js() -> dict[str, str]:
+    """Textos de la interfaz en castellano que escribe el JS del panel → archivo donde aparecen."""
+    vistos: dict[str, str] = {}
+    for nombre in JS:
+        for texto, _plantilla in _literales((WEB / nombre).read_text(encoding="utf-8")):
+            t = normalizar(texto)
+            sin_huecos = t.replace("{}", " ")
+            if (len(t) < 3 or not re.search(r"[A-Za-zÁÉÍÓÚáéíóúñ]{3}", sin_huecos) or not _CASTELLANO.search(sin_huecos)
+                    or NO_SON_TEXTO.match(t) or "<" in t or t.startswith(("/api/", "#", "."))):
+                continue
+            vistos.setdefault(t, nombre)
+    return vistos
+
+
+def cobertura_js() -> dict[str, object]:
+    textos = textos_js()
+    dic = diccionario()
+    faltan = [t for t in textos if t not in dic]
+    return {"textos": len(textos), "traducidos": len(textos) - len(faltan), "faltan": faltan}
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
-    c = cobertura()
+    c = cobertura_js() if "--js" in sys.argv else cobertura()
     if "--faltan" in sys.argv:
         print(json.dumps(c["faltan"], ensure_ascii=False, indent=1))
     else:

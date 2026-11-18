@@ -5,6 +5,9 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **C1 panel y API en inglés (18/11, rama `luis/c1-panel-dinamico`):** textos dinámicos del JS del panel
+  (281, con plantillas «{}» que `i18n.js` reconoce), 20 errores de la API con partes variables y la ayuda de los 216
+  argumentos de la CLI. Pendiente C1: avisos de la CLI por stderr.
 - **D2 destino Go (18/11, rama `luis/d2-go`, apilada sobre #84):** `create --target go`: servidor web y API REST en Go
   con solo la biblioteca estándar, web embebida, cabeceras de seguridad y prueba de humo. Verificado con Go 1.27
   (vet, test, build y humo, sin red) en castellano e inglés. Pendiente D2: Rust.
