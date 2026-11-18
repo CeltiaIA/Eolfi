@@ -14,6 +14,9 @@
   REA real: inventario de `C:\Windows\System32\notepad.exe` (SHA-256 2d0b3948…f158f), estático, en una base
   temporal: 5 registros, 1 artefacto, 0 incógnitas; REA `import_evidence_bundle` validó e importó los 5 registros y
   `comprobar-paquete` dio ok. Límite: cada orden es una sesión de REA; el paquete cubre solo ese análisis.
+- **D1 `eolfi sync` (18/11, rama `luis/d1-sync`):** vuelve a analizar las fuentes de un proyecto generado y
+  propone los cambios con fusión a tres bandas (base regenerada, fuente nueva y lo tuyo); `--aplicar` con copia y
+  verificación limpia. 12 pruebas. Falta: panel/API y prueba con un repo remoto real.
 - **C1 panel y API en inglés (18/11, rama `luis/c1-panel-dinamico`):** textos dinámicos del JS del panel
   (281, con plantillas «{}» que `i18n.js` reconoce), 20 errores de la API con partes variables y la ayuda de los 216
   argumentos de la CLI. Pendiente C1: avisos de la CLI por stderr.
