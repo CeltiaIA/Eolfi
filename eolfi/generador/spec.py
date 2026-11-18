@@ -14,7 +14,7 @@ from typing import Any
 
 from eolfi.core.evidence import EvidenceStore
 
-TARGETS = ("static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go")
+TARGETS = ("static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go", "rust")
 
 # Palabras clave en clases/ids/landmarks -> tipo de sección que generaremos.
 SECTION_KEYWORDS = [
@@ -391,7 +391,8 @@ def _choose_target(votes: Counter, cats: dict[str, str], endpoints: Counter) -> 
             return "dotnet"          # apps .NET (WPF/WinForms/Avalonia) → C# nativo multiplataforma
         return "tauri" if native > score("Electron") else "desktop"
     if cli and not (score("React", "Vue", "Svelte", "Next.js", "Angular") or score("FastAPI", "Express", "Django")):
-        return "cli"
+        # Herramienta en Rust (clap) → comando en Rust (D2); el resto, comando en Python.
+        return "rust" if score("clap") * 2 > cli else "cli"
     vue = score("Vue", "Nuxt", "VitePress")
     react = score("React", "Next.js", "Gatsby", "Remix / React Router", "Preact")
     svelte = score("Svelte", "SvelteKit")
@@ -421,7 +422,7 @@ def _platforms_for(target: str) -> list[str]:
     """Sistemas donde funciona el proyecto generado."""
     if target == "expo":
         return ["android", "ios", "web"]
-    if target in ("desktop", "tauri", "cli", "dotnet"):
+    if target in ("desktop", "tauri", "cli", "dotnet", "rust"):
         return ["windows", "macos", "linux"]
     return ["web"]
 

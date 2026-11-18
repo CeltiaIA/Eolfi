@@ -15,7 +15,7 @@ const TARGETS = [["auto", "Auto (según las fuentes)"], ["static", "Web estátic
   ["svelte", "Svelte"], ["next", "Next.js"], ["fastapi", "FastAPI"], ["express", "Express"], ["django", "Django"],
   ["expo", "Móvil (Expo)"], ["desktop", "Escritorio (Electron)"], ["tauri", "Escritorio (Tauri)"],
   ["dotnet", "Escritorio .NET (Avalonia)"], ["cli", "Línea de comandos (Python)"],
-  ["go", "Servidor y API (Go)"]];
+  ["go", "Servidor y API (Go)"], ["rust", "Línea de comandos (Rust)"]];
 
 export function createProjectView({ $, el, api, setStatus }) {
   const sources = [];   // {kind, ref, label}

@@ -400,7 +400,7 @@ def _parser() -> argparse.ArgumentParser:
     cr.add_argument("--out", required=True, help="Carpeta del proyecto nuevo (vacía o inexistente)")
     cr.add_argument("--name", default="Nuevo proyecto")
     cr.add_argument("--target", default="auto",
-                    choices=["auto", "static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go"])
+                    choices=["auto", "static", "react", "vue", "svelte", "next", "fastapi", "express", "django", "expo", "desktop", "tauri", "cli", "dotnet", "go", "rust"])
     # Obsoleta (decisión del titular 2026-11-11): la verificación es siempre obligatoria. Se acepta y avisa; se
     # retirará en una versión posterior.
     cr.add_argument("--verify", action="store_true", default=False, help=argparse.SUPPRESS)

@@ -8,6 +8,9 @@
 - **D2 destino Go (18/11, rama `luis/d2-go`, apilada sobre #84):** `create --target go`: servidor web y API REST en Go
   con solo la biblioteca estándar, web embebida, cabeceras de seguridad y prueba de humo. Verificado con Go 1.27
   (vet, test, build y humo, sin red) en castellano e inglés. Pendiente D2: Rust.
+- **D2 destino Rust (18/11, rama `luis/d2-rust`, apilada sobre #85):** `create --target rust`: comando de línea de
+  comandos (misma interfaz que `cli` de Python) con serde y serde_json. Verificado con Rust 1.98 (build, test y
+  ejecutable) en castellano e inglés, aislado y sin red desde la caché de Cargo. Con esto D2 queda hecho.
 - **Chat de Eolfi → @eolfi en VS Code (18/11, rama `luis/chat-vscode-encargos`; encargo de la sesión que falló al
   arrancar):** herramienta del chat `eolfi_vscode_encargo` (y `eolfi_vscode_encargo_estado`): propone el plan
   VERIFICADO (create con verificación, juez y accesibilidad) con destino en la carpeta abierta en VS Code, deja el

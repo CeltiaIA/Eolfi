@@ -99,6 +99,8 @@
  "Línea de comandos: Windows, macOS y Linux (Python)": "Command line: Windows, macOS and Linux (Python)",
  "Servidor web y API en Go (un solo ejecutable, sin dependencias)": "Go web server and API (a single executable, no dependencies)",
  "Servidor y API (Go)": "Server and API (Go)",
+ "Línea de comandos en Rust: Windows, macOS y Linux": "Command line in Rust: Windows, macOS and Linux",
+ "Línea de comandos (Rust)": "Command line (Rust)",
  "IA opcional": "Optional AI",
  "Proveedor de IA": "AI provider",
  "IA: Eolas V2 (local, motor activo)": "AI: Eolas V2 (local, active engine)",
