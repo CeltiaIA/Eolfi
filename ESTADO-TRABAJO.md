@@ -5,6 +5,35 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Galaxy Tab 2 como satélite de Eolfi (19/11, rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, commits `6131a71` y `7423908`, sin publicar):**
+  - Informe: `D:\Eolfi-objetivos\informes\tablet-gtp3100\INFORME-GT-P3100.md`, con las evidencias y `SHA256SUMS.txt`.
+  - **Inventario REA** de solo lectura:
+    - OMAP4430, SGX540 con GLES 2.0, 788 MB de RAM y Android 4.1.2 JZO54K;
+    - OpenSSL 1.0.1c y WebKit 534.30;
+    - TLS 1.2 disponible pero apagado por defecto y sin suites GCM.
+    - Kernel y boot: NO VERIFICADO (sin root).
+    - En API 16 fallan tres herramientas REA: `inspect_adb_display`, `pull_adb_package` y `capture_adb_screen`.
+  - **Servidor:**
+    - token de cliente con alcance (`client_tokens.scope`, se migra solo); el de la tableta solo abre `/api/tableta/*` y `/api/voz/{transcribir,hablar}` (`eolfi/tableta.py`);
+    - `eolfi serve --tls-legado`: ECDHE-AES-CBC-SHA en TLS 1.2, lo único que negocia Android 4.1.
+  - **App** `eolfi/tableta-android/`:
+    - APK de 24 KB construido sin SDK ni descargas (javac + D8 de jadx + aapt2 de apktool);
+    - firma v1 propia (el `jarsigner` del JDK 21 no vale para Android 4.1).
+  - **Smoke real en la tableta** contra un panel de prueba en 18779 por HTTPS:
+    - vínculo con huella fijada, diagnóstico, visor, chat con Gemma, dictado → whisper → chat → voz;
+    - encontró y se corrigieron dos fallos: sin cifrado común, y realimentación del micrófono (ahora es semidúplex).
+    - Voz de salida: el titular la oyó perfectamente (19/11).
+  - **Pruebas:**
+    - `tests/test_tableta.py`, `tests/test_tableta_android.py` y TLS legado: 26 pasan;
+    - puentes: 70 pasan y 4 omitidas, y 211/211;
+    - e2e: 26/26.
+    - suite completa `python -m pytest -q` en el worktree: 1305 pasan, 12 omitidas, 0 fallos (antes 4 fallos: 3 traducciones i18n de los textos nuevos y el instalador, por un `import` de `tableta` que tumbaba el panel entero; ahora solo se carga con un token con alcance);
+    - tras el commit, `tests/test_instalador.py` 12/12: la rueda incluye `eolfi/tableta.py` y excluye las fuentes Android (`tools/verificar_paquete.py`).
+  - **A9 con voz real del titular (19/11):** dictado en la tableta → whisper → texto revisable en la caja (o envío al soltar) → Gemma → `/api/voz/hablar` 200. Si Eolas está ocupado, el texto vuelve a la caja con aviso. El titular oyó la respuesta perfectamente por el altavoz.
+  - **C7:** en Android 4.1 el panel web no es compatible con el navegador (WebKit 534, sin módulos ES ni `getUserMedia`); C7 en la tableta pasa por la app satélite.
+  - Requisito del titular: sin Google ni Samsung. La app solo usa AOSP, la JDK y org.json (prueba `test_app_android_sin_google_ni_samsung`). Quitar las apps de sistema o cambiar de ROM queda pendiente de su permiso.
+  - La tableta sigue vinculada al panel de prueba 18779, ya parado: hay que vincularla de nuevo contra el panel real con `--cert --key --tls-legado`.
+
 - **B1 juez .NET (18/11, rama `luis/b1-juez-dotnet`):** criterios `"escritorio": true` (pulsar, seleccionar,
   escribir, comprobar presente/ausente) conducidos con UI Automation sobre el ejecutable Avalonia. Real: la app
   generada (NuGet solo de la caché) pasa 4/5 con una comprobación imposible a propósito. Rust real del juez de

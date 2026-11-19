@@ -801,6 +801,9 @@ def _parser() -> argparse.ArgumentParser:
     sv.add_argument("--cert", default=None, metavar="PEM",
                     help="Sirve por HTTPS con este certificado (el móvil solo deja usar el micrófono con HTTPS)")
     sv.add_argument("--key", default=None, metavar="PEM", help="Clave privada del certificado de --cert")
+    sv.add_argument("--tls-legado", action="store_true",
+                    help="Con --cert, admite también ECDHE con AES-CBC-SHA en TLS 1.2: lo único que negocia "
+                         "Android 4.1-4.4 (p. ej. la tableta satélite)")
     sv.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; "
                          "en modo remoto, solo samples/ y generated/")
@@ -2411,7 +2414,11 @@ def _main(argv: list[str]) -> int:
         if args.key and not args.cert:
             print("eolfi: --key necesita --cert", file=sys.stderr)
             return 2
-        return server.serve(args.db, args.host, args.port, args.allow_remote, args.samples, args.cert, args.key)
+        if args.tls_legado and not args.cert:
+            print("eolfi: --tls-legado necesita --cert", file=sys.stderr)
+            return 2
+        return server.serve(args.db, args.host, args.port, args.allow_remote, args.samples, args.cert, args.key,
+                            tls_legado=args.tls_legado)
     store = EvidenceStore(args.db)
     try:
         return _dispatch(args, store)
