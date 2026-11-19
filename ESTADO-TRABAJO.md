@@ -5,7 +5,7 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
-- **Galaxy Tab 2 como satélite de Eolfi (19/11, rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, sin commit):**
+- **Galaxy Tab 2 como satélite de Eolfi (19/11, rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, commits `6131a71` y `7423908`, sin publicar):**
   - Informe: `D:\Eolfi-objetivos\informes\tablet-gtp3100\INFORME-GT-P3100.md`, con las evidencias y `SHA256SUMS.txt`.
   - **Inventario REA** de solo lectura:
     - OMAP4430, SGX540 con GLES 2.0, 788 MB de RAM y Android 4.1.2 JZO54K;
@@ -28,7 +28,7 @@
     - puentes: 70 pasan y 4 omitidas, y 211/211;
     - e2e: 26/26.
     - suite completa `python -m pytest -q` en el worktree: 1305 pasan, 12 omitidas, 0 fallos (antes 4 fallos: 3 traducciones i18n de los textos nuevos y el instalador, por un `import` de `tableta` que tumbaba el panel entero; ahora solo se carga con un token con alcance);
-    - el paquete construido desde `git ls-files` no incluye `eolfi/tableta.py` mientras no esté en Git: la tableta contra un panel instalado queda NO VERIFICADA hasta el commit.
+    - tras el commit, `tests/test_instalador.py` 12/12: la rueda incluye `eolfi/tableta.py` y excluye las fuentes Android (`tools/verificar_paquete.py`).
   - Requisito del titular: sin Google ni Samsung. La app solo usa AOSP, la JDK y org.json (prueba `test_app_android_sin_google_ni_samsung`). Quitar las apps de sistema o cambiar de ROM queda pendiente de su permiso.
   - La tableta sigue vinculada al panel de prueba 18779, ya parado: hay que vincularla de nuevo contra el panel real con `--cert --key --tls-legado`.
 
