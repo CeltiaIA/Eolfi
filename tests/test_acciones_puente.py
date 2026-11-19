@@ -48,3 +48,17 @@ def test_node_detecta_la_cabeza_escrita_por_python(tmp_path, monkeypatch):
     path.write_text("\n".join([lineas[0], lineas[1].replace('"minutos":30', '"minutos":300')]) + "\n",
                     encoding="utf-8")
     assert acciones.verificar()["roto_en"] == 2
+
+
+def test_python_verifica_firma_automatica_del_puente(tmp_path, monkeypatch):
+    path = tmp_path / "registro" / "acciones.jsonl"
+    monkeypatch.setenv("EOLFI_ACCIONES_FILE", str(path))
+    monkeypatch.setenv("EOLFI_ACCIONES_FIRMA_AUTO", "1")
+    key = acciones.generar_clave(tmp_path / "claves" / "clave.hex")["clave"]
+    monkeypatch.setenv("EOLFI_ACCIONES_CLAVE", key)
+    _node(path, "puente.chat", {"n": 1})
+    res = acciones.verificar_firmas()
+    assert res["ok"] and res["firmas"] == 1 and res["sin_firmar_al_final"] == 0
+    monkeypatch.delenv("EOLFI_ACCIONES_CLAVE")
+    _node(path, "puente.revocar", {})
+    assert acciones.verificar_firmas(key)["firmas_fallidas"] == 1

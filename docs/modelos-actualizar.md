@@ -86,6 +86,12 @@ Los perfiles de serie ya pasaron por las rondas de motores: para ellos el examen
 ## Límites
 
 - El hash publicado demuestra que se recibió lo publicado, no que los pesos sean seguros ni mejores.
-- No hay reanudación de descargas cortadas: el `.part` se conserva y hay que retirarlo a mano tras revisarlo.
-- Comparar con el banco antes de adoptar sigue siendo manual (el banco sobre la reconstrucción está suspendido).
+- Para continuar una descarga interrumpida, repite `modelos descargar` con los mismos argumentos y añade
+  `--reanudar`. Conserva juntos el `.part` y su `.part.control`. Eolfi comprueba el repositorio, el archivo,
+  la revisión y el SHA-256 antes de pedir el rango pendiente. Si el servidor ignora el rango se conserva el
+  parcial. Antes de publicar el archivo se calcula el hash completo, incluidos los bytes reutilizados.
+- Para examinar dos perfiles usa `eolfi eolas-v2 examen BASE CANDIDATO --informe ronda.json`. El destino debe
+  ser un JSON nuevo: se escribe atómicamente y nunca se sobrescribe una evidencia anterior. Después ejecuta
+  `eolfi eolas-v2 comparar-banco ronda.json BASE CANDIDATO` para ver qué casos ganó o perdió cada uno.
+  La comparación requiere una ronda con todos los casos previstos, ejecutados por ambos perfiles sin repesca.
 - Probado con respuestas simuladas; la consulta real a Hugging Face no se ha ejecutado: NO VERIFICADO.

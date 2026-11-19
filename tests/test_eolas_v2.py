@@ -186,6 +186,85 @@ def test_switch_con_runtime_inexistente_conserva_el_servidor(tmp_path, monkeypat
     assert eolas_v2.load_config()["active_profile"] == "gemma"
 
 
+def test_telemetria_solo_mide_el_arranque_nuevo(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from eolfi import eolas_v2, telemetria
+
+    cfg = _config(tmp_path)
+    proc = SimpleNamespace(pid=os.getpid(), poll=lambda: None)
+    monkeypatch.setattr(eolas_v2, "_healthy", lambda config, alias=None: alias is not None)
+    monkeypatch.setattr(eolas_v2, "_record_alive", bool)
+    result = eolas_v2._start_locked("gemma", cfg, popen=lambda *a, **kw: proc)
+    assert result["started"] and result["carga_s"] >= 0
+    assert not eolas_v2._start_locked("gemma", cfg, popen=lambda *a, **kw: pytest.fail("reutilizado"))["started"]
+    summary = telemetria.resumen()["por_proveedor"]["eolas-v2"]
+    assert summary["cargas"] == 1 and summary["carga_s_p50"] == round(round(result["carga_s"], 3), 2)
+
+
+def test_export_sft_memoria_verificada(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+    from eolfi.cli import main
+    from eolfi.generador.assist import MEMORY_SCHEMA
+
+    source = tmp_path / "memoria.jsonl"
+    monkeypatch.setenv("EOLFI_ASSIST_MEMORY", str(source))
+    rows = [{"schema": MEMORY_SCHEMA, "verified": True, "target": "web", "request": f"Ejercicio {i}",
+             "summary": "Se añadió un contador", "id": str(i)} for i in range(100)]
+    rows += [rows[0], {**rows[1], "verified": False, "request": "fallido"}]
+    source.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+    out = tmp_path / "dataset.jsonl"
+    assert main(["eolas-v2", "dataset", "sft", "--memoria-verificada", "--out", str(out)]) == 0
+    samples = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+    assert len(samples) == 100 and all(s["prompt"] != "fallido" for s in samples)
+    assert {s["split"] for s in samples} == {"train", "test", "validation"}
+    with pytest.raises(ValueError, match="coincide"):
+        eolas_v2.dataset_memoria_verificada(source)
+
+
+def test_comparacion_emparejada_desde_cli(tmp_path, capsys):
+    from eolfi.cli import main
+
+    path = tmp_path / "ronda.json"
+    report = {"ronda": "prueba", "battery": "completa", "casos_previstos": {"a": "v1", "b": "v1"},
+              "results": [{"profile": p, "case": c, "first_try": ok} for p, c, ok in
+                          [("base", "a", True), ("base", "b", False), ("nuevo", "a", False), ("nuevo", "b", True)]]}
+    cmd = ["eolas-v2", "comparar-banco", str(path), "base", "nuevo"]
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert main(cmd) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["mejoras"] == ["b"] and result["regresiones"] == ["a"]
+    report["results"][-1]["arrastrado"] = True
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert main(cmd) == 2
+    report["results"].pop()
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert main(cmd) == 2
+
+
+def test_examen_guarda_informe_atomico_sin_sobrescribir(tmp_path, monkeypatch, capsys):
+    from eolfi import eolas_v2
+    from eolfi.cli import main
+
+    report = {"ronda": "ronda-1", "battery": "completa", "summary": {"gemma": {"aprobado": True}},
+              "results": [], "casos_previstos": {"caso": "v1"}}
+    monkeypatch.setattr(eolas_v2, "run_round", lambda **_kwargs: report)
+    monkeypatch.setattr(eolas_v2, "admitido", lambda _profile: {"admitido": True})
+    destino = tmp_path / "ronda.json"
+    assert main(["eolas-v2", "examen", "gemma", "--informe", str(destino)]) == 0
+    salida = json.loads(capsys.readouterr().out)
+    assert salida["guardado"]["ronda"] == "ronda-1"
+    assert salida["guardado"]["perfiles"] == ["gemma"]
+    assert json.loads(destino.read_text(encoding="utf-8")) == report
+    assert not list(tmp_path.glob("*.tmp"))
+
+    with pytest.raises(FileExistsError, match="ya existe"):
+        eolas_v2.guardar_informe_ronda(destino, report)
+    with pytest.raises(ValueError, match="terminar en .json"):
+        eolas_v2.guardar_informe_ronda(tmp_path / "ronda.txt", report)
+    with pytest.raises(ValueError, match="ronda completa"):
+        eolas_v2.guardar_informe_ronda(tmp_path / "incompleta.json", {"battery": "completa"})
+
+
 def test_motor_v2_se_abstiene_si_celtia_v1_anuncia_modelo(tmp_path, monkeypatch):
     from eolfi import eolas_v2
 
@@ -311,6 +390,7 @@ def test_recomendacion_del_banco_solo_usa_aprobados_recientes_y_disponibles(tmp_
     eolas_v2._remember_evaluation(report)
     preview = eolas_v2.apply_recommended_profile("completa")
     assert preview["perfil"] == "mistral" and preview["aplicado"] is False
+    assert preview["cobertura"] == "NO_VERIFICADO"
     assert eolas_v2.load_config()["active_profile"] == "gemma_q4"
     applied = eolas_v2.apply_recommended_profile("completa", apply=True)
     assert applied["aplicado"] is True and eolas_v2.load_config()["active_profile"] == "mistral"
@@ -333,6 +413,34 @@ def test_recomendacion_no_inventa_ganador_sin_banco_aprobado(tmp_path, monkeypat
     eolas_v2._remember_evaluation(eolfi)
     result = eolas_v2.recommend_evaluation_profile("completa")
     assert result["estado"] == "NO_VERIFICADO" and result["perfil"] is None
+
+
+def test_recomendacion_exige_casos_completos_en_memorias_nuevas(tmp_path, monkeypatch):
+    from eolfi import eolas_v2
+
+    cfg_path = tmp_path / "eolas.json"
+    memory = tmp_path / "evaluation.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(cfg_path))
+    monkeypatch.setenv("EOLFI_EOLAS_V2_EVALUATIONS", str(memory))
+    cfg_path.write_text(json.dumps(_config(tmp_path)), encoding="utf-8")
+    report = {"battery": "completa", "ronda": "r1", "casos_previstos": {"uno": "v1", "dos": "v1"},
+              "summary": {"gemma_q4": {"aprobado": True, "codigo_primera_pct": 100,
+                                      "herramientas_pct": 100}},
+              "results": [{"profile": "gemma_q4", "case": "uno", "first_try": True}]}
+    eolas_v2._remember_evaluation(report)
+    assert eolas_v2.recommend_evaluation_profile()["estado"] == "NO_VERIFICADO"
+
+    report["results"].append({"profile": "gemma_q4", "case": "dos", "first_try": True})
+    eolas_v2._remember_evaluation(report)
+    result = eolas_v2.recommend_evaluation_profile()
+    assert result["perfil"] == "gemma_q4" and result["cobertura"] == "casos previstos completos"
+
+    report["results"].append({"profile": "gemma_q4", "case": "dos", "first_try": True})
+    eolas_v2._remember_evaluation(report)
+    assert eolas_v2.recommend_evaluation_profile()["perfil"] == "gemma_q4"
+    # La ronda duplicada no desplaza a la ronda anterior que s� estaba completa.
+    assert eolas_v2.recommend_evaluation_profile()["registrado"] == json.loads(
+        memory.read_text(encoding="utf-8"))[-2]["recorded_at"]
 
 
 def test_celtia_v2_compone_redactor_y_revisor_secuencial(monkeypatch):
@@ -938,6 +1046,17 @@ def test_modo_offline_usa_guardia_nativa_y_entorno_sin_declarar_cortafuegos(tmp_
     assert state["firewall_verified"] is False
 
 
+def test_estado_offline_refleja_la_regla_verificada(tmp_path, monkeypatch):
+    from eolfi import cortafuegos, eolas_v2
+
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(tmp_path / "eolas.json"))
+    monkeypatch.setenv("EOLAS_OFFLINE", "1")
+    monkeypatch.setattr(eolas_v2, "load_config", lambda create=False: _config(tmp_path))
+    monkeypatch.setattr(cortafuegos, "estado", lambda path: {"estado": "bloqueado", "programa": str(path)})
+    state = eolas_v2.status()
+    assert state["firewall_verified"] and state["firewall"]["estado"] == "bloqueado"
+
+
 def test_servidor_activo_no_cambia_de_modo_offline_en_silencio(tmp_path, monkeypatch):
     from eolfi import eolas_v2
 
@@ -1029,8 +1148,8 @@ def test_ronda_descarta_pronto_y_retira_al_que_no_aprueba(tmp_path, monkeypatch)
     m = report["summary"]["mistral"]
     assert "descartado" in m and not m["aprobado"] and m["retirado"]
     kinds = [r["kind"] for r in report["results"] if r["profile"] == "mistral"]
-    # 13/11/2026: al 3.er fallo deja el código, pero hace IGUALMENTE las 5 de herramientas (antes no llegaba nunca).
-    assert len(kinds) == 3 + len(eolas_v2.TOOL_EVALUATION_CASES) and kinds[3:] == ["herramientas"] * len(eolas_v2.TOOL_EVALUATION_CASES)
+    # Con veinte casos, tras el cuarto fallo ya no llega al 85 %. Aún debe evaluar las herramientas.
+    assert kinds == ["codigo"] * 4 + ["herramientas"] * len(eolas_v2.TOOL_EVALUATION_CASES)
     assert m["codigo_primera_pct"] == 0 and "mistral" in eolas_v2.load_config()["retired_profiles"]
 
 
@@ -1092,7 +1211,7 @@ def test_ronda_endurecida_guarda_examenes_sin_duplicar_y_no_aprende(tmp_path, mo
     assert not any("Lecciones de tus errores" in s for s in asked)                     # no se aplican
     assert eolas_v2.lessons_report()["motores"]["gemma_q4"][0]["veces"] == 1           # ni se aprenden
     lines = [json.loads(l) for l in Path(report["examenes"]).read_text(encoding="utf-8").splitlines()]
-    assert len(lines) == 3 + len(eolas_v2.TOOL_EVALUATION_CASES)                        # 3 de código (descarte) + herramientas
+    assert len(lines) == 4 + len(eolas_v2.TOOL_EVALUATION_CASES)
     assert lines[0]["esquema"] == "eolfi.examen-motor/1"
     r = lines[0]
     assert r["motor"]["sha256"] == "ab" * 32 and r["motor"]["perfil"] == "gemma_q4" and r["examen"]["version"]

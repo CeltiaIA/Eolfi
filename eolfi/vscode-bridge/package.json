@@ -247,14 +247,14 @@
           ],
           "default": "local",
           "enumDescriptions": [
-            "Agente local llama.cpp con herramientas (Eolas o llama-server, Gemma 4 por defecto). Meta AI Web se consulta con /meta y es el primer respaldo de auditorías; DeepSeek, el segundo."
+            "Agente local con herramientas mediante Eolas V2 o Eolas V1 (Gemma 4 por defecto). Meta AI Web se consulta con /meta y es el primer respaldo de auditorías; DeepSeek Web, el segundo."
           ],
           "description": "Agente principal local de @eolfi con herramientas. Consulta Meta AI Web con @eolfi /meta <mensaje>; Copilot permanece desconectado."
         },
         "eolfi.agent.showModel": {
           "type": "boolean",
           "default": true,
-          "description": "Al final de cada respuesta y de cada auditoría, indica qué modelo trabajó (local en tu equipo o Copilot de GitHub)."
+          "description": "Al final de cada respuesta y de cada auditoría, indica qué modelo trabajó (Eolas local, Meta AI Web o DeepSeek Web)."
         },
         "eolfi.agent.instructions": {
           "type": "string",

@@ -40,3 +40,10 @@ node_modules/
 
 # Logs locales del servidor
 .eolfi-server.*.log
+/debug.log
+
+# Configuración local de clientes y binarios de terceros usados como evidencia (LIM-054)
+/.codex/
+/informes/e4-evidencia-*/*.zip
+/informes/e4-evidencia-*/*.exe
+/informes/politica-cliente-*.md

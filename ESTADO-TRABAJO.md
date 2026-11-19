@@ -5,6 +5,48 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Cierre de suites en `luis/voz-piper` (20/11, sin confirmar):** con el árbol de 37 archivos modificados y los nuevos
+  módulos (`cortafuegos`, `herramientas_rea`), las cuatro suites se ejecutaron en este equipo sin bloqueo de loopback:
+  `python -m pytest -q` 1332 aprobadas y 8 omitidas, salida 0 (14 min 20 s); `node --test` en `eolfi/bridge` 70 aprobadas
+  y 4 omitidas, salida 0; `node --test` en `eolfi/vscode-bridge` 211/211, salida 0; `npm.cmd test` en `tests/e2e`
+  28/28, salida 0. Ruff F y `git diff --check`, salida 0. `.gitignore` excluye ahora `.codex/` y los instaladores de
+  Cutter y Npcap de la evidencia E4 (LIM-054; hashes recalculados e iguales). No se ha hecho commit. Siguen pendientes
+  del titular: hashes de confianza (G2), regla de cortafuegos (G3), registrar Cutter portátil en REA, micrófono físico,
+  dictado en Android (TLS 1.2) y la revisión de `REGISTRO_LIMPIEZA.md`.
+
+- **E4/D3/C7, continuación local (19/11):** sigrok-cli 0.7.2 existente y 111 decodificadores; Npcap 1.90
+  instalado y `dumpcap -D` salida 0 sin captura; Cutter 2.5.0 portátil arrancó con Rizin 0.9.1 incluido.
+  REA aún no detecta Cutter y el uso del Rizin externo está **NO VERIFICADO**. D3 completó la misma ronda
+  de 28 casos: Q5 28/28 y Q4 26/28 a la primera, con regresiones `ofuscado` y `duracion`; examen y
+  comparación salieron 0. La tableta Android 4.1.2 conectada no pudo negociar TLS 1.2 con el panel:
+  dictado **NO VERIFICADO**. El servidor de prueba se detuvo. Perfil original `gemma`, servidor detenido.
+  Pruebas seleccionadas 124/124, Ruff y `git diff --check` con salida 0. Detalles, límites y hashes en
+  `informes/plan-encadenado-2026-11-19.md`.
+
+- **E4/D3/C7 desde el cliente restringido (19/11):** WSL devuelve `E_ACCESSDENIED`; Npcap no existe y
+  `dumpcap -D` sale 2; Cutter no está; Rizin 0.9.1 sí responde. Docker Desktop arrancó, pero el canal del motor
+  mantiene `permission denied`, por lo que la ronda Q5/Q4 salió 1 antes de cargar modelos y no creó informe.
+  `adb devices -l` no enumera dispositivos: **NO VERIFICADO: no hay dispositivo ADB conectado**. Detalle y hashes
+  en `informes/e4-d3-c7-copilot-2026-11-19.md`.
+
+- **Plan encadenado (19/11, sin confirmar):** implementados y documentados la carga en telemetría (B4), dos casos
+  inéditos y comparación emparejada (B7/D3), firma automática del puente Node (B8), lanzador macOS y firma opcional
+  con SignTool (C2), procedencia del auditor y sockets Linux/macOS (G1), confianza antes de cuantizar y hacer smoke
+  (G2), regla reversible de cortafuegos Windows (G3), procedencia compilada de los tamaños K (G4), reanudación HTTP
+  y comparación previa a adoptar (G5), propuesta RSI para el plazo de arranque (G6) y exportación SFT de la memoria
+  verificada (G7). Informe: informes/plan-encadenado-2026-11-19.md.
+  La regla real Eolfi sin red 8d2f9bb440e2 está ausente. La memoria real aporta 2 peticiones distintas y G7 exige
+  20, así que no se inició entrenamiento. Suites completas: NO VERIFICADAS por bloqueo de loopback del entorno.
+
+- **G1, procedencia en el auditor y en el chat (19/11).** El informe de archivo y el inventario de carpeta
+  devuelven `procedencia: NO VERIFICADO`. El chat recibe ese dato y la instrucción de distinguirlo del estado
+  estructural. La regresión usa un GGUF dentro de una carpeta cuyo nombre coincide con su SHA-256.
+  En Windows, `python -m eolfi modelos auditar` sobre el GGUF original de Alejandría devolvió código 0,
+  `estructura_verificada`, procedencia `NO VERIFICADO`, 7.121.860.000 bytes y SHA-256
+  `43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6`.
+  Las pruebas de chat, modelos y MCP pasaron (58). Respuesta final de Gemma con el cambio: NO VERIFICADO;
+  el entorno bloqueó la conexión al panel en 127.0.0.1:8777 (WinError 10013).
+
 - **Voz Piper, herramientas del chat y micrófono (19/11, rama `luis/voz-piper`, apilada sobre `luis/panel-stderr-adjuntos`/#103):**
   - Lectura con **Piper 1.8.0** local (venv `~/.eolfi/tools/piper-venv`, voces es_ES davefx y sharvard en
     `~/.eolfi/voces/piper`, descargadas con permiso del titular). Ajustes original, natural y pausada; `para_leer`
@@ -196,11 +238,12 @@
   `#version` y el `change` del selector se perdía (0 subidas). `initEolasChat` procesa lo ya elegido y marca
   `data-ready`; prueba de regresión que retrasa el módulo.
 
-- **C1 idiomas, parcial (17/11, rama `luis/c1-idiomas`):** panel con selector ES/EN (`eolfi/web/i18n.js` +
+- **C1 idiomas, primera etapa superada (17/11, rama `luis/c1-idiomas`):** panel con selector ES/EN (`eolfi/web/i18n.js` +
   `i18n-en.json`, 289/289 textos fijos; nunca traduce chats, evidencias ni casos), API con `?lang`/cookie/
   `Accept-Language` (61/61 errores fijos, `Content-Language`) y CLI con `--idioma en` (129/129 ayudas de
   subcomandos). Castellano por defecto. Verificado en el navegador (vista previa en 8791 con base temporal) y con
-  e2e 22/22. Pendiente: textos dinámicos del JS, errores con partes variables y ayuda de argumentos. Corregidos a
+  e2e 22/22. Los textos dinámicos del JS, errores con partes variables y ayuda de argumentos se completaron después
+  (véase la entrada C1 del 18/11 arriba). Corregidos a
   castellano dos mensajes de la API que estaban en gallego («Abre VS Code y vincula la extensión de Eolfi.»,
   «Mensaje o proyecto no válido.») y dos
   avisos del chat local del panel (`app.js`), con su traducción al inglés en el catálogo.

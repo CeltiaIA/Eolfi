@@ -22,7 +22,8 @@ dependencies = []          # el núcleo usa solo la librería estándar
 
 [project.optional-dependencies]
 ai = ["anthropic"]          # modo asistido: eolfi assist / create --ai
-dev = ["pytest"]
+dev = ["pytest", "psutil>=6; sys_platform == 'linux' or sys_platform == 'darwin'"]
+conexiones = ["psutil>=6"]
 
 [project.scripts]
 eolfi = "eolfi.cli:main"

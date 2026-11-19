@@ -1,6 +1,6 @@
 """Instantánea de sockets por PID, sin lanzar ni instrumentar el proceso.
 
-Windows usa IP Helper directamente. Una instantánea no demuestra ausencia de
+Windows usa IP Helper directamente; Linux y macOS usan psutil si está disponible. Una instantánea no demuestra ausencia de
 conexiones pasadas/futuras ni que un archivo GGUF sea el modelo cargado.
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ import ipaddress
 import os
 import socket
 import sys
+from pathlib import Path
 from datetime import datetime, timezone
 
 U32 = ctypes.c_uint32
@@ -105,6 +106,45 @@ def _windows_table(row_type, family, tcp):
     raise OSError("La tabla de sockets cambió durante tres lecturas; repetir la instantánea")
 
 
+def _posix_snapshot(pid, result):
+    result["proveedor"] = {"nombre": "psutil", "plataforma": sys.platform}
+    result["cobertura"] = {label: "NO VERIFICADO" for label, *_ in TABLES}
+    try:
+        import psutil
+    except ImportError:
+        result["incognitas"].append("Falta el proveedor opcional psutil para consultar sockets por PID")
+        return
+    result["proveedor"]["version"] = psutil.__version__
+    try:
+        if sys.platform.startswith("linux"):
+            procfs = Path(psutil.PROCFS_PATH)
+            if not (procfs / "self/ns/net").samefile(procfs / str(pid) / "ns/net"):
+                raise ValueError("El PID pertenece a otro espacio de nombres de red")
+        process = psutil.Process(pid)
+        sockets = process.net_connections(kind="inet")
+        if not process.is_running():
+            raise ValueError("El proceso terminó durante la consulta")
+        for entry in sockets:
+            if entry.family not in (socket.AF_INET, socket.AF_INET6) or entry.type not in (
+                    socket.SOCK_STREAM, socket.SOCK_DGRAM):
+                continue
+            tcp = entry.type == socket.SOCK_STREAM
+            local, port = entry.laddr
+            row = {"protocolo": "TCP" if tcp else "UDP", "familia": 4 if entry.family == socket.AF_INET else 6,
+                   "local": local, "puerto_local": port}
+            if tcp:
+                remote, remote_port = entry.raddr or (None, None)
+                address = _network_ip(remote) if remote else None
+                row.update(estado=entry.status, remoto=remote, puerto_remoto=remote_port,
+                           remoto_no_loopback=bool(address and not (address.is_loopback or address.is_unspecified)),
+                           escucha_no_loopback=entry.status == "LISTEN" and not _network_ip(local).is_loopback)
+            result["conexiones"].append(row)
+    except (psutil.Error, AttributeError, OSError, ValueError) as exc:
+        result["incognitas"].append(f"Consulta de sockets del PID incompleta: {exc}")
+        return
+    result["cobertura"] = {label: "consultada" for label, *_ in TABLES}
+
+
 def snapshot(pid):
     if type(pid) is not int or not 0 < pid <= 0xffffffff:
         raise ValueError("PID inválido")
@@ -119,7 +159,10 @@ def snapshot(pid):
                   "Un remoto no loopback no distingue conexiones entrantes de salientes",
                   "UDP solo muestra enlaces locales; destinos e historial no observados",
               ]}
-    if os.name != "nt":
+    if os.name != "nt" and (sys.platform.startswith("linux") or sys.platform == "darwin"):
+        _posix_snapshot(pid, result)
+    elif os.name != "nt":
+        result["proveedor"] = {"nombre": None, "plataforma": sys.platform}
         result["incognitas"].append("Proveedor de conexiones no implementado en esta plataforma")
     else:
         for label, row_type, family, tcp in TABLES:

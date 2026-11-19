@@ -300,6 +300,10 @@ CLI_EN: dict[str, str] = {
     "Comprueba estructura GGUF y SHA-256": "Checks GGUF structure and SHA-256",
     "Consulta sockets de un PID, sin iniciar el motor": "Queries the sockets of a PID without starting the engine",
     "Comprueba un hash contra un manifiesto autorizado": "Checks a hash against an authorized manifest",
+    "Calcula identidades para revisar; no autoriza ni activa modelos":
+        "Calculates identities for review; does not authorize or activate models",
+    "GGUF local (repetible)": "Local GGUF (repeatable)",
+    "JSON nuevo de propuesta; nunca se sobrescribe": "New proposal JSON; never overwritten",
     "G5: compara los modelos locales con lo publicado (abre la red con --red)":
         "G5: compares local models with the published ones (opens the network with --red)",
     "G5: descarga un GGUF fijado por commit y SHA-256 y lo audita": "G5: downloads a GGUF pinned by commit and SHA-256 and audits it",
@@ -347,6 +351,17 @@ CLI_EN: dict[str, str] = {
     "Detiene solo el llama-server que inició Eolas": "Stops only the llama-server that Eolas started",
     "Catálogo: etiqueta, si se puede usar, roles y admisión de cada perfil":
         "Catalogue: label, whether it can be used, roles and admission of each profile",
+    "Comparar dos perfiles examinados en la misma ronda completa": "Compare two profiles tested in the same full round",
+    "Informe JSON devuelto por examen": "JSON report returned by examen",
+    "Segundo perfil para una ronda emparejada con informe completo": "Second profile for a paired round with a full report",
+    "Guarda atómicamente el informe completo en un JSON nuevo":
+        "Atomically saves the full report to a new JSON file",
+    "Usar peticiones y resúmenes verificados de assist para SFT": "Use requests and verified assist summaries for SFT",
+    "Continuar el parcial de esta misma revisión y SHA-256": "Resume the partial download for this revision and SHA-256",
+    "Bloqueo de salida del ejecutable del servidor (Windows)": "Block outbound traffic from the server executable (Windows)",
+    "llama-server.exe; por defecto usa el perfil activo": "llama-server.exe; defaults to the active profile",
+    "Crear y comprobar la regla de bloqueo": "Create and verify the blocking rule",
+    "Retirar solo la regla exacta de Eolfi": "Remove only Eolfi's exact rule",
     "Da de alta un GGUF local como perfil nuevo (no lo activa)": "Registers a local GGUF as a new profile (does not activate it)",
     "Elige el perfil activo (sin arrancarlo); los nuevos deben estar admitidos":
         "Selects the active profile (without starting it); new ones must be admitted",
@@ -421,6 +436,8 @@ CLI_EN: dict[str, str] = {
         "Checks the SHA-256 hashes of a package made with --paquete (without REA)",
     "Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y exportaciones (WABT 1.0.42)":
         "WebAssembly module without running it: validity, sections, imports and exports (WABT 1.0.42)",
+    "Estado de Npcap, sigrok y Cutter; solo lectura, no instala nada":
+        "Status of Npcap, sigrok and Cutter; read-only, installs nothing",
     "Observaciones, casos de regresión, propuestas, reglas y registro":
         "Observations, regression cases, proposals, rules and log",
     "Comprueba la cadena SHA-256 del registro": "Checks the log's SHA-256 chain",

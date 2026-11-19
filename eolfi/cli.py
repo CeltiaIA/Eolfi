@@ -172,6 +172,9 @@ def _parser() -> argparse.ArgumentParser:
     mt = model_commands.add_parser("comprobar", help="Comprueba un hash contra un manifiesto autorizado")
     mt.add_argument("archivo")
     mt.add_argument("--manifiesto", required=True)
+    mp = model_commands.add_parser("proponer-confianza", help="Calcula identidades para revisar; no autoriza ni activa modelos")
+    mp.add_argument("--archivo", action="append", required=True, help="GGUF local (repetible)")
+    mp.add_argument("--out", required=True, help="JSON nuevo de propuesta; nunca se sobrescribe")
     mu = model_commands.add_parser("actualizar", help="G5: compara los modelos locales con lo publicado (abre la red con --red)")
     mu.add_argument("--fuentes", required=True, help="JSON eolfi.modelos.fuentes/v1 con repo, archivo y SHA-256 local")
     mu.add_argument("--nombre", help="Solo esta fuente")
@@ -182,6 +185,7 @@ def _parser() -> argparse.ArgumentParser:
     md.add_argument("--revision", required=True, help="Commit completo revisado con «modelos actualizar»")
     md.add_argument("--sha256", required=True, help="SHA-256 publicado y revisado")
     md.add_argument("--bytes", type=int, help="Tamaño publicado: se exige igual y se comprueba el espacio libre")
+    md.add_argument("--reanudar", action="store_true", help="Continuar el parcial de esta misma revisión y SHA-256")
     md.add_argument("--out", required=True, help="Carpeta de destino; nunca se sobrescribe")
     md.add_argument("--red", action="store_true", help="Autoriza la descarga")
     mr = model_commands.add_parser("reconstruir", help="Prepara una receta de cuantización; ejecutar exige opción y hashes")
@@ -507,6 +511,10 @@ def _parser() -> argparse.ArgumentParser:
     eos.add_parser("status", help="Estado del único llama-server administrado por Eolas")
     # 18/11/2026 (titular: cambiar de modelo sin tocar código). El modelo se elige en eolas-v2.json con estas órdenes.
     eos.add_parser("perfiles", help="Catálogo: etiqueta, si se puede usar, roles y admisión de cada perfil")
+    eos_comp = eos.add_parser("comparar-banco", help="Comparar dos perfiles examinados en la misma ronda completa")
+    eos_comp.add_argument("informe", help="Informe JSON devuelto por examen")
+    eos_comp.add_argument("base")
+    eos_comp.add_argument("candidato")
     eos_alta = eos.add_parser("alta", help="Da de alta un GGUF local como perfil nuevo (no lo activa)")
     eos_alta.add_argument("profile", help="Nombre nuevo (minúsculas, cifras y guion bajo)")
     eos_alta.add_argument("gguf", help="Ruta del .gguf (la primera parte si viene troceado)")
@@ -529,6 +537,8 @@ def _parser() -> argparse.ArgumentParser:
     eos_examen = eos.add_parser("examen", help="Ronda completa de un perfil (código y herramientas): decide su admisión. "
                                               "CARGA el modelo y necesita Docker")
     eos_examen.add_argument("profile")
+    eos_examen.add_argument("candidato", nargs="?", help="Segundo perfil para una ronda emparejada con informe completo")
+    eos_examen.add_argument("--informe", help="Guarda atómicamente el informe completo en un JSON nuevo")
     eos_plan = eos.add_parser("plan", help="Valida una reconstrucción y propone un perfil sin adoptarlo")
     eos_plan.add_argument("carpeta", help="Carpeta creada por `modelos reconstruir`, con smoke superado")
     eos_plan.add_argument("--profile", required=True, help="Nombre nuevo del perfil (minúsculas y guion bajo)")
@@ -553,6 +563,10 @@ def _parser() -> argparse.ArgumentParser:
     eos_switch = eos.add_parser("switch", help="Detiene el perfil activo y arranca el otro")
     eos_switch.add_argument("profile")
     eos.add_parser("stop", help="Detiene solo el llama-server que inició Eolas")
+    eos_fw = eos.add_parser("cortafuegos", help="Bloqueo de salida del ejecutable del servidor (Windows)")
+    eos_fw.add_argument("--programa", help="llama-server.exe; por defecto usa el perfil activo")
+    eos_fw.add_argument("--aplicar", action="store_true", help="Crear y comprobar la regla de bloqueo")
+    eos_fw.add_argument("--quitar", action="store_true", help="Retirar solo la regla exacta de Eolfi")
     eos_review = eos.add_parser("revisar", help="Revisa la cabecera del GGUF de un perfil (o una ruta) con REA")
     eos_review.add_argument("objetivo", help="perfil Eolas V2 o ruta a un .gguf/.safetensors")
     eos_retire = eos.add_parser("retire", help="Retira un perfil que no aprueba (conserva su GGUF)")
@@ -582,6 +596,7 @@ def _parser() -> argparse.ArgumentParser:
     eos_data.add_argument("kind", choices=["sft", "preference"])
     eos_data.add_argument("--out", required=True)
     eos_data.add_argument("--min-examples", type=int, default=20)
+    eos_data.add_argument("--memoria-verificada", action="store_true", help="Usar peticiones y resúmenes verificados de assist para SFT")
     eos_cal = eos.add_parser("calibrate", help="Recomienda perfil por tarea usando valoraciones humanas")
     eos_cal.add_argument("task")
     eos_check = eos.add_parser("training-check", help="Comprueba si hay checkpoint HF, dataset y dependencias para entrenar")
@@ -624,6 +639,7 @@ def _parser() -> argparse.ArgumentParser:
                     help="Guarda en esta carpeta nueva el paquete completo: evidencias de REA, resultado, caso y "
                          "manifiesto con SHA-256")
     rps = rp.add_subparsers(dest="rea_action", required=True)
+    rps.add_parser("herramientas", help="Estado de Npcap, sigrok y Cutter; solo lectura, no instala nada")
     rcp = rps.add_parser("comprobar-paquete", help="Comprueba los SHA-256 de un paquete hecho con --paquete (sin REA)")
     rcp.add_argument("carpeta")
     r1 = rps.add_parser("revisar-modelo", help="Cabecera de un GGUF/safetensors y si la cuantización coincide")
@@ -1890,9 +1906,12 @@ def _main(argv: list[str]) -> int:
         _print(result)
         return 0 if result.get("comprobado", True) else 1
     if args.cmd == "modelos":
-        from eolfi.modelos import audit, check_trust
+        from eolfi.modelos import audit, check_trust, propose_trust
 
         try:
+            if args.modelos_action == "proponer-confianza":
+                _print(propose_trust(args.archivo, args.out))
+                return 0
             if args.modelos_action == "actualizar":
                 from eolfi.modelos_actualizar import comprobar
 
@@ -1904,7 +1923,7 @@ def _main(argv: list[str]) -> int:
                 from eolfi.modelos_actualizar import descargar
 
                 result = descargar(args.repo, args.archivo, args.revision, args.sha256, args.out, red=args.red,
-                                   bytes_esperados=args.bytes)
+                                   bytes_esperados=args.bytes, reanudar=args.reanudar)
                 _print(result)
                 # Descargado y auditado no significa adoptado: banco y G6 siguen pendientes.
                 return 0 if result["estado"] == "descargado" else 2
@@ -1970,6 +1989,10 @@ def _main(argv: list[str]) -> int:
                 _print(eolas_v2.status())
             elif args.eolas_action == "perfiles":
                 _print({"perfiles": eolas_v2.catalogo()})
+            elif args.eolas_action == "comparar-banco":
+                result = eolas_v2.comparar_banco(_P(args.informe), args.base, args.candidato)
+                _print(result)
+                return 0 if result["estado"] == "comparado" else 2
             elif args.eolas_action == "alta":
                 _print(eolas_v2.register_profile(args.profile, args.gguf, etiqueta=args.etiqueta, alias=args.alias,
                                                  ctx=args.ctx, gpu_layers=args.gpu_layers, batch=args.batch,
@@ -1980,8 +2003,19 @@ def _main(argv: list[str]) -> int:
             elif args.eolas_action == "rol":
                 _print(eolas_v2.set_role(args.rol, args.profile))
             elif args.eolas_action == "examen":
-                report = eolas_v2.run_round(profiles=[args.profile], progress=_progress)
-                _print({"resumen": report.get("summary"), "admision": eolas_v2.admitido(args.profile)})
+                perfiles = [args.profile]
+                if args.candidato:
+                    if args.candidato == args.profile:
+                        raise ValueError("Se necesitan dos perfiles distintos")
+                    perfiles.append(args.candidato)
+                    disponibles = eolas_v2.available_evaluation_profiles(eolas_v2.load_config())
+                    if any(p not in disponibles or p == eolas_v2.NEMO_MOE_PROFILE for p in perfiles):
+                        raise ValueError("Los dos perfiles deben estar disponibles para la ronda")
+                report = eolas_v2.run_round(profiles=perfiles, progress=_progress)
+                guardado = eolas_v2.guardar_informe_ronda(args.informe, report) if args.informe else None
+                salida = report if args.candidato else {"resumen": report.get("summary"),
+                                                         "admision": eolas_v2.admitido(args.profile)}
+                _print({**salida, **({"guardado": guardado} if guardado else {})})
             elif args.eolas_action == "plan":
                 from eolfi.modelos_reconstruir import plan_profile
 
@@ -2002,6 +2036,16 @@ def _main(argv: list[str]) -> int:
                 _print(eolas_v2.switch(args.profile))
             elif args.eolas_action == "stop":
                 _print(eolas_v2.stop())
+            elif args.eolas_action == "cortafuegos":
+                from eolfi import cortafuegos
+                if args.aplicar and args.quitar:
+                    raise ValueError("elige --aplicar o --quitar")
+                programa = args.programa or eolas_v2.profile_config(
+                    eolas_v2.load_config()["active_profile"])["server"]
+                result = (cortafuegos.cambiar(programa, aplicar=args.aplicar)
+                          if args.aplicar or args.quitar else cortafuegos.estado(programa))
+                _print(result)
+                return 0 if result["estado"] in ("bloqueado", "ausente") else 2
             elif args.eolas_action == "revisar":
                 from eolfi import rea_client, rea_compuestas
                 target = (eolas_v2.profile_config(args.objetivo)["model"] if args.objetivo in eolas_v2.load_config()["profiles"]
@@ -2033,7 +2077,12 @@ def _main(argv: list[str]) -> int:
             elif args.eolas_action == "feedback-import":
                 _print(eolas_v2.import_feedback(_P(args.source)))
             elif args.eolas_action == "dataset":
-                _print(eolas_v2.build_dataset(kind=args.kind, out=_P(args.out), min_examples=args.min_examples))
+                if args.memoria_verificada:
+                    if args.kind != "sft":
+                        raise ValueError("La memoria verificada de assist solo admite SFT")
+                    _print(eolas_v2.dataset_memoria_verificada(_P(args.out), args.min_examples))
+                else:
+                    _print(eolas_v2.build_dataset(kind=args.kind, out=_P(args.out), min_examples=args.min_examples))
             elif args.eolas_action == "calibrate":
                 _print(eolas_v2.recommend_profile(args.task))
             elif args.eolas_action == "training-check":
@@ -2135,6 +2184,11 @@ def _main(argv: list[str]) -> int:
     if args.cmd == "rea":
         from eolfi import rea_client, rea_compuestas as rc, rea_paquete
 
+        if args.rea_action == "herramientas":
+            from eolfi.herramientas_rea import inventory
+
+            _print(inventory())
+            return 0
         if args.rea_action == "comprobar-paquete":
             try:
                 comprobado = rea_paquete.comprobar(args.carpeta)

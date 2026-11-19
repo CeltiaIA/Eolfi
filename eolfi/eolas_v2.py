@@ -218,11 +218,12 @@ def _remember_evaluation(report: dict[str, Any]) -> None:
         history = history if isinstance(history, list) else []
     except (OSError, ValueError):
         history = []
-    rows = [{key: row.get(key) for key in ("profile", "alias", "analysis", "answer", "expected", "passed", "seconds", "tokens", "error")}
+    rows = [{key: row.get(key) for key in ("profile", "case", "first_try", "alias", "analysis", "answer", "expected", "passed", "seconds", "tokens", "error")}
             for row in report.get("results", []) if isinstance(row, dict)]
     history.append({"schema": "eolfi.eolas.evaluacion/v1",
                     "recorded_at": datetime.now(timezone.utc).isoformat(), "protocol": report.get("protocol"),
                     "battery": report.get("battery"), "summary": report.get("summary"),
+                    "ronda": report.get("ronda"), "casos_previstos": report.get("casos_previstos"),
                     "best": report.get("mejor"), "approved": report.get("aprobados"), "results": rows})
     try:
         _write_json_atomic(path, history[-50:])
@@ -258,6 +259,12 @@ def recommend_evaluation_profile(battery: str = "completa", *, max_age_days: int
         summary = record.get("summary")
         if not isinstance(summary, dict):
             continue
+        plan = record.get("casos_previstos")
+        if battery == "completa" and plan is not None:
+            if not isinstance(plan, dict) or not plan or not all(
+                    isinstance(case, str) and isinstance(version, str) and version
+                    for case, version in plan.items()):
+                continue
         candidates = []
         for name, result in summary.items():
             if name not in available or not isinstance(result, dict):
@@ -265,6 +272,12 @@ def recommend_evaluation_profile(battery: str = "completa", *, max_age_days: int
             if battery == "completa":
                 if result.get("aprobado") is not True:
                     continue
+                if plan is not None:
+                    observed = [row.get("case") for row in (record.get("results") or [])
+                                if isinstance(row, dict) and row.get("profile") == name
+                                and row.get("case") in plan and type(row.get("first_try")) is bool]
+                    if len(observed) != len(plan) or set(observed) != set(plan):
+                        continue
                 score = (int(result.get("codigo_primera_pct") or 0), int(result.get("herramientas_pct") or 0))
             else:
                 cases, correct = int(result.get("casos") or 0), int(result.get("correctos") or 0)
@@ -277,11 +290,57 @@ def recommend_evaluation_profile(battery: str = "completa", *, max_age_days: int
             return {"estado": "recomendado", "perfil": name, "bateria": battery,
                     "registrado": recorded.isoformat(), "antiguedad_dias": round(age_days, 3),
                     "puntuacion": list(score), "resultado": result, "aplicado": False,
+                    "cobertura": ("NO_VERIFICADO" if plan is None else "casos previstos completos")
+                    if battery == "completa" else "no aplicable",
                     "evidencia": str(path),
                     "limite": "La recomendación solo resume ese banco; no demuestra calidad fuera de sus casos"}
     return {"estado": "NO_VERIFICADO", "perfil": None, "bateria": battery, "aplicado": False,
             "evidencia": str(path),
             "limite": "No hay una ronda reciente, completa y aprobada para perfiles locales disponibles"}
+
+
+def comparar_banco(informe: Path, base: str, candidato: str) -> dict[str, Any]:
+    """Compara respuestas emparejadas de una sola ronda, sin activar perfiles."""
+    if base == candidato:
+        raise ValueError("Se necesitan dos perfiles distintos")
+    data = json.loads(informe.read_text(encoding="utf-8-sig"))
+    if not isinstance(data, dict):
+        raise ValueError("El informe de la ronda debe ser un objeto")
+    out = {"estado": "NO VERIFICADO", "base": base, "candidato": candidato,
+           "ronda": data.get("ronda"), "informe": str(informe)}
+    plan = data.get("casos_previstos")
+    if (data.get("battery") != "completa" or not out["ronda"] or not isinstance(plan, dict) or not plan
+            or not all(isinstance(version, str) and version for version in plan.values())):
+        return {**out, "motivo": "Falta la ronda completa con versiones de los casos previstos"}
+    scores = {base: {}, candidato: {}}
+    for row in data.get("results") or []:
+        name = row.get("profile")
+        if name not in scores:
+            continue
+        case = row.get("case")
+        if (case not in plan or case in scores[name] or row.get("arrastrado")
+                or type(row.get("first_try")) is not bool):
+            return {**out, "motivo": "Hay resultados duplicados, arrastrados o sin puntuación comparable"}
+        scores[name][case] = row["first_try"]
+    if any(values.keys() != plan.keys() for values in scores.values()):
+        return {**out, "motivo": "Los dos perfiles deben haber ejecutado todos los casos de la ronda"}
+    return {**out, "estado": "comparado", "casos": len(plan), "aciertos_base": sum(scores[base].values()),
+            "aciertos_candidato": sum(scores[candidato].values()),
+            "mejoras": [k for k in plan if scores[candidato][k] and not scores[base][k]],
+            "regresiones": [k for k in plan if scores[base][k] and not scores[candidato][k]]}
+
+
+def guardar_informe_ronda(destino: str | Path, report: dict[str, Any]) -> dict[str, Any]:
+    """Guarda una ronda completa de forma atómica y sin sobrescribir evidencia previa."""
+    path = Path(destino).resolve()
+    if path.suffix.casefold() != ".json":
+        raise ValueError("El informe de la ronda debe terminar en .json")
+    if path.exists():
+        raise FileExistsError(f"El informe ya existe: {path}")
+    if report.get("battery") != "completa" or not report.get("ronda"):
+        raise ValueError("Solo se guarda una ronda completa identificada")
+    _write_json_atomic(path, report)
+    return {"informe": str(path), "ronda": report["ronda"], "perfiles": sorted((report.get("summary") or {}).keys())}
 
 
 @registrada("eolas_v2.recomendar_perfil", campos=("battery", "max_age_days"), resultado=("estado", "status", "profile", "perfil", "active_profile", "running", "pid", "stopped", "aplicado"), si=lambda a: bool(a.get("apply")))
@@ -925,6 +984,7 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
         common = {"stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL,
                   "start_new_session": os.name != "nt", "env": _server_env()}
         breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0) if os.name == "nt" else 0
+        launch_time = time.monotonic()
         try:
             proc = popen(args, creationflags=flags | breakaway, **common)
         except OSError:
@@ -942,15 +1002,27 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
             if proc.poll() is not None:
                 raise RuntimeError(f"llama-server se cerró al iniciar Eolas (código {proc.returncode}; mira {log_path})")
             if _healthy(c, str(c["alias"])):
+                from eolfi import telemetria
+
+                carga_s = time.monotonic() - launch_time
+                telemetria.anotar("carga", proveedor="eolas-v2", modelo=name, carga_s=carga_s)
                 watchdog = None
                 if popen is subprocess.Popen:      # solo un servidor real lleva vigilante de inactividad
                     from eolfi.local_gpu import ensure_watchdog
 
                     watchdog = ensure_watchdog()   # deja su PID y token en el runtime
                 return {"running": True, "started": True, "profile": name, "url": c["url"], "pid": proc.pid,
-                        "idle_watchdog_pid": watchdog}
+                        "idle_watchdog_pid": watchdog, "carga_s": carga_s}
             time.sleep(0.5)
-        raise TimeoutError(f"Eolas no publicó health y el modelo {c['alias']} en {timeout:g} s")
+        message = f"Eolas no publicó health y el modelo {c['alias']} en {timeout:g} s"
+        if wait is None:
+            from eolfi import rsi
+
+            try:
+                rsi.observar("eolas-v2", "arranque", {"ok": False, "error": message}, contexto={"perfil": name})
+            except (OSError, ValueError, rsi.RSIError):
+                pass  # El registro auxiliar nunca debe ocultar el fallo de arranque.
+        raise TimeoutError(message)
     except Exception:
         try:
             proc.kill()
@@ -1091,6 +1163,7 @@ def _record_admission(summary: dict[str, Any], cfg: dict[str, Any], round_id: st
         data[name] = {"aprobado": bool(s.get("aprobado")), "herramientas_pct": s.get("herramientas_pct"),
                       "codigo_primera_pct": s.get("codigo_primera_pct"), "ronda": round_id,
                       "casos_herramientas": len(TOOL_EVALUATION_CASES),
+                      "casos_codigo": len(CODE_EVALUATION_CASES) + len(CODE_VALIDATION_CASES) + len(CODE_UNSEEN_CASES),
                       "fecha": datetime.now(timezone.utc).isoformat(),
                       **_model_fingerprint(cfg["profiles"][name].get("model"))}
     try:
@@ -1117,6 +1190,8 @@ def admitido(name: str, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"admitido": False, "motivo": "el GGUF cambió desde el examen"}
     if int(rec.get("casos_herramientas") or 0) < len(TOOL_EVALUATION_CASES):
         return {"admitido": False, "motivo": "el examen es anterior a las pruebas actuales de herramientas"}
+    if rec.get("casos_codigo") != len(CODE_EVALUATION_CASES) + len(CODE_VALIDATION_CASES) + len(CODE_UNSEEN_CASES):
+        return {"admitido": False, "motivo": "el examen es anterior a las pruebas actuales de código"}
     if not rec.get("aprobado"):
         return {"admitido": False, "motivo": f"no aprobó (herramientas {rec.get('herramientas_pct')} %, código "
                                              f"{rec.get('codigo_primera_pct')} %)"}
@@ -1171,11 +1246,18 @@ def status() -> dict[str, Any]:
     selected = str(record.get("profile")) if live else str(cfg["active_profile"])
     c = profile_config(selected, cfg)
     healthy = _healthy(c, str(c["alias"])) if live else False
+    firewall = {"estado": "NO VERIFICADO"}
+    if offline_requested():
+        try:
+            from eolfi import cortafuegos
+            firewall = cortafuegos.estado(c["server"])
+        except (OSError, ValueError):
+            pass
     return {"config": str(config_file()), "active_profile": cfg["active_profile"], "running_profile": selected if live else None,
             "model": c["model"], "alias": c["alias"], "url": c["url"], "pid": record.get("pid") if live else None,
             "running": bool(live and healthy), "model_verified": healthy,
             "offline_requested": offline_requested(), "running_offline": bool(record.get("offline")) if live else None,
-            "firewall_verified": False,
+            "firewall_verified": firewall.get("estado") == "bloqueado", "firewall": firewall,
             "idle_watchdog_pid": (record.get("idle_watchdog_pid")
                                   if live and _record_alive(record, "idle_watchdog_pid") else None),
             "feedback_enabled": bool(cfg["feedback_enabled"]), "feedback_file": str(feedback_file())}
@@ -2088,6 +2170,25 @@ def _out_of_reach(tally: dict[str, dict[str, int]], code_total: int, tools_total
 # Casos INÉDITOS (14/11/2026, titular: «endurece algo la prueba»): ningún motor los ha visto en rondas anteriores.
 # Cada uno tiene una solución de referencia comprobada (tests/test_eolas_v2.py) y entra en el porcentaje de código.
 CODE_UNSEEN_CASES = (
+    {"id": "restar_intervalos", "label": "Inédito · diferencia de intervalos",
+     "prompt": "Escribe restar_intervalos(base, cortes) en Python. Cada argumento es una lista desordenada de "
+               "pares enteros (a,b) con a <= b que representan intervalos [a,b). Devuelve la unión de base menos "
+               "la unión de cortes, en pares ordenados, sin vacíos y fusionando adyacentes. Conserva las entradas.",
+     "tests": "b = [(5,9),(1,5),(3,7),(12,12)]\nc = [(8,15),(2,3),(2,4)]\n"
+              "assert restar_intervalos(b,c) == [(1,2),(4,8)]\n"
+              "assert b == [(5,9),(1,5),(3,7),(12,12)] and c == [(8,15),(2,3),(2,4)]\n"
+              "assert restar_intervalos([(-10**12,10**12)], [(0,1)]) == [(-10**12,0),(1,10**12)]\n"
+              "assert restar_intervalos([(1,3),(3,5)], [(5,8),(2,2)]) == [(1,5)]\n"
+              "assert restar_intervalos([(1,2)], [(0,2)]) == [] and restar_intervalos([], []) == []\n"},
+    {"id": "repartir_centimos", "label": "Inédito · reparto exacto por restos",
+     "prompt": "Escribe repartir_centimos(total, pesos). total es un entero no negativo. pesos es una lista de "
+               "enteros no negativos con suma positiva. Reparte el total en proporción al peso: asigna primero "
+               "la parte entera de cada cuota y reparte los céntimos sobrantes por resto descendente. Desempata "
+               "por índice ascendente. Devuelve una lista de enteros exactos incluso con totales superiores a 2**53.",
+     "tests": "assert repartir_centimos(2,[1,1,1]) == [1,1,0]\n"
+              "assert repartir_centimos(7,[0,2,3,0]) == [0,3,4,0]\n"
+              "assert repartir_centimos(0,[3,1]) == [0,0]\n"
+              "assert repartir_centimos(2**60+1,[1,1]) == [2**59+1,2**59]\n"},
     {"id": "romano", "label": "Inédito · números romanos",
      "prompt": "Escribe en Python romano(n) que devuelva el número romano (mayúsculas) de un entero 1 ≤ n ≤ 3999 con "
                "las restas canónicas (IV, IX, XL, XC, CD, CM). Si n está fuera de rango, lanza ValueError.",
@@ -2555,7 +2656,8 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
     ranked = sorted(summary.items(), key=lambda kv: (kv[1].get("aprobado", False), kv[1].get("codigo_primera_pct", 0)
                                                      + kv[1].get("herramientas_pct", 0)), reverse=True)
     report = {"protocol": f"ronda completa: código ({len(CODE_EVALUATION_CASES)}) + tareas nuevas "
-                          f"({len(CODE_VALIDATION_CASES)}) + herramientas reales de Eolfi ({len(TOOL_EVALUATION_CASES)}); "
+                          f"({len(CODE_VALIDATION_CASES)}) + inéditos ({len(CODE_UNSEEN_CASES)}) + "
+                          f"herramientas reales de Eolfi ({len(TOOL_EVALUATION_CASES)}); "
                           f"aprobado = ≥{round(100 * ROUND_PASS_RATIO)} % a la primera en código y en herramientas",
               "battery": "completa", "results": rows, "summary": summary,
               "mejor": ranked[0][0] if ranked and ranked[0][1].get("aprobado") else None,
@@ -2563,6 +2665,7 @@ def run_round(*, profiles: list[str] | None = None, progress: Callable[[str], No
               "no_aprueban": [n for n, v in ranked if not v.get("aprobado")],
               "aportes": str(aportes_dir()), "restored_profile": original or None}
     report["ronda"] = round_id
+    report["casos_previstos"] = {case["id"]: _exam_version(case) for case in plan}
     report["examenes"] = status["examenes"]
     status.update(estado="terminada", resumen=summary, mejor=report["mejor"], aprobados=report["aprobados"])
     save_status()
@@ -2802,6 +2905,38 @@ def build_dataset(*, kind: str, out: Path, min_examples: int = 20, feedback: lis
             if winners and losers:
                 examples.append({"prompt": winners[0]["prompt"], "chosen": winners[0]["response"], "rejected": losers[0]["response"],
                                  "chosen_id": winners[0]["id"], "rejected_id": losers[0]["id"], "split": _split(key)})
+    return _write_dataset(examples, kind, out, min_examples, len(cases), feedback_file())
+
+
+def dataset_memoria_verificada(out: Path, min_examples: int = 20) -> dict[str, Any]:
+    """Exporta pares petición/resumen de B6 a SFT cuando se elige esa fuente explícitamente."""
+    from eolfi.generador.assist import MEMORY_SCHEMA, assist_memory_file
+    from eolfi.security.privacy import redact
+
+    source = assist_memory_file()
+    if source.resolve() in (out.resolve(), out.with_suffix(out.suffix + ".manifest.json").resolve()):
+        raise ValueError("El destino coincide con la memoria de ejemplos")
+    if not source.is_file() or source.stat().st_size > 10 * 1024 * 1024:
+        raise ValueError("Falta la memoria verificada de assist o supera 10 MiB")
+    if min_examples < 1:
+        raise ValueError("min_examples debe ser mayor que cero")
+    examples = {}
+    for line in source.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not isinstance(row, dict) or row.get("schema") != MEMORY_SCHEMA or row.get("verified") is not True:
+            continue
+        if not all(isinstance(row.get(k), str) and row[k].strip() for k in ("request", "summary", "target", "id")):
+            continue
+        prompt = redact(row["request"])[0].strip()
+        key = _case_key({"prompt": prompt})
+        examples[key] = {"prompt": prompt, "completion": redact(row["summary"])[0].strip(),
+                         "source_id": row["id"], "split": _split(key)}
+    return _write_dataset(list(examples.values()), "sft", out, min_examples, len(examples), source)
+
+
+def _write_dataset(examples, kind, out, min_examples, cases, source):
     if len(examples) < min_examples:
         raise ValueError(f"Dataset insuficiente: {len(examples)} ejemplos; mínimo {min_examples}")
     split_counts = {name: sum(1 for row in examples if row["split"] == name) for name in ("train", "validation", "test")}
@@ -2812,8 +2947,8 @@ def build_dataset(*, kind: str, out: Path, min_examples: int = 20, feedback: lis
     temp = out.with_name(out.name + f".{os.getpid()}.tmp")
     temp.write_text("".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in examples), encoding="utf-8")
     os.replace(temp, out)
-    manifest = {"schema": DATASET_SCHEMA, "kind": kind, "examples": len(examples), "cases": len(cases),
-                "split_counts": split_counts, "source": str(feedback_file()), "dataset_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
+    manifest = {"schema": DATASET_SCHEMA, "kind": kind, "examples": len(examples), "cases": cases,
+                "split_counts": split_counts, "source": str(source), "dataset_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
                 "training": "NO VERIFICADO: faltan comprobar checkpoint, runtime PEFT/QLoRA y VRAM"}
     _write_json_atomic(out.with_suffix(out.suffix + ".manifest.json"), manifest)
     return manifest

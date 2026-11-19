@@ -276,6 +276,7 @@ class EolasV1Provider(Provider):
         self.timeout = timeout
 
     def complete(self, system, messages, schema, effort) -> Reply:
+        self.last_timings = {}
         msgs = [{"role": "system", "content": system}] + [
             {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])}
             for m in messages]
@@ -295,6 +296,9 @@ class EolasV1Provider(Provider):
             "options": determinista(eolas_v1_options()),
         }, eolas_v1_headers(self.base_url), self.timeout, retry_timeouts=False)
         text = (r.get("message") or {}).get("content", "")
+        load_ns = r.get("load_duration")
+        if type(load_ns) is int and load_ns >= 0:
+            self.last_timings["carga_declarada_s"] = load_ns / 1_000_000_000
         if not text:
             raise LLMError(f"Eolas no devolvió contenido ({r.get('error') or r.get('done_reason')})")
         return Reply(parse_json_text(text), text,

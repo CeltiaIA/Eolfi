@@ -1,4 +1,5 @@
 """Chat del panel: el motor Eolas V2 decide qué herramientas de Eolfi usar y Eolfi las ejecuta."""
+import hashlib
 import json
 
 import pytest
@@ -43,9 +44,13 @@ def test_contexto_dice_donde_estan_los_adjuntos_y_que_analizar():
 
 def test_chat_can_call_real_gguf_auditor_without_loading_model(tmp_path):
     from tests.test_modelos import fixture
-    from eolfi.mcp_server import EolfiMCP
+    from eolfi.mcp_server import DATA_NOTE, EolfiMCP
 
-    path = fixture(tmp_path / "upload.bin")
+    upload = fixture(tmp_path / "upload.bin")
+    digest = hashlib.sha256(upload.read_bytes()).hexdigest()
+    folder = tmp_path / digest
+    folder.mkdir()
+    path = upload.rename(folder / upload.name)
     mcp = EolfiMCP(db=str(tmp_path / "no-db.db"), roots=[str(tmp_path)])
     replies = iter([{"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": str(path)})]},
                     {"content": "Auditoría estructural; no demuestra seguridad de pesos."}])
@@ -54,7 +59,11 @@ def test_chat_can_call_real_gguf_auditor_without_loading_model(tmp_path):
                              lambda message: None,
                              request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
     assert result["tools"][0]["name"] == "eolfi_modelos_auditar" and result["tools"][0]["ok"]
-    assert any(m.get("role") == "tool" and '"sha256"' in m["content"] for m in sent[1])
+    tool_text = next(m["content"] for m in sent[1] if m.get("role") == "tool")
+    audit = json.loads(tool_text.removeprefix(DATA_NOTE))
+    assert audit["sha256"] == digest
+    assert audit["estado"] == "estructura_verificada"
+    assert audit["procedencia"] == "NO VERIFICADO"
     assert not (tmp_path / "no-db.db").exists()
 
 

@@ -128,6 +128,7 @@ def test_carpeta_de_modelos_se_lista_sin_leer_los_pesos(tmp_path):
     r = _call(srv, "eolfi_modelos_auditar", {"ruta": str(carpeta)})
     assert r["isError"] is False
     c = r["structuredContent"]
+    assert c["procedencia"] == "NO VERIFICADO"
     assert [m["nombre"] for m in c["modelos_gguf"]] == ["a-Q5.gguf", "b-Q4.gguf"]
     assert c["modelos_gguf"][0]["sha256_publicado"] == sha and c["modelos_gguf"][0]["bytes"] == 14
     assert "sha256_publicado" not in c["modelos_gguf"][1]

@@ -330,6 +330,19 @@ def test_smoke_preview_never_runs_or_writes(rebuilt, monkeypatch):
     assert sorted(p.name for p in output.iterdir()) == before
 
 
+def test_politica_se_consulta_al_ejecutar_cuantizacion_y_smoke(recipe_inputs, rebuilt, tmp_path, monkeypatch):
+    source, output, tool = recipe_inputs
+    recipe = rebuild.prepare(source, output.with_name("segunda"), tool, "Q4_0")
+    plan = rebuild.prepare_smoke(*rebuilt)
+    manifest = tmp_path / "confianza.json"
+    manifest.write_text(json.dumps({"schema": "eolfi.modelos.confianza/v1", "modelos": []}), encoding="utf-8")
+    monkeypatch.setenv("EOLFI_MODELOS_CONFIANZA", str(manifest))
+    monkeypatch.setattr(rebuild.subprocess, "Popen", lambda *a, **kw: pytest.fail("Modelo sin autorización"))
+    for fn, data in ((rebuild.execute, recipe), (rebuild.execute_smoke, plan)):
+        with pytest.raises(ValueError, match="no autorizado"):
+            fn(data)
+
+
 def test_smoke_pass_keeps_bench_unverified_and_recipe_untouched(rebuilt, monkeypatch):
     output, runner = rebuilt
     recipe = (output / "receta.json").read_bytes()

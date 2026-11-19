@@ -64,6 +64,16 @@ def test_superficies_cerradas_y_validadas():
     assert rsi.validar("eolas_v2.perfil.gemma_q4.gpu_layers", 40) == 40
 
 
+def test_dos_arranques_agotados_proponen_evaluar_el_plazo_sin_aplicarlo():
+    for _ in range(2):
+        rsi.observar("eolas-v2", "arranque", {"ok": False, "error": "Eolas no publicó health y el modelo gemma"})
+    p, = rsi.proponer()
+    assert (p["superficie"], p["actual"], p["propuesto"]) == ("eolas_v2.ready_timeout", 300, 600)
+    assert eolas_v2.load_config()["ready_timeout"] == 300
+    with pytest.raises(rsi.RSIError):
+        rsi.validar(p["superficie"], 7201)
+
+
 def test_evaluar_restaura_y_exige_mejora_y_muestras():
     _cortes(2)
     pid = rsi.proponer()[0]["id"]

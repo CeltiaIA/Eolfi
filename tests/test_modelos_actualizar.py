@@ -158,6 +158,36 @@ def test_nunca_sobrescribe(tmp_path, gguf):
     assert (out / "modelo-Q4_K_M.gguf").read_bytes() == b"previo"
 
 
+@pytest.mark.parametrize("status,desde,esperado", [(206, 12, "descargado"), (200, 12, "fallido"), (206, 1, "fallido")])
+def test_reanuda_desde_el_rango_confirmado(tmp_path, gguf, monkeypatch, status, desde, esperado):
+    import io
+    from eolfi import modelos_actualizar
+
+    def cortado(url):
+        yield gguf[:12]
+        raise OSError("interrumpido")
+
+    args = ("org/m", "m.gguf", COMMIT, hashlib.sha256(gguf).hexdigest(), tmp_path)
+    assert descargar(*args, red=True, stream=cortado)["estado"] == "fallido"
+    with pytest.raises(ActualizarError, match="no corresponde"):
+        descargar(*args[:3], "f" * 64, tmp_path, red=True, reanudar=True)
+
+    def abrir(url, *, offset):
+        assert offset == 12
+        response = io.BytesIO(gguf[offset:])
+        response.status = status
+        response.headers = {"Content-Range": f"bytes {desde}-{len(gguf)-1}/{len(gguf)}"}
+        return response
+
+    monkeypatch.setattr(modelos_actualizar, "_abrir", abrir)
+    result = descargar(*args, red=True, reanudar=True)
+    assert result["estado"] == esperado and result["bytes_reutilizados"] == 12
+    if esperado == "descargado":
+        assert (tmp_path / "m.gguf").read_bytes() == gguf
+    else:
+        assert (tmp_path / "m.gguf.part").read_bytes() == gguf[:12]
+
+
 @pytest.mark.parametrize("args, error", [
     (("org/m", "modelo.gguf", "main", "1" * 64), "commit"),
     (("org/m", "modelo.gguf", COMMIT, "corto"), "sha256"),

@@ -1,6 +1,7 @@
 """GGUF hostiles y control de identidad, sin ejecutar ningún modelo."""
 import hashlib
 import json
+import os
 import struct
 
 import pytest
@@ -89,6 +90,39 @@ def test_trust_checks_contents_again(tmp_path):
     path.write_bytes(path.read_bytes() + b"modified")
     with pytest.raises(ValueError, match="SHA-256 distinto"):
         modelos.check_trust(path, trust)
+
+
+def test_propuesta_confianza_no_autoriza_y_no_sobrescribe(tmp_path, capsys, monkeypatch):
+    path = fixture(tmp_path / "m.gguf")
+    out = tmp_path / "propuesta.json"
+    monkeypatch.delenv("EOLFI_MODELOS_CONFIANZA", raising=False)
+    assert main(["modelos", "proponer-confianza", "--archivo", str(path), "--out", str(out)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert printed["schema"] == saved["schema"] == "eolfi.modelos.confianza-propuesta/v1"
+    assert saved["estado"] == "NO VERIFICADO"
+    assert saved["modelos"][0]["sha256"] == modelos.sha256(path)
+    assert saved["modelos"][0]["procedencia"] == "NO VERIFICADO"
+    assert "EOLFI_MODELOS_CONFIANZA" not in os.environ
+    with pytest.raises(ValueError, match="Manifiesto de confianza"):
+        modelos.check_trust(path, out)
+    with pytest.raises(FileExistsError, match="ya existe"):
+        modelos.propose_trust([path], out)
+
+
+def test_propuesta_confianza_modelo_dividido_exige_y_hashea_partes(tmp_path):
+    first = fixture(tmp_path / "m-00001-of-00002.gguf")
+    second = fixture(tmp_path / "m-00002-of-00002.gguf")
+    result = modelos.propose_trust([first], tmp_path / "propuesta.json")
+    parts = result["modelos"][0]["partes"]
+    assert [part["archivo"] for part in parts] == [str(first.resolve()), str(second.resolve())]
+    assert [part["sha256"] for part in parts] == [modelos.sha256(first), modelos.sha256(second)]
+    second.unlink()
+    with pytest.raises(FileNotFoundError, match="Faltan partes"):
+        modelos.propose_trust([first], tmp_path / "otra.json")
+    second = fixture(tmp_path / "m-00002-of-00002.gguf")
+    with pytest.raises(ValueError, match="primera parte"):
+        modelos.propose_trust([second], tmp_path / "desde-segunda.json")
 
 
 def test_split_requires_every_shard(tmp_path):

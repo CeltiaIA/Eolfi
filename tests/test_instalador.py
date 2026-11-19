@@ -58,9 +58,20 @@ def test_no_sustituye_ni_borra_un_archivo_ajeno(tmp_path, anotados):
     assert ajeno.read_text(encoding="utf-8") == "[Desktop Entry]\nExec=otra-cosa\n" and not anotados
 
 
-def test_macos_y_ubicacion_desconocida_se_rechazan(tmp_path):
+def test_lanzador_macos_y_ubicacion_desconocida(tmp_path, anotados):
+    import shlex
+
+    ruta = tmp_path / "Eolfi.command"
+    python = "/Applications/Python 'A B'/python"
+    p = instalador.crear(carpeta=tmp_path, sistema="macos", python=python)
+    assert p["comprobado"] and ruta.read_bytes().startswith(b"#!/bin/sh\n")
+    assert shlex.split(p["contenido"].splitlines()[-1]) == ["exec", *instalador.orden(python=python)]
+    assert instalador.quitar(carpeta=tmp_path, sistema="macos")["quitado"]
+    ruta.write_text("#!/bin/sh\necho saludo\n", encoding="utf-8")
+    with pytest.raises(instalador.AccesoDirectoError, match="no se borra"):
+        instalador.quitar(carpeta=tmp_path, sistema="macos")
     with pytest.raises(instalador.AccesoDirectoError, match="no soportado"):
-        instalador.destino(carpeta=tmp_path, sistema="macos")
+        instalador.destino(carpeta=tmp_path, sistema="desconocido")
     with pytest.raises(instalador.AccesoDirectoError, match="ubicación"):
         instalador.destino("barra", carpeta=tmp_path, sistema="linux")
 

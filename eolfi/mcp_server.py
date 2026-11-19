@@ -67,7 +67,10 @@ def carpeta_modelos(carpeta: Path, limite: int = 200) -> dict[str, Any]:
                 pass
         modelos.append(item)
     return {
-        "carpeta": str(carpeta), "archivos": len(archivos), "subcarpetas": [p.name for p in subcarpetas][:limite],
+        "carpeta": str(carpeta), "procedencia": "NO VERIFICADO",
+        "limites": ["El nombre de la carpeta y los SHA-256 de archivos laterales son datos locales. "
+                    "Este inventario no contrasta el origen con una referencia independiente."],
+        "archivos": len(archivos), "subcarpetas": [p.name for p in subcarpetas][:limite],
         "modelos_gguf": modelos[:limite], "modelos_omitidos": max(0, len(modelos) - limite),
         "otros_archivos": [p.name for p in archivos if p.suffix.lower() != ".gguf"][:limite],
         "siguiente_paso": "Audita cada modelo con eolfi_modelos_auditar y su ruta (lee el archivo entero: puede "

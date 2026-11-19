@@ -29,8 +29,7 @@ Límites:
   reescribir esa cola, o quitar los últimos eventos junto con la última firma (``verificar_firmas`` informa de
   cuántos eventos quedan sin firmar; para saber si faltan firmas hay que conservar su número fuera). La firma
   automática acorta esa cola a cero en los eventos de Python, pero no impide recortar el final del registro.
-- Los eventos del puente Node no se firman solos: quedan cubiertos cuando se firma un evento posterior (el HMAC de
-  una cabeza cubre toda la cadena anterior) o con ``firmar``.
+- El puente Node usa el mismo formato y cerrojo para firmar automáticamente cuando tiene configurada la clave.
 - Con firma automática la clave tiene que estar disponible para el proceso que escribe el registro: protege contra
   quien puede editar el archivo pero no leer la clave (otra cuenta, otra unidad con permisos), no contra el propio
   proceso.
