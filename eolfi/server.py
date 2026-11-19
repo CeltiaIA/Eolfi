@@ -832,7 +832,7 @@ class EolfiApp:
             # 18/11/2026, titular: «crear proyecto automáticamente a través de @eolfi en VS Code». Lo pide el titular
             # desde su equipo: se aprueba y arranca sin otro paso (sigue sin sobrescribir una carpeta con contenido).
             # Desde otro dispositivo, o con la opción desactivada, queda pendiente como antes.
-            st = self.vscode_encargo_decidir(e["id"], "aprobar", origen="titular (chat, aprobación automática)")
+            st = self.vscode_encargo_decidir(e["id"], "aprobar", origen="chat")
             aviso = self._avisar_vscode(e)
             return {"encargo_id": e["id"], "estado": st.get("estado"), "carpeta": e["carpeta"], "case_id": e["case_id"],
                     "job_id": st.get("job_id"), "riesgos": e["riesgos"], "aviso_vscode": aviso,

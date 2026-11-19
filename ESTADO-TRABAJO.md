@@ -110,6 +110,20 @@
   «encargo_como_hecho» si el chat da por creada una app pendiente. Pruebas: `tests/test_encargos_vscode.py`
   (integración real con VS Code simulado: aprobar desde VS Code genera un estático verificado) y
   `eolfi/vscode-bridge/test/encargos.test.js`. Con un VS Code real: **NO VERIFICADO**.
+  **19/11, prueba real (VS Code 1.146 abierto en `D:\Eolfi-proyectos-vscode`, chat con Gemma en 8777):**
+  1. Primer intento: el modelo no llamó a la herramienta, porque dijo que el puente no respondía. El estado se
+     comprueba una vez por turno, justo al abrir VS Code. Repetido con VS Code ya arrancado, sí la llama.
+  2. Fallo 1, corregido en local: la aprobación automática del titular usaba
+     `origen="titular (chat, aprobación automática)"`, que `encargos_vscode.decidir` rechaza (solo panel o
+     vscode). El encargo se quedaba pendiente con la herramienta en ERROR y la prueba no lo detectaba porque
+     simulaba `decidir`. Ahora existe el origen `chat`, una prueba pasa por el `decidir` real y el panel lo
+     rotula. Además la traza del chat guarda el texto del error de cada herramienta, no solo `ok: false`.
+  3. Fallo 2, sin resolver: aprobado y arrancado, el trabajo falla en «generar» con
+     `PlanError: no hay fuentes analizadas`. `propose_plan` acepta una descripción sin fuentes y promete
+     «el primer proyecto se derivará del prompt», pero `build_spec` y `create_project` exigen al menos una fuente.
+     Crear desde solo una descripción no está implementado; el chat informó del fallo con honestidad en el turno
+     siguiente.
+  Por tanto, crear desde VS Code real sigue **NO VERIFICADO**.
 - **C4 idioma de los proyectos generados (18/11, rama `luis/c4-i18n`):** `create --idioma-proyecto en` (API
   `idioma_proyecto`, selector del panel) genera interfaz, errores, ayuda de la CLI y nombres de las pruebas en
   inglés en los 13 destinos (`eolfi/generador/textos.py`, traducción en el escritor; castellano por defecto sin

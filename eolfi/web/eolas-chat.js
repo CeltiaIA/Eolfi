@@ -123,7 +123,7 @@ function encargoItem(e) {
   const progreso = (e.trabajo?.progreso || []).slice(-1)[0];
   if (progreso && e.estado !== "hecho") item.append(el("div", { class: "small" }, progreso));
   if (e.error || e.proyecto?.error) item.append(el("div", { class: "small bad" }, e.error || e.proyecto.error));
-  if (e.origen) item.append(el("div", { class: "small muted" }, `Decidido desde ${e.origen === "vscode" ? "VS Code" : "el panel"}`));
+  if (e.origen) item.append(el("div", { class: "small muted" }, `Decidido desde ${e.origen === "vscode" ? "VS Code" : e.origen === "chat" ? "el chat (aprobación automática del titular)" : "el panel"}`));
   if (e.estado !== "pendiente") return item;
   item.append(el("div", { class: "small" }, "Al aprobar, Eolfi podrá:"),
     el("ul", { class: "small" }, ...(e.riesgos || []).map((r) => el("li", {}, r))));

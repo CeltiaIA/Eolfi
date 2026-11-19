@@ -202,6 +202,7 @@ def test_herramientas_de_la_aplicacion_y_enlaces_para_la_pagina():
     assert hechas == [{"nombre": "x", "descripcion": "y"}]
     assert out["tools"][0]["proyecto"] == "c-1" and out["tools"][0]["ok"]
     assert out["tools"][2]["ok"] is False                                # el error llega al modelo como dato
+    assert out["tools"][2]["error"].startswith("Error") and "error" not in out["tools"][0]   # y queda en la traza
     assert chat._links('[nota] {"subject": "ab", "x": 1}') == {"objetivo": "ab"} and chat._links("nada") == {}
 
 

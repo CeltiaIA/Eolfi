@@ -463,6 +463,8 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
                 out, ok = f"Error: herramienta desconocida {name}.", False
             links = _links(out)
             calls.append({"name": name, "args": brief, "ok": ok,
+                          # 19/11/2026: el motivo del fallo queda en la traza (antes solo «ok: false»).
+                          **({} if ok else {"error": out[:300]}),
                           **(links if ok else {k: v for k, v in links.items() if k in ("autorizacion", "herramienta_pedida")})})
             progress(f"{name}: {'hecho' if ok else 'con error'}")
             convo.append({"role": "tool", "tool_call_id": tc["id"], "content": out[:MAX_TOOL_OUTPUT]})

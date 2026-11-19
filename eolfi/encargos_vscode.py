@@ -25,7 +25,8 @@ from typing import Any
 from eolfi.acciones import registrada
 
 MAX_ENCARGOS = 200
-ORIGENES = ("panel", "vscode")
+# «chat»: aprobación automática cuando el titular lo pide desde el chat en su equipo (19/11/2026).
+ORIGENES = ("panel", "vscode", "chat")
 _lock = threading.Lock()
 
 

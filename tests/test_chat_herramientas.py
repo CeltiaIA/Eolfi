@@ -178,7 +178,7 @@ def test_el_encargo_del_titular_se_aprueba_solo(app, tmp_path, monkeypatch):
     monkeypatch.setenv("EOLFI_CHAT_CONFIG", str(tmp_path / "chat.json"))
     decisiones = _encargo_simulado(app, tmp_path, monkeypatch)
     out = app._chat_vscode_encargo({"nombre": "Mi App", "descripcion": "algo"}, "titular")
-    assert decisiones == [(out["encargo_id"], "aprobar", "titular (chat, aprobación automática)")]
+    assert decisiones == [(out["encargo_id"], "aprobar", "chat")]
     assert out["estado"] == "aprobado" and out["job_id"] == "job1" and "NO está hecho" in out["aviso"]
     assert enc.obtener(out["encargo_id"])["nombre"] == "Mi App"
 
@@ -193,3 +193,21 @@ def test_el_encargo_de_otro_nivel_o_desactivado_queda_pendiente(app, tmp_path, m
     cfg.write_text(json.dumps({"auto_aprobar_encargos": False}))
     assert app._chat_vscode_encargo({"nombre": "B", "descripcion": "x"}, "titular")["estado"] == "pendiente_aprobacion"
     assert decisiones == []
+
+
+def test_la_aprobacion_automatica_pasa_por_decidir_real(app, tmp_path, monkeypatch):
+    """19/11/2026: el origen del chat lo rechazaba encargos_vscode.decidir y el encargo quedaba pendiente."""
+    monkeypatch.setenv("EOLFI_CHAT_CONFIG", str(tmp_path / "chat.json"))
+    destino_base = tmp_path / "vscode"
+    destino_base.mkdir()
+    monkeypatch.setattr(app, "_chat_estado", lambda: {"vscode": {"activo": True, "carpetas": [str(destino_base)]}})
+    monkeypatch.setattr(app, "project_plan", lambda body: {"case_id": "caso1", "plan": {"version": 1}})
+    monkeypatch.setattr(app, "project_get", lambda case_id: {"plan": {"version": 1}})
+    acciones = []
+    monkeypatch.setattr(app, "project_action", lambda case_id, accion, body: acciones.append((case_id, accion)))
+    monkeypatch.setattr(app, "start_job", lambda body, nivel="usuario": {"job_id": "job9"})
+    monkeypatch.setattr(app, "_avisar_vscode", lambda e: "mostrado en VS Code")
+    out = app._chat_vscode_encargo({"nombre": "Notas", "descripcion": "algo"}, "titular")
+    assert out["estado"] == "aprobado" and out["job_id"] == "job9" and acciones == [("caso1", "approve")]
+    e = enc.obtener(out["encargo_id"])
+    assert e["estado"] == "aprobado" and e["origen"] == "chat" and e["job_id"] == "job9"
