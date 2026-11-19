@@ -141,6 +141,14 @@ Registro vivo para la hoja de ruta de `PLAN_INGENIERIA_INVERSA_EOLFI.md`. Sirve 
 
 ## Revisión final
 
+### Candidatos de la auditoría REA del 19/11/2026
+
+| Riesgo | Ruta | Evidencia reproducible | Impacto y referencias | Estado y comprobación pendiente |
+| --- | --- | --- | --- | --- |
+| Alto | `eolfi/eolas_v2.py.pre-alejandria-20261118` | `git status --short` lo muestra como archivo local anterior al trabajo. `Get-Item` indica 179.789 bytes. | Nombre de copia previa a Alejandría, en el mismo directorio que el módulo principal. Puede conservar cambios locales. | CONSERVAR. Comparar con fuente e historial y confirmar con el titular cualquier decisión. |
+| Bajo | `REGISTRO_LIMPIEZA.md`, entradas del 14/11 | `Select-String -Path REGISTRO_LIMPIEZA.md -Pattern 'limpieza pedida por el titular'` encuentra los dos asientos repetidos. | Duplica el historial documental y las referencias LIM-001, LIM-017 y siguientes. | CANDIDATO. Comparar los textos completos y revisar referencias a los asientos antes de consolidar. |
+| Bajo | `debug.log` | Apareció en `git status --short` durante las pruebas locales. Consultar fecha y tamaño con `Get-Item debug.log`. | Registro no rastreado que puede servir para diagnosticar las pruebas bloqueadas. | CONSERVAR hasta identificar el productor y confirmar si aporta evidencia. |
+
 Al completar la hoja de ruta, revisar cada entrada y sus dependencias; etiquetar solo entonces las propuestas `PROPONER RETIRAR`, separar lo que requiere conservar y tomar la decisión de limpieza sobre una lista explícita. Hasta ese momento, actualizar este registro si las fases revelan candidatos nuevos o demuestran que una entrada tiene uso.
 
 - **2026-11-12 — revisión final preparada:** lista explícita, agrupada por riesgo, en [informes/revision-retirada-y-limpieza-2026-11-12.md](informes/revision-retirada-y-limpieza-2026-11-12.md). Incluye las opciones de Eolfi que no se sostienen (proveedores web sin calibrar, alias `gemma`, varias vías de modelo local que dejan procesos huérfanos, `decompile` sin pruebas, generadores con dependencias `latest` y sin verificación de principio a fin), la decisión propuesta para LIM-001 a LIM-013 y los candidatos nuevos fuera del repositorio (worktrees ya fusionados, `.pytest-tmp-*`, 32 `.vsix` antiguos, `generated/nuevo-proyecto/` de 404 MB). **Estado: PROPONER RETIRAR / CONSERVAR, pendiente de la decisión del titular. No se ha borrado nada.**

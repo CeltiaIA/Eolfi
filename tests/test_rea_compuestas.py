@@ -264,10 +264,13 @@ def test_inventario_dice_lo_que_no_sabe_en_vez_de_inventarlo(tmp_path):
     assert out["formato"] == "elf" and out["exportaciones"] == 1 and "inspect_pe_imports" not in rea.calls
 
 
-def test_analizar_app_js_resume_electron_y_cobertura_sin_ejecutar():
+def test_analizar_app_js_resume_electron_y_cobertura_sin_ejecutar(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
     class FakeJs:
         def call(self, name, args, limit=None):
             assert name == "analyze_javascript_application" and args["detail"] == "summary"
+            assert args["input_path"] == str((tmp_path / "app.asar").resolve())
             return json.dumps({"normalized_result": {
                 "parent_evidence_id": "ev_app", "unknowns": ["120 semantic graph unknowns remain in the parent Evidence."],
                 "summary": {"format": "asar", "root_artifact_sha256": "ef" * 32,
@@ -277,7 +280,8 @@ def test_analizar_app_js_resume_electron_y_cobertura_sin_ejecutar():
                             "coverage": {"application": {"status": "partial"}, "semantic": {"status": "unknown", "families": [
                                 {"family": "call-flow", "status": "partial", "retained_relations": 10, "unknown_count": 2}]}}}}}), True
 
-    out = rc.analizar_app_js(FakeJs(), r"C:\app\app.asar")
+    out = rc.analizar_app_js(FakeJs(), "app.asar")
+    assert out["archivo"] == "app.asar"
     assert out["sha256"] == "ef" * 32 and out["electron"]["canales_ipc"] == 5 and out["electron"]["ventanas"] == 1
     assert out["incognitas_semanticas"] == 120 and out["cobertura"]["familias"][0]["relaciones"] == 10
     assert "no se ejecutó" in out["aviso"] and "Linux" in out["siguiente_paso"]
@@ -1558,8 +1562,9 @@ def _exe(tmp_path, name="x.exe"):
     return f
 
 
-def test_binario_go_modulo_dependencias_y_compilacion(tmp_path):
-    exe = _exe(tmp_path)
+def test_binario_go_modulo_dependencias_y_compilacion(tmp_path, monkeypatch):
+    exe = _exe(tmp_path, "fixture con espacios.exe")
+    monkeypatch.chdir(tmp_path)
     deps = [{"path": "example.com/a", "version": "v1.2.0", "sum": "h1:x", "replacement": None},
             {"path": "example.com/b", "version": "v0.1.0", "sum": "", "replacement": None},
             {"path": "example.com/c", "version": "v2.0.0", "sum": "", "replacement": {"path": "../c", "version": ""}}]
@@ -1569,8 +1574,9 @@ def test_binario_go_modulo_dependencias_y_compilacion(tmp_path):
                            "main": {"path": "example.com/app", "version": "v1.0.0"}, "dependencies": deps,
                            "settings": [{"key": "GOOS", "value": "windows"}, {"key": "CGO_ENABLED", "value": "0"},
                                         {"key": "vcs.revision", "value": "abc"}, {"key": "-compiler", "value": "gc"}]}}})
-    r = rc.binario_go(fake, str(exe), limite=2)
-    assert fake.calls == [("inspect_go_binary", {"path": str(exe)})]
+    r = rc.binario_go(fake, exe.name, limite=2)
+    assert fake.calls == [("inspect_go_binary", {"path": str(exe.resolve())})]
+    assert r["archivo"] == exe.name
     assert r["es_go"] is True and r["go"] == "go1.26.8" and r["paquete"] == "example.com/app/cmd/app"
     assert r["modulo"] == {"ruta": "example.com/app", "version": "v1.0.0"}
     assert r["dependencias_total"] == 3 and len(r["dependencias"]) == 2
@@ -1586,15 +1592,19 @@ def test_binario_go_sin_informacion_y_ruta_invalida(tmp_path):
         rc.binario_go(FakeNative({}), str(tmp_path / "nada.exe"))
 
 
-def test_binario_rust_raiz_dependencias_y_sin_cargo_auditable(tmp_path):
-    exe = _exe(tmp_path, "sudo-rs")
+def test_binario_rust_raiz_dependencias_y_sin_cargo_auditable(tmp_path, monkeypatch):
+    exe = _exe(tmp_path, "fixture con espacios.exe")
+    monkeypatch.chdir(tmp_path)
     pkgs = [{"name": "glob", "version": "0.3.3", "source": "crates.io", "dependencies": [], "root": False},
             {"name": "libc", "version": "0.2.183", "source": "crates.io", "dependencies": [], "root": False},
             {"name": "sudo-rs", "version": "0.2.13", "source": "local", "dependencies": [0, 1], "root": False}]
     meta = {"format_version": 8, "packages": pkgs, "root_package_index": None, "dependency_edges": [],
             "cyclic_dependency_indices": []}
-    r = rc.binario_rust(FakeNative({"artifact": {"sha256": "bb" * 32}, "format": "elf", "auditable_metadata": meta,
-                                    "rustc_commit": None}), str(exe))
+    fake = FakeNative({"artifact": {"sha256": "bb" * 32}, "format": "elf", "auditable_metadata": meta,
+                       "rustc_commit": None})
+    r = rc.binario_rust(fake, exe.name)
+    assert fake.calls == [("inspect_rust_binary", {"path": str(exe.resolve())})]
+    assert r["archivo"] == exe.name
     assert r["cargo_auditable"] is True and r["raiz"] == {"nombre": "sudo-rs", "version": "0.2.13", "origen": "local"}
     assert r["dependencias_directas"] == ["glob 0.3.3", "libc 0.2.183"]
     assert r["paquetes_total"] == 3 and r["por_origen"] == {"crates.io": 2, "local": 1}

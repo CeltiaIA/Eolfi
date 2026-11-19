@@ -148,11 +148,16 @@ class McpClient {
     await this.start();
     if (this.tools) return this.tools;
     const all = [];
+    const seen = new Set();
     let cursor;
     do {
       const r = await this.request('tools/list', cursor ? { cursor } : {});
       all.push(...(r.tools || []));
       cursor = r.nextCursor;
+      if (cursor) {
+        if (seen.has(cursor)) throw new Error('REA repitió un cursor en tools/list');
+        seen.add(cursor);
+      }
     } while (cursor);
     this.tools = all;
     return all;

@@ -18,6 +18,7 @@ No declares terminado, correcto, compilable, seguro ni equivalente un cambio o a
 - La CI de `.github/workflows/ci.yml` es el mínimo automatizado. No reduzcas su cobertura para conseguir un verde.
 - En Windows, si el alias `python` no funciona, localiza una instalación de Python real y registra la ruta usada; no ocultes fallos del entorno.
 - No instales dependencias, abras redes externas ni ejecutes binarios objetivo solo para obtener un resultado verde sin que el flujo esté autorizado. Para pruebas de loopback/temporales bloqueadas por el sandbox, solicita el permiso de ejecución local con la herramienta y vuelve a ejecutar la misma comprobación.
+- Síntoma de loopback bloqueado: el socket de 127.0.0.1 enlaza y escucha, pero `connect` falla con `WinError 10013` (Python) o `EACCES` (Node). Pytest lo anuncia en la cabecera y en la sección «loopback bloqueado» del resumen; cada suite Node tiene la prueba `00-loopback` que falla con `NO VERIFICADO`. Es un límite del sandbox (en Codex, `network: restricted`), no un fallo del producto: repite el mismo comando pidiendo ejecución sin sandbox (Codex: `sandbox_permissions: "require_escalated"` con una justificación breve). Si la política de aprobación es `never` o rechaza la petición, registra `NO VERIFICADO` con ese motivo; no cambies la configuración de sandbox del agente sin confirmación expresa del titular.
 
 ## Proyectos generados por Eolfi
 

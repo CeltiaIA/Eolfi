@@ -28,6 +28,15 @@ test('cliente MCP: inicializa, pagina tools/list y llama herramientas', async ()
   } finally { c.dispose(); }
 });
 
+test('cliente MCP: rechaza un cursor repetido y permite reintentar', async () => {
+  const c = new McpClient(FAKE);
+  c.start = async () => {};
+  c.request = async () => ({ tools: [], nextCursor: 'repetido' });
+  await assert.rejects(c.listTools(), /repitió un cursor/);
+  c.request = async () => ({ tools: [{ name: 'inspect_artifact' }] });
+  assert.deepStrictEqual(await c.listTools(), [{ name: 'inspect_artifact' }]);
+});
+
 test('cliente MCP: gestiona fallos stdin y limita tramas stdout por bytes UTF-8', async () => {
   const { EventEmitter } = require('node:events');
   const { PassThrough } = require('node:stream');

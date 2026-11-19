@@ -23,6 +23,54 @@ os.environ.setdefault("EOLFI_ACCIONES_FILE", os.path.join(_TMP, "acciones.jsonl"
 import pytest
 
 
+# 19/11/2026: en sandboxes de agentes con la red restringida (Codex en Windows con `network: restricted`), un socket
+# de 127.0.0.1 enlaza y escucha, pero `connect` falla con WinError 10013 / EACCES. Las pruebas HTTP locales caen
+# entonces en cascada y parecen fallos del producto. Se sondea una vez y se avisa en la cabecera y en el resumen;
+# ninguna prueba se omite ni cambia su resultado (AGENTS.md: no reducir cobertura para obtener un verde).
+def _sondeo_loopback():
+    """None si 127.0.0.1 acepta conexiones; si no, la excepción observada."""
+    import socket
+
+    servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        servidor.bind(("127.0.0.1", 0))
+        servidor.listen(1)
+        with socket.create_connection(servidor.getsockname(), timeout=3):
+            pass
+        return None
+    except OSError as exc:
+        return exc
+    finally:
+        servidor.close()
+
+
+def _texto_bloqueo(exc):
+    return (f"NO VERIFICADO: el entorno bloquea conexiones a 127.0.0.1 ({exc}). Las pruebas HTTP locales fallarán "
+            "por el sandbox, no por el producto. Repite el mismo comando con ejecución local autorizada "
+            "(en Codex, sandbox_permissions=require_escalated) o en una sesión con red local permitida.")
+
+
+def pytest_configure(config):
+    config._eolfi_loopback = _sondeo_loopback()
+
+
+def pytest_report_header(config):
+    exc = getattr(config, "_eolfi_loopback", None)
+    return [_texto_bloqueo(exc)] if exc is not None else ["loopback 127.0.0.1: disponible"]
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    exc = getattr(config, "_eolfi_loopback", None)
+    if exc is None:
+        return
+    marcas = ("10013", "EACCES", "Errno 13", "Errno 1]", "PermissionError")
+    fallidas = terminalreporter.stats.get("failed", []) + terminalreporter.stats.get("error", [])
+    por_socket = sum(1 for r in fallidas if any(m in str(r.longrepr) for m in marcas))
+    terminalreporter.section("loopback bloqueado", sep="=", red=True, bold=True)
+    terminalreporter.write_line(_texto_bloqueo(exc))
+    terminalreporter.write_line(f"Fallos o errores con firma de socket denegado: {por_socket} de {len(fallidas)}.")
+
+
 @pytest.fixture(autouse=True)
 def _eolas_v2_aislado(tmp_path, monkeypatch):
     """Cada prueba con su propia configuración de Eolas V2 (ni la real ni la de otra prueba: perfiles retirados,
