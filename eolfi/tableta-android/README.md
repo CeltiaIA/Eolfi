@@ -8,6 +8,8 @@ de la tableta, y el trabajo pesado (whisper, Gemma, voz) lo hace el panel de Eol
 - HTTPS con huella SHA-256 fijada (la primera se acepta al vincular y se muestra para compararla). Android 4.1 solo
   negocia ECDHE-AES-CBC-SHA en TLS 1.2: arranca el panel con `eolfi serve ... --cert C --key K --tls-legado`.
 - Semidúplex: no graba mientras suena la respuesta ni mientras Eolas contesta.
+- Dictado: por defecto el texto aparece en la caja para revisarlo; «Enviar al soltar» lo manda directo. Si Eolas no
+  responde (por ejemplo, ocupado con otra petición), el texto vuelve a la caja.
 - Sin Google ni Samsung: solo framework AOSP, JDK y `org.json`; ni Play Services, ni cuentas, ni TTS o reconocedor
   del sistema. Dictado y voz los pone el panel. Lo vigila `tests/test_tableta.py::test_app_android_sin_google_ni_samsung`.
 

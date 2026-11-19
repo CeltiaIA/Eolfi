@@ -40,7 +40,7 @@ public class Principal extends Activity {
     private EditText campoPanel, campoCodigo, campoMensaje;
     private TextView estado, conversacion;
     private ScrollView desplazable;
-    private CheckBox leer;
+    private CheckBox leer, directo;
     private Button hablar;
     private final Audio audio = new Audio();
     private final List<String[]> historial = new ArrayList<String[]>();
@@ -103,6 +103,12 @@ public class Principal extends Activity {
         leer.setTextColor(0xffe8eef5);
         leer.setChecked(prefs.getBoolean("leer", true));
         fila2.addView(leer, peso(1.3f));
+        // A9: por defecto el dictado se muestra en la caja para revisarlo; con esta casilla se envía al soltar.
+        directo = new CheckBox(this);
+        directo.setText("Enviar al soltar");
+        directo.setTextColor(0xffe8eef5);
+        directo.setChecked(prefs.getBoolean("directo", false));
+        fila2.addView(directo, peso(1.3f));
         fila2.addView(boton("Trabajos", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -298,6 +304,8 @@ public class Principal extends Activity {
         enSegundoPlano("chat", new Runnable() {
             @Override
             public void run() {
+                // Si Eolas no llega a responder, el texto vuelve a la caja para reenviarlo (no se pierde el dictado).
+                boolean devolver = true;
                 try {
                     Cliente c = cliente();
                     Cliente.Respuesta r = c.json("POST", "/api/tableta/chat", Reglas.cuerpoChat(texto, historial), 20000);
@@ -332,29 +340,41 @@ public class Principal extends Activity {
                             String resp = o.optString("texto", "(sin texto)");
                             historial.add(new String[] {"user", texto});
                             historial.add(new String[] {"assistant", resp});
+                            devolver = false;
                             decir("Eolas", resp);
                             if (leer.isChecked()) leerEnVoz(c, resp);
                             return;
                         }
                         if ("error".equals(st) || "cancelled".equals(st)) {
-                            decir("Aviso", "Eolas no pudo responder: " + o.optString("error"));
+                            decir("Aviso", Reglas.avisoChatFallido(o.optString("error")));
                             return;
                         }
                     }
+                    devolver = false;   // sigue en marcha: la respuesta quedará en el panel
                     decir("Aviso", "Eolas tarda demasiado (15 min); la respuesta quedará en el panel");
                 } catch (Exception e) {
                     decir("Aviso", "Chat: " + e.getMessage());
                 } finally {
                     ocupado = false;
+                    final boolean recuperar = devolver;
                     ui(new Runnable() {
                         @Override
                         public void run() {
                             pintarEstado();
+                            if (recuperar) devolverACaja(texto);
                         }
                     });
                 }
             }
         });
+    }
+
+    /** Pone el texto no respondido en la caja (delante de lo que ya hubiera escrito) para reenviarlo con «Enviar». */
+    private void devolverACaja(String texto) {
+        String actual = campoMensaje.getText().toString().trim();
+        if (actual.contains(texto.trim())) return;
+        campoMensaje.setText(actual.isEmpty() ? texto : texto + " " + actual);
+        campoMensaje.setSelection(campoMensaje.getText().length());
     }
 
     private void leerEnVoz(Cliente c, String texto) {
@@ -386,7 +406,7 @@ public class Principal extends Activity {
         }
         grabando = true;
         final int sesion = ++sesionGrabacion;
-        hablar.setText("● Grabando… suelta para enviar");
+        hablar.setText(directo.isChecked() ? "● Grabando… suelta para enviar" : "● Grabando… suelta para transcribir");
         // Si nunca llega el «soltar» (toque perdido), la grabación se cierra y se envía al llegar al máximo.
         new Thread(new Runnable() {
             @Override
@@ -435,7 +455,21 @@ public class Principal extends Activity {
                         decir("Aviso", "No se entendió nada");
                         return;
                     }
-                    enviar(t);
+                    Log.i(TAG, "DICTADO caracteres=" + t.length() + " pico=" + pico[0] + " directo=" + directo.isChecked());
+                    if (directo.isChecked()) {
+                        enviar(t);
+                        return;
+                    }
+                    final String dictado = t;
+                    ui(new Runnable() {
+                        @Override
+                        public void run() {
+                            String previo = campoMensaje.getText().toString().trim();
+                            campoMensaje.setText(previo.isEmpty() ? dictado : previo + " " + dictado);
+                            campoMensaje.setSelection(campoMensaje.getText().length());
+                            estado.setText("Dictado listo: revísalo y pulsa Enviar");
+                        }
+                    });
                 } catch (Exception e) {
                     decir("Aviso", "Transcribir: " + e.getMessage());
                 }
@@ -560,7 +594,7 @@ public class Principal extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (leer != null) prefs.edit().putBoolean("leer", leer.isChecked()).commit();
+        if (leer != null) prefs.edit().putBoolean("leer", leer.isChecked()).putBoolean("directo", directo.isChecked()).commit();
         grabando = false;
         if (hablar != null) hablar.setText("Mantén para hablar");
         audio.parar(null);

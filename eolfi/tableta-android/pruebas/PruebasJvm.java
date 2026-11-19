@@ -98,6 +98,11 @@ public final class PruebasJvm {
         ok(Reglas.motivoParaNoGrabar(false, false) == null, "semidúplex: libre");
         ok(Reglas.motivoParaNoGrabar(true, false) != null && Reglas.motivoParaNoGrabar(false, true) != null,
                 "semidúplex: no graba mientras habla o espera");
+        // Chat sin respuesta: el texto vuelve a la caja; si Eolas atendía otra petición se dice así (19/11, en vivo).
+        String ocup = Reglas.avisoChatFallido("Eolas V2 está respondiendo una petición (PID 40136 desde 03:38:38); espera a que termine");
+        ok(ocup.contains("ocupado") && ocup.contains("vuelve a la caja") && !ocup.contains("PID"), "chat: Eolas ocupado");
+        ok(Reglas.avisoChatFallido("modelo no cargado").contains("modelo no cargado")
+                && Reglas.avisoChatFallido(null).contains("sin detalle"), "chat: otros fallos");
         // Cliente: rutas fuera de la API y direcciones malas.
         lanza(new Runnable() { public void run() { new Cliente("ftp://x", null, null, false); } }, "cliente: dirección");
         try {

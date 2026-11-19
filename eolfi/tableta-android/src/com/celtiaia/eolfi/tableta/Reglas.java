@@ -140,4 +140,14 @@ public final class Reglas {
         if (ocupado) return "Espera a que Eolas termine la respuesta anterior";
         return null;
     }
+
+    /** Aviso para un chat que terminó sin respuesta. Si Eolas estaba atendiendo otra petición, se dice que el mensaje
+     *  vuelve a la caja para reenviarlo; en otro caso, el error tal cual. */
+    public static String avisoChatFallido(String error) {
+        String e = error == null ? "" : error.trim();
+        if (e.contains("está respondiendo una petición") || e.contains("is answering a request")) {
+            return "Eolas está ocupado con otra petición. Tu mensaje vuelve a la caja: pulsa Enviar en un momento";
+        }
+        return "Eolas no pudo responder: " + (e.isEmpty() ? "sin detalle" : e) + ". Tu mensaje vuelve a la caja";
+    }
 }
