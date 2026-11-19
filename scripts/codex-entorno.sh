@@ -8,12 +8,27 @@ set -euo pipefail
 python --version
 node --version
 
-# Eolfi y sus dependencias de desarrollo (pytest, ruff…).
-python -m pip install --upgrade pip
+# Eolfi y las mismas dependencias de desarrollo que usa la CI.
 python -m pip install -e ".[dev]"
+python -m eolfi navegador instalar
 
-# Pruebas de navegador: dependencias exactas del package-lock. Necesitan un Chrome/Chromium; si el contenedor de
-# Codex no lo trae, esa suite quedará NO VERIFICADO (las otras tres sí corren).
-(cd tests/e2e && npm ci --no-audit --no-fund) || echo "AVISO: tests/e2e sin dependencias: suite de navegador NO VERIFICADO"
+# Dependencias exactas del package-lock para las pruebas del panel.
+(cd tests/e2e && npm ci --no-audit --no-fund)
 
-echo "Entorno listo. Suites: python -m pytest -q · node --test (eolfi/bridge y eolfi/vscode-bridge) · npm test (tests/e2e)"
+# Comprueba el acceso al servidor local que requieren las cuatro suites.
+python - <<'PY'
+import socket
+
+try:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with socket.create_connection(listener.getsockname(), timeout=2):
+            pass
+except OSError as exc:
+    raise SystemExit(f"NO VERIFICADO: conexión de loopback bloqueada: {exc}") from None
+PY
+
+echo "Dependencias instaladas y loopback disponible."
+echo 'Para el panel, usa el Chrome del runner o define EOLFI_E2E_BROWSER con la ruta de un navegador compatible.'
+echo "Suites pendientes: python -m pytest -q · node --test (eolfi/bridge y eolfi/vscode-bridge) · npm test (tests/e2e)"

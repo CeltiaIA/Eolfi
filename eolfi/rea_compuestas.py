@@ -907,7 +907,8 @@ def analizar_app_js(client: Any, path: str) -> dict[str, Any]:
     """Aplicación JavaScript, Electron o web (carpeta o .asar) analizada por REA SIN ejecutarla (plan REA, punto 5):
     estadísticas, superficie de Electron (ventanas, precargas, IPC, procesos, módulos nativos) y cobertura del grafo
     semántico por familia. Las relaciones son candidatas estáticas: no prueban ejecución."""
-    n = _call(client, "analyze_javascript_application", {"input_path": path, "detail": "summary"})
+    n = _call(client, "analyze_javascript_application",
+              {"input_path": str(Path(path).resolve()), "detail": "summary"})
     summary = n.get("summary") or {}
     electron = summary.get("electron") or {}
     ipc = electron.get("ipc") or {}
@@ -2830,7 +2831,7 @@ def binario_go(client: Any, path: str, limite: int = 60) -> dict[str, Any]:
     ejecutar nada. No recupera funciones ni comportamiento."""
     src = _native_target(path)
     limite = max(1, min(int(limite or 60), 2000))
-    v = _call(client, "inspect_go_binary", {"path": str(src)})
+    v = _call(client, "inspect_go_binary", {"path": str(src.resolve())})
     art = v.get("artifact") or {}
     info = v.get("build_info")
     base = {"archivo": str(src), "sha256": art.get("sha256"), "bytes": art.get("bytes"), "formato": v.get("format"),
@@ -2868,7 +2869,7 @@ def binario_rust(client: Any, path: str, limite: int = 60) -> dict[str, Any]:
     no tenga dependencias)."""
     src = _native_target(path)
     limite = max(1, min(int(limite or 60), 2000))
-    v = _call(client, "inspect_rust_binary", {"path": str(src)})
+    v = _call(client, "inspect_rust_binary", {"path": str(src.resolve())})
     art = v.get("artifact") or {}
     meta = v.get("auditable_metadata")
     base = {"archivo": str(src), "sha256": art.get("sha256"), "bytes": art.get("bytes"), "formato": v.get("format"),

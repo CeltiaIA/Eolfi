@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -81,48 +82,69 @@ class ReaClient:
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      env=rea_env(), text=True, encoding="utf-8", errors="replace",
                                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self._replies: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._replies: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        self._rpc_lock = threading.Lock()
+        self._stdout_closed = False
         threading.Thread(target=self._read, daemon=True).start()
         self._id = 0
-        self._rpc("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},
-                                 "clientInfo": {"name": "eolfi-chat", "version": "1"}})
-        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        try:
+            self._rpc("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},
+                                     "clientInfo": {"name": "eolfi-chat", "version": "1"}})
+            self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except (RuntimeError, OSError):
+            self.close()
+            raise
 
     def _read(self) -> None:
-        for line in self.proc.stdout:
-            try:
-                msg = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(msg, dict) and "id" in msg:
-                self._replies.put(msg)
+        try:
+            for line in self.proc.stdout:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(msg, dict) and "id" in msg:
+                    self._replies.put(msg)
+        finally:
+            self._replies.put(None)
 
     def _send(self, msg: dict[str, Any]) -> None:
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
 
     def _rpc(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        self._id += 1
-        mid = self._id
-        self._send({"jsonrpc": "2.0", "id": mid, "method": method, "params": params})
-        while True:
-            try:
-                msg = self._replies.get(timeout=self.timeout)
-            except queue.Empty:
-                raise RuntimeError(f"REA no respondió a {method} en {self.timeout:g} s") from None
-            if msg.get("id") == mid:
-                if "error" in msg:
-                    raise RuntimeError(f"REA: {msg['error'].get('message')}")
-                return msg.get("result") or {}
+        with self._rpc_lock:
+            if self._stdout_closed:
+                raise RuntimeError(f"REA cerró stdout durante {method}")
+            self._id += 1
+            mid = self._id
+            self._send({"jsonrpc": "2.0", "id": mid, "method": method, "params": params})
+            deadline = time.monotonic() + self.timeout
+            while (remaining := deadline - time.monotonic()) > 0:
+                try:
+                    msg = self._replies.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                if msg is None:
+                    self._stdout_closed = True
+                    raise RuntimeError(f"REA cerró stdout durante {method}")
+                if msg.get("id") == mid:
+                    if "error" in msg:
+                        raise RuntimeError(f"REA: {msg['error'].get('message')}")
+                    return msg.get("result") or {}
+            raise RuntimeError(f"REA no respondió a {method} en {self.timeout:g} s")
 
     def list_tools(self) -> list[dict[str, Any]]:
         tools, cursor = [], None
+        seen = set()
         while True:
             result = self._rpc("tools/list", {"cursor": cursor} if cursor else {})
             tools += result.get("tools") or []
             cursor = result.get("nextCursor")
             if not cursor:
                 return tools
+            if cursor in seen:
+                raise RuntimeError("REA repitió un cursor en tools/list")
+            seen.add(cursor)
 
     def call(self, name: str, args: dict[str, Any], limit: int | None = MAX_RESULT) -> tuple[str, bool]:
         """limit=None: resultado completo (las herramientas compuestas lo resumen ellas antes de dárselo al modelo)."""

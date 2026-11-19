@@ -34,6 +34,45 @@ def test_cliente_pagina_el_catalogo_y_ofrece_estaticas_por_ruta_y_meta(tools):
     assert tools.checked == ["C:/datos/x.bin"]
 
 
+def test_cliente_informa_si_rea_cierra_stdout_al_inicializar():
+    with pytest.raises(RuntimeError, match="cerró stdout durante initialize"):
+        rea_client.ReaClient([sys.executable, "-c", "import sys; sys.stdin.readline()"], timeout=5)
+
+
+def test_cliente_conserva_el_error_de_stdout_cerrado_en_el_reintento():
+    script = """
+import json
+import sys
+
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {}}), flush=True)
+sys.stdin.readline()  # notifications/initialized
+sys.stdin.readline()  # primera consulta
+"""
+    client = rea_client.ReaClient([sys.executable, "-c", script], timeout=2)
+    try:
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="cerró stdout durante tools/list"):
+                client.list_tools()
+    finally:
+        client.close()
+
+
+def test_cliente_rechaza_cursor_repetido(tools, monkeypatch):
+    client = tools.client
+    monkeypatch.setattr(client, "_rpc", lambda *_: {"tools": [], "nextCursor": "repetido"})
+    with pytest.raises(RuntimeError, match="repitió un cursor"):
+        client.list_tools()
+
+
+def test_cliente_no_pierde_respuestas_con_llamadas_simultaneas(tools):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        replies = list(pool.map(lambda i: tools.client.call(f"prueba_{i}", {}), range(12)))
+    assert replies == [(f"hecho prueba_{i} {{}}", True) for i in range(12)]
+
+
 def test_catalogo_vivo_escritura_permitida_y_ejecucion_bloqueada(tools):
     found, ok = tools.call_tool("rea_buscar", {"consulta": "descompila funciones"})
     assert ok and "decompile_all" in found and "escritura" in found
