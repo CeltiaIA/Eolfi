@@ -35,6 +35,9 @@
     26/26 a la primera (código 18/18, herramientas 8/8) → aprobado y admitido; `recomendar-perfil` = `gemma` sin
     aplicar (ya era el activo). Al terminar, Eolas dejó Gemma Q5 arrancada (PID 21692, con vigilante de inactividad).
     Cerrado a petición del titular el panel 8778 (sobrante). Pendiente: Q4 y otros perfiles; el banco satura al 100 %.
+  - **G1, elección por el modelo real (19/11):** Gemma Q5 en el chat de 8777 elige sola `eolfi_modelos_auditar` para un
+    GGUF y para una carpeta, y `eolfi_triage` (no el auditor) para `notepad.exe`: 3/3. Respuesta con dos pasos de más
+    («legítima» y el hash de la carpeta tomado como prueba de origen). Evidencia en `informes/modelos-g-2026-11-16/`.
   - **Galaxy Tab 2 (GT-P3100)**:
     - La tableta tiene Android 4.1.2 (API 16), con el último firmware oficial P3100XXDMC1, y una GPU PowerVR SGX540 (GLES 2.0).
     - Daggerfall Unity 1.1.1.9 exige API 23 y GLES 3.0: `adb install` → `INSTALL_FAILED_OLDER_SDK`.
