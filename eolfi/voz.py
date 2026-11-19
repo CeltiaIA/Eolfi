@@ -327,6 +327,10 @@ namespace EolfiMic {
 ESTADOS_MIC = {1: "activo", 2: "desactivado", 4: "no presente", 8: "desconectado"}
 # Pico por debajo del cual una grabación es silencio de la entrada (≈ -55 dBFS en 16 bits): ni voz ni ruido de sala.
 UMBRAL_SILENCIO = 60
+# Por debajo de este pico (≈ -30 dBFS) la grabación es floja: se mira si el micrófono está silenciado o sin volumen.
+UMBRAL_FLOJO = 1000
+# Marcas de Whisper para tramos sin voz («(Silencio)», «[Pausa]», «[Música]»…): no son texto dictado.
+MARCAS_SIN_VOZ = re.compile(r"[\[(]\s*(?:silencio|pausa|m[uú]sica|ruido|risas|aplausos|inaudible|blank_audio|silence|music|noise|pause)[^\])]*[\])]", re.IGNORECASE)
 
 
 def nivel(data: bytes) -> dict[str, float]:
@@ -377,13 +381,19 @@ def _diagnostico_mic(pred: dict[str, Any] | None, mics: list[dict[str, Any]]) ->
 
 
 def _silencio(data: bytes) -> None:
-    """Si la grabación es silencio de la entrada, se dice qué revisar (antes: «No se entendió nada»)."""
-    if nivel(data)["pico"] >= UMBRAL_SILENCIO:
+    """Si la grabación es silencio de la entrada, se dice qué revisar (antes: «No se entendió nada»).
+
+    19/11/2026: un micrófono silenciado en Windows aún deja pasar un hilo de ruido (pico ~100) que superaba el umbral;
+    con una grabación floja se consulta también el estado del micrófono y, si está silenciado o sin volumen, se avisa."""
+    pico = nivel(data)["pico"]
+    if pico >= UMBRAL_FLOJO:
         return
     try:
         m = microfonos()
     except VozError:
         m = {"predeterminado": None, "diagnostico": None}
+    if pico >= UMBRAL_SILENCIO and not m.get("diagnostico"):
+        return
     cual = f"«{m['predeterminado']}»" if m.get("predeterminado") else "el micrófono"
     raise VozError(m.get("diagnostico") or
                    f"No llega sonido de {cual} (la grabación es silencio). Comprueba que está enchufado en la toma de "
@@ -609,7 +619,7 @@ def transcribir(data: bytes, *, idioma: str | None = None) -> dict[str, Any]:
                 raise VozError(f"whisper no respondió en {PLAZO} s") from exc
             if out.returncode != 0:
                 raise VozError("whisper falló: " + out.stderr.decode("utf-8", "replace").strip()[-300:])
-            texto = " ".join(out.stdout.decode("utf-8", "replace").split())
+            texto = " ".join(MARCAS_SIN_VOZ.sub(" ", out.stdout.decode("utf-8", "replace")).split())
             segmentos = [{"texto": texto, "confianza": None}] if texto else []
         else:
             d = _ps(_PS_RECONOCER, {"EOLFI_VOZ_IDIOMA": lang, "EOLFI_VOZ_WAV": str(wav)})

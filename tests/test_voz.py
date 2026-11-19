@@ -263,3 +263,31 @@ def test_api_y_cli_de_microfonos(srv, monkeypatch, capsys):  # noqa: F811
 def test_microfonos_reales_del_equipo():
     m = voz.microfonos()
     assert m["disponible"] and all(x["estado"] in voz.ESTADOS_MIC.values() for x in m["microfonos"])
+
+
+def test_microfono_silenciado_con_hilo_de_ruido_y_marcas_de_whisper(motor, monkeypatch, tmp_path):
+    """19/11/2026, en vivo: el auricular en la otra toma rosa, silenciada en Windows, dejaba un ruido de pico ~100 y
+    Whisper devolvía «(Silencio) (Silencio)» como si fuera texto."""
+    flojo = wav(1.0)[:44] + b"".join(struct.pack("<h", 100 if i % 50 == 0 else 0) for i in range(16000))
+    consultas = []
+    monkeypatch.setattr(voz, "microfonos", lambda: consultas.append(1) or
+                        {"predeterminado": "Mic", "diagnostico": "«Mic» está silenciado en Windows"})
+    with pytest.raises(voz.VozError, match="silenciado"):
+        voz.transcribir(flojo)
+    monkeypatch.setattr(voz, "microfonos", lambda: consultas.append(1) or {"predeterminado": "Mic", "diagnostico": None})
+    assert voz.transcribir(flojo)["texto"] == "hola mundo"           # flojo pero bien configurado: se transcribe
+    n = len(consultas)
+    voz.transcribir(wav(1.0))
+    assert len(consultas) == n                                         # con buen nivel no se consulta nada
+    exe, modelo = tmp_path / "whisper-cli.exe", tmp_path / "ggml.bin"
+    exe.write_bytes(b"x")
+    modelo.write_bytes(b"x")
+    voz.config_path().write_text(json.dumps({"whisper": {"bin": str(exe), "modelo": str(modelo)}}), encoding="utf-8")
+
+    class Salida:
+        returncode, stderr = 0, b""
+        stdout = "(Silencio) hola [Pausa] [BLANK_AUDIO] adiós [Música de fondo]".encode()
+    monkeypatch.setattr(voz.subprocess, "run", lambda cmd, **kw: Salida())
+    assert voz.transcribir(wav(1.0))["texto"] == "hola adiós"
+    Salida.stdout = b"(Silencio) (Silencio) (Silencio)"
+    assert voz.transcribir(wav(1.0))["texto"] == ""
