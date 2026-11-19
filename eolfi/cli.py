@@ -2415,10 +2415,12 @@ def _main(argv: list[str]) -> int:
             print("eolfi: --key necesita --cert", file=sys.stderr)
             return 2
         return server.serve(args.db, args.host, args.port, args.allow_remote, args.samples, args.cert, args.key)
+    from eolfi.sites.fetch import FetchError
+
     store = EvidenceStore(args.db)
     try:
         return _dispatch(args, store)
-    except (FileNotFoundError, FileExistsError, ValueError, PermissionError, IsADirectoryError) as exc:
+    except (FileNotFoundError, FileExistsError, ValueError, PermissionError, IsADirectoryError, FetchError) as exc:
         if os.environ.get("EOLFI_DEBUG"):
             raise
         print(f"eolfi: error: {type(exc).__name__}: {exc}", file=sys.stderr)

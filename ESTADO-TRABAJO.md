@@ -1,6 +1,6 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-18 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-19 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
 
 ## Reanudación y pruebas activas (17/11/2026)
@@ -23,6 +23,18 @@
     - Si la grabación es silencio, se dice qué revisar en vez de «no se entendió».
     - El panel muestra con qué micrófono graba.
     - En este equipo, «Micrófono (High Definition Audio Device)» está activo, es el predeterminado, sin silenciar y al 100 %, pero graba silencio (pico 1 de 32767); la segunda toma de micrófono y la entrada de línea figuran como desconectadas. Probablemente es la conexión física. Voz real: NO VERIFICADO.
+  - **robots.txt con el sitio caído (19/11, misma rama, sin confirmar aún):** celtiaia.com daba 502 también en
+    `robots.txt`; el aviso decía «no permite». Ahora `Fetcher.get` dice la causa («robots.txt respondió 502 … vuelve a
+    intentarlo») y `eolfi web` lo muestra sin traza (la CLI captura `FetchError`). Pruebas en `tests/test_phase4.py`.
+    C3 en sitio público hecho con es.wikipedia.org y E2 en vivo con Gemma Q5 (detalles en `PLAN_DEFINITIVO.md`).
+    Copia `eolfi/eolas_v2.py.pre-alejandria-20261118` idéntica a HEAD: registrada como LIM-049, no se toca.
+  - **B6 con modelo real (19/11):** `create --juez --ai --provider eolas-v2` (Gemma 12B Q5) en verde a la primera
+    ronda, juez 8/8, memoria de ejemplos verificados escrita. Reparación desde el mejor intento con modelo real: NO
+    VERIFICADO (no hizo falta segunda ronda). e2e: la primera vez se colgó (04:30, parada); repetido, 28/28.
+  - **B7 ronda completa real (19/11, solo Gemma Q5 por decisión del titular):** `eolas-v2 examen gemma`, 22 min,
+    26/26 a la primera (código 18/18, herramientas 8/8) → aprobado y admitido; `recomendar-perfil` = `gemma` sin
+    aplicar (ya era el activo). Al terminar, Eolas dejó Gemma Q5 arrancada (PID 21692, con vigilante de inactividad).
+    Cerrado a petición del titular el panel 8778 (sobrante). Pendiente: Q4 y otros perfiles; el banco satura al 100 %.
   - **Galaxy Tab 2 (GT-P3100)**:
     - La tableta tiene Android 4.1.2 (API 16), con el último firmware oficial P3100XXDMC1, y una GPU PowerVR SGX540 (GLES 2.0).
     - Daggerfall Unity 1.1.1.9 exige API 23 y GLES 3.0: `adb install` → `INSTALL_FAILED_OLDER_SDK`.
