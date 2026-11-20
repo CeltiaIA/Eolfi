@@ -14,7 +14,9 @@
   reconstruidos (sin ella no cargaba el perfil activo) y su prueba: 135 + 6 omitidas en reconstruir, tableta, tableta
   Android, TLS y eolas_v2. Chat escrito y dictado del titular con respuesta hablada: correctos (registro 11:10–11:11).
   El navegador de serie no ejecuta el panel (JavaScript moderno): no es la vía. Integrada después en
-  `luis/voz-piper` (merge del 20/11; conflictos resueltos conservando ambos lados). Mi `--tls-legado` duplicado se deshizo.
+  `luis/voz-piper` (merge `4df966d`, push con las cuatro suites en verde: pytest 1401 + 11 omitidas). Desde las
+  11:30 el panel de la tableta se arranca desde `D:\Eolfi` (mismo puerto, certificado y base; sin revincular) y el
+  chat desde la tableta respondió con voz. El cambio sin confirmar de `D:\Eolfi-wt-tablet` queda redundante (LIM-065). Mi `--tls-legado` duplicado se deshizo.
 - **Galaxy Tab 2 como satélite de Eolfi (19/11, rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, commits `6131a71` y `7423908`, sin publicar):**
   - Informe: `D:\Eolfi-objetivos\informes\tablet-gtp3100\INFORME-GT-P3100.md`, con las evidencias y `SHA256SUMS.txt`.
   - **Inventario REA** de solo lectura:
