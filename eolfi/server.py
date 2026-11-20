@@ -281,6 +281,7 @@ class EolfiApp:
     _JOB_FIELDS = ("id", "kind", "status", "label", "started", "finished", "error", "subject")
     MAX_STORED_RESULT = 4_000_000
     HISTORY_KEEP = 4
+    ARCHIVE_KEEP = 1000   # tope del archivo de evidencia, para que la base no crezca sin límite
 
     def _history(self):
         s = self.store()
@@ -291,6 +292,12 @@ class EolfiApp:
         s.conn.execute("CREATE TABLE IF NOT EXISTS job_results (id TEXT PRIMARY KEY, result TEXT, log TEXT)")
         # Trabajos en marcha y el proceso que los ejecuta: si ese proceso ya no existe, el trabajo se cortó.
         s.conn.execute("CREATE TABLE IF NOT EXISTS job_live (id TEXT PRIMARY KEY, pid INTEGER)")
+        # Archivo de evidencia (20/11/2026): el historial visible sigue con HISTORY_KEEP trabajos (decisión del
+        # titular), pero lo que sale de él ya no se borra: pasa aquí con su resultado y su registro, y se puede
+        # consultar por id. Antes, los trabajos citados como evidencia daban 404 al cabo de cuatro trabajos más.
+        s.conn.execute("CREATE TABLE IF NOT EXISTS job_archive (id TEXT PRIMARY KEY, kind TEXT, status TEXT, "
+                       "label TEXT, started REAL, finished REAL, error TEXT, subject TEXT, body TEXT, result TEXT, "
+                       "log TEXT, archived REAL)")
         return s
 
     INTERRUPTED = ("El servidor se reinició o se cerró con el trabajo en marcha; el registro llega hasta el último "
@@ -336,10 +343,18 @@ class EolfiApp:
                         result = json.dumps({"omitido": f"resultado de {len(result)} caracteres: no se guarda"})
                     log = json.dumps((job.get("log") or [])[-2000:], ensure_ascii=False, default=str)
                     s.conn.execute("INSERT OR REPLACE INTO job_results VALUES (?,?,?)", (job["id"], result, log))
-                    # El historial guarda solo los últimos trabajos terminados (decisión del titular, 12/11/2026).
-                    s.conn.execute("DELETE FROM job_history WHERE id NOT IN "
-                                   "(SELECT id FROM job_history ORDER BY started DESC LIMIT ?)", (self.HISTORY_KEEP,))
+                    # El historial guarda solo los últimos trabajos terminados (decisión del titular, 12/11/2026);
+                    # los que salen se archivan antes de quitarlos (20/11/2026).
+                    keep = "(SELECT id FROM job_history ORDER BY started DESC LIMIT ?)"
+                    s.conn.execute(
+                        "INSERT OR REPLACE INTO job_archive SELECT h.id, h.kind, h.status, h.label, h.started, "
+                        "h.finished, h.error, h.subject, h.body, r.result, r.log, ? FROM job_history h "
+                        f"LEFT JOIN job_results r ON r.id = h.id WHERE h.id NOT IN {keep} "
+                        "AND h.status NOT IN ('queued', 'running')", (time.time(), self.HISTORY_KEEP))
+                    s.conn.execute(f"DELETE FROM job_history WHERE id NOT IN {keep}", (self.HISTORY_KEEP,))
                     s.conn.execute("DELETE FROM job_results WHERE id NOT IN (SELECT id FROM job_history)")
+                    s.conn.execute("DELETE FROM job_archive WHERE id NOT IN "
+                                   "(SELECT id FROM job_archive ORDER BY started DESC LIMIT ?)", (self.ARCHIVE_KEEP,))
             finally:
                 s.close()
         except Exception:  # noqa: BLE001 — el historial nunca tumba un trabajo
@@ -356,13 +371,18 @@ class EolfiApp:
     def _stored_result(self, job_id: str) -> dict[str, Any] | None:
         """Un trabajo terminado de una ejecución anterior del servidor, con su resultado y su registro."""
         row = self._stored_job(job_id) if job_id else None
-        if row is None:
-            return None
+        archived = None
         s = self._history()
         try:
-            extra = s.conn.execute("SELECT result, log FROM job_results WHERE id=?", (job_id,)).fetchone()
+            if row is None and job_id:
+                archived = s.conn.execute("SELECT * FROM job_archive WHERE id=?", (job_id,)).fetchone()
+                row = extra = archived
+            else:
+                extra = s.conn.execute("SELECT result, log FROM job_results WHERE id=?", (job_id,)).fetchone()
         finally:
             s.close()
+        if row is None:
+            return None
         log = json.loads(extra["log"]) if extra and extra["log"] else []
         out = {"id": row["id"], "kind": row["kind"], "status": row["status"], "log": log, "next": len(log),
                "elapsed": round((row["finished"] or row["started"]) - row["started"], 1), "stored": True}
@@ -370,6 +390,8 @@ class EolfiApp:
             out["result"] = json.loads(extra["result"])
         if row["error"]:
             out["error"] = row["error"]
+        if archived is not None:
+            out["archived"] = True
         return out
 
     def repeat_job(self, job_id: str, nivel: str = "usuario") -> dict[str, Any]:

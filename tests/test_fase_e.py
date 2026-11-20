@@ -34,6 +34,51 @@ def test_job_history_survives_restart_and_can_be_repeated(tmp_path):
     assert b.jobs[new]["result"]["name"] == "Tienda"
 
 
+def test_job_fuera_del_historial_se_archiva_y_se_consulta_por_id(tmp_path):
+    """20/11/2026: con HISTORY_KEEP = 4 los trabajos citados como evidencia daban 404 al cabo de cuatro más. El
+    historial visible no cambia, pero lo que sale se archiva con su resultado y registro y se consulta por id."""
+    from eolfi.server import EolfiApp
+
+    db, samples = str(tmp_path / "e.db"), tmp_path / "s"
+    a = EolfiApp(db, samples)
+    a.create = lambda body: {"subject": "proyecto:x", "name": body["name"]}
+    ids = []
+    for n in range(a.HISTORY_KEEP + 2):
+        jid = a.start_job({"kind": "create", "body": {"name": f"T{n}"}})["job_id"]
+        for _ in range(200):
+            if a.jobs[jid]["status"] == "done":
+                break
+            time.sleep(0.02)
+        ids.append(jid)
+        time.sleep(0.01)                            # «started» distinto para ordenar
+    b = EolfiApp(db, samples)                       # «reinicio»: solo queda lo guardado en la base
+    listed = [j["id"] for j in b.job_status({})["jobs"]]
+    assert listed == ids[::-1][:b.HISTORY_KEEP]    # el historial visible sigue con HISTORY_KEEP
+    old = b.job_status({"id": ids[0]})
+    assert old["archived"] is True and old["status"] == "done" and old["result"]["name"] == "T0"
+    assert old["log"] == a.jobs[ids[0]]["log"]
+    recent = b.job_status({"id": ids[-1]})
+    assert "archived" not in recent and recent["result"]["name"] == f"T{len(ids) - 1}"
+    with pytest.raises(Exception, match="no encontrado"):
+        b.job_status({"id": "no-existe"})
+
+
+def test_el_archivo_de_trabajos_tiene_tope(tmp_path, monkeypatch):
+    from eolfi.server import EolfiApp
+
+    a = EolfiApp(str(tmp_path / "e.db"), tmp_path / "s")
+    monkeypatch.setattr(EolfiApp, "ARCHIVE_KEEP", 2)
+    for n in range(a.HISTORY_KEEP + 4):
+        a._save_job({"id": f"j{n}", "kind": "create", "status": "done", "started": float(n), "finished": float(n),
+                     "body": {}, "result": {"n": n}, "log": []})
+    s = a._history()
+    try:
+        archived = [r["id"] for r in s.conn.execute("SELECT id FROM job_archive ORDER BY started")]
+    finally:
+        s.close()
+    assert archived == ["j2", "j3"]                 # los más recientes de los que salieron del historial
+
+
 # -- informes ---------------------------------------------------------------------------------
 def _store_with_hostile_subject(tmp_path):
     s = EvidenceStore(str(tmp_path / "e.db"))

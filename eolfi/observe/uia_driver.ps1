@@ -1,4 +1,4 @@
-# Controlador de UI Automation (Windows) para los pasos «desktop» de una sesión de observación de Eolfi.
+﻿# Controlador de UI Automation (Windows) para los pasos «desktop» de una sesión de observación de Eolfi.
 #
 #   powershell -NoProfile -STA -File uia_driver.ps1 request.json   → JSON por stdout
 #
@@ -8,6 +8,10 @@
 # valor, habilitado), acotado. No interactúa con ventanas de otros procesos.
 param([string]$RequestPath)
 $ErrorActionPreference = 'Stop'
+# El plazo cuenta desde el arranque del controlador, antes de compilar el tipo auxiliar: con el equipo cargado,
+# Add-Type puede tardar decenas de segundos y el proceso que llama solo concede un margen fijo sobre timeout_ms.
+$req = Get-Content -Raw -Encoding UTF8 $RequestPath | ConvertFrom-Json
+$deadline = (Get-Date).AddMilliseconds([int]$req.timeout_ms)
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 if (-not ([System.Management.Automation.PSTypeName]'EolfiWindowCapture').Type) {
@@ -21,8 +25,6 @@ public static class EolfiWindowCapture {
 }
 '@
 }
-$req = Get-Content -Raw -Encoding UTF8 $RequestPath | ConvertFrom-Json
-$deadline = (Get-Date).AddMilliseconds([int]$req.timeout_ms)
 $procCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$req.pid)
 
 function Windows {
@@ -115,6 +117,14 @@ function Find($a) {
 }
 
 $out = [ordered]@{ status = 'ok'; actions = @() }
+# Resultado parcial en disco tras cada acción: si el proceso que llama agota su margen y mata al controlador,
+# conserva lo observado hasta entonces en vez de perderlo.
+function SavePartial {
+  if ($req.result_path) {
+    try { [System.IO.File]::WriteAllText([string]$req.result_path, ($out | ConvertTo-Json -Depth 12 -Compress),
+                                         (New-Object System.Text.UTF8Encoding($false))) } catch { }
+  }
+}
 try {
   while (-not (Windows) -or (Windows).Count -eq 0) {
     if ((Get-Date) -gt $deadline) { throw 'la aplicación no abrió ninguna ventana a tiempo' }
@@ -123,7 +133,7 @@ try {
   # La ventana existe antes de terminar de construirse: se espera a dos instantáneas iguales seguidas (máx. 5 s).
   $stable = (Get-Date).AddSeconds(5)
   $prev = Snapshot | ConvertTo-Json -Depth 12 -Compress
-  while ((Get-Date) -lt $stable) {
+  while ((Get-Date) -lt $stable -and (Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 250
     $cur = Snapshot | ConvertTo-Json -Depth 12 -Compress
     if ($cur -eq $prev) { break }
@@ -131,6 +141,10 @@ try {
   }
   $acts = @([pscustomobject]@{ id = '_inicio'; do = 'read' }) + @($req.actions)
   foreach ($a in $acts) {
+    if ((Get-Date) -gt $deadline) {
+      $out.status = 'timeout'; $out.error = "plazo agotado antes de la acción $($a.id)"
+      break
+    }
     $r = [ordered]@{ id = $a.id; do = $a.do; target = if ($a.automation_id) { "id:$($a.automation_id)" } elseif ($a.name) { "name:$($a.name)" } else { '' } }
     try {
       if ($a.do -ne 'read') {
@@ -160,6 +174,7 @@ try {
       $r.screenshot = if ($window) { CaptureWindow $window } else { @{ status = 'no_window' } }
     }
     $out.actions += ,$r
+    SavePartial
   }
   if ($req.close) {
     foreach ($w in (Windows)) {

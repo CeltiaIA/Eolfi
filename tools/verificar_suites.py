@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -83,7 +84,23 @@ def run(name: str, argv: list[str], cwd: Path, timeout: float = TIMEOUT) -> tupl
             pass
         return False, f"no se pudo ejecutar: sin terminar tras {timeout:.0f} s; se detuvo la suite y sus procesos"
     tail = [ln for ln in (out + err).splitlines() if ln.strip()][-3:]
-    return p.returncode == 0, f"{time.monotonic() - start:.0f} s · " + " | ".join(tail)[-300:]
+    info = f"{time.monotonic() - start:.0f} s · " + " | ".join(tail)[-300:]
+    if p.returncode != 0:
+        # 20/11/2026: un fallo intermitente de pytest solo dejó «AssertionEr...» y no se pudo saber qué aserción
+        # falló. La salida completa de una suite que falla se guarda fuera del repositorio.
+        if saved := save_failure_log(name, out, err):
+            info += f" · salida completa: {saved}"
+    return p.returncode == 0, info
+
+
+def save_failure_log(name: str, out: str, err: str) -> str | None:
+    slug = "".join(c if c.isalnum() else "-" for c in name).strip("-") or "suite"
+    path = Path(tempfile.gettempdir()) / f"eolfi-guardia-{slug}-{time.strftime('%Y%m%d-%H%M%S')}.log"
+    try:
+        path.write_text(f"{out}\n--- stderr ---\n{err}", encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return str(path)
 
 
 def main(argv: list[str]) -> int:

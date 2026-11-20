@@ -97,3 +97,19 @@ def test_suite_npm_sin_node_modules_falla_con_motivo(tmp_path, monkeypatch):
     monkeypatch.setattr(vs, "ROOT", tmp_path)
     ok, info = vs.run("navegador (e2e)", ["npm", "test"], suite)
     assert not ok and "faltan dependencias" in info and "npm ci" in info
+
+
+def test_una_suite_que_falla_guarda_su_salida_completa(tmp_path, monkeypatch):
+    """20/11/2026: un fallo intermitente solo dejó «AssertionEr...» en la guardia; ahora queda la salida entera."""
+    import sys
+
+    monkeypatch.setattr(vs.tempfile, "gettempdir", lambda: str(tmp_path / "temporal"))
+    (tmp_path / "temporal").mkdir()
+    code = "import sys; print('detalle completo de la asercion ' * 30); sys.exit(1)"
+    ok, info = vs.run("pytest", [sys.executable, "-c", code], tmp_path)
+    assert not ok and "salida completa:" in info
+    saved = Path(info.split("salida completa: ", 1)[1])
+    assert saved.parent == tmp_path / "temporal"
+    assert saved.read_text(encoding="utf-8").count("detalle completo de la asercion") == 30
+    ok, info = vs.run("pytest", [sys.executable, "-c", "print('bien')"], tmp_path)
+    assert ok and "salida completa" not in info

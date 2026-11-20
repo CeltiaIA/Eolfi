@@ -405,7 +405,9 @@ def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[st
         except OSError as exc:
             return {"status": "error", "error": f"{type(exc).__name__}: {exc}", "duration_ms": 0}
         rpath = Path(tmp, "request.json")
+        partial = Path(tmp, "partial.json")
         rpath.write_text(json.dumps({"pid": proc.pid, "timeout_ms": int(step["timeout"] * 1000),
+                                     "result_path": str(partial),
                                      "actions": step["actions"], "close": step["close"],
                                      "screenshots": step.get("screenshots", False)}), encoding="utf-8")
         res: dict[str, Any]
@@ -419,6 +421,15 @@ def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[st
                 + drv.stderr.decode("utf-8", "replace")[-800:]}
         except subprocess.TimeoutExpired:
             res = {"status": "timeout", "error": "el controlador de UI Automation no terminó a tiempo"}
+            # Lo observado antes del corte se conserva (el controlador lo guarda tras cada acción); el paso sigue
+            # marcado como «timeout», nunca como completo.
+            try:
+                prior = json.loads(partial.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError):
+                prior = None
+            if isinstance(prior, dict) and isinstance(prior.get("actions"), list):
+                res["actions"] = prior["actions"]
+                res["error"] += f" (se conservan {len(prior['actions'])} acciones observadas antes del corte)"
         except json.JSONDecodeError:
             res = {"status": "error", "error": "respuesta inválida del controlador de UI Automation"}
         killed = False
@@ -452,7 +463,8 @@ def _desktop_step(step: dict[str, Any], argv: list[str], cwd: Path, env: dict[st
                 else:
                     shot["data_base64"] = encoded
                     shot["sha256"] = actual_sha
-        if step.get("screenshots") and (not isinstance(shot, dict) or shot.get("status") != "captured"):
+        if step.get("screenshots") and (not isinstance(shot, dict) or shot.get("status") != "captured") \
+                and res.get("status") != "timeout":
             res["status"] = "partial"
             res["error"] = f"captura visual no completa: {shot.get('status') if isinstance(shot, dict) else 'sin resultado'}"
     rec: dict[str, Any] = {"status": res.get("status", "error"), "duration_ms": round((time.monotonic() - t0) * 1000),
