@@ -5,6 +5,7 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Promesas falsas del chat (20/11 14:00–14:15, sin commit):** desde la tableta, el Q4 reconstruido contestaba «Procederé a crear el archivo…», «Estoy trabajando en…», «te informaré» sin llamar a ninguna herramienta (nada se ejecuta tras responder). `chat_honestidad` amplía «acción en curso» a esas promesas (por frase; no cuentan las ofertas «si quieres, procederé…» ni las preguntas) y a más verbos en curso («preparando», «trabajando»…). Pruebas: 55 de honestidad, chat y encargos en verde. Real, repitiendo la conversación de la tableta en el 8777: 1.ª vez detectado y corregido pero la corrección decía «Estoy preparando…» (verbo añadido); 2.ª vez la corrección siguió prometiendo y Eolfi antepuso el aviso visible (trabajo `1350f8e310621b32`).
 - **Tableta contra el Eolfi en vivo (20/11 12:25–13:33, sin commit):** a petición de Luis, la tableta ya no usa
   un panel propio: `eolfi tableta-puente` (nuevo, `eolfi/tableta_puente.py`) escucha con TLS en `0.0.0.0:18779` (mismo
   certificado y huella, `--tls-legado`) y reenvía **solo** las rutas de la tableta y el canje del código a

@@ -68,10 +68,21 @@ def _plano(texto: str) -> str:
 
 EN_CURSO = re.compile(
     r"acciones en curso|\b(?:esta|estan|queda|sigue|sigo|ya esta)\s+en\s+(?:marcha|curso)\b"
-    r"|\bestoy\s+(?:procesando|analizando|extrayendo|descargando|generando|creando|construyendo|estructurando)\b"
+    r"|\b(?:estoy|seguimos|sigo|estamos)\s+(?:procesando|analizando|extrayendo|descargando|generando|creando"
+    r"|construyendo|estructurando|preparando|configurando|escribiendo|desarrollando|elaborando|trabajando"
+    r"|terminando|finalizando|ultimando|implementando|ajustando)\b"
     r"|\bmientras\s+(?:el|la|los|las)\s+[\w ]{0,40}?\b(?:corre|se ejecuta|avanza|termina)\b"
     r"|\ben\s+(?:mi|la)\s+proxima\s+respuesta\s+te\s+(?:entregare|dare|enviare|mostrare|traere)"
     r"|\bentrando en fase de\b|\bcomenzare a procesar\b")
+# 20/11/2026 (tableta, gemma4 Q4 reconstruido): «Procederé a crear el archivo…», «Estoy trabajando en la creación…»,
+# «En cuanto termine… te informaré», «Podrás seguir el progreso en Seguimiento», sin ninguna herramienta. Tras la
+# respuesta no se ejecuta nada: son promesas falsas. Se revisan por frase y no cuentan las ofertas («si quieres,
+# procederé a…») ni las preguntas.
+PROMESA = re.compile(
+    r"\bestoy\s+trabajando\s+en\b|\bprocedere\s+a\s+\w+|\bempezare\s+(?:con|por)\b"
+    r"|\ben\s+cuanto\s+(?:termine|lo\s+tenga|este\s+list[oa]s?)\b|\bte\s+(?:informare|avisare|notificare)\b"
+    r"|\bpodras\s+(?:seguir|ver)\s+(?:el\s+)?(?:progreso|avance)\b")
+OFERTA = re.compile(r"\bsi\s+(?:quieres|lo\s+deseas|te\s+parece|me\s+(?:confirmas|lo\s+pides|das|dices))\b|\?\s*$")
 HECHO = re.compile(r"\b(?:he|hemos)\s+(?:creado|descargado|generado|escrito|guardado|instalado|entrenado|fusionado|"
                    r"ejecutado|compilado)\b")
 INVENTADO = re.compile(
@@ -119,6 +130,10 @@ def revisar(texto: str, llamadas: list[dict[str, Any]], ofrecidas: set[str] | fr
 
     if m := EN_CURSO.search(plano):
         add("accion_en_curso", m.group(0))
+    for frase in _frases(plano):
+        if (m := PROMESA.search(frase)) and not OFERTA.search(frase):
+            add("accion_en_curso", m.group(0))
+            break
     if not any(c.get("ok") for c in llamadas) and (m := HECHO.search(plano)):
         add("hecho_sin_herramienta", m.group(0))
     elif (any(c.get("name") == "eolfi_vscode_encargo" and c.get("ok") for c in llamadas)

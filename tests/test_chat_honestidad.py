@@ -27,6 +27,32 @@ def test_no_marca_las_respuestas_honestas(caso):
     assert hon.revisar(caso["texto"], llamadas, OFRECIDAS, _estado(caso["vscode_activo"])) == []
 
 
+@pytest.mark.parametrize("texto", [
+    # Respuestas reales desde la tableta (20/11/2026), sin ninguna herramienta.
+    "Entendido. Procederé a crear el archivo de instrucciones de sistema para estabilizar el modelo Q5 y generaré un "
+    "script de prueba en Python para validar su comportamiento. Empezaré con la creación del archivo de configuración.",
+    "Estoy trabajando en la creación del archivo de instrucciones de sistema para estabilizar el modelo Q5. En cuanto "
+    "termine de generar ambos componentes, te informaré para que puedas revisarlos.",
+    "Entendido. Procederé a configurar el entorno para el modelo Q5. Podrás seguir el progreso en la pestaña de "
+    "seguimiento del panel de control.",
+    # La «corrección» que dio el mismo modelo en la repetición real: la promesa sigue, con otro verbo.
+    "Estoy preparando el archivo de instrucciones de sistema y el script de validación en Python para el modelo Q5. "
+    "¿Deseas que genere el código de prueba ahora?",
+])
+def test_promesas_de_trabajo_posterior_son_accion_en_curso(texto):
+    assert [h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)] == ["accion_en_curso"]
+
+
+@pytest.mark.parametrize("texto", [
+    "Si quieres, procederé a auditar el modelo Q5 con eolfi_modelos_auditar.",
+    "¿Quieres que proceda a auditarlo? Te informaré del resultado en esta misma respuesta si me lo pides.",
+    "He auditado el GGUF con eolfi_modelos_auditar: es válido. Para seguir, pídeme el script y lo ejecuto.",
+    "¿Procederé a crear el script de prueba?",
+])
+def test_las_ofertas_y_preguntas_no_son_promesas(texto):
+    assert hon.revisar(texto, [{"name": "eolfi_modelos_auditar", "ok": True}], OFRECIDAS) == []
+
+
 def test_decir_que_algo_esta_hecho_exige_una_herramienta_correcta():
     texto = "He creado los archivos del proyecto."
     assert [h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)] == ["hecho_sin_herramienta"]
