@@ -51,6 +51,9 @@ _CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'
         "connect-src 'self'; frame-src http://127.0.0.1:*; frame-ancestors 'self' vscode-webview:; "
         "base-uri 'none'; form-action 'none'")
 _LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
+# Cabecera que pone el puente de la tableta (eolfi/tableta_puente.py). Solo puede rebajar permisos (nivel usuario y
+# solo tokens de tableta), así que fiarse de ella desde 127.0.0.1 no da nada que el loopback no tuviera ya.
+PUENTE_HEADER = "X-Eolfi-Puente"
 _CASE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # Informe de caso: HTML autocontenido sin scripts; solo necesita estilos en línea.
 _REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
@@ -2045,7 +2048,11 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                        "application/json; charset=utf-8", {"Content-Language": idioma, **(extra or {})})
 
         def _nivel(self) -> str:
-            """Titular si la conexión sale de este equipo; desde otro dispositivo (modo remoto), usuario normal."""
+            """Titular si la conexión sale de este equipo; desde otro dispositivo (modo remoto), usuario normal.
+            Un token con alcance (tableta) o lo que llega por el puente de la tableta es siempre usuario: con el
+            puente delante (20/11/2026) la tableta conecta desde 127.0.0.1 y, por la dirección, sería titular."""
+            if getattr(self, "_scope", None) is not None or self.headers.get(PUENTE_HEADER) is not None:
+                return "usuario"
             return "titular" if self.client_address[0] in _LOOPBACK else "usuario"
 
         def _check_host(self) -> bool:
@@ -2153,6 +2160,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
 
                     if self._scope == _tab.SCOPE and not _tab.permitida(method, path):
                         self._reject(403, "este dispositivo solo puede usar las rutas de la tableta")
+                if (self.headers.get(PUENTE_HEADER) is not None and path != "/api/clients/token"
+                        and self._scope != "tableta"):
+                    # El puente solo sirve a la tableta: otro token (VS Code, completo) no entra por él.
+                    self._reject(403, "por el puente de la tableta solo entran tokens de la tableta")
                 self._precheck(method)
                 if method == "POST" and ((path == "/api/upload" and q.get("store") == "1")
                                          or path == "/api/projects/upload"):
@@ -2285,7 +2296,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             raise ApiError(403, "el código de vinculación se genera en el panel de Eolfi")
                         return self._json(200, app.pair_code(self._obj()))
                     if path == "/api/clients/token":
-                        return self._json(200, app.pair_exchange(self._obj()))
+                        body = self._obj()
+                        if self.headers.get(PUENTE_HEADER) is not None and body.get("scope") != "tableta":
+                            raise ApiError(403, "por el puente de la tableta solo se vinculan tabletas")
+                        return self._json(200, app.pair_exchange(body))
                     if path == "/api/bridge/compare":
                         return self._json(200, app.bridge_compare(self._obj()))
                     if path == "/api/cases":

@@ -1,10 +1,24 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-19 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-20 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Tableta contra el Eolfi en vivo (20/11 12:25–13:33, sin commit):** a petición de Luis, la tableta ya no usa
+  un panel propio: `eolfi tableta-puente` (nuevo, `eolfi/tableta_puente.py`) escucha con TLS en `0.0.0.0:18779` (mismo
+  certificado y huella, `--tls-legado`) y reenvía **solo** las rutas de la tableta y el canje del código a
+  `http://127.0.0.1:8777` (siempre IP, nunca `localhost`); exige token `ect_`, no reenvía cookies ni `Origin` y fuerza el
+  alcance «tableta» al vincular. En `eolfi/server.py`, un token de tableta o lo que llega con `X-Eolfi-Puente` es siempre
+  nivel usuario (por el puente la conexión sale de 127.0.0.1 y habría sido titular) y por el puente no entra ningún
+  token completo. En `eolfi/chat.py`, una ruta `.gguf` escrita en el mensaje recibe la pista de `eolfi_modelos_auditar`
+  (antes el Q4 reconstruido contestaba «iniciando la auditoría» sin llamarla; la ruta del Q5 tiene una carpeta
+  `modelos.gguf` y la expresión se ajustó para no cortarla). Pruebas: 18 del puente, chat, tableta, i18n y TLS en verde;
+  las cuatro suites completas en verde antes del último ajuste del puente (pytest 1419 + 11 omitidas, bridge,
+  vscode-bridge, e2e). Incidente: el 8777 con `--reload` recargó entre dos ediciones y dio `NameError` hasta que se
+  reinició (12:47). Real: tableta revinculada al 8777 por el puente (13:30, alcance tableta) y «Audita el modelo Gemma 4
+  Q5 en …32c554…\pesos.gguf» → trabajo `8d42181d868d9dfa` en el 8777 (sale en Seguimiento), con
+  `eolfi_modelos_auditar` ok: GGUF v3, gemma4, 667 tensores, ~8,4 GB, procedencia NO VERIFICADO (127 s).
 - **Tableta satélite de nuevo en marcha (20/11 11:00–11:25, sin confirmar):** la app nativa `com.celtiaia.eolfi.tableta`
   0.1.0 (rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, no integrada en voz-piper) apuntaba al panel de
   prueba del 19/11 (`192.168.1.133:18779`, certificado y base temporales ya inexistentes). Panel de la tableta arrancado

@@ -42,6 +42,24 @@ def test_contexto_dice_donde_estan_los_adjuntos_y_que_analizar():
     assert chat.with_context([{"role": "user", "content": "x"}], [], None) == [{"role": "user", "content": "x"}]
 
 
+def test_una_ruta_gguf_escrita_en_el_mensaje_lleva_la_pista_del_auditor():
+    # 20/11/2026: desde la tableta, «Audita el modelo … pesos.gguf» no llevaba pista y el modelo no auditaba.
+    ruta = r"D:\Alejandria\corpus\modelos.gguf\objetos\sha256\32\32c5\pesos.gguf"
+    msgs = chat.with_context([{"role": "user", "content": f"Audita el modelo Gemma 4 Q5 en {ruta}"}], [], None)
+    text = msgs[-1]["content"]
+    assert f"- Ruta de modelo en el mensaje: {ruta} (modelo GGUF: usa eolfi_modelos_auditar" in text
+    assert chat.rutas_gguf(r"en \\srv\m\y.gguf, /home/a/b.GGUF y C:/m/x.gguf.") == [
+        r"\\srv\m\y.gguf", "/home/a/b.GGUF", "C:/m/x.gguf"]
+    assert chat.rutas_gguf(r"nada.gguf D:\a\b.ggufx D:\a\c.gguf.bak") == []
+    assert chat.rutas_gguf(" ".join([f"C:/m/{i}.gguf" for i in range(9)] + ["C:/m/0.gguf"])) == [
+        f"C:/m/{i}.gguf" for i in range(5)]
+    # Si ya va como adjunto o como objetivo de análisis, no se repite.
+    msgs = chat.with_context([{"role": "user", "content": f"mira {ruta}"}], [], {"kind": "archivo", "target": ruta})
+    assert msgs[-1]["content"].count(ruta) == 2   # en el mensaje y en «Analiza también…», no una tercera vez
+    # Un mensaje sin rutas .gguf queda igual.
+    assert chat.with_context([{"role": "user", "content": "hola"}], [], None) == [{"role": "user", "content": "hola"}]
+
+
 def test_chat_can_call_real_gguf_auditor_without_loading_model(tmp_path):
     from tests.test_modelos import fixture
     from eolfi.mcp_server import DATA_NOTE, EolfiMCP

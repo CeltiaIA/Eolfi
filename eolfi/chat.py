@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -298,6 +299,18 @@ def _nota_adjunto(a: dict[str, str], previo: bool = False) -> str:
     return f"- Adjunto {'de un mensaje anterior ' if previo else ''}«{a['name']}» guardado en {a['path']}" + pista
 
 
+_RUTA_GGUF = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|/)[^\s\"'<>|*?]*?\.gguf(?=$|[\s\"'<>|,;:)\]]|\.(?!\w))", re.IGNORECASE)
+
+
+def rutas_gguf(texto: str, maximo: int = 5) -> list[str]:
+    """Rutas absolutas a .gguf escritas en el texto (sin espacios), sin repetir y como mucho ``maximo``."""
+    out: list[str] = []
+    for m in _RUTA_GGUF.finditer(texto or ""):
+        if m.group(0) not in out:
+            out.append(m.group(0))
+    return out[:maximo]
+
+
 def with_context(messages: list[dict[str, str]], attachments: list[dict[str, str]],
                  analyze: dict[str, str] | None,
                  anteriores: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
@@ -309,6 +322,12 @@ def with_context(messages: list[dict[str, str]], attachments: list[dict[str, str
         notes.append(f"- Analiza también {KIND_HINT[analyze['kind']]}: {analyze['target']}")
         if analyze["kind"] in ("archivo", "binario") and analyze["target"].lower().endswith(".gguf"):
             notes[-1] += gguf_hint
+    # 20/11/2026: una ruta .gguf escrita en el mensaje (p. ej. dictada desde la tableta) no llevaba la pista y el
+    # modelo contestaba «iniciando la auditoría» sin llamar a la herramienta.
+    ya = {a.get("path") for a in [*attachments, *(anteriores or [])]} | {(analyze or {}).get("target")}
+    for ruta in rutas_gguf(messages[-1]["content"] if messages and messages[-1]["role"] == "user" else ""):
+        if ruta not in ya:
+            notes.append(f"- Ruta de modelo en el mensaje: {ruta}{gguf_hint}")
     if not notes:
         return messages
     last = messages[-1]

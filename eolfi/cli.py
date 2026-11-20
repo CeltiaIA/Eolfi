@@ -824,6 +824,15 @@ def _parser() -> argparse.ArgumentParser:
     sv.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; "
                          "en modo remoto, solo samples/ y generated/")
+    tp = sub.add_parser("tableta-puente",
+                        help="Puente TLS de la tableta satélite hacia el Eolfi en vivo (127.0.0.1:8777)")
+    tp.add_argument("--host", default="0.0.0.0", help="Dónde escucha el puente (la tableta llega por la red)")
+    tp.add_argument("--port", type=int, default=18779)
+    tp.add_argument("--destino", default="127.0.0.1", help="IP de loopback del Eolfi en vivo (nunca un nombre)")
+    tp.add_argument("--puerto-eolfi", type=int, default=8777)
+    tp.add_argument("--cert", required=True, metavar="PEM", help="Certificado cuya huella fija la app de la tableta")
+    tp.add_argument("--key", default=None, metavar="PEM")
+    tp.add_argument("--tls-legado", action="store_true", help="ECDHE con AES-CBC-SHA en TLS 1.2 (Android 4.1-4.4)")
     return ap
 
 
@@ -2476,6 +2485,11 @@ def _main(argv: list[str]) -> int:
             return 2
         return server.serve(args.db, args.host, args.port, args.allow_remote, args.samples, args.cert, args.key,
                             tls_legado=args.tls_legado)
+    if args.cmd == "tableta-puente":
+        from eolfi import tableta_puente
+
+        return tableta_puente.servir(args.host, args.port, args.cert, args.key, args.destino, args.puerto_eolfi,
+                                     legado=args.tls_legado)
     from eolfi.sites.fetch import FetchError
 
     store = EvidenceStore(args.db)

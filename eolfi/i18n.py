@@ -114,6 +114,9 @@ API_EN: dict[str, str] = {
     "Abre VS Code y vincula la extensión de Eolfi.": "Open VS Code and link the Eolfi extension.",
     "Chat local limitado a este equipo.": "Local chat is limited to this computer.",
     "La voz solo se configura desde este equipo.": "The voice can only be configured from this computer.",
+    "por el puente de la tableta solo se vinculan tabletas": "only tablets can be linked through the tablet bridge",
+    "por el puente de la tableta solo entran tokens de la tableta":
+        "only tablet tokens are accepted through the tablet bridge",
     "el plan cambió desde que se propuso el encargo: revísalo en el panel":
         "the plan changed since the task was proposed: review it in the panel",
     "los encargos se deciden en el panel o en la extensión de VS Code":
@@ -296,6 +299,8 @@ CLI_EN: dict[str, str] = {
     "Arranca todo junto: Eolas local (CeltIA), el puente de chats web y el panel":
         "Starts everything together: local Eolas (CeltIA), the web chat bridge and the panel",
     "Servidor de desarrollo (API + panel web)": "Development server (API + web panel)",
+    "Puente TLS de la tableta satélite hacia el Eolfi en vivo (127.0.0.1:8777)":
+        "TLS bridge from the satellite tablet to the live Eolfi (127.0.0.1:8777)",
     "Recalcula la cadena SHA-256 del registro": "Recomputes the log's SHA-256 chain",
     "Copia la cabeza de la cadena a un archivo externo": "Copies the head of the chain to an external file",
     "Muestra los últimos eventos": "Shows the latest events",
@@ -522,6 +527,10 @@ CLI_EN: dict[str, str] = {
     "Carpeta nueva; nunca sobrescribe una anterior": "New folder; never overwrites a previous one",
     "Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; en modo remoto, solo samples/ y generated/":
         "Allowed folder for local paths (repeatable). Without --root, no restriction locally; in remote mode, only samples/ and generated/",
+    "Dónde escucha el puente (la tableta llega por la red)": "Where the bridge listens (the tablet comes over the network)",
+    "IP de loopback del Eolfi en vivo (nunca un nombre)": "Loopback IP of the live Eolfi (never a hostname)",
+    "Certificado cuya huella fija la app de la tableta": "Certificate whose fingerprint the tablet app pins",
+    "ECDHE con AES-CBC-SHA en TLS 1.2 (Android 4.1-4.4)": "ECDHE with AES-CBC-SHA on TLS 1.2 (Android 4.1-4.4)",
     "Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)":
         "Allowed folder for local paths (repeatable; also EOLFI_ROOTS)",
     "Carpeta que abrir en VS Code (opcional)": "Folder to open in VS Code (optional)",
