@@ -5,6 +5,17 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Grupo 1 del plan y relevo de Codex (20/11 madrugada, `luis/voz-piper`):**
+  - **E4:** `rea herramientas` detecta el Cutter portátil y su Rizin incluido (Cutter no usa el Rizin externo).
+  - **B7/G6:** ronda aislada Q5 frente al Q4 reconstruido: 28/28 frente a 23/28; el reconstruido no aprueba y va a
+    2,9 tok/s por su perfil (8 capas GPU). Propuesta de igualar ajustes, sin aplicar: decide el titular.
+  - **B6:** primer caso real con varias rondas (6/12 → 7/12 → cortada); se conserva la ronda 2 como parcial. Defecto de
+    `best_attempt` corregido en `assist.py` con regresión.
+  - **Codex** trabajó en paralelo coordinándose por `COORDINACION.md` (local, ignorado por Git): cambios en el puente,
+    `cliente_api`, `juez`, `modelos_actualizar` y e2e, con informe `informes/auditoria-repositorio-2026-11-20.md`.
+    Sus 16 fallos de pytest eran de su sandbox: aquí sus 13 áreas pasan 333 + 1 omitida. Luis encargó a Claude el
+    cierre y la subida.
+
 - **Cierre de suites en `luis/voz-piper` (20/11, sin confirmar):** con el árbol de 37 archivos modificados y los nuevos
   módulos (`cortafuegos`, `herramientas_rea`), las cuatro suites se ejecutaron en este equipo sin bloqueo de loopback:
   `python -m pytest -q` 1332 aprobadas y 8 omitidas, salida 0 (14 min 20 s); `node --test` en `eolfi/bridge` 70 aprobadas

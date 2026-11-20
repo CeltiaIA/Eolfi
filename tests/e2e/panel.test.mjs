@@ -39,7 +39,8 @@ before(async () => {
   // puente de VS Code) y la prueba fallaba con 502 según lo que estuviera haciendo el equipo. Así ve lo mismo que la CI.
   const home = join(tmp, 'home');
   mkdirSync(home);
-  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json'),
+  const isolated = { HOME: home, USERPROFILE: home, EOLFI_HOME: join(home, '.eolfi'),
+    EOLFI_ACCIONES_FILE: join(home, '.eolfi', 'acciones.jsonl'), EOLFI_BRIDGE_FILE: join(home, '.eolfi', 'bridge.json'),
     EOLFI_VSCODE_BRIDGE_FILE: join(home, '.eolfi', 'vscode-bridge.json') };
   server = spawn(PY, ['-m', 'eolfi', '--db', join(tmp, 'e.db'), 'serve', '--port', String(PORT), '--samples', join(tmp, 's')],
     { cwd: ROOT, stdio: 'ignore', env: { ...process.env, ...isolated, PYTHONIOENCODING: 'utf-8' } });
@@ -548,7 +549,8 @@ test('sincronizar un proyecto (D1): propone sin escribir, aplicar pide confirmac
     'from eolfi.flows.create_flow import create_project',
     'site = build_site(pathlib.Path(sys.argv[1]))',
     'create_project([str(site)], EvidenceStore(":memory:"), sys.argv[2], name="Bicis", target="static", do_verify=False)',
-  ].join('\n'), site, out], { cwd: ROOT });
+  ].join('\n'), site, out], { cwd: ROOT,
+    env: { ...process.env, EOLFI_ACCIONES_FILE: join(tmp, 'acciones-sync.jsonl') } });
   await page.goto(BASE + '/');
   await page.waitForSelector('#version:not(:empty)');
   await openTools('create');

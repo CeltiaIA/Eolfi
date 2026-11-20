@@ -36,13 +36,17 @@ def _identifier(text: str, fallback: str) -> str:
 
 def _path_params(template: str) -> tuple[str, list[str]]:
     """'/a/{id}/b/{id}' → ('/a/{id}/b/{id_2}', ['id', 'id_2']): nombres únicos y válidos en Python."""
-    seen: dict[str, int] = {}
+    used: set[str] = set()
     names: list[str] = []
 
     def repl(m: re.Match[str]) -> str:
         base = _identifier(m.group(1), "param")
-        seen[base] = seen.get(base, 0) + 1
-        name = base if seen[base] == 1 else f"{base}_{seen[base]}"
+        if base in {"self", "cuerpo"}:
+            base += "_ruta"
+        name, index = base, 2
+        while name in used:
+            name, index = f"{base}_{index}", index + 1
+        used.add(name)
         names.append(name)
         return "{" + name + "}"
 
@@ -184,9 +188,17 @@ def generar_cliente(openapi: dict[str, Any]) -> str:
             args.append("*")
         if op["cuerpo"]:
             args.append("cuerpo: Any")
-        q_names = {q: _identifier(q, "param") for q in op["parametros_consulta"]}
-        clash = set(op["parametros_ruta"]) | {"self", "cuerpo"}
-        q_names = {q: (f"{n}_q" if n in clash else n) for q, n in q_names.items()}
+        reserved = set(op["parametros_ruta"]) | {"self", "cuerpo"}
+        used_names = set(reserved)
+        q_names = {}
+        for q in op["parametros_consulta"]:
+            base = _identifier(q, "param")
+            name = f"{base}_q" if base in reserved else base
+            candidate, index = name, 2
+            while candidate in used_names:
+                candidate, index = f"{name}_{index}", index + 1
+            q_names[q] = candidate
+            used_names.add(candidate)
         args += [f"{n}: Any = None" for n in q_names.values()]
         codes = ", ".join(op["codigos"]) or "ninguna"
         shown = re.sub(r'["\\\x00-\x1f]', "?", op["plantilla"])  # la ruta viene de la captura: dato, no código

@@ -52,7 +52,7 @@ export function createApprover({ showMessageBox, titleOf = (p) => p, beforeShow 
       // B8: el permiso temporal cambia qué se envía sin preguntar: queda en el registro de acciones.
       try { audit('puente.permiso', { params: { provider, conversation: conversation || 'default', minutos: GRANT_MS / 60000 } }); } catch { /* el registro avisa por su cuenta */ }
     }
-    return response !== 2;
+    return response === 0 || response === 1;
   }
 
   return { approve, grants, revoke, preview };

@@ -45,6 +45,11 @@ def test_sin_verde_se_conserva_el_mejor_intento_marcado_como_parcial(tmp_path, m
     r = assist(out, "Implementa la lista", provider=cliente)
     assert (r["ok"], r["parcial"], r["restored"]) == (False, True, False)
     assert r["mejor_intento"] == {"ronda": 2, "juez": "5/6", "nota": 0.8333}
+    # best_attempt describe la misma ronda que se conserva, y sus hashes son los del disco (B6 real, 20/11).
+    assert r["best_attempt"]["round"] == 2 and r["rounds"][1].get("best_attempt") is True
+    import hashlib
+    assert r["best_attempt"]["files"] == [{"path": "index.html",
+                                           "sha256": hashlib.sha256((out / "index.html").read_bytes()).hexdigest()}]
     final = (out / "index.html").read_text(encoding="utf-8")
     assert "<p>dos</p>" in final and "<p>tres</p>" not in final and final != original
     assert r["files_changed"] == ["index.html"]

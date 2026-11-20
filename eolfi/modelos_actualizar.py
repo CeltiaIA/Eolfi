@@ -187,26 +187,35 @@ def comprobar(fuentes: str | Path, *, nombre: str | None = None, red: bool = Fal
 
 def _comprobar_una(fuente: dict[str, Any], fetch: Fetch) -> dict[str, Any]:
     base = {"nombre": fuente["nombre"], "repo": fuente["repo"], "archivo": fuente["archivo"]}
-    sha_local, origen = _sha_local(fuente)
+    try:
+        sha_local, origen = _sha_local(fuente)
+    except OSError as exc:
+        return {**base, "estado": "NO VERIFICADO", "error": f"No se pudo leer el modelo local: {exc}"[:300]}
     base.update(sha256_local=sha_local, sha256_local_origen=origen)
     url = API.format(repo=fuente["repo"], rev=urllib.parse.quote(fuente["rama"], safe=""))
     try:
         info = json.loads(fetch(url).decode("utf-8"))
     except (OSError, ValueError, urllib.error.URLError, ActualizarError) as exc:
         return {**base, "estado": "NO VERIFICADO", "error": f"{type(exc).__name__}: {exc}"[:300]}
+    if not isinstance(info, dict) or not isinstance(info.get("siblings"), list):
+        return {**base, "estado": "NO VERIFICADO", "error": "respuesta de la API sin lista de archivos"}
     commit = str(info.get("sha") or "")
-    sibling = next((s for s in info.get("siblings") or [] if isinstance(s, dict)
+    sibling = next((s for s in info["siblings"] if isinstance(s, dict)
                     and s.get("rfilename") == fuente["archivo"]), None)
     if not _COMMIT.fullmatch(commit):
         return {**base, "estado": "NO VERIFICADO", "error": "la API no devolvió un commit válido"}
     if sibling is None:
         return {**base, "estado": "NO VERIFICADO", "revision": commit,
                 "error": "el archivo ya no está publicado en ese repositorio"}
-    lfs = sibling.get("lfs") or {}
+    lfs = sibling.get("lfs")
+    if not isinstance(lfs, dict):
+        return {**base, "estado": "NO VERIFICADO", "revision": commit, "error": "metadatos LFS inválidos"}
     remoto = str(lfs.get("sha256") or "").lower()
-    size = lfs.get("size") or sibling.get("size")
+    size = lfs.get("size")
     if not _SHA.fullmatch(remoto):
         return {**base, "estado": "NO VERIFICADO", "revision": commit, "error": "sin SHA-256 LFS publicado"}
+    if type(size) is not int or size <= 0:
+        return {**base, "estado": "NO VERIFICADO", "revision": commit, "error": "tamaño LFS inválido"}
     out = {**base, "revision": commit, "sha256_publicado": remoto, "bytes": size,
            "ultima_modificacion": info.get("lastModified")}
     if sha_local is None:

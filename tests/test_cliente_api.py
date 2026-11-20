@@ -137,6 +137,30 @@ def test_nombres_y_textos_de_la_captura_no_rompen_el_codigo(tmp_path):
     assert list(inspect.signature(mod.Cliente.delete_class_9lives_x).parameters) == ["self", "id", "self_q"]
 
 
+def test_parametros_normalizados_no_colisionan(tmp_path):
+    spec = {"paths": {"/x/{self}/{cuerpo}": {"post": {
+        "parameters": [{"in": "query", "name": name} for name in ("a-b", "a_b", "self", "cuerpo")],
+        "requestBody": {}, "responses": {"200": {}},
+    }}}}
+    mod = _load(cliente_api.generar_cliente(spec), tmp_path, "cliente_colisiones")
+    import inspect
+
+    params = list(inspect.signature(mod.Cliente.post_x_por_self_por_cuerpo).parameters)
+    assert params == ["self", "self_ruta", "cuerpo_ruta", "cuerpo", "a_b", "a_b_2", "cuerpo_q", "self_q"]
+    api = mod.Cliente("https://example.test")
+    api._pedir = lambda metodo, ruta, consulta, cuerpo, observados: (metodo, ruta, consulta, cuerpo)
+    assert api.post_x_por_self_por_cuerpo("a/b", "c d", cuerpo={"ok": True}, a_b=1, a_b_2=2) == (
+        "POST", "/x/a%2Fb/c%20d", {"a-b": 1, "a_b": 2, "cuerpo": None, "self": None}, {"ok": True})
+
+
+def test_parametros_de_ruta_con_sufijos_ya_observados(tmp_path):
+    spec = {"paths": {"/x/{id}/{id_2}/{id}": {"get": {"responses": {"200": {}}}}}}
+    mod = _load(cliente_api.generar_cliente(spec), tmp_path, "cliente_sufijos")
+    api = mod.Cliente("https://example.test")
+    api._pedir = lambda metodo, ruta, consulta, cuerpo, observados: ruta
+    assert api.get_x_por_id_por_id_2_por_id("a", "b", "c") == "/x/a/b/c"
+
+
 def test_escribir_cliente_no_sobrescribe_y_rechaza_el_nivel_basico(tmp_path):
     completo = rc.api_desde_captura(FakeCapture(), r"C:\c.pcap", fields_client=FakeFields())
     destino = tmp_path / "cliente.py"

@@ -585,8 +585,12 @@ def juzgar_consola(proyecto: str | Path, target: str, criterios: dict[str, Any],
             salida = ultimo["salida"]
             if "codigo" in p:
                 ok = ultimo["codigo"] == p["codigo"]
+                error = ultimo["error"].strip()
+                if len(error) > 200:
+                    ultima = error.splitlines()[-1]
+                    error = ultima if len(ultima) <= 200 else f"{ultima[:80]} … {ultima[-110:]}"
                 detalle = f"«{ultimo['orden']}» salió con {ultimo['codigo']}" + (
-                    f": {ultimo['error'].strip()[-200:]}" if ultimo["error"].strip() else "")
+                    f": {error}" if error else "")
             elif "contiene" in p:
                 ok, detalle = p["contiene"] in salida, f"la salida de «{ultimo['orden']}» no lo contiene"
             elif "no_contiene" in p:
@@ -695,8 +699,8 @@ def paso(proyecto: str | Path, target: str, *, env: dict[str, str] | None = None
     if criterios is None:
         return None
     if os.environ.get("EOLFI_JUEZ") == "0":
-        return {"step": "juez funcional (desactivado con EOLFI_JUEZ=0: NO VERIFICADO)", "exit": 0, "seconds": 0,
-                "tail": "", "judge": {"status": "omitido"}}
+        return {"step": "juez funcional (desactivado con EOLFI_JUEZ=0: NO VERIFICADO)", "exit": 1, "seconds": 0,
+                "tail": "NO VERIFICADO: criterios funcionales sin ejecutar", "judge": {"status": "omitido"}}
     raiz = Path(proyecto) / DESTINOS[target] if target in DESTINOS else None
     modo = "consola" if criterios.get("consola") else "escritorio" if criterios.get("escritorio") else "web"
     esperado = "consola" if target in CONSOLA else "escritorio" if target in ESCRITORIO else "web"

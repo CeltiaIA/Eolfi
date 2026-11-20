@@ -80,6 +80,28 @@ def test_respuestas_dudosas_son_no_verificado(tmp_path, fetch, motivo):
     assert res["estado"] == "NO VERIFICADO" and motivo in res["modelos"][0]["error"]
 
 
+@pytest.mark.parametrize("payload, motivo", [
+    ([], "lista de archivos"),
+    ({"sha": COMMIT, "siblings": "malformado"}, "lista de archivos"),
+    ({"sha": COMMIT, "siblings": [{"rfilename": "modelo-Q4_K_M.gguf", "lfs": "malformado"}]}, "LFS"),
+    ({"sha": COMMIT, "siblings": [{"rfilename": "modelo-Q4_K_M.gguf",
+                               "lfs": {"sha256": "2" * 64, "size": "10"}}]}, "tamaño"),
+])
+def test_metadatos_api_malformados_no_interrumpen_comprobacion(tmp_path, payload, motivo):
+    res = comprobar(_fuentes(tmp_path), red=True, fetch=lambda _: json.dumps(payload).encode())
+    assert res["estado"] == "NO VERIFICADO" and motivo in res["modelos"][0]["error"]
+
+
+def test_modelo_local_ilegible_no_interrumpe_comprobacion(tmp_path, monkeypatch):
+    from eolfi import modelos
+
+    local = tmp_path / "local.gguf"
+    local.write_bytes(b"pesos")
+    monkeypatch.setattr(modelos, "sha256", lambda _: (_ for _ in ()).throw(OSError("sin acceso")))
+    res = comprobar(_fuentes(tmp_path, sha256=None, local=str(local)), red=True, fetch=_api("2" * 64))
+    assert res["estado"] == "NO VERIFICADO" and "sin acceso" in res["modelos"][0]["error"]
+
+
 def test_sin_sha_local_calcula_el_del_archivo_o_queda_no_verificado(tmp_path):
     local = tmp_path / "local.gguf"
     local.write_bytes(b"pesos")

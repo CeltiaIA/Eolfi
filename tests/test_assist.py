@@ -168,6 +168,9 @@ def test_puntuacion_del_mejor_intento_prioriza_verificacion_real():
     llega_a_pruebas = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}]}
     verde = {"ok": True, "steps": [{"exit": 0}]}
     assert _verification_score(falla_pronto) < _verification_score(llega_a_pruebas) < _verification_score(verde)
+    juez6 = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}], "judge": {"status": "ok", "passed": 6, "total": 12}}
+    juez7 = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}], "judge": {"status": "ok", "passed": 7, "total": 12}}
+    assert _verification_score(juez6) < _verification_score(juez7) < _verification_score(verde)
 
 
 def test_assist_refusal(tmp_path):

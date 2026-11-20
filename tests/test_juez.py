@@ -84,7 +84,8 @@ def test_paso_sin_criterios_invalidos_destino_y_desactivado(tmp_path, monkeypatc
     assert juez.paso(tmp_path, "static")["exit"] == 1
     monkeypatch.setenv("EOLFI_JUEZ", "0")
     p = juez.paso(tmp_path, "static")
-    assert p["exit"] == 0 and "NO VERIFICADO" in p["step"]
+    assert p["exit"] == 1 and "NO VERIFICADO" in p["step"]
+    assert p["judge"]["status"] == "omitido"
 
 
 def test_el_modelo_no_puede_escribir_los_criterios():
@@ -130,6 +131,18 @@ def test_verify_no_queda_en_verde_si_el_juez_falla(tmp_path, monkeypatch):
     assert verify(out, "static")["ok"] is True
     v = verify(out, "static")
     assert v["ok"] is False and "no pudo ejecutarse" in v["steps"][-1]["tail"]
+
+
+def test_verify_no_aprueba_criterios_desactivados(tmp_path, monkeypatch):
+    from eolfi.generador import verify as verification
+
+    (tmp_path / juez.ARCHIVO).write_text(json.dumps(CRITERIOS), encoding="utf-8")
+    monkeypatch.setenv("EOLFI_JUEZ", "0")
+    monkeypatch.setattr(verification, "_verify", lambda *args, **kwargs: {"ok": True, "steps": []})
+    result = verification.verify(tmp_path, "static")
+    assert result["ok"] is False
+    assert result["steps"][-1]["exit"] == 1
+    assert result["judge"]["status"] == "omitido"
 
 
 def _criterios(tmp_path) -> Path:

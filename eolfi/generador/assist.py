@@ -152,10 +152,16 @@ def _remember_verified_example(*, target: str, brief: str, summary: str, notes: 
     return True
 
 
-def _verification_score(ver: dict[str, Any]) -> tuple[int, int, int]:
+def _verification_score(ver: dict[str, Any]) -> tuple[int, int, int, int]:
+    """(verde, pasos superados, comprobaciones del juez superadas, pasos). El juez desempata: dos rondas que fallan
+    solo en el juez tienen los mismos pasos, y sin él ``best_attempt`` señalaba una ronda distinta de la que se
+    conserva como mejor intento (B6 con Gemma real, 20/11: ronda 1 6/12 frente a ronda 2 7/12)."""
     steps = ver.get("steps") if isinstance(ver.get("steps"), list) else []
     passed = sum(step.get("exit") == 0 for step in steps if isinstance(step, dict))
-    return (1 if ver.get("ok") is True else 0, passed, len(steps))
+    judge = ver.get("judge")
+    judge_passed = judge.get("passed") if isinstance(judge, dict) and judge.get("status") == "ok" else 0
+    return (1 if ver.get("ok") is True else 0, passed, judge_passed if isinstance(judge_passed, int) else 0,
+            len(steps))
 
 def _next_migration(root: Path, rel: str) -> bool:
     """La migración nueva debe llevar un número mayor que todos los existentes y no repetido."""

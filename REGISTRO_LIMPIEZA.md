@@ -187,6 +187,21 @@ Registro vivo para la hoja de ruta de `PLAN_INGENIERIA_INVERSA_EOLFI.md`. Sirve 
   añadido a `.gitignore`.
 
 
+- **2026-11-20 - LIM-055, diagnóstico B7 sin seguimiento:** `informes/b7-gemma-q5-vs-recon-q4-20261120-010322.log` (724 bytes al inventariar con `Get-Item`). Evidencia reproducible: `git status --short` lo muestra sin seguimiento; la búsqueda `Select-String` en `README.md`, `PLAN_DEFINITIVO.md` y `ESTADO-TRABAJO.md` no encontró referencias a ese nombre. Impacto/referencias conocidas: posible evidencia de una comparación en otra sesión activa; no se ha comprobado su relación con un informe final ni su contenido completo. Estado: CONSERVAR, PENDIENTE de identificar la sesión y cotejar resultados antes de decidir si se archiva o propone retirar. No se borra ni mueve.
+  20/11 03:30 (Claude): identificado. Es el log de la ronda B7/G6 `23686bc0` (Gemma Q5 frente a `gemma4_recon_q4`),
+  lanzada por Claude a las 01:03 y terminada a las 02:59 con salida 0; el informe completo es
+  `informes/b7-gemma-q5-vs-recon-q4-20261120-010322.json` (88.127 bytes). Resultado: Q5 28/28, reconstruido 23/28, no
+  aprueba. Ambos son evidencia válida y se versionan con el cierre. Estado: RESUELTO, CONSERVAR (no es candidato).
+
+- **2026-11-20 - LIM-056, muestras B6 y B7/G6 de esta noche:** (1) `D:\Eolfi\.pytest-tmp-b6-real-20261120\`: fuente
+  sintética, `criterios.json` (10 comprobaciones), `encargo.txt`, app de `referencia/` que aprueba 10/10, proyecto
+  generado con la ronda 2 conservada como parcial, `eolfi.db` aislada y `create.log` (salida 6). (2)
+  `C:\Users\mejil\.eolfi\b7-ronda-20261120\`: copia aislada de `eolas-v2.json` (puerto 18090), admisión, memoria de
+  evaluaciones, aportes, telemetría y un `eolas-v2.key` de 43 bytes que creó el propio examen a las 01:03 en esa
+  carpeta (no es copia de la clave del titular, pero es material de clave: tratar como LIM-040). Impacto: evidencia de
+  B6 (defecto de `best_attempt` encontrado y corregido) y de B7/G6. Estado: CONSERVADO; falta decidir qué archivar
+  antes de retirar las dos carpetas.
+
 Al completar la hoja de ruta, revisar cada entrada y sus dependencias; etiquetar solo entonces las propuestas `PROPONER RETIRAR`, separar lo que requiere conservar y tomar la decisión de limpieza sobre una lista explícita. Hasta ese momento, actualizar este registro si las fases revelan candidatos nuevos o demuestran que una entrada tiene uso.
 
 - **2026-11-12 — revisión final preparada:** lista explícita, agrupada por riesgo, en [informes/revision-retirada-y-limpieza-2026-11-12.md](informes/revision-retirada-y-limpieza-2026-11-12.md). Incluye las opciones de Eolfi que no se sostienen (proveedores web sin calibrar, alias `gemma`, varias vías de modelo local que dejan procesos huérfanos, `decompile` sin pruebas, generadores con dependencias `latest` y sin verificación de principio a fin), la decisión propuesta para LIM-001 a LIM-013 y los candidatos nuevos fuera del repositorio (worktrees ya fusionados, `.pytest-tmp-*`, 32 `.vsix` antiguos, `generated/nuevo-proyecto/` de 404 MB). **Estado: PROPONER RETIRAR / CONSERVAR, pendiente de la decisión del titular. No se ha borrado nada.**

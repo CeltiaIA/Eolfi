@@ -61,6 +61,37 @@ test('cancelar la conexión aborta el envío', async () => {
     headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ provider: 'gemini', prompt: 'x' }) }));
 });
 
+test('comparativa cancelada durante la aprobación cierra el diálogo y no envía', async () => {
+  let approvalStarted;
+  const started = new Promise((resolve) => { approvalStarted = resolve; });
+  let signal;
+  let sends = 0;
+  const adapter = { status: async () => ({ ok: true }), send: async () => { sends++; return 'enviado'; } };
+  const { server, port } = await startBridgeServer({
+    adapters: { one: async () => adapter, two: async () => adapter },
+    token: TOKEN, panelToken: PANEL,
+    approve: async (_provider, _prompt, pending) => { signal = pending; approvalStarted(); return new Promise(() => {}); },
+  });
+  try {
+    const controller = new AbortController();
+    const request = fetch(`http://127.0.0.1:${port}/v1/compare`, {
+      method: 'POST', signal: controller.signal, headers: { Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ providers: ['one', 'two'], prompt: 'hola' }),
+    });
+    await started;
+    controller.abort();
+    await assert.rejects(request);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(signal.aborted, true);
+    assert.equal(sends, 0);
+    const status = await (await fetch(`http://127.0.0.1:${port}/v1/status`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    })).json();
+    assert.equal(status.providers.one.busy, false);
+    assert.equal(status.providers.two.busy, false);
+  } finally { server.close(); }
+});
+
 test('freshReply exige una única respuesta nueva y completa', () => {
   assert.equal(freshReply(new Set(['a']), [{ id: 'a', text: 'x', complete: true }, { id: 'b', text: 'ok', complete: true }]), 'ok');
   assert.equal(freshReply(new Set(), [{ id: 'b', text: 'ok', complete: false }]), null);

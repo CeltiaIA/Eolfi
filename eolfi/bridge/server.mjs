@@ -132,12 +132,18 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
         const approval = new AbortController();
         const expire = setTimeout(() => approval.abort(new Error('aprobación caducada')), approveTimeoutMs);
         expire.unref?.();
+        const onCancel = () => approval.abort(new Error('Eolfi canceló la comparativa'));
+        controller.signal.addEventListener('abort', onCancel, { once: true });
         try {
           const allowed = source === 'panel' || await Promise.race([
             Promise.resolve(approve(free.join('+'), prompt, approval.signal, conv)).then((ok) => ok === true && !approval.signal.aborted),
             new Promise((r) => approval.signal.addEventListener('abort', () => r(false), { once: true })),
           ]);
           const cparams = { providers: free, conversation: conv, source, prompt: huella(prompt) };
+          if (controller.signal.aborted) {
+            anota('puente.comparativa', { params: cparams, ok: false, resultado: { decision: 'cancelado' } });
+            return;
+          }
           if (!allowed) {
             anota('puente.comparativa', { params: cparams, ok: false, resultado: { decision: approval.signal.aborted ? 'caducado' : 'denegado' } });
             return json(res, approval.signal.aborted ? 408 : 403, { error: 'Comparativa no aprobada en el puente' });
@@ -167,6 +173,7 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
           if (!res.writableEnded) json(res, 502, { error: String(e?.message || e) });
         } finally {
           clearTimeout(expire);
+          controller.signal.removeEventListener('abort', onCancel);
           if (!approval.signal.aborted) approval.abort(new Error('comparativa terminada'));
           free.forEach((p) => busy.delete(p));
         }
