@@ -23,7 +23,8 @@ pytestmark = pytest.mark.skipif(not javac or not shutil.which("java"), reason="s
 @pytest.fixture(scope="module")
 def clases(tmp_path_factory):
     out = tmp_path_factory.mktemp("jvm")
-    fuentes = [RAIZ / "src/com/celtiaia/eolfi/tableta" / n for n in ("Wav.java", "Reglas.java", "Cliente.java")]
+    fuentes = [RAIZ / "src/com/celtiaia/eolfi/tableta" / n for n in
+               ("Wav.java", "Reglas.java", "Cliente.java", "Conversaciones.java", "ArchivoConversaciones.java")]
     r = subprocess.run([javac, "--release", "8", "-Xlint:all,-options", "-Werror", "-encoding", "UTF-8", "-d", str(out),
                         *map(str, fuentes), str(RAIZ / "pruebas" / "PruebasJvm.java")],
                        capture_output=True, text=True, check=False)
@@ -146,3 +147,12 @@ def test_construye_el_apk_firmado_v1(tmp_path, monkeypatch):
         dig_mf = base64.b64encode(hashlib.sha1(mf.encode()).digest()).decode()
         assert f"SHA1-Digest-Manifest: {dig_mf}" in sf
         assert z.read("classes.dex")[:4] == b"dex\n"
+    # 20/11/2026: una sola app para la tableta (Android 4.1) y el Redmi (Android 14, que no instala targetSdk < 23).
+    assert inf["min_sdk"] == 16 and 23 <= inf["target_sdk"] < 30
+
+
+def test_el_microfono_se_pide_en_tiempo_de_ejecucion_sin_api_nueva_en_compilacion():
+    fuente = (Path(__file__).parents[1] / "eolfi" / "tableta-android" / "src" / "com" / "celtiaia" / "eolfi" / "tableta"
+              / "Principal.java").read_text(encoding="utf-8")
+    assert 'getMethod("requestPermissions"' in fuente and 'getMethod("checkSelfPermission"' in fuente
+    assert "SDK_INT < 23" in fuente and "microfonoConcedido(true)" in fuente

@@ -1,9 +1,12 @@
 package com.celtiaia.eolfi.tableta;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.text.InputType;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -24,6 +27,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.io.File;
 
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
@@ -39,15 +43,20 @@ public class Principal extends Activity {
     private SharedPreferences prefs;
     private EditText campoPanel, campoCodigo, campoMensaje;
     private TextView estado, conversacion;
+    private TextView tituloConversacion;
     private ScrollView desplazable;
     private CheckBox leer, directo;
     private Button hablar;
     private final Audio audio = new Audio();
-    private final List<String[]> historial = new ArrayList<String[]>();
+    private Conversaciones conversaciones;
+    private boolean historialProtegido;
+    private ArchivoConversaciones archivoConversaciones;
+    private String lugarHistorial;
     private volatile boolean ocupado;
     /** Semidúplex: mientras suena la respuesta no se graba (el micrófono se oiría a sí mismo y se reenviaría). */
     private volatile boolean hablando;
     private volatile boolean grabando;
+    private volatile boolean transcribiendo;
     private int sesionGrabacion;
 
     @Override
@@ -55,8 +64,23 @@ public class Principal extends Activity {
         super.onCreate(guardado);
         System.setProperty("http.keepAlive", "false");   // el HttpURLConnection de 4.1 reutiliza mal las conexiones
         prefs = getSharedPreferences("eolfi", MODE_PRIVATE);
+        archivoConversaciones = new ArchivoConversaciones(carpetaHistorial());
+        try {
+            conversaciones = Conversaciones.cargar(archivoConversaciones.existe() ? archivoConversaciones.leer()
+                    : prefs.getString("conversaciones_v1", null));
+        } catch (Exception e) {
+            conversaciones = Conversaciones.cargar(null);
+            historialProtegido = true; // Conservar el original ilegible: nunca sustituirlo silenciosamente.
+        }
         setContentView(interfaz());
         pintarEstado();
+        mostrarConversacion();
+        if (historialProtegido) decir("Aviso", "No se pudo leer el historial guardado; se conserva sin sobrescribirlo.");
+        if (!conversaciones.activa().pendiente.isEmpty()) {
+            devolverACaja(conversaciones.activa().pendiente);
+            decir("Aviso", "Quedó un mensaje pendiente. Revisa Trabajos antes de reenviarlo.");
+        }
+        recuperarChatAnterior();
         if (getIntent() != null && getIntent().getBooleanExtra("diagnostico", false)) diagnostico();
     }
 
@@ -129,6 +153,7 @@ public class Principal extends Activity {
         fila3.addView(boton("Enviar", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                if (ocupado) { decir("Aviso", "Espera a que Eolas termine la respuesta anterior"); return; }
                 String t = campoMensaje.getText().toString();
                 if (t.trim().isEmpty()) return;
                 campoMensaje.setText("");
@@ -136,6 +161,23 @@ public class Principal extends Activity {
             }
         }), peso(1));
         raiz.addView(fila3);
+
+        LinearLayout filaChats = horizontal();
+        filaChats.addView(boton("Nueva conversación", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!puedeCambiarConversacion()) return;
+                guardarConversaciones();
+                conversaciones.nueva();
+                mostrarConversacion();
+                guardarConversaciones();
+            }
+        }), peso(1));
+        filaChats.addView(boton("Historial", new View.OnClickListener() {
+            @Override public void onClick(View v) { elegirConversacion(); }
+        }), peso(1));
+        raiz.addView(filaChats);
+        tituloConversacion = texto("", 15);
+        raiz.addView(tituloConversacion);
 
         desplazable = new ScrollView(this);
         conversacion = texto("", 17);
@@ -195,6 +237,8 @@ public class Principal extends Activity {
             @Override
             public void run() {
                 conversacion.append((conversacion.length() > 0 ? "\n\n" : "") + quien + ": " + que);
+                conversaciones.activa().vista = conversacion.getText().toString();
+                guardarConversaciones();
                 desplazable.post(new Runnable() {
                     @Override
                     public void run() {
@@ -203,6 +247,91 @@ public class Principal extends Activity {
                 });
             }
         });
+    }
+
+    private boolean puedeCambiarConversacion() {
+        if (ocupado || hablando || grabando || transcribiendo) {
+            decir("Aviso", "Espera a que termine la respuesta o la grabación antes de cambiar de conversación.");
+            return false;
+        }
+        return true;
+    }
+
+    private void guardarConversaciones() {
+        conversaciones.activa().borrador = campoMensaje.getText().toString();
+        if (historialProtegido) return;
+        try {
+            int antes = conversaciones.recortes;
+            archivoConversaciones.guardar(conversaciones.guardar());
+            if (!conversacion.getText().toString().equals(conversaciones.activa().vista))
+                conversacion.setText(conversaciones.activa().vista);
+            if (conversaciones.recortes != antes)
+                estado.setText("Límite del historial alcanzado: se conserva lo más reciente (8 MiB, " + lugarHistorial + ").");
+        } catch (Exception e) {
+            estado.setText("No se pudo guardar el historial: " + e.getMessage());
+        }
+    }
+
+    private void mostrarConversacion() {
+        Conversaciones.Charla c = conversaciones.activa();
+        conversacion.setText(c.vista);
+        campoMensaje.setText(c.borrador);
+        tituloConversacion.setText(c.titulo + " · " + lugarHistorial + " · máximo 8 MiB");
+    }
+
+    private File carpetaHistorial() {
+        // API 16 no tiene getExternalFilesDirs: Samsung declara la tarjeta extra en SECONDARY_STORAGE.
+        String extra = System.getenv("SECONDARY_STORAGE");
+        if (extra != null) for (String raiz : extra.split(File.pathSeparator)) {
+            File base = new File(raiz);
+            if (base.isDirectory() && base.canWrite()) {
+                File d = new File(base, "Android/data/com.celtiaia.eolfi.tableta/files/conversaciones");
+                if (d.isDirectory() || d.mkdirs()) { lugarHistorial = "tarjeta SD"; return d; }
+            }
+        }
+        File d = getExternalFilesDir("conversaciones");
+        if (d != null && (d.isDirectory() || d.mkdirs())) { lugarHistorial = "almacenamiento SD"; return d; }
+        lugarHistorial = "memoria interna";
+        return new File(getFilesDir(), "conversaciones");
+    }
+
+    private void elegirConversacion() {
+        if (!puedeCambiarConversacion()) return;
+        guardarConversaciones();
+        final List<Conversaciones.Charla> lista = conversaciones.lista();
+        CharSequence[] nombres = new CharSequence[lista.size()];
+        for (int i = 0; i < lista.size(); i++) {
+            Conversaciones.Charla c = lista.get(lista.size() - 1 - i);
+            nombres[i] = (c == conversaciones.activa() ? "● " : "") + c.titulo;
+        }
+        new AlertDialog.Builder(this).setTitle("Retomar conversación").setItems(nombres,
+                new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        if (!puedeCambiarConversacion()) return;
+                        conversaciones.seleccionar(lista.get(lista.size() - 1 - which).id);
+                        mostrarConversacion();
+                        guardarConversaciones();
+                    }
+                }).setNegativeButton("Cerrar", null).show();
+    }
+
+    /** Recuperación explícita del chat anterior a esta versión, leída por ADB antes de actualizar. */
+    private void recuperarChatAnterior() {
+        if (getIntent() == null || !getIntent().getBooleanExtra("recuperar_chat_archivo", false)) return;
+        getIntent().removeExtra("recuperar_chat_archivo");
+        try {
+            final String texto = archivoConversaciones.leerRecuperacion(Environment.getExternalStorageDirectory());
+            if (texto == null) throw new IllegalArgumentException("no hay chat guardado para recuperar");
+            new AlertDialog.Builder(this).setTitle("Recuperar conversación anterior")
+                .setMessage("¿Guardar el chat anterior recuperado del dispositivo en el historial? No se enviará a Eolas.")
+                .setPositiveButton("Guardar", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        if (!puedeCambiarConversacion()) return;
+                        guardarConversaciones(); conversaciones.importar(texto);
+                        mostrarConversacion(); guardarConversaciones();
+                    }
+                }).setNegativeButton("Cancelar", null).show();
+        } catch (Exception e) { decir("Aviso", "No se pudo recuperar el chat anterior: " + e.getMessage()); }
     }
 
     private void pintarEstado() {
@@ -245,6 +374,7 @@ public class Principal extends Activity {
     }
 
     private void vincular() {
+        if (!puedeCambiarConversacion()) return;
         final String url = Reglas.direccion(campoPanel.getText().toString());
         final String codigo = Reglas.codigo(campoCodigo.getText().toString());
         if (url == null) {
@@ -274,11 +404,12 @@ public class Principal extends Activity {
                     }
                     prefs.edit().putString("url", url).putString("token", o.getString("token"))
                             .putString("huella", c.huellaVista()).commit();
-                    historial.clear();
                     ui(new Runnable() {
                         @Override
                         public void run() {
                             campoCodigo.setText("");
+                            guardarConversaciones(); conversaciones.nueva();
+                            mostrarConversacion(); guardarConversaciones();
                             pintarEstado();
                         }
                     });
@@ -300,6 +431,9 @@ public class Principal extends Activity {
             return;
         }
         ocupado = true;
+        final Conversaciones.Charla charla = conversaciones.activa();
+        final List<String[]> contexto = charla.contexto();
+        charla.pendiente = texto;
         decir("Tú", texto);
         enSegundoPlano("chat", new Runnable() {
             @Override
@@ -308,7 +442,7 @@ public class Principal extends Activity {
                 boolean devolver = true;
                 try {
                     Cliente c = cliente();
-                    Cliente.Respuesta r = c.json("POST", "/api/tableta/chat", Reglas.cuerpoChat(texto, historial), 20000);
+                    Cliente.Respuesta r = c.json("POST", "/api/tableta/chat", Reglas.cuerpoChat(texto, contexto), 20000);
                     if (!r.ok()) {
                         decir("Aviso", error(r));
                         return;
@@ -337,9 +471,13 @@ public class Principal extends Activity {
                         }
                         String st = o.optString("status");
                         if ("done".equals(st)) {
-                            String resp = o.optString("texto", "(sin texto)");
-                            historial.add(new String[] {"user", texto});
-                            historial.add(new String[] {"assistant", resp});
+                            final String resp = o.optString("texto", "(sin texto)");
+                            ui(new Runnable() {
+                                @Override public void run() {
+                                    charla.respuesta(texto, resp);
+                                    tituloConversacion.setText(charla.titulo + " · " + lugarHistorial + " · máximo 8 MiB");
+                                }
+                            });
                             devolver = false;
                             decir("Eolas", resp);
                             if (leer.isChecked()) leerEnVoz(c, resp);
@@ -355,13 +493,15 @@ public class Principal extends Activity {
                 } catch (Exception e) {
                     decir("Aviso", "Chat: " + e.getMessage());
                 } finally {
-                    ocupado = false;
                     final boolean recuperar = devolver;
                     ui(new Runnable() {
                         @Override
                         public void run() {
                             pintarEstado();
                             if (recuperar) devolverACaja(texto);
+                            if (recuperar) charla.pendiente = "";
+                            guardarConversaciones();
+                            ocupado = false;
                         }
                     });
                 }
@@ -396,8 +536,31 @@ public class Principal extends Activity {
         }
     }
 
+    /**
+     * Android 6+ (p. ej. el Redmi con Android 14): el micrófono se concede en tiempo de ejecución. Se llama por
+     * reflexión para seguir compilando contra la API 16 de la tableta, donde el permiso ya viene de la instalación.
+     * Devuelve true si ya se puede grabar.
+     */
+    private boolean microfonoConcedido(boolean pedir) {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        String permiso = "android.permission.RECORD_AUDIO";
+        try {
+            Object r = Activity.class.getMethod("checkSelfPermission", String.class).invoke(this, permiso);
+            if (((Integer) r).intValue() == 0) return true;
+            if (pedir) Activity.class.getMethod("requestPermissions", String[].class, int.class)
+                    .invoke(this, new String[] {permiso}, 7);
+        } catch (Exception e) {
+            Log.w(TAG, "permiso de micrófono: " + e);
+        }
+        return false;
+    }
+
     private void empezarHablar() {
         if (grabando) return;
+        if (!microfonoConcedido(true)) {
+            decir("Aviso", "Concede el permiso del micrófono y vuelve a mantener el botón para hablar.");
+            return;
+        }
         String no = Reglas.motivoParaNoGrabar(hablando, ocupado);
         String fallo = no != null ? no : audio.empezar(MAX_GRABACION_S);
         if (fallo != null) {
@@ -441,6 +604,7 @@ public class Principal extends Activity {
             decir("Aviso", "El micrófono solo captó silencio (pico " + pico[0] + "): habla más cerca");
             return;
         }
+        transcribiendo = true;
         enSegundoPlano("voz", new Runnable() {
             @Override
             public void run() {
@@ -456,22 +620,22 @@ public class Principal extends Activity {
                         return;
                     }
                     Log.i(TAG, "DICTADO caracteres=" + t.length() + " pico=" + pico[0] + " directo=" + directo.isChecked());
-                    if (directo.isChecked()) {
-                        enviar(t);
-                        return;
-                    }
                     final String dictado = t;
                     ui(new Runnable() {
                         @Override
                         public void run() {
+                            if (directo.isChecked()) { enviar(dictado); return; }
                             String previo = campoMensaje.getText().toString().trim();
                             campoMensaje.setText(previo.isEmpty() ? dictado : previo + " " + dictado);
                             campoMensaje.setSelection(campoMensaje.getText().length());
                             estado.setText("Dictado listo: revísalo y pulsa Enviar");
+                            guardarConversaciones();
                         }
                     });
                 } catch (Exception e) {
                     decir("Aviso", "Transcribir: " + e.getMessage());
+                } finally {
+                    ui(new Runnable() { @Override public void run() { transcribiendo = false; } });
                 }
             }
         });
@@ -595,6 +759,7 @@ public class Principal extends Activity {
     protected void onPause() {
         super.onPause();
         if (leer != null) prefs.edit().putBoolean("leer", leer.isChecked()).putBoolean("directo", directo.isChecked()).commit();
+        if (conversaciones != null && campoMensaje != null) guardarConversaciones();
         grabando = false;
         if (hablar != null) hablar.setText("Mantén para hablar");
         audio.parar(null);

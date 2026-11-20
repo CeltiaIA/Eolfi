@@ -70,7 +70,8 @@ EN_CURSO = re.compile(
     r"acciones en curso|\b(?:esta|estan|queda|sigue|sigo|ya esta)\s+en\s+(?:marcha|curso)\b"
     r"|\b(?:estoy|seguimos|sigo|estamos)\s+(?:procesando|analizando|extrayendo|descargando|generando|creando"
     r"|construyendo|estructurando|preparando|configurando|escribiendo|desarrollando|elaborando|trabajando"
-    r"|terminando|finalizando|ultimando|implementando|ajustando)\b"
+    r"|terminando|finalizando|ultimando|implementando|ajustando|iniciando|comenzando)\b"
+    r"|\b(?:iniciando|comenzando)\s+(?:la\s+|el\s+)?(?:auditoria|analisis|creacion|generacion|descarga)\b"
     r"|\bmientras\s+(?:el|la|los|las)\s+[\w ]{0,40}?\b(?:corre|se ejecuta|avanza|termina)\b"
     r"|\ben\s+(?:mi|la)\s+proxima\s+respuesta\s+te\s+(?:entregare|dare|enviare|mostrare|traere)"
     r"|\bentrando en fase de\b|\bcomenzare a procesar\b")
@@ -118,6 +119,13 @@ def _frases(plano: str) -> list[str]:
     return [f for f in re.split(r"(?<=[.!?:])\s+|\n+", plano) if f.strip()]
 
 
+def _afirmacion(patron: re.Pattern[str], texto: str) -> re.Match[str] | None:
+    """Negación local de actividad; no silencia otra afirmación de la misma frase."""
+    return next((m for m in patron.finditer(texto)
+                 if not re.search(r"\b(?:no|nunca|tampoco)\s+(?:(?:se|hay|tengo|tenemos|existen)\s+)?$",
+                                  texto[:m.start()])), None)
+
+
 def revisar(texto: str, llamadas: list[dict[str, Any]], ofrecidas: set[str] | frozenset[str],
             estado: dict[str, Any] | None = None) -> list[dict[str, str]]:
     """Hallazgos de la respuesta final. Cada uno: {"codigo", "detalle", "cita"} (la cita, ≤160 caracteres)."""
@@ -128,17 +136,19 @@ def revisar(texto: str, llamadas: list[dict[str, Any]], ofrecidas: set[str] | fr
         if all(h["codigo"] != codigo for h in out):
             out.append({"codigo": codigo, "detalle": DESCRIPCION[codigo], "cita": cita.strip()[:160]})
 
-    if m := EN_CURSO.search(plano):
+    if m := _afirmacion(EN_CURSO, plano):
         add("accion_en_curso", m.group(0))
     for frase in _frases(plano):
-        if (m := PROMESA.search(frase)) and not OFERTA.search(frase):
+        if (m := _afirmacion(PROMESA, frase)) and not OFERTA.search(frase):
             add("accion_en_curso", m.group(0))
             break
-    if not any(c.get("ok") for c in llamadas) and (m := HECHO.search(plano)):
+    # La negación afecta solo a esta afirmación, no a otra posterior en la respuesta.
+    hecho = _afirmacion(HECHO, plano)
+    if not any(c.get("ok") for c in llamadas) and (m := hecho):
         add("hecho_sin_herramienta", m.group(0))
     elif (any(c.get("name") == "eolfi_vscode_encargo" and c.get("ok") for c in llamadas)
           and not any(c.get("name") == "eolfi_vscode_encargo_estado" and c.get("ok") for c in llamadas)
-          and (m := HECHO.search(plano))):
+          and (m := hecho)):
         add("encargo_como_hecho", m.group(0))
     for frase in _frases(plano):     # «no puedo fusionar pesos» o «RSI no es …» son aclaraciones, no invenciones
         if (m := INVENTADO.search(frase)) and not NIEGA.search(frase):

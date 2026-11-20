@@ -203,5 +203,6 @@ def test_app_android_sin_google_ni_samsung():
         assert not prohibido, (f.name, prohibido.group(0))
     construir = (raiz / "construir.py").read_text(encoding="utf-8")
     assert re.findall(r'uses-permission android:name="([\w.]+)"', construir) == [
-        "android.permission.INTERNET", "android.permission.RECORD_AUDIO"]
+        "android.permission.INTERNET", "android.permission.RECORD_AUDIO",
+        "android.permission.WRITE_EXTERNAL_STORAGE"]  # Historial local en SD solicitado por Luis (API 16).
     assert "uses-library" not in construir

@@ -1,4 +1,4 @@
-"""Construye «Eolfi Tableta» (APK para Android 4.1, API 16) sin Android SDK ni Gradle.
+"""Construye «Eolfi Tableta» (APK para Android 4.1, API 16, hasta Android 14) sin Android SDK ni Gradle.
 
 Herramientas, todas ya instaladas en el equipo y localizables por variables de entorno:
 - JDK (javac, jar, jarsigner, keytool): JAVA_HOME o PATH;
@@ -28,7 +28,10 @@ from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 PAQUETE = "com.celtiaia.eolfi.tableta"
-VERSION = ("1", "0.1.0")
+VERSION = ("3", "0.3.0")
+# minSdk 16: la Galaxy Tab 2 (Android 4.1). targetSdk 28: Android 14 no instala apps con targetSdk < 23 (Redmi,
+# 20/11/2026); 28 evita el almacenamiento con ámbito (29+) y deja válida la firma v1 (la v2 se exige desde 30).
+TARGET_SDK = 28
 
 
 class ErrorConstruccion(RuntimeError):
@@ -111,9 +114,10 @@ def _clave(keytool: str) -> tuple[Path, str]:
 MANIFIESTO = f"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{PAQUETE}"
     android:versionCode="{VERSION[0]}" android:versionName="{VERSION[1]}">
-    <uses-sdk android:minSdkVersion="16" android:targetSdkVersion="16" />
+    <uses-sdk android:minSdkVersion="16" android:targetSdkVersion="{TARGET_SDK}" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <application android:label="Eolfi Tableta" android:icon="@android:drawable/sym_def_app_icon"
         android:allowBackup="false" android:theme="@android:style/Theme.Holo">
         <activity android:name=".Principal" android:label="Eolfi Tableta"
@@ -186,7 +190,7 @@ def construir(salida: Path, odex_dir: Path | None = None) -> dict:
     man.write_text(MANIFIESTO, encoding="utf-8")
     base = salida / "base.apk"
     _run([str(aapt2), "link", "--manifest", str(man), "-I", str(fw), "--min-sdk-version", "16",
-          "--target-sdk-version", "16", "-o", str(base)])
+          "--target-sdk-version", str(TARGET_SDK), "-o", str(base)])
 
     apk = salida / "eolfi-tableta.apk"
     sin_firmar = salida / "sin-firmar.apk"
@@ -202,7 +206,7 @@ def construir(salida: Path, odex_dir: Path | None = None) -> dict:
     if "classes.dex" not in nombres or "SHA1-Digest" not in mf or not any(n.endswith(".RSA") for n in nombres):
         raise ErrorConstruccion("el APK no quedó firmado con SHA-1 (necesario en Android 4.1)")
     informe = {"apk": str(apk), "sha256": sha256(apk), "bytes": apk.stat().st_size, "paquete": PAQUETE,
-               "version": VERSION[1], "min_sdk": 16, "firma": "v1 SHA1withRSA", "huella_clave": _huella_cert(t, ks, clave),
+               "version": VERSION[1], "min_sdk": 16, "target_sdk": TARGET_SDK, "firma": "v1 SHA1withRSA", "huella_clave": _huella_cert(t, ks, clave),
                "herramientas": {k: {"ruta": str(v), "sha256": sha256(Path(v))} for k, v in t.items()
                                 if k in ("d8", "apktool")} | {"aapt2": {"sha256": sha256(aapt2)},
                                                               "android-framework.jar": {"sha256": sha256(fw)}},

@@ -60,6 +60,57 @@ def test_decir_que_algo_esta_hecho_exige_una_herramienta_correcta():
     assert hon.revisar(texto, [{"name": "eolfi_proponer_proyecto", "ok": True}], OFRECIDAS) == []
 
 
+@pytest.mark.parametrize("texto", [
+    "Entendido. Iniciando la auditoría del modelo en la ruta especificada.",
+    "Comenzando el análisis del archivo.",
+    "Estoy iniciando la auditoría del GGUF.",
+])
+def test_anunciar_inicio_no_equivale_a_ejecutar_una_herramienta(texto):
+    assert "accion_en_curso" in {h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)}
+
+
+@pytest.mark.parametrize("texto", [
+    "No he creado ningún archivo.",
+    "Todavía no hemos ejecutado las pruebas.",
+    "No   he creado ningún archivo.",
+])
+def test_admitir_que_no_se_hizo_algo_no_se_marca_como_accion_hecha(texto):
+    assert hon.revisar(texto, [], OFRECIDAS) == []
+
+
+def test_una_negacion_no_oculta_una_afirmacion_posterior_sin_herramienta():
+    texto = "No he creado archivos. He ejecutado las pruebas."
+    assert "hecho_sin_herramienta" in {h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)}
+
+
+@pytest.mark.parametrize("texto", [
+    "No estoy trabajando en segundo plano.",
+    "No hay acciones en curso.",
+    "No se está en marcha.",
+    "Nunca he creado esos archivos.",
+    "Tampoco hemos ejecutado pruebas.",
+    "No procederé a crear el archivo.",
+    "No te avisaré en otra respuesta.",
+])
+def test_negaciones_de_actividad_no_son_promesas_ni_hechos(texto):
+    assert hon.revisar(texto, [], OFRECIDAS) == []
+
+
+@pytest.mark.parametrize("texto", [
+    "No estoy trabajando en eso; estoy generando el informe.",
+    "No procederé a crear archivos, pero te avisaré al terminar.",
+    "No solo estoy trabajando en ello, estoy generando los archivos.",
+])
+def test_negacion_local_no_oculta_actividad_afirmada(texto):
+    assert "accion_en_curso" in {h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)}
+
+
+def test_negar_trabajo_en_segundo_plano_no_fuerza_herramientas():
+    out, sent, _ = _turno([{"content": "No estoy trabajando en segundo plano."}])
+    assert len(sent) == 1 and not out["tools"]
+    assert out["ejecucion"]["recuperaciones"] == 0
+
+
 def test_negar_vs_code_solo_es_defecto_si_el_puente_responde():
     texto = "No puedo conectarme a tu VS Code."
     assert [h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS, _estado(True))] == ["vscode_negado"]
@@ -86,13 +137,13 @@ class MCP:
 def _turno(respuestas, estado=None):
     sent, steps = [], []
     it = iter(respuestas)
-    out = chat.agent_turn([{"role": "user", "content": "crea Eolas.gguf con licencia propia"}], {"alias": "g"}, MCP(),
+    out = chat.agent_turn([{"role": "user", "content": "¿Qué puedes hacer con Eolas.gguf y su licencia?"}], {"alias": "g"}, MCP(),
                           steps.append, request=lambda c, convo, tools: sent.append((list(convo), tools)) or next(it),
                           estado=estado)
     return out, sent, steps
 
 
-def test_una_respuesta_inventada_se_corrige_en_una_ronda_sin_herramientas():
+def test_una_promesa_recibe_otra_oportunidad_con_herramientas_sin_perder_la_revision():
     out, sent, steps = _turno([{"content": "Acciones en curso: estoy procesando Qwen. Licencia Eolas: los pesos serán "
                                            "propiedad intelectual de Eolas."},
                                {"content": "No puedo fusionar pesos ni darles una licencia propia: siguen la de su origen."}],
@@ -102,20 +153,31 @@ def test_una_respuesta_inventada_se_corrige_en_una_ronda_sin_herramientas():
     sistema = sent[0][0][0]["content"]
     assert "ACTIVO" in sistema and "Recursive Self-Improvement" in sistema
     convo, tools = sent[1]
-    assert tools == [] and convo[-1]["role"] == "user" and "Revisión automática de Eolfi" in convo[-1]["content"]
-    assert any("Eolfi revisa la respuesta" in s for s in steps)
+    assert tools and convo[-1]["role"] == "user" and "Todavía no has ejecutado" in convo[-1]["content"]
+    assert any("no se ha llamado a herramientas" in s for s in steps)
 
 
 def test_si_la_correccion_sigue_fallando_el_usuario_ve_un_aviso():
     mala = {"content": "En mi próxima respuesta te entregaré el Blueprint del RSI (Recursive State Inference)."}
-    out, sent, _ = _turno([mala, mala])
+    out, sent, _ = _turno([mala, mala, mala])
     assert out["text"].startswith("⚠ Aviso de Eolfi") and "Blueprint" in out["text"]
-    assert out["revision"]["final"] == ["accion_en_curso", "capacidad_inventada"] and len(sent) == 2
+    assert out["revision"]["final"] == ["accion_en_curso", "capacidad_inventada"] and len(sent) == 3
 
 
 def test_una_respuesta_honesta_no_gasta_ronda_extra():
     out, sent, _ = _turno([{"content": "Eolfi no entrena ni fusiona modelos; puedo auditar sus cabeceras. ¿Lo hago?"}])
     assert out["revision"] == {"inicial": [], "final": [], "hallazgos": []} and len(sent) == 1
+
+
+def test_inicio_de_auditoria_sin_herramienta_pasa_por_la_correccion():
+    out, sent, _ = _turno([
+        {"content": "Iniciando la auditoría del modelo."},
+        {"content": "No he ejecutado ninguna auditoría todavía."},
+    ])
+    assert out["revision"]["inicial"] == ["accion_en_curso"]
+    assert out["revision"]["final"] == []
+    assert out["text"] == "No he ejecutado ninguna auditoría todavía."
+    assert len(sent) == 2 and sent[-1][1] and out["ejecucion"]["recuperaciones"] == 1
 
 
 def test_el_servidor_pasa_al_chat_el_estado_de_vs_code(tmp_path, monkeypatch):

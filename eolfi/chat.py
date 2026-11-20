@@ -55,7 +55,8 @@ def auto_aprobar_encargos() -> bool:
 MAX_TOOL_OUTPUT = 6000
 MAX_ROUNDS = 8
 CHAT_TOOLS = ("eolfi_triage", "eolfi_web", "eolfi_repo", "eolfi_informe", "eolfi_biblioteca_buscar",
-              "eolfi_biblioteca_leer", "eolfi_modelos_auditar")
+              "eolfi_biblioteca_leer", "eolfi_modelos_auditar", "eolfi_doctor", "eolfi_evidencias",
+              "eolfi_incognitas", "eolfi_resolver", "eolfi_comparar", "eolfi_inyeccion")
 
 SYSTEM_PROMPT = (
     "Eres Eolfi, un asistente local de ingeniería inversa y generación de código. Responde en castellano, claro y "
@@ -85,7 +86,13 @@ SYSTEM_PROMPT = (
     "herramientas de solo lectura necesarias, una tras otra, sin pedir permiso ni preguntar si empiezas. Cuando pida "
     "CREAR una aplicación o proyecto, llama a eolfi_vscode_encargo con un nombre y una descripción completa de lo que "
     "debe hacer (y las rutas de referencia en fuentes); no escribas tú el código en la respuesta. Nunca digas que un "
-    "proyecto está creado o terminado hasta que eolfi_vscode_encargo_estado lo confirme como hecho y verificado."
+    "proyecto está creado o terminado hasta que eolfi_vscode_encargo_estado lo confirme como hecho y verificado. "
+    "Para consultar proveedores usa eolfi_doctor; para consultar el trabajo ya registrado usa eolfi_evidencias y "
+    "eolfi_incognitas; para comparar objetivos usa eolfi_comparar y para buscar inyección de prompts usa "
+    "eolfi_inyeccion. eolfi_resolver cambia una incógnita: úsala solo a petición del usuario y con evidencia que "
+    "justifique el nuevo estado. Elige las herramientas necesarias, revisa sus argumentos, espera sus resultados "
+    "y comprueba si contestan lo pedido. Un error o una autorización pendiente no es una ejecución terminada; "
+    "explica el bloqueo. Si falta una herramienta REA, búscala, consulta su esquema y después úsala."
 )
 # Herramientas de la aplicación (12/11/2026): el chat coordina también la creación de proyectos, los objetivos y los
 # casos. Proponer un proyecto SOLO crea el caso y el plan; ejecutarlo es siempre una aprobación del usuario.
@@ -228,6 +235,8 @@ class Toolbox:
         return valor
 
     def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if name not in self.tools:
+            return {"content": [{"type": "text", "text": f"Error: herramienta no ofrecida {name}."}], "isError": True}
         if self.adjuntos:
             args = self._rutas(args)
         if self.rea is not None and name.startswith("rea_"):
@@ -361,13 +370,23 @@ def local_engine(c: dict[str, Any]) -> dict[str, Any]:
             "headers": eolas_v2.auth_headers(), "label": f"{c['alias']} · Eolas V2"}
 
 
+class Obligatorias(list):
+    """Lista de herramientas con la que el motor DEBE llamar a una (``tool_choice: "required"``).
+
+    20/11/2026, tableta: con ``"auto"`` y el catálogo completo (47 herramientas, ~9.600 tokens), Gemma 4 Q4 contestaba
+    «Usa eolfi_doctor» inventándose el resultado y, en la vuelta de recuperación, entraba en bucle
+    «<|channel>thought» hasta agotar 1.500 tokens (139 s) y devolvía una respuesta vacía. Forzando la llamada solo en
+    esa vuelta, eligió eolfi_doctor en 2,4 s. Es una lista para no cambiar la firma de ``request``."""
+
+
 def _request(c: dict[str, Any], messages: list[dict[str, Any]], tools: list[dict[str, Any]],
              timeout: float = 600.0) -> dict[str, Any]:
     from eolfi.generador.llm import _NoRedirect
 
+    eleccion = "required" if isinstance(tools, Obligatorias) else "auto"
     payload = {"model": str(c["alias"]), "temperature": 0.3, "max_tokens": 1500, "messages": messages,
                **({"chat_template_kwargs": {"enable_thinking": False}} if c.get("kind") == "eolas-v2" else {}),
-               **({"tools": tools, "tool_choice": "auto"} if tools else {})}
+               **({"tools": list(tools), "tool_choice": eleccion} if tools else {})}
     req = urllib.request.Request(c["endpoint"], data=json.dumps(payload).encode("utf-8"),
                                  headers={"Content-Type": "application/json", **c.get("headers", {})}, method="POST")
     try:
@@ -375,7 +394,11 @@ def _request(c: dict[str, Any], messages: list[dict[str, Any]], tools: list[dict
             data = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise RuntimeError(f"el motor {c['alias']} no respondió: {exc}") from exc
-    return (data.get("choices") or [{}])[0].get("message") or {}
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if (not isinstance(choices, list) or not choices or not isinstance(choices[0], dict)
+            or not isinstance(choices[0].get("message"), dict)):
+        raise RuntimeError(f"el motor {c['alias']} devolvió una respuesta de chat inválida")
+    return choices[0]["message"]
 
 
 def _run_python(code: str) -> tuple[str, bool]:
@@ -392,8 +415,13 @@ def safe_tool_calls(tool_calls: list[dict[str, Any]], turn: int) -> list[dict[st
     La plantilla de Mistral (Small 3.2) en llama-server rechaza con HTTP 400 «Tool call IDs should be alphanumeric
     strings with length 9!» los IDs que genera el propio servidor: Mistral fallaba SIEMPRE en herramientas al devolverle
     el primer resultado. Se reescriben como 9 caracteres alfanuméricos, únicos en la conversación (turno + posición)."""
+    if not isinstance(tool_calls, list):
+        raise RuntimeError("el motor devolvió una lista de llamadas inválida")
     out = []
     for i, tc in enumerate(tool_calls):
+        fn = tc.get("function") if isinstance(tc, dict) else None
+        if (not isinstance(fn, dict) or not isinstance(fn.get("name"), str) or not fn["name"].strip()):
+            raise RuntimeError("el motor devolvió una lista de llamadas inválida")
         out.append({**tc, "id": f"c{turn:04d}{i:04d}"[:9]})
     return out
 
@@ -426,7 +454,8 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
     """El modelo resuelve la petición llamando a herramientas reales de Eolfi. Devuelve la respuesta y las llamadas.
 
     `estado` es lo comprobado por Eolfi al empezar el turno (p. ej. si responde el puente de VS Code). La respuesta
-    final pasa por la revisión de honestidad (chat_honestidad): si falla, una ronda de corrección sin herramientas y,
+    final pasa por la revisión de honestidad (chat_honestidad). Una petición de acción o una promesa sin llamadas
+    recibe una oportunidad adicional de usar herramientas; si falla la revisión, una corrección sin herramientas y,
     si aún falla, un aviso visible. `revision` dice qué se detectó antes y después."""
     from eolfi import chat_honestidad as hon
 
@@ -437,13 +466,21 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
                                    *messages]
     calls: list[dict[str, Any]] = []
     ofrecidas = {t["function"]["name"] for t in tools}
+    recuperado = False
+    forzar = False          # solo la vuelta de recuperación de una orden o promesa obliga a llamar (Obligatorias)
+    hallazgos_recuperados: list[dict[str, str]] = []
+    # Solo órdenes directas: explicar una herramienta o saludar no exige ejecutarla.
+    orden = bool(re.match(
+        r"\s*(?:por favor[, ]+)?(?:audita|analiza|revisa|inspecciona|comprueba|verifica|busca|lista|compara|"
+        r"calcula|ejecuta|crea|genera|descompila|extrae|adelante)\b", messages[-1]["content"], re.I))
 
     def final(text: str) -> dict[str, Any]:
-        inicial = hon.revisar(text, calls, ofrecidas, estado)
-        hallazgos = inicial
-        if inicial:
-            progress("Eolfi revisa la respuesta: " + ", ".join(h["codigo"] for h in inicial))
-            convo.extend([{"role": "assistant", "content": text}, {"role": "user", "content": hon.correccion(inicial)}])
+        hallazgos = hon.revisar(text, calls, ofrecidas, estado)
+        inicial = list(hallazgos_recuperados)
+        inicial.extend(h for h in hallazgos if h["codigo"] not in {i["codigo"] for i in inicial})
+        if hallazgos:
+            progress("Eolfi revisa la respuesta: " + ", ".join(h["codigo"] for h in hallazgos))
+            convo.extend([{"role": "assistant", "content": text}, {"role": "user", "content": hon.correccion(hallazgos)}])
             nuevo = str(request(c, convo, []).get("content") or "").strip()
             if nuevo:
                 text = nuevo
@@ -451,25 +488,46 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
             if hallazgos:
                 text = hon.aviso(hallazgos) + text
         return {"text": text, "tools": calls,
+                "ejecucion": {"recuperaciones": int(recuperado), "llamadas": len(calls),
+                              "correctas": sum(bool(c.get("ok")) for c in calls)},
                 "revision": {"inicial": [h["codigo"] for h in inicial], "final": [h["codigo"] for h in hallazgos],
                              "hallazgos": hallazgos}}
 
     for turn in range(max_rounds):
-        msg = request(c, convo, tools)
+        msg = request(c, convo, Obligatorias(tools) if forzar else tools)
+        forzar = False
         tool_calls = safe_tool_calls(msg.get("tool_calls") or [], turn)
         if not tool_calls:
             text = str(msg.get("content") or "").strip()
+            revisado = hon.revisar(text, calls, ofrecidas, estado)
+            promesa = any(h["codigo"] in ("accion_en_curso", "hecho_sin_herramienta") for h in revisado)
+            if not calls and not recuperado and turn + 1 < max_rounds and (orden or promesa or not text):
+                recuperado = True
+                forzar = orden or promesa   # una respuesta solo vacía no obliga a ejecutar nada
+                hallazgos_recuperados.extend(revisado)
+                progress("Eolfi comprueba: no se ha llamado a herramientas; el motor vuelve a elegir una.")
+                if text:
+                    convo.append({"role": "assistant", "content": text})
+                convo.append({"role": "user", "content":
+                    "Todavía no has ejecutado ninguna herramienta en este turno. Si la petición requiere una "
+                    "acción, elige la herramienta adecuada entre las ofrecidas y llámala ahora con argumentos "
+                    "válidos. Lee su resultado y comprueba que responde a lo pedido antes de contestar. "
+                    "Para REA puedes buscar y consultar el esquema antes de usarla. Si falta un dato, permiso "
+                    "o herramienta, explica qué falta; no prometas trabajo en segundo plano."})
+                continue
             if not text:
                 raise RuntimeError("el motor terminó sin respuesta de texto")
+            if orden and not calls:
+                text = "Eolfi: esta petición no ha ejecutado herramientas.\n\n" + text
             return final(text)
         convo.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tool_calls})
         for tc in tool_calls:
             fn = tc.get("function") or {}
             name = str(fn.get("name") or "")
             try:
-                args = json.loads(fn.get("arguments") or "{}")
+                args = json.loads(fn.get("arguments", "{}"))
                 valid = isinstance(args, dict)
-            except ValueError:
+            except (ValueError, TypeError):
                 args, valid = {}, False
             brief = json.dumps(args, ensure_ascii=False)[:160] if valid else "(argumentos inválidos)"
             progress(f"Eolas pide a Eolfi: {name} {brief}")
@@ -484,7 +542,7 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
             else:
                 out, ok = f"Error: herramienta desconocida {name}.", False
             links = _links(out)
-            calls.append({"name": name, "args": brief, "ok": ok,
+            calls.append({"name": name, "args": brief, "valid_args": valid, "ok": ok,
                           # 19/11/2026: el motivo del fallo queda en la traza (antes solo «ok: false»).
                           **({} if ok else {"error": out[:300]}),
                           **(links if ok else {k: v for k, v in links.items() if k in ("autorizacion", "herramienta_pedida")})})

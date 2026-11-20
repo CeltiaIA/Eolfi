@@ -11,7 +11,7 @@ class FakeMCP:
     def __init__(self, db=None, roots=None, library=None):
         self.roots, self.calls = roots, []
         self.tools = {n: ({"name": n, "description": "d", "inputSchema": {"type": "object"}}, None)
-                      for n in (*chat.CHAT_TOOLS, "eolfi_resolver")}
+                      for n in (*chat.CHAT_TOOLS, "herramienta_no_ofrecida")}
 
     def call_tool(self, name, args):
         self.calls.append((name, args))
@@ -99,7 +99,7 @@ def test_eolas_decide_las_herramientas_y_eolfi_las_ejecuta():
     mcp, steps, sent = FakeMCP(), [], []
     replies = iter([
         {"tool_calls": [_call("eolfi_triage", {"ruta": "C:/s/ab.bin"}), _call("ejecutar_python", {"codigo": "print(2)"}, "2"),
-                        _call("eolfi_resolver", {}, "3")]},
+                        _call("herramienta_no_ofrecida", {}, "3")]},
         {"content": "Es un PE de Windows. Propuestas: 1) …"},
     ])
     out = chat.agent_turn([{"role": "user", "content": "analiza"}], {"alias": "gemma", "url": "u"}, mcp, steps.append,
@@ -109,7 +109,7 @@ def test_eolas_decide_las_herramientas_y_eolfi_las_ejecuta():
     offered = {t["function"]["name"] for t in sent[0][1]}
     assert offered == {*chat.CHAT_TOOLS, "ejecutar_python"}                 # nunca las que no son del chat
     assert [(c["name"], c["ok"]) for c in out["tools"]] == [("eolfi_triage", True), ("ejecutar_python", True),
-                                                           ("eolfi_resolver", False)]
+                                                           ("herramienta_no_ofrecida", False)]
     assert mcp.calls == [("eolfi_triage", {"ruta": "C:/s/ab.bin"})]          # la no ofrecida no se ejecuta
     assert sent[0][0][0]["role"] == "system" and "DATOS" in sent[0][0][0]["content"]
     assert any("Eolas pide a Eolfi: eolfi_triage" in s for s in steps)
@@ -219,7 +219,8 @@ def test_herramientas_de_la_aplicacion_y_enlaces_para_la_pagina():
     box = chat.Toolbox(FakeMCP(), {"eolfi_proponer_proyecto": lambda a: hechas.append(a) or
                                    {"case_id": "c-1", "aviso": "no se ejecuta"},
                                    "eolfi_objetivos": lambda a: 1 / 0, "eolfi_inventada": lambda a: None})
-    assert "eolfi_inventada" not in box.tools and "eolfi_resolver" not in box.tools
+    assert "eolfi_inventada" not in box.tools and "herramienta_no_ofrecida" not in box.tools
+    assert "eolfi_resolver" in box.tools
     assert {"eolfi_triage", "eolfi_proponer_proyecto", "eolfi_objetivos"} <= set(box.tools)
     replies = iter([{"tool_calls": [_call("eolfi_proponer_proyecto", {"nombre": "x", "descripcion": "y"}),
                                     _call("eolfi_triage", {"ruta": "a"}, "2"), _call("eolfi_objetivos", {}, "3")]},
@@ -331,3 +332,169 @@ def test_el_chat_sabe_que_lo_que_ejecuta_se_pide_con_permiso():
     assert "rea_buscar" in chat.SYSTEM_PROMPT and "pide autorización" in chat.SYSTEM_PROMPT
     usar = rea_client.META_TOOLS["rea_usar"]["description"]
     assert "permitida" not in usar and "autorización" in usar
+
+
+def test_el_chat_ofrece_todo_el_catalogo_mcp_actual(tmp_path):
+    from eolfi.mcp_server import EolfiMCP
+
+    mcp = EolfiMCP(db=str(tmp_path / "e.db"), roots=[str(tmp_path)])
+    box = chat.Toolbox(mcp, {})
+    assert set(box.tools) == set(mcp.tools) == set(chat.CHAT_TOOLS)
+    assert box.call_tool("herramienta_no_ofrecida", {})["isError"] is True
+
+
+@pytest.mark.parametrize("nombre", chat.CHAT_TOOLS)
+def test_cada_herramienta_se_ofrece_se_ejecuta_y_devuelve_datos_al_motor(nombre):
+    mcp, sent = FakeMCP(), []
+    replies = iter([{"tool_calls": [_call(nombre, {"prueba": nombre})]}, {"content": "Resultado leído."}])
+    out = chat.agent_turn([{"role": "user", "content": "analiza"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
+    assert mcp.calls == [(nombre, {"prueba": nombre})]
+    assert out["tools"][0]["name"] == nombre and out["tools"][0]["ok"]
+    assert out["tools"][0]["valid_args"] is True
+    assert json.loads(sent[-1][-1]["content"])["summary"]["format"] == "pe"
+    assert out["ejecucion"] == {"recuperaciones": 0, "llamadas": 1, "correctas": 1}
+
+
+def test_promesa_sin_llamadas_se_recupera_ejecutando_y_leyendo_el_resultado():
+    mcp, sent, steps = FakeMCP(), [], []
+    replies = iter([{"content": "Iniciando la auditoría del modelo."},
+                    {"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": "D:/modelo.gguf"})]},
+                    {"content": "He consultado el resultado de la auditoría."}])
+    out = chat.agent_turn([{"role": "user", "content": "Audita D:/modelo.gguf"}], {"alias": "g"}, mcp, steps.append,
+                          request=lambda c, convo, tools: sent.append((list(convo), tools)) or next(replies))
+    assert mcp.calls == [("eolfi_modelos_auditar", {"ruta": "D:/modelo.gguf"})]
+    assert all(t for _, t in sent) and sent[-1][0][-1]["role"] == "tool"
+    assert out["ejecucion"] == {"recuperaciones": 1, "llamadas": 1, "correctas": 1}
+    assert out["revision"]["inicial"] == ["accion_en_curso"] and out["revision"]["final"] == []
+
+
+@pytest.mark.parametrize("primera", [{"content": ""}, {"content": "¿Quieres que lo audite?"}])
+def test_orden_sin_llamada_recibe_una_sola_recuperacion_y_no_finge_ejecucion(primera):
+    sent, mcp = [], FakeMCP()
+    replies = iter([primera, {"content": "Necesito que me indiques la ruta del archivo."}])
+    out = chat.agent_turn([{"role": "user", "content": "Audita el archivo"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda c, convo, tools: sent.append(tools) or next(replies))
+    assert len(sent) == 2 and all(sent) and not mcp.calls
+    assert out["text"].startswith("Eolfi: esta petición no ha ejecutado herramientas.")
+    assert out["ejecucion"]["correctas"] == 0 and out["ejecucion"]["recuperaciones"] == 1
+
+
+def test_la_recuperacion_de_una_orden_obliga_a_llamar_y_solo_esa_vuelta():
+    """20/11/2026, tableta: con «auto» Gemma inventaba el resultado y en la recuperación se quedaba en bucle."""
+    sent = []
+    replies = iter([{"content": "Los proveedores son stdlib y capa."},
+                    {"tool_calls": [_call("eolfi_doctor", {})]}, {"content": "Proveedores comprobados."}])
+    out = chat.agent_turn([{"role": "user", "content": "Lista proveedores. Usa eolfi_doctor."}], {"alias": "g"},
+                          FakeMCP(), lambda s: None, request=lambda c, convo, tools: sent.append(tools) or next(replies))
+    assert [isinstance(t, chat.Obligatorias) for t in sent] == [False, True, False]
+    assert sent[1] == sent[0] and out["ejecucion"] == {"recuperaciones": 1, "llamadas": 1, "correctas": 1}
+
+
+def test_una_respuesta_solo_vacia_no_obliga_a_ejecutar():
+    sent = []
+    replies = iter([{"content": ""}, {"content": "Hola."}])
+    chat.agent_turn([{"role": "user", "content": "hola"}], {"alias": "g"}, FakeMCP(), lambda s: None,
+                    request=lambda c, convo, tools: sent.append(tools) or next(replies))
+    assert len(sent) == 2 and not any(isinstance(t, chat.Obligatorias) for t in sent)
+
+
+def test_el_motor_recibe_tool_choice_required_solo_con_obligatorias(monkeypatch):
+    enviados = []
+
+    class Resp:
+        def __init__(self, data):
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self.data
+
+    class Opener:
+        def open(self, req, timeout=0):
+            enviados.append(json.loads(req.data))
+            return Resp(b'{"choices": [{"message": {"content": "ok"}}]}')
+
+    monkeypatch.setattr(chat.urllib.request, "build_opener", lambda *a: Opener())
+    herramientas = [{"type": "function", "function": {"name": "eolfi_doctor", "parameters": {"type": "object"}}}]
+    motor = {"alias": "g", "endpoint": "http://127.0.0.1:1/v1/chat/completions", "kind": "eolas-v2"}
+    chat._request(motor, [{"role": "user", "content": "x"}], herramientas)
+    chat._request(motor, [{"role": "user", "content": "x"}], chat.Obligatorias(herramientas))
+    chat._request(motor, [{"role": "user", "content": "x"}], [])
+    assert [e.get("tool_choice") for e in enviados] == ["auto", "required", None]
+    assert enviados[1]["tools"] == herramientas and "tools" not in enviados[2]
+
+
+def test_pregunta_teorica_no_fuerza_herramientas():
+    sent = []
+    out = chat.agent_turn([{"role": "user", "content": "¿Para qué sirve una auditoría GGUF?"}], {"alias": "g"},
+                          FakeMCP(), lambda s: None,
+                          request=lambda c, convo, tools: sent.append(tools) or {"content": "Comprueba la estructura."})
+    assert len(sent) == 1 and not out["tools"] and out["ejecucion"]["recuperaciones"] == 0
+
+
+def test_argumentos_invalidos_no_se_ejecutan_y_el_motor_puede_corregirlos():
+    mcp, sent = FakeMCP(), []
+    mala = _call("eolfi_evidencias", {})
+    mala["function"]["arguments"] = {"no": "texto JSON"}
+    replies = iter([{"tool_calls": [mala]}, {"tool_calls": [_call("eolfi_evidencias", {"limite": 1})]},
+                    {"content": "Consulta completada."}])
+    out = chat.agent_turn([{"role": "user", "content": "Lista las evidencias"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
+    assert mcp.calls == [("eolfi_evidencias", {"limite": 1})]
+    assert out["tools"][0]["valid_args"] is False and out["tools"][0]["ok"] is False
+    assert "no son un objeto JSON" in sent[1][-1]["content"]
+    assert out["tools"][1]["ok"] is True
+
+
+def test_error_de_herramienta_no_cuenta_como_paso_correcto():
+    mcp = FakeMCP()
+    mcp.call_tool = lambda name, args: {"isError": True, "content": [{"type": "text", "text": "Error: no existe"}]}
+    replies = iter([{"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": "no.gguf"})]},
+                    {"content": "El archivo no existe."}])
+    out = chat.agent_turn([{"role": "user", "content": "Audita no.gguf"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda *a: next(replies))
+    assert out["ejecucion"]["correctas"] == 0 and out["tools"][0]["error"] == "Error: no existe"
+
+
+@pytest.mark.parametrize("argumentos", [None, False, 0, [], {}, ""])
+def test_argumentos_vacios_de_tipo_incorrecto_no_ejecutan(argumentos):
+    mcp = FakeMCP()
+    llamada = _call("eolfi_doctor", {})
+    llamada["function"]["arguments"] = argumentos
+    replies = iter([{"tool_calls": [llamada]}, {"content": "Argumentos inválidos; no se ejecutó."}])
+    out = chat.agent_turn([{"role": "user", "content": "Lista proveedores"}], {"alias": "g"}, mcp,
+                          lambda s: None, request=lambda *a: next(replies))
+    assert not mcp.calls
+    assert out["tools"][0]["valid_args"] is False
+    assert out["ejecucion"]["correctas"] == 0
+
+
+@pytest.mark.parametrize("respuesta", [None, [], {"choices": "texto"}, {"choices": [None]},
+                                        {"choices": [{"message": []}]}])
+def test_respuesta_del_motor_malformada_da_error_explicito(monkeypatch, respuesta):
+    import io
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            return io.BytesIO(json.dumps(respuesta).encode())
+
+    monkeypatch.setattr(chat.urllib.request, "build_opener", lambda *a: Opener())
+    with pytest.raises(RuntimeError, match="respuesta.*inválida"):
+        chat._request({"alias": "g", "endpoint": "http://127.0.0.1:1/chat"}, [], [])
+
+
+@pytest.mark.parametrize("llamadas", ["texto", [None], [{"function": []}],
+                                      [{"function": {"name": 3}}],
+                                      [_call("eolfi_doctor", {}), {"function": "rota"}]])
+def test_llamadas_malformadas_no_ejecutan_ni_parcialmente(llamadas):
+    mcp = FakeMCP()
+    with pytest.raises(RuntimeError, match="llamadas.*inválida"):
+        chat.agent_turn([{"role": "user", "content": "Lista proveedores"}], {"alias": "g"}, mcp,
+                        lambda s: None, request=lambda *a: {"tool_calls": llamadas})
+    assert mcp.calls == []

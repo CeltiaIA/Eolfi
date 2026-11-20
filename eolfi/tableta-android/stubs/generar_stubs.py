@@ -18,9 +18,32 @@ STUBS = {
 public abstract class Context {
     public static final int MODE_PRIVATE = 0;
     public abstract SharedPreferences getSharedPreferences(String name, int mode);
+    public java.io.File getFilesDir() STUB
+    public java.io.File getExternalFilesDir(String type) STUB
 }""",
     "android/content/Intent.java": """package android.content;
-public class Intent { public boolean getBooleanExtra(String n, boolean d) STUB }""",
+public class Intent {
+    public boolean getBooleanExtra(String n, boolean d) STUB
+    public String getStringExtra(String n) STUB
+    public void removeExtra(String n) STUB
+}""",
+    "android/content/DialogInterface.java": """package android.content;
+public interface DialogInterface {
+    interface OnClickListener { void onClick(DialogInterface d, int which); }
+}""",
+    "android/app/AlertDialog.java": """package android.app;
+import android.content.Context; import android.content.DialogInterface;
+public class AlertDialog {
+    public static class Builder {
+        public Builder(Context c) STUB
+        public Builder setTitle(CharSequence t) STUB
+        public Builder setMessage(CharSequence t) STUB
+        public Builder setItems(CharSequence[] items, DialogInterface.OnClickListener l) STUB
+        public Builder setPositiveButton(CharSequence t, DialogInterface.OnClickListener l) STUB
+        public Builder setNegativeButton(CharSequence t, DialogInterface.OnClickListener l) STUB
+        public AlertDialog show() STUB
+    }
+}""",
     "android/content/SharedPreferences.java": """package android.content;
 public interface SharedPreferences {
     String getString(String k, String d);
@@ -43,6 +66,8 @@ public class Activity extends Context {
     public final void runOnUiThread(Runnable r) STUB
 }""",
     "android/os/Bundle.java": "package android.os;\npublic final class Bundle {}",
+    "android/os/Environment.java": """package android.os;
+public final class Environment { public static java.io.File getExternalStorageDirectory() STUB }""",
     "android/os/Build.java": """package android.os;
 public class Build {
     private static String s() { return null; }

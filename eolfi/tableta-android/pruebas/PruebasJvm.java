@@ -1,6 +1,8 @@
 import com.celtiaia.eolfi.tableta.Cliente;
 import com.celtiaia.eolfi.tableta.Reglas;
 import com.celtiaia.eolfi.tableta.Wav;
+import com.celtiaia.eolfi.tableta.Conversaciones;
+import com.celtiaia.eolfi.tableta.ArchivoConversaciones;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,9 +36,69 @@ public final class PruebasJvm {
 
     public static void main(String[] a) throws Exception {
         if (a.length > 0 && a[0].equals("cliente")) cliente(a[1], a[2]);
-        else unidad();
+        else { unidad(); conversaciones(); }
         System.out.println((fallos == 0 ? "OK " : "FALLOS " + fallos + " de ") + total + " comprobaciones");
         System.exit(fallos == 0 ? 0 : 1);
+    }
+
+    static void conversaciones() throws Exception {
+        Conversaciones h = Conversaciones.cargar(null);
+        Conversaciones.Charla una = h.activa();
+        una.respuesta("Primera pregunta", "Respuesta uno");
+        una.vista = "Tú: Primera pregunta\n\nEolas: Respuesta uno";
+        una.borrador = "áéíóú\n\"borrador\"";
+        String id = una.id;
+        Conversaciones.Charla dos = h.nueva();
+        dos.respuesta("Segunda pregunta", "Respuesta dos"); dos.pendiente = "No respondido";
+        h.seleccionar(id);
+        String guardado = h.guardar();
+        Conversaciones leido = Conversaciones.cargar(guardado);
+        ok(leido.lista().size() == 2 && leido.activa().id.equals(id), "historial: retoma selección al reiniciar");
+        ok(leido.activa().borrador.equals(una.borrador) && leido.activa().vista.equals(una.vista), "historial: borrador y vista Unicode");
+        ok(leido.activa().contexto().size() == 2 && !Reglas.cuerpoChat("otra", leido.activa().contexto()).contains("Segunda"),
+                "historial: contextos separados");
+        leido.activa().contexto().get(0)[1] = "alterado";
+        ok(leido.activa().mensajes.get(0)[1].equals("Primera pregunta"), "historial: copia independiente para la red");
+        leido.seleccionar(dos.id);
+        ok(leido.activa().pendiente.equals("No respondido"), "historial: pendiente no se pierde");
+        lanza(new Runnable() { public void run() { Conversaciones.cargar("version=99\ntotal=0"); } }, "historial: versión desconocida");
+        final String corrupto = guardado.replace(".rol=user", ".rol=system");
+        lanza(new Runnable() { public void run() { Conversaciones.cargar(corrupto); } }, "historial: no importa roles de sistema");
+        String largo = new String(new char[600]).replace('\0', 'x');
+        Conversaciones acotado = new Conversaciones(1600);
+        for (int i = 0; i < 6; i++) { acotado.nueva().respuesta("pregunta " + i, largo); }
+        String ultima = acotado.activa().id;
+        String limitado = acotado.guardar();
+        ok(limitado.getBytes("UTF-8").length <= 1600 && acotado.recortes > 0, "historial: límite en bytes y recorte antiguo");
+        ok(Conversaciones.cargar(limitado).activa().id.equals(ultima), "historial: nunca elimina la conversación activa");
+        for (int i = 0; i < 12; i++) acotado.activa().respuesta("turno " + i, largo);
+        acotado.activa().vista = largo + largo + largo;
+        limitado = acotado.guardar();
+        ok(limitado.getBytes("UTF-8").length <= 1600 && acotado.activa().mensajes.get(acotado.activa().mensajes.size()-2)[1].equals("turno 11"),
+                "historial: conversación larga conserva lo reciente");
+        Conversaciones importado = Conversaciones.cargar(null);
+        importado.importar("Tú: hola\n\nEolas: respuesta\n\nTú: continúa");
+        ok(importado.activa().mensajes.size() == 3 && importado.activa().mensajes.get(1)[0].equals("assistant"),
+                "historial: recuperación explícita del chat antiguo");
+        java.io.File carpeta = java.nio.file.Files.createTempDirectory("eolfi-historial").toFile();
+        java.io.File archivo = new java.io.File(carpeta, "historial.properties");
+        java.io.File copia = new java.io.File(archivo + ".bak");
+        try {
+            ArchivoConversaciones a = new ArchivoConversaciones(carpeta);
+            ok(a.leer() == null, "archivo: vacío antes de guardar");
+            a.guardar(guardado);
+            ok(a.leer().equals(guardado) && !copia.exists(), "archivo: guardado completo sin duplicado permanente");
+            a.guardar(limitado);
+            ok(a.leer().equals(limitado), "archivo: sustituye después de escribir y sincronizar");
+            ok(archivo.renameTo(copia) && a.leer().equals(limitado), "archivo: recupera copia tras interrupción");
+            a.guardar(guardado);
+            java.io.RandomAccessFile gigante = new java.io.RandomAccessFile(archivo, "rw");
+            gigante.setLength(Conversaciones.MAX_GUARDADO + 1L); gigante.close();
+            try { a.leer(); ok(false, "archivo: presupuesto de lectura"); }
+            catch (java.io.IOException e) { ok(true, "archivo: presupuesto de lectura"); }
+        } finally {
+            archivo.delete(); copia.delete(); new java.io.File(archivo + ".tmp").delete(); carpeta.delete();
+        }
     }
 
     static void unidad() {
