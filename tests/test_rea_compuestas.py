@@ -372,6 +372,62 @@ def test_api_desde_captura_basico_agrupa_rutas_y_avisa():
     assert "openapi" not in out and "Aún no es una especificación OpenAPI" in out["aviso"]
 
 
+def test_api_desde_captura_descarta_esquemas_y_credenciales_no_seguros():
+    class CaptureManipulada:
+        def call(self, name, args, limit=None):
+            assert name == "inspect_pcap_capture"
+            demasiados = "&".join(f"k{i}=v" for i in range(1001))
+            data = {"normalized_result": {"http_request_uris": [
+                "file:///etc/passwd", "http://host.test:puerto/x",
+                "https://larga.test/" + "x" * 70_000,
+                "https://campos.test/x?" + demasiados,
+                "https://usuario:secreto@example.test:8443/v1/x?q=1&access_token=muy-secreto#privado",
+                "https://example.test/reset/abc123?code=secreto&token[0]=otro&refreshToken=r&clientSecret=c",
+            ]}}
+            return json.dumps(data), True
+
+    out = rc.api_desde_captura(CaptureManipulada(), r"C:\c.pcap")
+    assert out["servidores"] == ["https://example.test", "https://example.test:8443"]
+    assert out["endpoints"] == {"/reset/{id}": {
+        "ejemplos": ["https://example.test/reset/{id}?code=REDACTED&token%5B0%5D=REDACTED&refreshToken=REDACTED&clientSecret=REDACTED"],
+        "parametros_consulta": ["clientSecret", "code", "refreshToken", "token[0]"],
+    }, "/v1/x": {
+        "ejemplos": ["https://example.test:8443/v1/x?q=1&access_token=REDACTED"],
+        "parametros_consulta": ["access_token", "q"],
+    }}
+    encoded = json.dumps(out)
+    assert "usuario" not in encoded and "muy-secreto" not in encoded and "privado" not in encoded
+    assert rc._redact_capture_path("/reset/%61%62%63") == "/reset/{id}"
+
+
+def test_api_desde_captura_completa_acota_uri_cuerpos_y_registros(monkeypatch):
+    class Capture:
+        def call(self, name, args, limit=None):
+            return json.dumps({"normalized_result": {"http_request_uris": ["https://api.test/x"]}}), True
+
+    class Fields:
+        def call(self, name, args, limit=None):
+            assert args["match_limit"] == rc.MAX_CAPTURE_RECORDS
+            rows = [
+                {"frame.number": "1", "http.request.method": "POST",
+                 "http.request.uri": "/reset/abcdefghijklmnopqrstuvwxyz012345",
+                 "http.file_data": json.dumps({"secreto": "x" * 40})},
+                {"frame.number": "2", "http.request.method": "GET",
+                 "http.request.uri": "http://[host-invalido"},
+                {"frame.number": "3", "http.request.method": "GET",
+                 "http.request.uri": "/" + "x" * 200},
+            ]
+            return json.dumps({"normalized_result": {"packets": rows}}), True
+
+    monkeypatch.setattr(rc, "MAX_CAPTURE_BODY", 16)
+    monkeypatch.setattr(rc, "MAX_CAPTURE_URI", 128)
+    out = rc.api_desde_captura(Capture(), r"C:\c.pcap", Fields())
+    encoded = json.dumps(out)
+    assert "abcdefghijklmnopqrstuvwxyz012345" not in encoded
+    assert "host-invalido" not in encoded and '"secreto"' not in encoded
+    assert set(out["openapi"]["paths"]) == {"/reset/{id}"}
+
+
 def test_api_desde_captura_completo_da_un_borrador_openapi():
     out = rc.api_desde_captura(FakeCapture(), r"C:\c.pcap", fields_client=FakeFields())
     spec = out["openapi"]

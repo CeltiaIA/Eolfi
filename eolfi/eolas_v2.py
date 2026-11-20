@@ -413,11 +413,12 @@ def load_config(*, create: bool = True) -> dict[str, Any]:
 
 
 def _validate_custom_profile(name: str, profile: dict[str, Any]) -> dict[str, Any]:
-    """Perfil reconstruido gestionado: campos acotados, sin argumentos de proceso arbitrarios."""
+    """Perfil reconstruido gestionado: campos acotados; `extra_args` solo con la lista blanca de los perfiles de usuario
+    (atención rápida, tipo de caché KV, ranuras y caché de RAM), nunca argumentos de proceso arbitrarios."""
     if not PROFILE_NAME.fullmatch(name):
         raise ValueError("Nombre de perfil reconstruido inválido")
     allowed = {"managed_by", "alias", "model", "ctx", "gpu_layers", "batch", "ubatch", "sha256",
-               "reasoning", "reasoning_format", "chat_template_kwargs", "source_recipe", "source_smoke"}
+               "reasoning", "reasoning_format", "chat_template_kwargs", "source_recipe", "source_smoke", "extra_args"}
     if set(profile) - allowed:
         raise ValueError(f"Campos no admitidos en el perfil reconstruido {name}")
     model, alias, digest = profile.get("model"), profile.get("alias"), profile.get("sha256")
@@ -441,7 +442,24 @@ def _validate_custom_profile(name: str, profile: dict[str, Any]) -> dict[str, An
     for key in ("source_recipe", "source_smoke"):
         if not isinstance(profile.get(key), str) or not Path(profile[key]).is_absolute():
             raise ValueError(f"{key} debe ser una ruta absoluta")
+    _validate_extra_args(profile.get("extra_args"), "reconstruido")
     return dict(profile)
+
+
+def _validate_extra_args(extra: Any, tipo: str) -> None:
+    """Pares opción-valor de `USER_EXTRA_ARGS`; cualquier otra opción o valor se rechaza."""
+    extra = extra or []
+    if not isinstance(extra, list) or not all(isinstance(x, str) for x in extra):
+        raise ValueError("extra_args debe ser una lista de textos")
+    i = 0
+    while i < len(extra):
+        flag = extra[i]
+        if flag not in USER_EXTRA_ARGS or i + 1 >= len(extra):
+            raise ValueError(f"Opción de llama-server no admitida en un perfil {tipo}: {flag}")
+        values, value = USER_EXTRA_ARGS[flag], extra[i + 1]
+        if (values is not None and value not in values) or (values is None and not value.isdigit()):
+            raise ValueError(f"Valor no admitido para {flag}: {value}")
+        i += 2
 
 
 def _validate_user_profile(name: str, profile: dict[str, Any]) -> dict[str, Any]:
@@ -471,18 +489,7 @@ def _validate_user_profile(name: str, profile: dict[str, Any]) -> dict[str, Any]
         raise ValueError("Formato de razonamiento no admitido")
     if profile.get("plantilla") not in PLANTILLAS:
         raise ValueError("Plantilla de conversación no admitida")
-    extra = profile.get("extra_args") or []
-    if not isinstance(extra, list) or not all(isinstance(x, str) for x in extra):
-        raise ValueError("extra_args debe ser una lista de textos")
-    i = 0
-    while i < len(extra):
-        flag = extra[i]
-        if flag not in USER_EXTRA_ARGS or i + 1 >= len(extra):
-            raise ValueError(f"Opción de llama-server no admitida en un perfil de usuario: {flag}")
-        values, value = USER_EXTRA_ARGS[flag], extra[i + 1]
-        if (values is not None and value not in values) or (values is None and not value.isdigit()):
-            raise ValueError(f"Valor no admitido para {flag}: {value}")
-        i += 2
+    _validate_extra_args(profile.get("extra_args"), "de usuario")
     return dict(profile)
 
 

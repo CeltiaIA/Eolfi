@@ -33,7 +33,10 @@ test('M1: la vista en directo de una ventana cerrada responde 404 y no la reabre
 });
 
 test('M3: /v1/reset levanta el estado «dudoso» de una conversación', async () => {
-  const r = await call('/v1/reset', { method: 'POST', body: { provider: 'deepseek', conversation: 'c1' } });
+  const body = { provider: 'deepseek', conversation: 'c1' };
+  assert.equal((await call('/v1/reset', { method: 'POST', body })).status, 403);
+  assert.equal(adapter.uncertain.has('c1'), true);
+  const r = await call('/v1/reset', { method: 'POST', body, token: PANEL });
   assert.deepEqual(await r.json(), { ok: true, reset: true });
   assert.equal(adapter.uncertain.has('c1'), false);
 });

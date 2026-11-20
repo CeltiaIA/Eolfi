@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import ast
+import io
 import importlib.util
 import json
 import sys
 import threading
+import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -34,7 +36,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _reply(self, code: int, body: object | None) -> None:
         data = b"" if body is None else json.dumps(body).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("CONTENT-TYPE", "application/json")  # las cabeceras HTTP no distinguen mayúsculas
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -47,7 +49,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         self._record()
-        if self.path.startswith("/v1/items/42"):
+        if self.path == "/grande":
+            self._reply(200, {"datos": "x" * 200})
+        elif self.path.startswith("/v1/items/42"):
             self._reply(200, {"id": 42, "ok": True})
         else:
             self._reply(404, {"error": "no"})
@@ -119,6 +123,93 @@ def test_el_cliente_generado_llama_a_la_api(server, tmp_path):
     assert _Handler.seen[1]["method"] == "POST" and _Handler.seen[1]["path"] == "/v1/items?page=2"
     assert _Handler.seen[1]["body"] == {"name": "a"}
     assert _Handler.seen[2]["path"] == "/v1/items/no%20existe%2F.."      # el valor no puede salir de su segmento
+
+
+@pytest.mark.parametrize("base", [
+    "file:///etc/passwd", "data:text/plain,hola", "https:///sin-host", "no-es-url",
+    "https://usuario:secreto@example.test", "https://example.test?token=x", "https://example.test/#fragmento",
+    "https://example.test?", "https://example.test#", "https://example.test:puerto", "https://host con espacios.test",
+])
+def test_el_cliente_generado_rechaza_bases_que_no_son_http_con_host(tmp_path, base):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_base_segura")
+    with pytest.raises(ValueError, match="HTTP o HTTPS"):
+        mod.Cliente(base)
+
+
+def test_el_cliente_generado_admite_un_prefijo_de_ruta_en_la_base(tmp_path):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_base_con_prefijo")
+    assert mod.Cliente("https://example.test/api/").base == "https://example.test/api"
+
+
+@pytest.mark.parametrize("tiempo", [0, -1, True, "1", float("nan"), float("inf")])
+def test_el_cliente_generado_exige_un_plazo_positivo_y_finito(tmp_path, tiempo):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_plazo_valido")
+    with pytest.raises(ValueError, match="tiempo"):
+        mod.Cliente("https://example.test", tiempo=tiempo)
+
+
+@pytest.mark.parametrize("limite", [0, -1, True, 1.5])
+def test_el_cliente_generado_exige_un_limite_de_respuesta_positivo(tmp_path, limite):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_limite_valido")
+    with pytest.raises(ValueError, match="max_respuesta"):
+        mod.Cliente("https://example.test", max_respuesta=limite)
+
+
+def test_el_cliente_generado_acota_el_cuerpo_de_la_respuesta(server, tmp_path):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_respuesta_acotada")
+    api = mod.Cliente(server, max_respuesta=32)
+    with pytest.raises(ValueError, match="supera el límite de 32 bytes"):
+        api._pedir("GET", "/grande", {}, None, [])
+
+
+def test_el_cliente_generado_tolera_un_http_error_sin_cabeceras(tmp_path, monkeypatch):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_error_sin_cabeceras")
+    error = urllib.error.HTTPError("https://example.test/x", 429, "límite", None, io.BytesIO(b"espera"))
+
+    def fallar(*args, **kwargs):
+        raise error
+
+    api = mod.Cliente("https://example.test")
+    monkeypatch.setattr(api._abridor, "open", fallar)
+    respuesta = api._pedir("GET", "/x", {}, None, [])
+    assert (respuesta.codigo, respuesta.cabeceras, respuesta.cuerpo) == (429, {}, "espera")
+
+
+def test_el_cliente_generado_no_reenvia_credenciales_a_otro_origen(tmp_path):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_redirect_seguro")
+    req = mod.urllib.request.Request("https://api.example/a", headers={
+        "Authorization": "Bearer secreto", "Cookie": "sid=secreto", "X-Rastro": "ok"})
+    nueva = mod._RedireccionSegura(permitir_externa=True).redirect_request(
+        req, None, 302, "Found", {}, "https://otro.example/b")
+    headers = {k.lower(): v for k, v in nueva.header_items()}
+    assert "authorization" not in headers and "cookie" not in headers
+    assert "x-rastro" not in headers
+
+
+def test_el_cliente_generado_bloquea_redireccion_a_otro_host_por_defecto(tmp_path):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_redirect_bloqueado")
+    req = mod.urllib.request.Request("https://api.example/a")
+    with pytest.raises(mod.urllib.error.URLError, match="otro origen"):
+        mod._RedireccionSegura().redirect_request(req, None, 302, "Found", {}, "https://interno.example/b")
+
+    with pytest.raises(mod.urllib.error.URLError, match="otro origen"):
+        mod._RedireccionSegura().redirect_request(req, None, 302, "Found", {}, "https://api.example:8443/b")
+
+
+def test_el_cliente_generado_valida_la_opcion_de_redireccion(tmp_path):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_redirect_opcion")
+    with pytest.raises(ValueError, match="redirecciones_externas"):
+        mod.Cliente("https://example.test", redirecciones_externas=1)
+
+
+def test_redireccion_externa_solo_conserva_cabeceras_inocuas(tmp_path):
+    mod = _load(cliente_api.generar_cliente(_borrador()), tmp_path, "cliente_redirect_headers")
+    req = mod.urllib.request.Request("https://api.example/a", headers={
+        "Accept": "application/json", "X-API-Key": "secreto", "X-Auth-Token": "otro"})
+    nueva = mod._RedireccionSegura(permitir_externa=True).redirect_request(
+        req, None, 302, "Found", {}, "https://otro.example/b")
+    headers = {k.lower(): v for k, v in nueva.header_items()}
+    assert headers == {"accept": "application/json"}
 
 
 def test_nombres_y_textos_de_la_captura_no_rompen_el_codigo(tmp_path):

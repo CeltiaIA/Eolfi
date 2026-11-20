@@ -48,17 +48,36 @@ Writer = Callable[[str, str], None]
 def _writer(out: Path, written: list[str], idioma: str = "es") -> Writer:
     from eolfi.generador.textos import NO_TRADUCIR, traducir
 
+    base = out.resolve()
+
+    def destination(rel: str) -> Path:
+        relative = Path(rel)
+        if relative.is_absolute() or not rel or ".." in relative.parts or "." in relative.parts:
+            raise ValueError(f"ruta generada fuera del proyecto: {rel!r}")
+        if out.is_symlink():
+            raise ValueError(f"el destino es un enlace simbólico: {out}")
+        path = out
+        for part in relative.parts:
+            path = path / part
+            if path.is_symlink():
+                raise ValueError(f"ruta generada atraviesa un enlace simbólico: {rel!r}")
+        if not (base / relative).resolve().is_relative_to(base):
+            raise ValueError(f"ruta generada fuera del proyecto: {rel!r}")
+        return path
+
     def w(rel: str, text: str) -> None:
-        p = out / rel
+        p = destination(rel)
         p.parent.mkdir(parents=True, exist_ok=True)
+        p = destination(rel)
         if Path(rel).name not in NO_TRADUCIR:   # C4: la interfaz y las pruebas generadas cambian de idioma a la vez
             text = traducir(text, idioma)
         p.write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
         written.append(rel)
 
     def write_bytes(rel: str, data: bytes) -> None:   # iconos y otros binarios generados
-        p = out / rel
+        p = destination(rel)
         p.parent.mkdir(parents=True, exist_ok=True)
+        p = destination(rel)
         p.write_bytes(data)
         written.append(rel)
 
@@ -75,6 +94,11 @@ def _check_spec(spec: dict[str, Any]) -> None:
     idioma_de(spec)
     if not re.fullmatch(r"[\w .,:;!?()+-]*", str(spec.get("title", ""))):
         raise ValueError("spec: título con caracteres no permitidos")
+    pages = spec.get("pages")
+    if not isinstance(pages, list) or not pages or any(
+            not isinstance(page, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,29}", page)
+            for page in pages):
+        raise ValueError("spec: páginas con nombres no válidos")
     for r in (spec.get("api") or {}).get("resources", []):
         if not (isinstance(r, str) and re.fullmatch(r"[a-z][a-z0-9_-]{1,30}", r) and safe_resource(r)):
             raise ValueError(f"spec: recurso no válido: {r!r}")

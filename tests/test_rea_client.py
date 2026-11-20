@@ -114,6 +114,17 @@ def test_rea_env_pasa_wabt_si_esta_instalado(tmp_path, monkeypatch):
     assert rea_client.rea_env()["REA_WABT_BIN_DIRECTORY"] == "/otra"  # la del usuario manda
 
 
+def test_rea_env_no_hereda_credenciales_pero_si_ajustes_de_rea_y_del_sistema(monkeypatch):
+    """Lista blanca (20/11): fuera credenciales con nombres imprevistos; dentro REA_* no secretos y lo del sistema."""
+    for k, v in {"AWS_ACCESS_KEY_ID": "x", "GITHUB_PAT": "x", "OPENAI_API_KEY": "x", "MI_SERVICIO": "x",
+                 "REA_API_TOKEN": "x", "REA_ANALYSIS_TIMEOUT_MS": "9000", "SYSTEMDRIVE": "C:",
+                 "PATH": "/bin"}.items():
+        monkeypatch.setenv(k, v)
+    env = rea_client.rea_env()
+    assert not {"AWS_ACCESS_KEY_ID", "GITHUB_PAT", "OPENAI_API_KEY", "MI_SERVICIO", "REA_API_TOKEN"} & set(env)
+    assert env["REA_ANALYSIS_TIMEOUT_MS"] == "9000" and env["SYSTEMDRIVE"] == "C:" and "PATH" in env
+
+
 def test_wsl_rea_ghidra_command_anade_ghidra_y_java_o_none(monkeypatch):
     import subprocess
 
@@ -122,7 +133,8 @@ def test_wsl_rea_ghidra_command_anade_ghidra_y_java_o_none(monkeypatch):
     scripts = []
 
     def run(argv, **kw):
-        scripts.append(argv[-1])
+        scripts.append(argv[4])   # bash -c SCRIPT rea-ghidra RUTA: la ruta va aparte, nunca dentro del script
+        assert argv[5] == "rea-ghidra" and argv[6].startswith("/mnt/d/tools/ghidra") and "/mnt/" not in argv[4]
         return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
 
     monkeypatch.setattr(rea_client, "wsl_rea_command", lambda: list(base))

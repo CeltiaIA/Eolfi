@@ -235,11 +235,13 @@ def _allowed(target: str, rel: str) -> bool:
 
 def collect_context(root: Path, target: str, budget: int = 350_000) -> tuple[list[str], dict[str, str]]:
     """Árbol completo (nombres) y contenido de los archivos editables (acotado)."""
+    root = root.resolve()
     tree, files = [], {}
     total = 0
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root).as_posix()
-        if not p.is_file() or re.search(r"(^|/)(node_modules|\.venv|\.git|dist|\.next|__pycache__)(/|$)", rel):
+        if (p.is_symlink() or not p.resolve().is_relative_to(root) or not p.is_file()
+                or re.search(r"(^|/)(node_modules|\.venv|\.git|dist|\.next|__pycache__)(/|$)", rel)):
             continue
         tree.append(rel)
         if _allowed(target, rel) and p.stat().st_size <= MAX_FILE_BYTES and total + p.stat().st_size <= budget:

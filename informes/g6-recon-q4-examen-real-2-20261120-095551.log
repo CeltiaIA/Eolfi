@@ -1,0 +1,116 @@
+gemma4_recon_q4: cargando como único motor…
+gemma4_recon_q4: 1/28 · Código · generar (palíndromo)
+gemma4_recon_q4: correcto a la primera en 49.3 s
+gemma4_recon_q4: 2/28 · Código · desempaquetar (cabecera binaria)
+gemma4_recon_q4: correcto a la primera en 48.0 s
+gemma4_recon_q4: 3/28 · Código · desempaquetar (base64 + zlib)
+gemma4_recon_q4: correcto a la primera en 43.9 s
+gemma4_recon_q4: 4/28 · Código · construir (URL)
+gemma4_recon_q4: correcto a la primera en 55.2 s
+gemma4_recon_q4: 5/28 · Código · construir (árbol de rutas)
+gemma4_recon_q4: correcto a la primera en 47.8 s
+gemma4_recon_q4: 6/28 · Código · ingeniería inversa (función ofuscada)
+gemma4_recon_q4: correcto a la primera en 39.1 s
+gemma4_recon_q4: 7/28 · Código · corregir (búsqueda binaria)
+gemma4_recon_q4: correcto a la primera en 42.8 s
+gemma4_recon_q4: 8/28 · Código · analizar (línea de log)
+gemma4_recon_q4: correcto a la primera en 52.5 s
+gemma4_recon_q4: 9/28 · Nuevo · fusionar intervalos
+gemma4_recon_q4: correcto a la primera en 51.6 s
+gemma4_recon_q4: 10/28 · Nuevo · totales de un CSV
+gemma4_recon_q4: correcto a la primera en 59.8 s
+gemma4_recon_q4: 11/28 · Nuevo · descifrar XOR
+gemma4_recon_q4: correcto a la primera en 42.5 s
+gemma4_recon_q4: 12/28 · Nuevo · comparar versiones
+gemma4_recon_q4: correcto a la primera en 50.0 s
+gemma4_recon_q4: 13/28 · Nuevo · aplanar listas anidadas
+gemma4_recon_q4: correcto a la primera en 39.7 s
+gemma4_recon_q4: 14/28 · Nuevo · corregir una media móvil
+gemma4_recon_q4: correcto a la primera en 41.0 s
+gemma4_recon_q4: 15/28 · Inédito · diferencia de intervalos
+gemma4_recon_q4: correcto a la primera en 84.7 s
+gemma4_recon_q4: 16/28 · Inédito · reparto exacto por restos
+gemma4_recon_q4: correcto a la primera en 67.4 s
+gemma4_recon_q4: 17/28 · Inédito · números romanos
+gemma4_recon_q4: correcto a la primera en 56.1 s
+gemma4_recon_q4: 18/28 · Inédito · compresión RLE de bytes
+gemma4_recon_q4: error en la tarea — La evaluación se truncó por límite de salida; no se puntúa como respuesta válida
+gemma4_recon_q4: 19/28 · Inédito · orden topológico determinista
+gemma4_recon_q4: correcto a la primera en 70.2 s
+gemma4_recon_q4: 20/28 · Inédito · leer una duración
+gemma4_recon_q4: correcto a la primera en 93.9 s
+gemma4_recon_q4: 21/28 · Herramientas · identificar un binario
+gemma4_recon_q4: herramienta eolfi_triage {"modo": "local", "ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-6jzaidg1\\modulo.wasm"} correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import hashlib\n\nfile_path = r\"C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-6jzaidg1\\modulo.wasm\" con error
+gemma4_recon_q4: herramienta eolfi_triage {"modo": "normal", "ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-6jzaidg1\\modulo.wasm"} correcta
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "hash_sha256 modulo.wasm"} correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import hashlib\nimport os\n\nfile_path = r\"C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-6jzaidg1\\mo correcta
+gemma4_recon_q4: herramienta eolfi_triage {"modo": "profundo", "ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-6jzaidg1\\modulo.wasm"} correcta
+gemma4_recon_q4: NO resuelto en 72.4 s
+gemma4_recon_q4: 22/28 · Herramientas · encontrar una definición en Alejandría
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "definición de la clase AlexandriaLibrary"} correcta
+gemma4_recon_q4: correcto a la primera en 10.6 s
+gemma4_recon_q4: 23/28 · Herramientas · leer un valor en Alejandría
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "MAX_READ_CHARS"} correcta
+gemma4_recon_q4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+gemma4_recon_q4: correcto a la primera en 12.5 s
+gemma4_recon_q4: 24/28 · Herramientas · calcular ejecutando código
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n correcta
+gemma4_recon_q4: correcto a la primera en 15.5 s
+gemma4_recon_q4: 25/28 · Herramientas · reimplementar lo que hay en Alejandría
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "función _normal en library.py de Eolfi"} correcta
+gemma4_recon_q4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    texto = unicodedata.normalize(\"NFKD\", texto. correcta
+gemma4_recon_q4: correcto a la primera en 47.0 s
+gemma4_recon_q4: 26/28 · Herramientas · elegir la correcta entre varias
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "def fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n\n# F(1)=1, F(2 correcta
+gemma4_recon_q4: correcto a la primera en 20.8 s
+gemma4_recon_q4: 27/28 · Herramientas · no usarlas cuando no hacen falta
+gemma4_recon_q4: correcto a la primera en 1.8 s
+gemma4_recon_q4: 28/28 · Herramientas · saber para qué sirve cada una
+gemma4_recon_q4: correcto a la primera en 5.5 s
+gemma4_recon_q4: código 19/20 a la primera (95 %), herramientas 7/8 (88 %) \u2192 APROBADO
+{
+  "resumen": {
+    "gemma4_recon_q4": {
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "carga_s": 27.66,
+      "codigo": {
+        "casos": 8,
+        "primera": 8,
+        "final": 8
+      },
+      "codigo_nuevo": {
+        "casos": 6,
+        "primera": 6,
+        "final": 6
+      },
+      "inedito": {
+        "casos": 6,
+        "primera": 5,
+        "final": 5
+      },
+      "herramientas": {
+        "casos": 8,
+        "primera": 7,
+        "final": 7
+      },
+      "codigo_primera_pct": 95,
+      "herramientas_pct": 88,
+      "aprobado": true
+    }
+  },
+  "admision": {
+    "admitido": true,
+    "fecha": "2026-11-20T09:18:14.738113+00:00",
+    "herramientas_pct": 88
+  },
+  "guardado": {
+    "informe": "D:\\Eolfi\\informes\\g6-recon-q4-examen-real-2-20261120-095551.json",
+    "ronda": "7887e271-2c68-4033-b53d-996ac4928455",
+    "perfiles": [
+      "gemma4_recon_q4"
+    ]
+  }
+}
+exit=0

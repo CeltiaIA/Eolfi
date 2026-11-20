@@ -1,0 +1,113 @@
+gemma4_recon_q4: cargando como único motor…
+gemma4_recon_q4: 1/28 · Código · generar (palíndromo)
+gemma4_recon_q4: correcto a la primera en 52.6 s
+gemma4_recon_q4: 2/28 · Código · desempaquetar (cabecera binaria)
+gemma4_recon_q4: correcto a la primera en 53.3 s
+gemma4_recon_q4: 3/28 · Código · desempaquetar (base64 + zlib)
+gemma4_recon_q4: correcto a la primera en 50.0 s
+gemma4_recon_q4: 4/28 · Código · construir (URL)
+gemma4_recon_q4: correcto a la primera en 60.4 s
+gemma4_recon_q4: 5/28 · Código · construir (árbol de rutas)
+gemma4_recon_q4: correcto a la primera en 94.7 s
+gemma4_recon_q4: 6/28 · Código · ingeniería inversa (función ofuscada)
+gemma4_recon_q4: correcto a la primera en 52.2 s
+gemma4_recon_q4: 7/28 · Código · corregir (búsqueda binaria)
+gemma4_recon_q4: correcto a la primera en 63.1 s
+gemma4_recon_q4: 8/28 · Código · analizar (línea de log)
+gemma4_recon_q4: correcto a la primera en 57.3 s
+gemma4_recon_q4: 9/28 · Nuevo · fusionar intervalos
+gemma4_recon_q4: correcto a la primera en 57.6 s
+gemma4_recon_q4: 10/28 · Nuevo · totales de un CSV
+gemma4_recon_q4: correcto a la primera en 63.2 s
+gemma4_recon_q4: 11/28 · Nuevo · descifrar XOR
+gemma4_recon_q4: correcto a la primera en 53.4 s
+gemma4_recon_q4: 12/28 · Nuevo · comparar versiones
+gemma4_recon_q4: correcto a la primera en 56.8 s
+gemma4_recon_q4: 13/28 · Nuevo · aplanar listas anidadas
+gemma4_recon_q4: correcto a la primera en 44.7 s
+gemma4_recon_q4: 14/28 · Nuevo · corregir una media móvil
+gemma4_recon_q4: correcto a la primera en 46.9 s
+gemma4_recon_q4: 15/28 · Inédito · diferencia de intervalos
+gemma4_recon_q4: correcto a la primera en 92.3 s
+gemma4_recon_q4: 16/28 · Inédito · reparto exacto por restos
+gemma4_recon_q4: correcto a la primera en 69.2 s
+gemma4_recon_q4: 17/28 · Inédito · números romanos
+gemma4_recon_q4: correcto a la primera en 55.5 s
+gemma4_recon_q4: 18/28 · Inédito · compresión RLE de bytes
+gemma4_recon_q4: error en la tarea — La evaluación se truncó por límite de salida; no se puntúa como respuesta válida
+gemma4_recon_q4: 19/28 · Inédito · orden topológico determinista
+gemma4_recon_q4: correcto a la primera en 70.5 s
+gemma4_recon_q4: 20/28 · Inédito · leer una duración
+gemma4_recon_q4: correcto a la primera en 94.9 s
+gemma4_recon_q4: 21/28 · Herramientas · identificar un binario
+gemma4_recon_q4: herramienta eolfi_triage {"modo": "local", "ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-giqvwsvr\\modulo.wasm"} correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import hashlib\n\nfile_path = r\"C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-giqvwsvr\\modulo.wasm\" correcta
+gemma4_recon_q4: herramienta eolfi_triage {"modo": "normal", "ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-giqvwsvr\\modulo.wasm"} correcta
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "hash_sha256 modulo.wasm"} correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import hashlib\nimport os\n\nfile_path = r\"C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-giqvwsvr\\mo correcta
+gemma4_recon_q4: herramienta eolfi_triage {"modo": "profundo", "ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-giqvwsvr\\modulo.wasm"} correcta
+gemma4_recon_q4: NO resuelto en 74.8 s
+gemma4_recon_q4: 22/28 · Herramientas · encontrar una definición en Alejandría
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "definición de la clase AlexandriaLibrary"} correcta
+gemma4_recon_q4: correcto a la primera en 10.9 s
+gemma4_recon_q4: 23/28 · Herramientas · leer un valor en Alejandría
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "MAX_READ_CHARS"} correcta
+gemma4_recon_q4: correcto a la primera en 7.2 s
+gemma4_recon_q4: 24/28 · Herramientas · calcular ejecutando código
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n correcta
+gemma4_recon_q4: correcto a la primera en 15.9 s
+gemma4_recon_q4: 25/28 · Herramientas · reimplementar lo que hay en Alejandría
+gemma4_recon_q4: herramienta eolfi_biblioteca_buscar {"consulta": "función _normal en library.py de Eolfi"} correcta
+gemma4_recon_q4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    texto = unicodedata.normalize(\"NFKD\", texto. correcta
+gemma4_recon_q4: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    texto = unicodedata.normalize(\"NFKD\", texto. correcta
+gemma4_recon_q4: correcto a la primera en 65.7 s
+gemma4_recon_q4: 26/28 · Herramientas · elegir la correcta entre varias
+gemma4_recon_q4: herramienta ejecutar_python (argumentos inválidos) con error
+gemma4_recon_q4: error en la tarea — la petición local a gemma-4-12b-it-q4_k_m-reconstruido:local falló: HTTP Error 500: Internal Server Error {"error":{"code":500,"message":"Failed to parse tool call arguments as JSON: [json.exception.parse_error.101] parse error at line 1, column 1484: syntax error while parsing object - unexpected end of input; expected '}'","type":"server_error"}}
+gemma4_recon_q4: descartado — 2 fallos de herramientas: ya no puede llegar al 85 %; paso al siguiente motor
+gemma4_recon_q4: código 19/20 a la primera (95 %), herramientas 4/8 (50 %) \u2192 no aprueba
+{
+  "resumen": {
+    "gemma4_recon_q4": {
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "carga_s": 28.09,
+      "codigo": {
+        "casos": 8,
+        "primera": 8,
+        "final": 8
+      },
+      "codigo_nuevo": {
+        "casos": 6,
+        "primera": 6,
+        "final": 6
+      },
+      "inedito": {
+        "casos": 6,
+        "primera": 5,
+        "final": 5
+      },
+      "herramientas": {
+        "casos": 6,
+        "primera": 4,
+        "final": 4
+      },
+      "codigo_primera_pct": 95,
+      "herramientas_pct": 50,
+      "aprobado": false,
+      "descartado": "2 fallos de herramientas: ya no puede llegar al 85 %"
+    }
+  },
+  "admision": {
+    "admitido": false,
+    "motivo": "no aprobÃ³ (herramientas 50 %, cÃ³digo 95 %)"
+  },
+  "guardado": {
+    "informe": "D:\\Eolfi\\informes\\g6-recon-q4-examen-real-20261120-091443.json",
+    "ronda": "df2d2e05-00ea-489d-90c0-e7d18922100a",
+    "perfiles": [
+      "gemma4_recon_q4"
+    ]
+  }
+}
+exit=0

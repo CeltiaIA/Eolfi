@@ -273,7 +273,9 @@ python -m eolfi create \
    funcionará lo generado) y `source_platforms` (sistemas de las apps analizadas).
 4. La verificación es **obligatoria**: instala las dependencias en su **última versión**, las
    fija en `package.json`/`requirements.txt`, compila y pasa las pruebas
-   (Python usa un `.venv` propio, nunca el global).
+   (Python usa un `.venv` propio, nunca el global). `EOLFI_JUEZ=0` omite el juez funcional solo
+   para diagnóstico: si el proyecto tiene criterios funcionales, queda **NO VERIFICADO**
+   (`verification.ok=false`) y no se considera terminado.
 
 Ninguna línea de código ni texto procede de las fuentes: solo su estructura,
 pila y tokens de diseño. Revisa la licencia de cada fuente antes de inspirarte
@@ -599,7 +601,15 @@ python -m eolfi triage binario-macos              # Mach-O fino o universal
 python -m eolfi decompile programa.exe --functions entry,main   # pseudo-C con Ghidra
 python -m eolfi compare <objetivo_v1> <objetivo_v2>             # qué cambió entre versiones
 python -m eolfi export informe.stix.json          # STIX 2.1
+python -m eolfi rea api captura.pcapng --cliente cliente.py     # borrador OpenAPI + cliente de lo observado
 ```
+
+El cliente de una captura requiere el análisis completo de campos, no sobrescribe el archivo de destino y solo
+incluye los métodos vistos. Al usarlo, `Cliente` acepta bases HTTP/HTTPS con host y limita cada respuesta a 16 MiB;
+el tope se ajusta con `Cliente(max_respuesta=BYTES)`. Las redirecciones a otro origen se bloquean por defecto; si una
+API las necesita, `redirecciones_externas=True` las permite sin reenviar `Authorization`, cookies ni cabeceras de
+proxy al nuevo origen. Revisa credenciales y datos antes de ejecutarlo o compartirlo: una captura no demuestra que
+la API carezca de otras operaciones.
 
 ## Verificación diferencial
 

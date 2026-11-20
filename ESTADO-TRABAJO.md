@@ -5,6 +5,26 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Revisión de vulnerabilidades de Codex (20/11, incluida tras quedarse sin cuota):** límites de cuerpo que cortan
+  de verdad y `/v1/reset` solo desde el panel (puente); rutas generadas sin `..` ni enlaces simbólicos y `pages`
+  validadas (generador); contexto de `assist` sin enlaces simbólicos; entorno de REA por lista blanca y ruta de Ghidra
+  como argumento aparte; VS Code bloquea órdenes codificadas/`iex`, más rangos reservados anti-SSRF, gunzip acotado y
+  lectura de archivos enormes rechazada. Ajustes de Claude: `rea_env` admite `REA_*` no secretos y variables básicas de
+  Windows (prueba nueva); pruebas de Ghidra WSL, adjuntos y spec sin páginas al día. pytest 1377 + 1 corregida,
+  puente 73+4, VS Code 211, e2e salida 0.
+- **G6 ter: opciones del Q5 en perfiles reconstruidos (20/11 08:24–08:49, sin confirmar):** `eolfi/eolas_v2.py`
+  valida `extra_args` de reconstruidos con la lista blanca `USER_EXTRA_ARGS`; pruebas en
+  `tests/test_modelos_reconstruir.py` (166 + 6 omitidas en las cuatro suites de modelos/Eolas; `python -m pytest -q` completo 1373 + 8 omitidas, salida 0). Perfil real con
+  `-fa on`, KV q8_0, `-np 1`, `--cache-ram 1024` (respaldo `C:\Users\mejil\.eolfi\eolas-v2.json.antes-opciones-q5-20261120`). Examen aislado: **aprobado** 26/28 a la
+  primera (código 95 %, herramientas 88 %), 10,8 tok/s. Informe `informes/g6-recon-q4-opciones-q5-20261120-082642.json`. Falta la admisión real.
+  **Examen real (20/11 09:12–09:40, aprobado por Luis):** config y memoria reales, puerto 8090, ronda `df2d2e05`, `informes/g6-recon-q4-examen-real-20261120-091443.json`/`.log`, salida 0: **no aprueba** (código 19/20 = 95 %, herramientas 4/6 → descartado por «2 fallos de herramientas: ya no puede llegar al 85 %»), 9,8 tok/s. Fallos: `rle_bytes`, `identificar_binario` (como en las rondas aisladas) y `elegir_entre_varias`, nuevo: el modelo emitió una llamada a `ejecutar_python` con JSON incompleto y llama-server respondió HTTP 500 («Failed to parse tool call arguments as JSON… unexpected end of input»); en la ronda aislada `f344d724` esa misma tarea salió bien. Muestra única: la diferencia entre 7/8 y 4/6 en herramientas es variabilidad de una ronda, no está medida. `admitido` sigue en no; activo `gemma`. **2.º examen real (20/11 09:55–10:18, pedido por Luis para medir variabilidad):** ronda `7887e271`, `informes/g6-recon-q4-examen-real-2-20261120-095551.json`/`.log`, salida 0: **aprobado y admitido** (código 19/20 = 95 %, herramientas 7/8 = 88 %), 10,8 tok/s. Fallan solo `rle_bytes` e `identificar_binario`; `elegir_entre_varias` sale bien, así que el JSON incompleto del 1.er examen fue un fallo intermitente (1 de 3 rondas con las opciones del Q5). `admitido` = sí; **Activado (20/11 10:25, decisión de Luis):** `eolfi eolas-v2 activo gemma4_recon_q4`, salida 0; la config real solo cambia `active_profile` (respaldo `C:\Users\mejil\.eolfi\eolas-v2.json.antes-activar-recon-20261120`). Los roles no cambian (redactor `gemma`, completo/revisor `gemma_q4`, rápido `mistral`).
+- **G6 bis: Q4 reconstruido con los ajustes del Q5 (20/11 06:05–06:36, sin confirmar):** aprobado por Luis, solo en la
+  config aislada `C:\Users\mejil\.eolfi\b7-ronda-20261120b\` (40 capas, ctx 16384, lotes 512; los `extra_args` no se
+  admiten en perfiles reconstruidos). `eolas-v2 examen gemma4_recon_q4` salida 0: **aprobado**, 25/28 a la primera
+  (código 90 %, herramientas 88 %), 7,9 tok/s frente a 2,9 antes. Fallan `restar_intervalos`, `rle_bytes` (truncadas) e
+  `identificar_binario`. Informe `informes/g6-recon-q4-igualado-20261120-060527.json`. Dos intentos previos conservados
+  como diagnóstico (`…-rechazado-extra-args.log`, `…-interrumpido.log`). Después, con aprobación de Luis, los 4 ajustes pasaron al perfil real (`~/.eolfi/eolas-v2.json`,
+  respaldo `C:\Users\mejil\.eolfi\eolas-v2.json.antes-g6bis-20261120`); validado con `load_config`, activo sigue `gemma`. Falta la admisión real (examen sin aislar).
 - **Grupo 1 del plan y relevo de Codex (20/11 madrugada, `luis/voz-piper`):**
   - **E4:** `rea herramientas` detecta el Cutter portátil y su Rizin incluido (Cutter no usa el Rizin externo).
   - **B7/G6:** ronda aislada Q5 frente al Q4 reconstruido: 28/28 frente a 23/28; el reconstruido no aprueba y va a

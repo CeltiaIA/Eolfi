@@ -579,10 +579,34 @@ def test_adoption_rejects_wrong_pin_or_injectable_custom_profile(profiled, tmp_p
     plan_file.write_text(json.dumps(plan), encoding="utf-8")
     with pytest.raises(ValueError, match="SHA-256 revisado"):
         rebuild.adopt_profile(plan_file, "0" * 64)
-    record = {"managed_by": rebuild.PROFILE_SCHEMA, **plan["propuesta"], "sha256": plan["modelo_sha256"],
+    record = {"managed_by": eolas_v2.CUSTOM_PROFILE_MARKER, **plan["propuesta"], "reasoning": False,
+              "model": plan["modelo"], "sha256": plan["modelo_sha256"],
               "source_recipe": plan["receta"], "source_smoke": plan["smoke"], "extra_args": ["--rpc"]}
-    with pytest.raises(ValueError, match="Campos no admitidos"):
+    with pytest.raises(ValueError, match="no admitida en un perfil reconstruido: --rpc"):
         eolas_v2._validate_custom_profile("gemma4_recon_q4", record)
+    for malo in (["-m", "otro.gguf"], ["--host", "0.0.0.0"], ["-ctk", "rm -rf"], ["-np", "1;x"], ["-fa"], "-fa on"):
+        with pytest.raises(ValueError, match="extra_args|no admitid"):
+            eolas_v2._validate_custom_profile("gemma4_recon_q4", {**record, "extra_args": malo})
+    with pytest.raises(ValueError, match="Campos no admitidos"):
+        eolas_v2._validate_custom_profile("gemma4_recon_q4", {**record, "extra_args": [], "plantilla": "otra"})
+
+
+def test_custom_profile_accepts_bounded_q5_options_and_passes_them_to_the_server(profiled, tmp_path, monkeypatch):
+    """Las opciones del Q5 (atención rápida, caché KV q8_0, una ranura, caché de RAM) valen en un reconstruido (20/11)."""
+    config = tmp_path / "eolas-v2.json"
+    monkeypatch.setenv("EOLFI_EOLAS_V2_CONFIG", str(config))
+    monkeypatch.setattr(eolas_v2, "_server_default", lambda: str(tmp_path / "server.exe"))
+    plan = rebuild.plan_profile(profiled, "gemma4_recon_q4")
+    opciones = ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"]
+    record = {"managed_by": eolas_v2.CUSTOM_PROFILE_MARKER, **plan["propuesta"], "reasoning": False,
+              "model": plan["modelo"], "sha256": plan["modelo_sha256"],
+              "source_recipe": plan["receta"], "source_smoke": plan["smoke"], "extra_args": opciones}
+    assert eolas_v2._validate_custom_profile("gemma4_recon_q4", record)["extra_args"] == opciones
+    cfg = {"profiles": {"gemma4_recon_q4": record}, "active_profile": "gemma4_recon_q4"}
+    config.write_text(json.dumps(cfg), encoding="utf-8")
+    (tmp_path / "server.exe").write_bytes(b"")
+    args = eolas_v2.server_args("gemma4_recon_q4")
+    assert args[-len(opciones):] == opciones and "--rpc" not in args
 
 
 def test_adoption_cli_preview_never_applies(profiled, tmp_path, monkeypatch, capsys):

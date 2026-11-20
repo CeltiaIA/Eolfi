@@ -26,7 +26,7 @@ def test_gitignore_extra_se_fusiona(tmp_path):
 def test_spec_con_recurso_peligroso_no_se_genera(tmp_path):
     from eolfi.generador.generators import generate
 
-    spec = {"target": "static", "title": "Demo", "api": {"resources": ['x"><script>']}}
+    spec = {"target": "static", "title": "Demo", "pages": ["home"], "api": {"resources": ['x"><script>']}}
     with pytest.raises(ValueError, match="recurso no válido"):
         generate(spec, tmp_path / "out")
 

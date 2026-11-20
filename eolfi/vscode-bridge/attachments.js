@@ -38,6 +38,10 @@ function real(fs, full) {
 
 function readText(fs, full, lines) {
   let buf;
+  let size;
+  try { size = fs.statSync(full).size; } catch (e) { return { error: e.code || String(e.message || e) }; }
+  // El adjunto grande se identifica sin cargarlo entero: ningún contenido inline podría caber.
+  if (size > INLINE_MAX) return { large: true, size };
   try { buf = fs.readFileSync(full); } catch (e) { return { error: e.code || String(e.message || e) }; }
   if (buf.includes(0)) return { binary: true, size: buf.length };
   let text;
@@ -63,6 +67,11 @@ function attachmentsBlock(vscode, request, { fs = require('node:fs') } = {}) {
     }
     const r = readText(fs, f.full, f.lines);
     if (r.error) { parts.push(`- ${shown}${where}: no se pudo leer (${r.error}).`); continue; }
+    if (r.large) {
+      parts.push(inside ? `- ${shown}${where}: archivo de ${r.size} bytes; léelo con tus herramientas (por partes si es grande).`
+        : `- ${shown}: archivo de ${r.size} bytes FUERA de las carpetas abiertas y demasiado grande para incluirlo; pide al usuario que abra su carpeta en VS Code.`);
+      continue;
+    }
     if (r.binary) {
       parts.push(inside ? `- ${shown}${where}: binario de ${r.size} bytes; analízalo con eolfi_triage o las herramientas de REA.`
         : `- ${shown}: binario de ${r.size} bytes FUERA de las carpetas abiertas; tus herramientas no pueden leerlo. `

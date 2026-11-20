@@ -26,6 +26,8 @@ python -m eolfi modelos actualizar --fuentes fuentes.json --red
   SHA-256 LFS publicado con el local. Si falta `sha256`, lo calcula del archivo `local` (lee el archivo entero).
 - Estados: `al_dia` (código 0), `nueva_version` y `NO VERIFICADO` (código 2). En `nueva_version` el resultado
   trae el bloque `descarga` (repo, archivo, commit, SHA-256 y tamaño) que hay que revisar antes de descargar.
+- Una respuesta remota sin lista de archivos, commit completo, SHA-256 LFS o tamaño LFS entero positivo queda
+  `NO VERIFICADO` y no genera el bloque `descarga`; esos datos no se completan ni se deducen de otros campos.
 - No envía credenciales: un repositorio privado o con licencia aceptada por cuenta queda NO VERIFICADO.
 
 ## 2. Descargar con permiso
