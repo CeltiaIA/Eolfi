@@ -5,6 +5,16 @@
 
 ## Reanudación y pruebas activas (17/11/2026)
 
+- **Tableta satélite de nuevo en marcha (20/11 11:00–11:25, sin confirmar):** la app nativa `com.celtiaia.eolfi.tableta`
+  0.1.0 (rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, no integrada en voz-piper) apuntaba al panel de
+  prueba del 19/11 (`192.168.1.133:18779`, certificado y base temporales ya inexistentes). Panel de la tableta arrancado
+  desde ese worktree en `0.0.0.0:18779` con `--tls-legado`, certificado RSA persistente
+  `~/.eolfi/tableta/panel-cert.pem` (huella `8143 3885 27c0 8ce6…`) y base `~/.eolfi/tableta/panel.db`; revinculada por
+  ADB a `https://192.168.1.134:18779`. En ese worktree se copió sin confirmar la validación de `extra_args` de
+  reconstruidos (sin ella no cargaba el perfil activo) y su prueba: 135 + 6 omitidas en reconstruir, tableta, tableta
+  Android, TLS y eolas_v2. Chat escrito y dictado del titular con respuesta hablada: correctos (registro 11:10–11:11).
+  El navegador de serie no ejecuta el panel (JavaScript moderno): no es la vía. Pendiente: integrar
+  `luis/tablet-satelite` (conflictos en `server.py`, `cli.py` y registros). Mi `--tls-legado` duplicado se deshizo.
 - **Revisión de vulnerabilidades de Codex (20/11, incluida tras quedarse sin cuota):** límites de cuerpo que cortan
   de verdad y `/v1/reset` solo desde el panel (puente); rutas generadas sin `..` ni enlaces simbólicos y `pages`
   validadas (generador); contexto de `assist` sin enlaces simbólicos; entorno de REA por lista blanca y ruta de Ghidra
