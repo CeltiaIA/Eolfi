@@ -1230,6 +1230,10 @@ class EolfiApp:
         s = self.store()
         s.conn.execute("CREATE TABLE IF NOT EXISTS client_tokens (id TEXT PRIMARY KEY, token_sha256 TEXT UNIQUE, "
                        "name TEXT, created REAL, last_used REAL)")
+        # Alcance del token (19/11/2026): NULL = cliente completo (VS Code); "tableta" = solo su superficie.
+        if "scope" not in {r[1] for r in s.conn.execute("PRAGMA table_info(client_tokens)")}:
+            with s.conn:
+                s.conn.execute("ALTER TABLE client_tokens ADD COLUMN scope TEXT")
         return s
 
     def pair_code(self, _body) -> dict[str, Any]:
@@ -1247,8 +1251,13 @@ class EolfiApp:
     def pair_exchange(self, body: dict[str, Any]) -> dict[str, Any]:
         import secrets as _s
 
+        from eolfi import tableta
+
         code = str(body.get("code", "")).strip()
         name = str(body.get("name") or "VS Code")[:80]
+        scope = body.get("scope")
+        if scope not in (None, tableta.SCOPE):
+            raise ApiError(400, f"scope desconocido (admitido: {tableta.SCOPE})")
         if self._pair_codes.pop(code, 0) < time.time():
             # Fallos: 1 s de espera y, al quinto fallo, se anulan TODOS los códigos pendientes (los intentos en
             # paralelo ya no pueden tantear el millón de combinaciones: hay que generar otro en el panel).
@@ -1263,13 +1272,19 @@ class EolfiApp:
         s = self._clients()
         try:
             with s.conn:
-                s.conn.execute("INSERT INTO client_tokens VALUES (?,?,?,?,?)",
-                               (_s.token_hex(6), hashlib.sha256(token.encode()).hexdigest(), name, time.time(), None))
+                s.conn.execute("INSERT INTO client_tokens (id, token_sha256, name, created, last_used, scope) "
+                               "VALUES (?,?,?,?,?,?)",
+                               (_s.token_hex(6), hashlib.sha256(token.encode()).hexdigest(), name, time.time(), None,
+                                scope))
         finally:
             s.close()
-        return {"token": token, "name": name}
+        return {"token": token, "name": name, **({"scope": scope} if scope else {})}
 
     def client_ok(self, token: str) -> bool:
+        return self.client_scope(token) is not False
+
+    def client_scope(self, token: str) -> str | None | bool:
+        """False si el token no vale; si vale, su alcance (None = completo)."""
         if not token.startswith("ect_"):
             return False
         s = self._clients()
@@ -1277,14 +1292,17 @@ class EolfiApp:
             h = hashlib.sha256(token.encode()).hexdigest()
             with s.conn:
                 cur = s.conn.execute("UPDATE client_tokens SET last_used=? WHERE token_sha256=?", (time.time(), h))
-            return cur.rowcount == 1
+                if cur.rowcount != 1:
+                    return False
+                return s.conn.execute("SELECT scope FROM client_tokens WHERE token_sha256=?", (h,)).fetchone()[0]
         finally:
             s.close()
 
     def clients(self, _q) -> dict[str, Any]:
         s = self._clients()
         try:
-            rows = s.conn.execute("SELECT id, name, created, last_used FROM client_tokens ORDER BY created DESC").fetchall()
+            rows = s.conn.execute("SELECT id, name, created, last_used, scope FROM client_tokens "
+                                  "ORDER BY created DESC").fetchall()
             return {"clients": [dict(r) for r in rows]}
         finally:
             s.close()
@@ -2072,7 +2090,9 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
             if path == "/api/clients/token":   # el canje del código es lo único que se hace sin token
                 return True
             if self.headers.get("X-Eolfi-Client") or bearer.startswith("ect_"):
-                return app.client_ok(bearer)
+                scope = app.client_scope(bearer)
+                self._scope = scope if scope is not False else None
+                return scope is not False
             if not token:
                 return True
             import hmac
@@ -2125,8 +2145,14 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
             path = url.path
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
             try:
+                self._scope = None
                 if not self._authorized(q):
                     self._reject(401, "falta el token: abre la URL con ?token=… que mostró `eolfi serve`")
+                if self._scope is not None:  # solo los tokens con alcance cargan el módulo de la tableta
+                    from eolfi import tableta as _tab
+
+                    if self._scope == _tab.SCOPE and not _tab.permitida(method, path):
+                        self._reject(403, "este dispositivo solo puede usar las rutas de la tableta")
                 self._precheck(method)
                 if method == "POST" and ((path == "/api/upload" and q.get("store") == "1")
                                          or path == "/api/projects/upload"):
@@ -2174,6 +2200,15 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                     }
                     if path in routes:
                         return self._json(200, routes[path](q))
+                    if path in ("/api/tableta/estado", "/api/tableta/trabajos", "/api/tableta/chat"):
+                        if path.endswith("estado"):
+                            return self._json(200, _tab.estado(app))
+                        if path.endswith("trabajos"):
+                            return self._json(200, _tab.trabajos(app))
+                        try:
+                            return self._json(200, _tab.chat_estado(app, q))
+                        except KeyError as exc:
+                            raise ApiError(404, "trabajo no encontrado") from exc
                     if path == "/api/cases":
                         return self._json(200, app.cases_list(q))
                     m = re.fullmatch(r"/api/cases/([0-9a-f-]{36})(/report|/export)?", path)
@@ -2305,6 +2340,13 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         except _voz.VozError as exc:
                             raise ApiError(400, str(exc)) from exc
                         return self._json(200, _voz.estado())
+                    if path in ("/api/tableta/chat", "/api/tableta/diagnostico"):
+                        try:
+                            if path.endswith("chat"):
+                                return self._json(202, _tab.chat_iniciar(app, self._obj(), self._nivel()))
+                            return self._json(200, _tab.diagnostico(self._obj(), len(self._raw)))
+                        except ValueError as exc:
+                            raise ApiError(400, str(exc)) from exc
                     if path == "/api/chat/motor":
                         return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":
@@ -2432,7 +2474,15 @@ def make_server(db: str, host: str = "127.0.0.1", port: int = 8777,
     return httpd
 
 
-def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None = None) -> ThreadingHTTPServer:
+# Android 4.1-4.4 (OpenSSL 1.0.1 de la Galaxy Tab 2) solo ofrece en TLS 1.2 suites ECDHE con AES-CBC y HMAC-SHA1,
+# que Python excluye por defecto (!SHA1). Con --tls-legado se admiten, siempre con ECDHE (secreto hacia delante) y
+# TLS 1.2 como mínimo; RC4, 3DES, NULL y el intercambio RSA estático siguen fuera.
+TLS_LEGADO = ("@SECLEVEL=2:ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES:DHE+AES:!aNULL:!eNULL:!aDSS:!AESCCM"
+              ":!DHE+SHA1:!kRSA:!3DES:!RC4")
+
+
+def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None = None,
+            legado: bool = False) -> ThreadingHTTPServer:
     """HTTPS con el certificado del titular (C7, 18/11/2026). En el móvil, el navegador solo deja usar el micrófono
     en un contexto seguro (https o localhost): sin esto, el dictado del panel no funciona desde otro dispositivo.
     El saludo TLS se hace en el hilo de cada petición, no en el que acepta conexiones."""
@@ -2440,6 +2490,8 @@ def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    if legado:
+        ctx.set_ciphers(TLS_LEGADO)
     ctx.load_cert_chain(str(cert), str(key) if key else None)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
     httpd.tls = True
@@ -2448,7 +2500,7 @@ def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None
 
 def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool = False,
           samples_dir: str | Path = "samples", cert: str | Path | None = None,
-          key: str | Path | None = None) -> int:
+          key: str | Path | None = None, tls_legado: bool = False) -> int:
     _salidas_tolerantes()
     if host not in _LOOPBACK and not allow_remote:
         print(f"eolfi: negando escuchar en {host}: usa --allow-remote si de verdad lo quieres "
@@ -2464,7 +2516,7 @@ def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool
         import ssl
 
         try:
-            con_tls(httpd, cert, key)
+            con_tls(httpd, cert, key, legado=tls_legado)
         except (OSError, ssl.SSLError) as exc:
             httpd.server_close()
             print(f"eolfi: no se pudo cargar el certificado ({exc})", file=sys.stderr)

@@ -98,3 +98,35 @@ def test_el_panel_explica_por_que_no_hay_microfono_sin_https():
 
     js = (Path(__file__).resolve().parents[1] / "eolfi" / "web" / "voz.js").read_text(encoding="utf-8")
     assert "window.isSecureContext" in js and "serve --cert" in js
+
+
+@pytest.mark.parametrize("legado", [False, True])
+def test_tls_legado_admite_lo_que_negocia_android_4(tmp_path, legado):
+    """Android 4.1 (tableta satélite) solo ofrece ECDHE-*-AES-CBC-SHA en TLS 1.2: sin --tls-legado no hay cifrado
+    común; con él, sí. RC4, 3DES y TLS < 1.2 siguen rechazados."""
+    cert, key = _certificado(tmp_path)
+    httpd = con_tls(make_server(str(tmp_path / "s.db"), "127.0.0.1", 0, tmp_path / "samples"), cert, key,
+                    legado=legado)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        def conectar(cifrado, version=ssl.TLSVersion.TLSv1_2):
+            ctx = ssl.create_default_context(cafile=str(cert))
+            ctx.minimum_version = ctx.maximum_version = version
+            ctx.set_ciphers(cifrado + ":@SECLEVEL=0")
+            c = http.client.HTTPSConnection("127.0.0.1", httpd.server_address[1], timeout=10, context=ctx)
+            try:
+                c.request("GET", "/api/health")
+                return c.getresponse().status
+            finally:
+                c.close()
+
+        if legado:
+            assert conectar("ECDHE-ECDSA-AES128-SHA") == 200
+        else:
+            with pytest.raises(ssl.SSLError):
+                conectar("ECDHE-ECDSA-AES128-SHA")
+        with pytest.raises((ssl.SSLError, ConnectionError)):
+            conectar("ECDHE-ECDSA-AES128-SHA", ssl.TLSVersion.TLSv1)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

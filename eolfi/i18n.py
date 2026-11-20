@@ -136,6 +136,8 @@ API_EN: dict[str, str] = {
     "código incorrecto o caducado: genera otro en el panel (Proveedores → Vincular VS Code)":
         "wrong or expired code: generate another one in the panel (Providers → Link VS Code)",
     "demasiados códigos pendientes": "too many pending codes",
+    "este dispositivo solo puede usar las rutas de la tableta": "this device can only use the tablet routes",
+    "scope desconocido (admitido: {})": "unknown scope (allowed: {})",
     "el cuerpo debe ser un objeto JSON": "the body must be a JSON object",
     "el código de vinculación se genera en el panel de Eolfi": "the link code is generated in the Eolfi panel",
     "elige entre 2 y 6 chats": "choose between 2 and 6 chats",
@@ -621,6 +623,10 @@ CLI_EN: dict[str, str] = {
     "Sirve por HTTPS con este certificado (el móvil solo deja usar el micrófono con HTTPS)":
         "Serve over HTTPS with this certificate (phones only allow the microphone over HTTPS)",
     "Clave privada del certificado de --cert": "Private key for the --cert certificate",
+    "Con --cert, admite también ECDHE con AES-CBC-SHA en TLS 1.2: lo único que negocia Android 4.1-4.4 (p. ej. la "
+    "tableta satélite)":
+        "With --cert, also accepts ECDHE with AES-CBC-SHA on TLS 1.2: the only thing Android 4.1-4.4 negotiates (e.g. the "
+        "satellite tablet)",
     "Permite escuchar fuera de localhost": "Allows listening outside localhost",
     "Persistencia de los backends FastAPI/Express (sqlite: sin dependencias nuevas)":
         "Persistence of the FastAPI/Express backends (sqlite: no new dependencies)",
@@ -750,6 +756,7 @@ CLI_EN: dict[str, str] = {
 # una excepción o de una herramienta externa sigue en su idioma.
 AVISOS_EN: dict[str, str] = {
     "eolfi: --key necesita --cert": "eolfi: --key requires --cert",
+    "eolfi: --tls-legado necesita --cert": "eolfi: --tls-legado requires --cert",
     "eolfi: no se pudo cargar el certificado ({})": "eolfi: could not load the certificate ({})",
     # cli.py
     "Eolfi: --verify está obsoleta y no hace nada (la verificación siempre es obligatoria); se retirará en una "
