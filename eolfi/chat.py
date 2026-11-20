@@ -251,7 +251,7 @@ class Toolbox:
             return {"content": [{"type": "text", "text": f"Error: {exc}"}], "isError": True}
 
 
-def _links(output: str) -> dict[str, str]:
+def _links(output: str, tool_name: str = "") -> dict[str, Any]:
     """Enlaces para la página: el objetivo analizado o el caso del proyecto propuesto."""
     start = output.find("{")
     try:
@@ -261,6 +261,11 @@ def _links(output: str) -> dict[str, str]:
     if not isinstance(data, dict):
         return {}
     out = {}
+    if tool_name == "eolfi_vscode_encargo_estado" and isinstance(data.get("id"), str):
+        out["encargo"] = data["id"]
+        out["estado_encargo"] = data.get("estado")
+        proyecto = data.get("proyecto")
+        out["proyecto_verificado"] = isinstance(proyecto, dict) and proyecto.get("verificado") is True
     if isinstance(data.get("autorizacion_pendiente"), str):
         out["autorizacion"] = data["autorizacion_pendiente"]
         out["herramienta_pedida"] = str(data.get("herramienta") or "")
@@ -541,7 +546,7 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
                 ok = not res.get("isError")
             else:
                 out, ok = f"Error: herramienta desconocida {name}.", False
-            links = _links(out)
+            links = _links(out, name)
             calls.append({"name": name, "args": brief, "valid_args": valid, "ok": ok,
                           # 19/11/2026: el motivo del fallo queda en la traza (antes solo «ok: false»).
                           **({} if ok else {"error": out[:300]}),

@@ -111,6 +111,33 @@ def test_negar_trabajo_en_segundo_plano_no_fuerza_herramientas():
     assert out["ejecucion"]["recuperaciones"] == 0
 
 
+@pytest.mark.parametrize("estado,verificado", [("pendiente_aprobacion", False), ("en_curso", False),
+                                               ("fallido", False), ("hecho", False), ("hecho", True)])
+def test_encargo_exige_resultado_hecho_y_verificado(estado, verificado):
+    llamadas = [{"name": "eolfi_vscode_encargo", "ok": True, "encargo": "e1"},
+                {"name": "eolfi_vscode_encargo_estado", "ok": True, "encargo": "e1",
+                 "estado_encargo": estado, "proyecto_verificado": verificado}]
+    codigos = {h["codigo"] for h in hon.revisar("He creado el proyecto.", llamadas, OFRECIDAS)}
+    assert ("encargo_como_hecho" in codigos) == (not (estado == "hecho" and verificado))
+
+
+def test_verificar_otro_encargo_no_confirma_el_pendiente():
+    llamadas = [{"name": "eolfi_vscode_encargo", "ok": True, "encargo": "pendiente"},
+                {"name": "eolfi_vscode_encargo_estado", "ok": True, "encargo": "otro",
+                 "estado_encargo": "hecho", "proyecto_verificado": True}]
+    assert "encargo_como_hecho" in {h["codigo"] for h in hon.revisar("He creado el proyecto.", llamadas, OFRECIDAS)}
+
+
+@pytest.mark.parametrize("ultimo", ["hecho", "en_curso"])
+def test_encargo_usa_el_ultimo_estado_del_mismo_identificador(ultimo):
+    llamadas = [{"name": "eolfi_vscode_encargo", "ok": True, "encargo": "e1"}]
+    for estado in ["pendiente_aprobacion", "hecho", ultimo]:
+        llamadas.append({"name": "eolfi_vscode_encargo_estado", "ok": True, "encargo": "e1",
+                         "estado_encargo": estado, "proyecto_verificado": estado == "hecho"})
+    codigos = {h["codigo"] for h in hon.revisar("He creado el proyecto.", llamadas, OFRECIDAS)}
+    assert ("encargo_como_hecho" in codigos) == (ultimo != "hecho")
+
+
 def test_negar_vs_code_solo_es_defecto_si_el_puente_responde():
     texto = "No puedo conectarme a tu VS Code."
     assert [h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS, _estado(True))] == ["vscode_negado"]

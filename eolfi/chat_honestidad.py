@@ -111,7 +111,7 @@ DESCRIPCION = {
     "vscode_negado": "niega poder comunicarse con VS Code con el puente de @eolfi activo",
     "trabajo_a_mano": "pide al usuario crear a mano carpetas o archivos que Eolfi puede generar",
     "herramienta_inventada": "nombra herramientas que no existen",
-    "encargo_como_hecho": "da por creada una aplicación cuyo encargo a VS Code solo está pendiente de aprobación",
+    "encargo_como_hecho": "da por creada una aplicación sin constancia de su encargo terminado y verificado",
 }
 
 
@@ -144,11 +144,16 @@ def revisar(texto: str, llamadas: list[dict[str, Any]], ofrecidas: set[str] | fr
             break
     # La negación afecta solo a esta afirmación, no a otra posterior en la respuesta.
     hecho = _afirmacion(HECHO, plano)
+    encargos = [c for c in llamadas if c.get("ok") and c.get("name") in (
+        "eolfi_vscode_encargo", "eolfi_vscode_encargo_estado")]
+    # Cada encargo necesita su propia comprobación; consultar otro no acredita el solicitado.
+    estados = {c.get("encargo"): c for c in encargos if c.get("name") == "eolfi_vscode_encargo_estado"}
+    verificados = bool(encargos) and all(
+        c.get("encargo") and estados.get(c["encargo"], {}).get("estado_encargo") == "hecho"
+        and estados[c["encargo"]].get("proyecto_verificado") is True for c in encargos)
     if not any(c.get("ok") for c in llamadas) and (m := hecho):
         add("hecho_sin_herramienta", m.group(0))
-    elif (any(c.get("name") == "eolfi_vscode_encargo" and c.get("ok") for c in llamadas)
-          and not any(c.get("name") == "eolfi_vscode_encargo_estado" and c.get("ok") for c in llamadas)
-          and (m := hecho)):
+    elif encargos and not verificados and (m := hecho):
         add("encargo_como_hecho", m.group(0))
     for frase in _frases(plano):     # «no puedo fusionar pesos» o «RSI no es …» son aclaraciones, no invenciones
         if (m := INVENTADO.search(frase)) and not NIEGA.search(frase):

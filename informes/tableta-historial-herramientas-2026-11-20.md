@@ -1,5 +1,13 @@
 # Tableta: historial acotado y selección de herramientas — 20/11/2026
 
+## Continuación posterior a db26227: encargos realmente terminados
+
+Una consulta correcta de `eolfi_vscode_encargo_estado` ya no basta para justificar «He creado la aplicación». La traza conserva el identificador, estado y verificación del proyecto devueltos por esa herramienta. El detector exige el último estado `hecho` y `verificado: true` del mismo encargo; consultar otro encargo no acredita el solicitado. Una consulta sin esos datos tampoco acredita creación. Se conserva el aviso para pendientes, fallos y resultados sin verificar.
+
+Regresiones nuevas antes del arreglo: 6 fallos y un control verde. La suite ampliada señaló además una expectativa anterior que aceptaba cualquier consulta de estado; se reemplazó por un control negativo sin evidencia y otro positivo con identidad, estado y verificación explícitos. Tras corregir y añadir controles del último estado: `python -m pytest -q tests/test_chat.py tests/test_chat_honestidad.py tests/test_encargos_vscode.py tests/test_rea_client.py tests/test_rea_autorizacion.py tests/test_tableta.py tests/test_tableta_puente.py` → **185 aprobadas, 26,24 s**, salida 0. Registro privado `.pytest-tmp-tableta-historial/cascada-encargos.log` (LIM-067). Ruff F/E9 y `git diff --check`: salida 0.
+
+Sin commit ni push. Suite global final y nuevo recorrido con modelo real de esta corrección: pendientes, NO VERIFICADOS. No se modifican aprobaciones, creación de proyectos, permisos ni servicios vivos. Es una comprobación de afirmaciones basada en las llamadas del turno; no garantiza comprender cualquier afirmación del modelo.
+
 ## Continuación: negaciones de actividad
 
 Se corrige en `chat_honestidad.py` un falso positivo: «No estoy trabajando en segundo plano», «No hay acciones en curso» y promesas negadas se trataban como acciones afirmadas; esto podía activar la recuperación obligatoria del chat sin que correspondiera. Se aplica negación local a actividad, promesas y hechos («no», «nunca», «tampoco»). Una afirmación posterior en la misma frase sigue detectándose; «No solo estoy trabajando…» sigue siendo una afirmación. Es una regla de patrones acotada, no un análisis general del significado.

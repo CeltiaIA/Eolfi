@@ -498,3 +498,18 @@ def test_llamadas_malformadas_no_ejecutan_ni_parcialmente(llamadas):
         chat.agent_turn([{"role": "user", "content": "Lista proveedores"}], {"alias": "g"}, mcp,
                         lambda s: None, request=lambda *a: {"tool_calls": llamadas})
     assert mcp.calls == []
+
+
+def test_traza_conserva_estado_y_verificacion_del_encargo():
+    mcp = FakeMCP()
+    mcp.tools["eolfi_vscode_encargo_estado"] = ({"name": "eolfi_vscode_encargo_estado", "description": "d",
+                                               "inputSchema": {"type": "object"}}, None)
+    mcp.call_tool = lambda *a: {"content": [{"type": "text", "text": json.dumps({
+        "id": "e1", "estado": "pendiente_aprobacion", "proyecto": {"verificado": False}})}]}
+    replies = iter([{"tool_calls": [_call("eolfi_vscode_encargo_estado", {"encargo_id": "e1"})]},
+                    {"content": "El encargo sigue pendiente."}])
+    out = chat.agent_turn([{"role": "user", "content": "Consulta el encargo"}], {"alias": "g"}, mcp,
+                          lambda s: None, request=lambda *a: next(replies))
+    assert out["tools"][0]["encargo"] == "e1"
+    assert out["tools"][0]["estado_encargo"] == "pendiente_aprobacion"
+    assert out["tools"][0]["proyecto_verificado"] is False
