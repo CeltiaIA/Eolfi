@@ -22,20 +22,41 @@ export async function api(path, opts = {}) {
 }
 
 // Los trabajos largos se consultan en segundo plano para mantener visible el progreso.
-export async function runJob(kind, body, onLog = () => {}) {
+// 21/11/2026: `opts.onStart(id)` da el id al llamante (para corregir o parar el trabajo en marcha); un corte de red
+// pasajero ya no tira el trabajo (se reintenta) y el estado «interrupted» (servidor reiniciado) termina la espera
+// en vez de consultar para siempre.
+export async function runJob(kind, body, onLog = () => {}, opts = {}) {
   const { job_id: id } = await api("/api/jobs", { method: "POST", body: JSON.stringify({ kind, body }) });
+  opts.onStart?.(id);
   let since = 0;
+  let fallos = 0;
   for (;;) {
-    const d = await api(`/api/jobs?id=${id}&since=${since}`);
+    let d;
+    try {
+      d = await api(`/api/jobs?id=${id}&since=${since}`);
+      fallos = 0;
+    } catch (err) {
+      // TypeError = la petición no llegó (red, servidor reiniciándose); un error HTTP del servidor sí es definitivo.
+      if (!(err instanceof TypeError) || ++fallos > 10) throw err;
+      onLog([{ msg: "Sin conexión con Eolfi un momento; sigo esperando el resultado…" }]);
+      await new Promise((r) => setTimeout(r, 1500));
+      continue;
+    }
     if (d.log.length) onLog(d.log, d.elapsed);
     since = d.next;
     if (d.status === "done") return d.result;
-    if (d.status === "error" || d.status === "cancelled") {
-      const e = new Error(d.error); e.code = d.code; e.needsConfirm = !!d.needs_confirm; throw e;
+    if (d.status === "error" || d.status === "cancelled" || d.status === "interrupted") {
+      const e = new Error(d.error || (d.status === "interrupted" ? "El trabajo se interrumpió al reiniciarse Eolfi" : d.status));
+      e.code = d.code; e.status = d.status; e.needsConfirm = !!d.needs_confirm; throw e;
     }
     await new Promise((r) => setTimeout(r, 700));
   }
 }
+
+// Mensaje para un trabajo de chat en marcha: entra en su hilo antes del siguiente paso («para» lo cancela).
+export const jobMessage = (id, texto) =>
+  api(`/api/jobs/${id}/mensaje`, { method: "POST", body: JSON.stringify({ texto }) });
+export const cancelJob = (id) => api(`/api/jobs?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export function setStatus(msg, bad = false) {
   const s = $("#status");

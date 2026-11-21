@@ -5,7 +5,7 @@ abre en el navegador) con el mismo Python con el que está instalado Eolfi:
 
 - Windows: un ``Eolfi.lnk`` en el escritorio o en el menú Inicio (se crea con el objeto COM ``WScript.Shell``).
 - Linux: un ``eolfi.desktop`` en el escritorio o en ``~/.local/share/applications``.
-- macOS: no está soportado todavía.
+- macOS: un ``Eolfi.command`` en el escritorio o en ``~/Applications``.
 
 Por defecto solo muestra lo que haría; ``--aplicar`` lo crea y ``--quitar`` lo retira. Nunca sustituye ni borra un
 archivo que no sea un lanzador de Eolfi. La carpeta de trabajo es la copia del repositorio si Eolfi se ejecuta desde
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,7 @@ from eolfi.actualizacion import RAIZ, modo_instalacion
 SCHEMA = "eolfi.acceso_directo/v1"
 DONDE = ("escritorio", "menu")
 MARCA = "eolfi up"             # lo que identifica un lanzador de Eolfi al sustituirlo o quitarlo
+MAC_CABECERA = "#!/bin/sh\n# Lanzador del panel Eolfi (eolfi up)\n"
 
 
 class AccesoDirectoError(ValueError):
@@ -84,6 +86,9 @@ def destino(donde: str = "escritorio", *, carpeta: str | Path | None = None, sis
     elif sistema == "linux":
         nombre = "eolfi.desktop"
         base = Path(carpeta) if carpeta else _carpeta_linux(donde)
+    elif sistema == "macos":
+        nombre = "Eolfi.command"
+        base = Path(carpeta) if carpeta else Path.home() / ("Desktop" if donde == "escritorio" else "Applications")
     else:
         raise AccesoDirectoError(f"acceso directo no soportado en {sistema}; usa «eolfi up» desde una terminal")
     return base / nombre
@@ -120,6 +125,8 @@ def _leer_lnk(ruta: Path) -> dict[str, str] | None:
 
 
 def _es_de_eolfi(ruta: Path, sistema: str) -> bool:
+    if ruta.is_symlink():
+        return False
     if sistema == "windows":
         info = _leer_lnk(ruta)
         # «python -m eolfi up …» o, en el ejecutable, «eolfi.exe up …»: en los dos casos aparece «eolfi up».
@@ -128,6 +135,8 @@ def _es_de_eolfi(ruta: Path, sistema: str) -> bool:
         texto = ruta.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
+    if sistema == "macos":
+        return texto.startswith(MAC_CABECERA)
     return "[Desktop Entry]" in texto and MARCA in texto
 
 
@@ -146,6 +155,8 @@ def plan(donde: str = "escritorio", *, port: int = 8777, carpeta: str | Path | N
                            "existe": ruta.exists()}
     if sistema == "windows":
         out["lnk"] = {"objetivo": args[0], "argumentos": _argumentos_windows(args), "carpeta": str(trabajo)}
+    elif sistema == "macos":
+        out["contenido"] = MAC_CABECERA + f"cd {shlex.quote(str(trabajo))} || exit 1\nexec {shlex.join(args)}\n"
     else:
         out["contenido"] = contenido_desktop(args, trabajo)
     return out
@@ -161,7 +172,7 @@ def crear(donde: str = "escritorio", *, port: int = 8777, carpeta: str | Path | 
           sistema: str | None = None, python: str | None = None) -> dict[str, Any]:
     p = plan(donde, port=port, carpeta=carpeta, sistema=sistema, python=python)
     ruta, sistema = Path(p["ruta"]), p["sistema"]
-    if ruta.exists() and not _es_de_eolfi(ruta, sistema):
+    if (ruta.exists() or ruta.is_symlink()) and not _es_de_eolfi(ruta, sistema):
         raise AccesoDirectoError(f"{ruta} ya existe y no es un acceso directo de Eolfi: no se sustituye")
     ruta.parent.mkdir(parents=True, exist_ok=True)
     Path(p["carpeta_trabajo"]).mkdir(parents=True, exist_ok=True)
@@ -178,7 +189,7 @@ def crear(donde: str = "escritorio", *, port: int = 8777, carpeta: str | Path | 
         comprobado = bool(leido and Path(leido["objetivo"]) == Path(lnk["objetivo"])
                           and leido["argumentos"] == lnk["argumentos"])
     else:
-        ruta.write_text(p["contenido"], encoding="utf-8")
+        ruta.write_text(p["contenido"], encoding="utf-8", newline="\n")
         ruta.chmod(0o755)
         comprobado = ruta.read_text(encoding="utf-8") == p["contenido"]
     p.update(creado=True, comprobado=comprobado)

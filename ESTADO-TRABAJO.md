@@ -1,9 +1,195 @@
 # Estado del trabajo — resumen para retomar desde cualquier chat
 
-> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-18 (Europa/Madrid)**.
+> Archivo vivo. Se actualiza después de cada paso. Última actualización: **2026-11-21 (Europa/Madrid)**.
 > Orden de lectura para retomar: este archivo → `D:\celtiaia-v2\plan-v2\PLAN-CELTIA-V2.md` → `D:\Eolfi-objetivos\informes\progreso-objetivos-eolfi.md`.
 
+- **Moonlight-16B: revisión con REA y correcciones (21/11 08:40–09:20, Claude; orden de Luis):** REA `inspect_model_artifact` (cabecera completa, header SHA-256 78e2637b…6144; SHA del archivo según la cola 42f6e4d5…e2b7) muestra: **sin plantilla de chat** en el GGUF, `tokenizer.ggml.pre = gpt-2` aunque el vocabulario (163 840, BOS 163584, EOS 163586 `<|im_end|>`) es el de Kimi, y sin tokens especiales de llamada a herramientas (`<|tool_calls_section_begin|>` se trocea). Probado en 18091 con `--override-kv tokenizer.ggml.pre=str:kimi-k2` (números en grupos de 3 como tiktoken; las tildes igual) y dos plantillas nuevas en `generated/plantillas-chat/` (Kimi K2 con herramientas y la original de Moonlight). Resultado: **no mejora**; con las correcciones empeora (aritmética 41 y 51 en vez de 43; calendario sigue mal en todas; herramientas: ninguna variante produce `tool_calls`, y con la plantilla original llama.cpp ni siquiera inyecta las herramientas: 35 tokens de prompt). Código: `es_primo` correcta en la base pero sin parar (tope 1500, sigue imprimiendo ejemplos); en la corregida, con `input()` y texto inventado. Conclusión: los fallos de razonamiento son del modelo en Q4, no del formato; descartado como motor. Informes `informes/moonlight-16b-humo-2026-11-21-ncmoe8-{base,pre-plantilla,pre-generica}.json`. Una sola muestra por caso a temperatura 0,3: no es un examen estadístico.
+
+- **Moonlight-16B-A3B Q4_K_M (Kimi), prueba de humo (21/11 08:10–08:30, Claude):** mismo procedimiento que el 32B, `-ngl 99 --n-cpu-moe 8`, ctx 8192. Carga 65 s, VRAM 8,0 GB; aritmética ✅ 4 s (12,4 tok/s); calendario ❌ («Miercoles.», era sábado); código: más de 2000 tokens para `es_primo`, a 7→2 tok/s, probable bucle; cortado por Luis (NO VERIFICADO); herramienta ❌: la plantilla del GGUF no mete las herramientas en el prompt (32 tokens de prompt) y la respuesta se sale con `<|im_end|>user` inventado. Conclusión: rápido pero no apto como motor con herramientas; no dado de alta. Informes `informes/moonlight-16b-humo-2026-11-21-ncmoe8-parte1.json` y `-herramienta.json`.
+
+- **DeepSeek-R1-Distill-Qwen-32B Q4_K_M, prueba de humo (21/11 07:40–07:55, Claude; parada por Luis):** GGUF `D:\Alejandria\corpus\modelos\gguf-externos\deepseek\32B\` (SHA bed9b0f5… verificado por la cola), directo en 127.0.0.1:18091 con `llama-dory`, `-ngl 20` de 64, ctx 8192, KV q8_0, con el candado de Eolas tomado. Carga 283 s, VRAM 7,4 GB; aritmética ✅ 121 s y calendario ✅ 241 s, a ~1,3 tok/s (razona siempre); código y herramienta sin evaluar (parada a mitad). Conclusión provisional: demasiado lento en la 3060 Ti para chat o examen; no dado de alta como perfil ni en la lista G2. Informe parcial `informes/deepseek-r1-32b-humo-2026-11-21-ngl20.json`.
+
+- **Redmi 0.4.0 y memoria de proyectos del chat (21/11 07:30–08:05, Claude; titular: «haz lo de la app del movil redmi», «dale más contexto a las respuestas… tiene que poder recordar si hizo un proyecto con nombre», «el proyecto es ilfy de nombre»):** (1) **App 0.4.0** (misma para tableta y Redmi; la tableta se deja por ahora): mientras Eolas trabaja, «Añadir» (o el dictado con «Enviar al soltar») manda la corrección al mismo hilo (`POST /api/tableta/chat/mensaje`), **Parar** lo corta, la consulta reintenta 10 veces ante cortes de red y lo añadido queda en el historial. Ya se puede grabar mientras trabaja (solo se bloquea mientras lee en voz alta). Stubs: `View.setVisibility/VISIBLE/GONE`. Instalada en el Redmi por ADB con `install -r` (versionCode 4, datos conservados); arranca vinculada con su historial. Corrección/Parar en el propio móvil: NO VERIFICADO con toques reales (la API y el cliente Java sí, con el panel real en `test_tableta_android`). (2) **Memoria:** el estado del turno (`_chat_memoria`) lleva los últimos 8 encargos con su estado real y los últimos 8 casos; el sistema los lista con nombre, estado, carpeta y fecha. (3) **Nombres dictados:** el dictado escribió «Hilfee» por el caso «ilfy»; no se reescribe lo dictado (primero intenté corregir a «Eolfi» y lo deshice al saber que ilfy es un proyecto), sino que `chat_honestidad.parecidos` añade una nota con el nombre real parecido. (4) **Respuestas:** prompt con contexto (2–5 párrafos, cerrar frases) y, si el motor se corta por tope, una vuelta más para terminar (`completar`). **Prueba real** (Gemma 4 Q4, base real): «¿cómo va el trabajo de Hilfee?» → identifica el caso ilfy (análisis de Dory 4B) sin inventar estado, 100 s con arranque del motor; «¿último proyecto?» → «Notas rápidas», fallido o sin verificar, carpeta y fecha, 12 s. (5) **ilfy revisado y corregido** (`generated/ilfy`, titular: «sí, corrígelos»): se generó «desde descripción» sin pasar la ruta del modelo como fuente, y Eolas escribió de memoria («Transformer denso», «.gguf», «4 billones», «RSI = RAG», © 2024). Reescritos los dos informes con `config.json`, la ficha de NVIDIA y nuestro examen (1/2/4 bucles), y el README. Verificación de Eolfi en copia limpia: sintaxis, `node --test` y juez funcional 3/3 en verde. Original en el scratchpad de la sesión (`ilfy-index-antes.html`). La memoria del chat ya incluye la carpeta de cada caso. Después, a petición del titular: sin menciones a NVIDIA ni Nemotron (fuentes citadas como «la ficha»), y renombrado a **ilfy v0.0.1 · prototipo 7B** (package 0.0.1, manifiesto, título; Dory 1.0 4B queda como modelo base estudiado). (6) **Rutas en la descripción** (titular: «sí, arréglalo»): `eolfi/flows/rutas_descripcion.py` detecta rutas existentes y añade al encargo de la IA sus datos (config, tamaños y estimación de parámetros, inicio de la ficha sin YAML/HTML), marcados como datos; el plan lo explica. Prueba real con Eolas: la regeneración usó los datos (72 capas 16/40/16, nGPT en bucle, atención híbrida) sin «Transformer estándar»/«billones»/«Retrieval». (7) Esa misma prueba destapó que la IA dejó index.html CORTADO y la verificación quedó en verde: nuevo paso «HTML completo» en `verify` para `static` (falta </main>/</body>/</html> → fallo y otra ronda de la IA). Pruebas: `tests/test_rutas_descripcion.py`, `test_assist.py::test_una_pagina_cortada_no_pasa_la_verificacion`. Descargas DeepSeek/Kimi: 6/6 verificadas (134,96 GB; 70B y 72B en E:). (8) **Proyectos fuera del repo** (titular: «los proyectos generados tienen que quedar siempre fuera; después, si son válidos, tendrán su repo propio»): `eolfi/proyectos.py` → por defecto `D:\Eolfi-proyectos` (o `EOLFI_PROYECTOS`); plan, panel, modo remoto y banco de creación lo usan; `create_project` y `propose_plan` rechazan un destino dentro del repositorio; el e2e del panel crea en una carpeta temporal. `generated/` antiguo registrado como LIM-074 (ilfy movido a `D:\Eolfi-proyectos\ilfy` con permiso; la memoria del chat sigue la ruta nueva; `politicas-modelos` NO se mueve sin cambiar `EOLFI_MODELOS_CONFIANZA`).
+
+- **Chat de Eolfi dirigible, con razonamiento y más rápido (21/11 02:30–03:50, Claude; titular: «que a Eolfi se le pueda dirigir el hilo… y que tenga razonamiento… humanizado»):** (1) **Dirigir el hilo:** lo que escribes mientras trabaja entra en el mismo trabajo (`POST /api/jobs/<id>/mensaje`; tableta: `POST /api/tableta/chat/mensaje`) y el turno lo lee antes de cada paso con prioridad; si llega cuando iba a contestar, hace otra vuelta. «para» (o el botón **Parar** del panel) corta en el acto: las llamadas largas al motor y a herramientas van vigiladas cada 0,5 s (`chat.vigilado`). En el panel el botón pasa a «Añadir al hilo» mientras trabaja; un corte de red pasajero ya no tira el trabajo y el estado `interrupted` ya no deja el panel consultando para siempre. Las ids de trabajos de la tableta se guardan en disco. (2) **Razonamiento:** en preguntas abiertas, un plan previo con pensamiento y sin catálogo (`chat.planificar`, usa `reasoning_content`); las vueltas finales mandan las herramientas con `tool_choice: none` para no romper la caché del prompt. (3) **Tono:** prompt del sistema en primera persona y mensajes de progreso y avisos humanizados. Un encargo con id real permite decir que «sigue en marcha»; «te avisaré» sigue marcándose. (4) **Rendimiento (medido):** perfil activo a 44 capas en GPU y `--cache-ram 4096` (LIM-073): 14–15 tok/s frente a 9–10; con todo en GPU la VRAM se desborda (prompt de 9k: 288 s). Vigilante de inactividad del motor de 15 a 60 min. **Prueba real** con Gemma 4 Q4: pregunta abierta + corrección a mitad → respuesta en 3 viñetas como se pidió, 32 s; «para» cortó otro chat en 1,0 s. Pendiente: la app Android de la tableta/Redmi aún no tiene «Parar»/corregir (la API ya lo admite; hace falta recompilar e instalar el APK); tras «Parar», la petición HTTP abandonada sigue generando en llama-server hasta su tope (NO VERIFICADO si llama-server la corta al cerrarse la conexión).
+
+- **Dory por bucles, modelos y Redmi (21/11 00:50–02:10, Claude):** (1) Dory se examina con 1, 2 y 4 bucles (ficha de NVIDIA: 2 por defecto, 4 para agentes): `USER_EXTRA_ARGS` admite `--override-kv` solo con `dory.num_loops=int:1..4` y su modo de caché KV (pruebas en `tests/test_modelo_unico.py`, 143 ok en el conjunto de perfiles); perfiles `dory_q8_b1`/`dory_q8_b4` (LIM-071); ronda en curso, informe `informes/dory-q8-bucles-1-2-4-2026-11-21.json`. El examen apaga el razonamiento a propósito; si no basta con 4 bucles, el siguiente paso es probar razonamiento activado con temperatura 1,0 como pide la ficha. (2) Nemotron: los 4 modelos descargados y verificados (74,7 GB, `catalogo-nemotron.json`). (3) Cola GGUF DeepSeek/Kimi de 8B a 72B en marcha; los ZIP de 70B y 72B se llevan a `E:\Alejandria-modelos-grandes\` con `D:\Alejandria\scripts\mover_zips_externo.py` (copia, SHA-256 comprobado en destino y solo entonces borrado de D:; registro `ubicacion-externa.json`); la cola ya no vuelve a descargar lo movido. **Hecho (21/11 05:16):** 70B y 72B movidos a E: y verificados por SHA-256 (39,6 y 32,5 GB); E: ya se puede desconectar. El resto de la cola (48B, 32B, 16B, 8B) se queda en D:. (4) Redmi: WhatsApp no registra el número del titular (bloqueo por número; con otra SIM sí); se usa WhatsApp Web vinculado en Chrome. Play Store se cerraba (cronet/fdsan): se le quitaron las actualizaciones y se reinstaló Chrome desde Play (LIM-072). Push de 9e960d8 con las cuatro suites en verde (pytest 1567 ok).
+
+- **Dory 4B Q8 en Eolas V2 y G2 activado (21/11, Claude):** Dory1.0-4B convertido a Q8_0 (`D:\EOLAS-BASE\modelos-dory\dory1.0-4b-q8_0.gguf`, SHA b8e89270…) con el fork `dory-support` ab0ffa1 compilado en CUDA (`D:\EOLAS-BASE\llama-dory\`); `server` global de Eolas V2 → ese binario (Gemma probado con él), perfil `dory_q8` dado de alta. **Examen de admisión: no aprobado** (código a la primera 55 %, herramientas 38 %; `informes/dory-q8-examen-2026-11-21.json`). Revisado caso a caso: fallos reales, no de formato (renombra la función pedida, erratas, errores de uno, F(40) mal, texto alrededor del JSON, herramientas innecesarias). `active_profile` sigue en `gemma4_recon_q4`. **G2:** lista `generated/politicas-modelos/modelos-confianza-2026-11-21.json` (50 rutas = la del 20/11 + Dory; SHA 7f4138e4…9ace). `gemma`, `gemma_q4`, `gemma4_recon_q4` y `dory_q8` dan `hash_autorizado`; `mistral` apunta a un GGUF que ya no existe y queda bloqueado. `EOLFI_MODELOS_CONFIANZA` fijada como variable de **usuario** de Windows (solo la heredan procesos nuevos: el panel 8777 abierto antes no la tiene hasta reiniciarlo). Prueba real en frío con la política: Gemma carga y responde «4»; una ruta fuera de la lista queda bloqueada. Un primer arranque con la política se colgó cargando 300 s y no se repitió: causa NO VERIFICADA. Pendiente: reiniciar el panel con la variable y comprobar panel y tableta; suites de cierre (en curso). Artefactos en LIM-069/070.
+
 ## Reanudación y pruebas activas (17/11/2026)
+- **Intermitente de UI y archivo de trabajos (20/11 20:40–21:45, Claude):** `test_observe::test_desktop_scenario_windows_uia` no reproduce con carga moderada (3/3); con sobrecarga (8 en paralelo + 6 hilos de CPU) falla siempre por plazo y el paso quedaba con `actions: []`. `uia_driver.ps1`: el plazo cuenta desde el arranque (antes de `Add-Type`), corte limpio «plazo agotado antes de la acción X», resultado parcial tras cada acción y BOM UTF-8 (sin él, PowerShell 5.1 corrompía las tildes de sus mensajes); `session.py` conserva esas acciones si se agota el margen (sigue siendo `timeout`). `tools/verificar_suites.py` guarda la salida completa de una suite que falla en `%TEMP%\eolfi-guardia-*.log` (el fallo de Codex solo dejó «AssertionEr...»): la causa exacta de aquel fallo sigue **NO VERIFICADA**. Por decisión de Luis, `HISTORY_KEEP = 4` no cambia, pero lo que sale del historial pasa a `job_archive` en `eolfi.db` (resultado y registro, tope `ARCHIVE_KEEP = 1000`) y `GET /api/jobs?id=…` lo devuelve con `archived: true`; los trabajos purgados antes de este cambio no se recuperan. Pruebas nuevas en `test_observe.py`, `test_verificar_suites.py` y `test_fase_e.py`. Cuatro suites (antes del archivo): pytest 1524 + 11 omitidas, bridge, VS Code y e2e, salida 0 (`.pytest-tmp-tableta-historial/cierre-uia-parcial.log`); con el archivo: 94 focales (servidor, Fase E, tableta) y Ruff verdes; el 8777 recargó con el cambio (200). Decisiones de Luis (20/11): G2 activar confianza con los modelos actuales, G3 acotar `python.exe` a TCP 18779 desde LAN y Tailscale, completar Nemotron Terminal-14B.
+- **Cierre de la tanda de Codex y Redmi por datos (20/11 20:10–20:30, Claude):** Codex se quedó sin cupo con la suite global en rojo por `test_observe::test_desktop_scenario_windows_uia` (1520 ok/1 fallo); repetida aislada pasa (Codex y Claude): intermitente bajo carga, vigilada en el hook. Revisadas y publicadas sus tandas: encargos (afirmar «creado» exige el último estado `hecho` y `verificado: true` del mismo encargo), esquemas MCP aplicados antes de ejecutar, `PLAN_DEFINITIVO.md` e `informes/pendientes-vigentes-2026-11-20.md`. **Redmi por datos móviles (SIM puesta, WiFi apagada, Tailscale):** dictado → transcripción 200 → chat `b93059a1f53c2bee` con `eolfi_evidencias` ok (70,7 s) → voz 200. El 404 de `2e4d9ec720c7f409` se explica: `HISTORY_KEEP = 4` en `server.py` (solo se guardan los 4 últimos trabajos); sin cambiar.
+- **Eolfi en el Redmi por VPN Tailscale (20/11 18:55–19:20, Claude, sin commit):** app 0.3.0 (`construir.py`: versionCode 3, `TARGET_SDK = 28`; `Principal.java`: permiso de micrófono en tiempo de ejecución por reflexión; README; prueba nueva en `tests/test_tableta_android.py`). Construida con `--comprobar-api` contra la tableta: 281 referencias, ninguna ausente; APK en `.pytest-tmp-tableta-historial/build-030/`. Pruebas de tableta/Android: 22 verdes. Instalada en el Redmi (Android 14, xiaomi.eu OS2.0.6.0) y en la GT-P3100 (vínculo conservado). Real: Redmi por WiFi → `2e4d9ec720c7f409` eolfi_doctor ok; Tailscale instalado por Luis en PC (`celtia` 100.89.240.108) y Redmi (100.112.119.31), Redmi revinculado a `https://100.89.240.108:18779` (canje desde 100.112.119.31) → `519fe2ae7a6ee451` eolfi_evidencias ok; tableta 0.3.0 → `d7dd50667b5148b4` eolfi_doctor ok. Token LAN viejo del Redmi revocado (`9d8a6b16d3e2`). El puente sigue en `0.0.0.0:18779` (LAN para la tableta + Tailscale). **Datos móviles: NO VERIFICADO** (el Redmi aún no tiene SIM). Pendiente de Luis: ACL de Tailscale y acotar la regla del cortafuegos de `python.exe` (hoy entrada permitida en todos los puertos, perfiles Público y Privado).
+- **Fallo del chat de la tableta resuelto (20/11 18:15–18:40, Claude, sin commit):** reproducido contra el motor real (catálogo de 47 herramientas, ~9.600 tokens de prompt): la 1.ª vuelta inventa el resultado sin llamar («stdlib, capa, rizin y Ghidra») y en la recuperación Gemma 4 Q4 entra en bucle `<|channel>thought` hasta agotar 1.500 tokens (139 s) → «el motor terminó sin respuesta de texto». Arreglo en `eolfi/chat.py`: la vuelta de recuperación de una orden o promesa pide `tool_choice: "required"` (lista `chat.Obligatorias`, sin cambiar la firma de `request`); una respuesta solo vacía no obliga. 3 pruebas nuevas en `tests/test_chat.py`; chat/honestidad/REA/tableta/puente: 129 verdes. **Real desde la GT-P3100** (conversación nueva, el chat Q5 del usuario intacto), por el puente al 8777 recargado: «Usa eolfi_doctor» → `68d386cb9fbbf5e5` hecho, eolfi_doctor ok, 11,7 s; saludo → `e97c37f2167d4b81` sin herramientas, 3,0 s, voz servida (`/api/voz/hablar` 200); «Lista las últimas evidencias» → `084f0606239ad37f` eolfi_evidencias ok, 22,8 s. Dictado por micrófono: NO VERIFICADO (requiere hablar a la tableta). `python -m pytest -q` completo: 1459 aprobadas, 11 omitidas (834 s); bridge, vscode-bridge y e2e no repetidos tras este cambio.
+- **Herramientas e historial de tableta (20/11, sin commit):** app 0.2.0 construida, instalada y comprobada en la GT-P3100: Nueva conversación, Historial, borrador persistente y recuperación del chat Q5 tras cierre/reapertura. Archivo de hasta 8 MiB en extSdCard, eliminación de conversaciones antiguas al llenarse; contexto separado por conversación. El chat ofrece las 13 herramientas MCP y da una oportunidad adicional de ejecución si una petición de acción acaba sin llamadas. Pruebas focales finales: 145 aprobadas; las cuatro suites verdes (Python 1456 aprobadas/11 omitidas). Modelo real, smoke directo: 4/4 casos. **Flujo completo desde la tableta: dos fallos**, trabajos `84916315ba63c7ba` y `6e8915b88e309d0c`: el modelo termina sin texto ni llamadas después de la recuperación adicional; una generación agota 1500 tokens. Conexión y llegada al 8777 observadas, pero uso de herramientas desde la tableta NO VERIFICADO; falta aislar la diferencia entre el catálogo/contexto completo y el smoke directo. Dictado/voz no repetidos. Se conserva el modelo arrancado por el panel y se deja abierto el chat Q5 recuperado. Evidencia, hashes y límites en [el informe](informes/tableta-historial-herramientas-2026-11-20.md); archivos privados de recuperación conservados, LIM-067.
+- **Revisión adicional de honestidad del chat (20/11, sin commit):** se detecta «Iniciando la auditoría» / «Comenzando el análisis» como acción en curso. «No he creado» y «No hemos ejecutado» no se tratan como afirmaciones de trabajo hecho; una afirmación positiva posterior sigue detectándose. Regresiones en `tests/test_chat_honestidad.py`, incluida la ronda de corrección de `agent_turn`. Pruebas focales de honestidad/chat: 57 aprobadas; honestidad/chat/tableta/puente sobre el cambio final: 91 aprobadas (20,19 s). Ruff F/E9 y `git diff --check` salida 0. Cierre de las cuatro suites y nueva prueba con modelo real: NO VERIFICADO en esta continuación.
+
+- **Promesas falsas del chat (20/11 14:00–14:15, sin commit):** desde la tableta, el Q4 reconstruido contestaba «Procederé a crear el archivo…», «Estoy trabajando en…», «te informaré» sin llamar a ninguna herramienta (nada se ejecuta tras responder). `chat_honestidad` amplía «acción en curso» a esas promesas (por frase; no cuentan las ofertas «si quieres, procederé…» ni las preguntas) y a más verbos en curso («preparando», «trabajando»…). Pruebas: 55 de honestidad, chat y encargos en verde. Real, repitiendo la conversación de la tableta en el 8777: 1.ª vez detectado y corregido pero la corrección decía «Estoy preparando…» (verbo añadido); 2.ª vez la corrección siguió prometiendo y Eolfi antepuso el aviso visible (trabajo `1350f8e310621b32`).
+- **Tableta contra el Eolfi en vivo (20/11 12:25–13:33, sin commit):** a petición de Luis, la tableta ya no usa
+  un panel propio: `eolfi tableta-puente` (nuevo, `eolfi/tableta_puente.py`) escucha con TLS en `0.0.0.0:18779` (mismo
+  certificado y huella, `--tls-legado`) y reenvía **solo** las rutas de la tableta y el canje del código a
+  `http://127.0.0.1:8777` (siempre IP, nunca `localhost`); exige token `ect_`, no reenvía cookies ni `Origin` y fuerza el
+  alcance «tableta» al vincular. En `eolfi/server.py`, un token de tableta o lo que llega con `X-Eolfi-Puente` es siempre
+  nivel usuario (por el puente la conexión sale de 127.0.0.1 y habría sido titular) y por el puente no entra ningún
+  token completo. En `eolfi/chat.py`, una ruta `.gguf` escrita en el mensaje recibe la pista de `eolfi_modelos_auditar`
+  (antes el Q4 reconstruido contestaba «iniciando la auditoría» sin llamarla; la ruta del Q5 tiene una carpeta
+  `modelos.gguf` y la expresión se ajustó para no cortarla). Pruebas: 18 del puente, chat, tableta, i18n y TLS en verde;
+  las cuatro suites completas en verde antes del último ajuste del puente (pytest 1419 + 11 omitidas, bridge,
+  vscode-bridge, e2e). Incidente: el 8777 con `--reload` recargó entre dos ediciones y dio `NameError` hasta que se
+  reinició (12:47). Real: tableta revinculada al 8777 por el puente (13:30, alcance tableta) y «Audita el modelo Gemma 4
+  Q5 en …32c554…\pesos.gguf» → trabajo `8d42181d868d9dfa` en el 8777 (sale en Seguimiento), con
+  `eolfi_modelos_auditar` ok: GGUF v3, gemma4, 667 tensores, ~8,4 GB, procedencia NO VERIFICADO (127 s).
+- **Tableta satélite de nuevo en marcha (20/11 11:00–11:25, sin confirmar):** la app nativa `com.celtiaia.eolfi.tableta`
+  0.1.0 (rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, no integrada en voz-piper) apuntaba al panel de
+  prueba del 19/11 (`192.168.1.133:18779`, certificado y base temporales ya inexistentes). Panel de la tableta arrancado
+  desde ese worktree en `0.0.0.0:18779` con `--tls-legado`, certificado RSA persistente
+  `~/.eolfi/tableta/panel-cert.pem` (huella `8143 3885 27c0 8ce6…`) y base `~/.eolfi/tableta/panel.db`; revinculada por
+  ADB a `https://192.168.1.134:18779`. En ese worktree se copió sin confirmar la validación de `extra_args` de
+  reconstruidos (sin ella no cargaba el perfil activo) y su prueba: 135 + 6 omitidas en reconstruir, tableta, tableta
+  Android, TLS y eolas_v2. Chat escrito y dictado del titular con respuesta hablada: correctos (registro 11:10–11:11).
+  El navegador de serie no ejecuta el panel (JavaScript moderno): no es la vía. Integrada después en
+  `luis/voz-piper` (merge `4df966d`, push con las cuatro suites en verde: pytest 1401 + 11 omitidas). Desde las
+  11:30 el panel de la tableta se arranca desde `D:\Eolfi` (mismo puerto, certificado y base; sin revincular) y el
+  chat desde la tableta respondió con voz. El cambio sin confirmar de `D:\Eolfi-wt-tablet` queda redundante (LIM-065). Mi `--tls-legado` duplicado se deshizo.
+- **Galaxy Tab 2 como satélite de Eolfi (19/11, rama `luis/tablet-satelite`, worktree `D:\Eolfi-wt-tablet`, commits `6131a71` y `7423908`, sin publicar):**
+  - Informe: `D:\Eolfi-objetivos\informes\tablet-gtp3100\INFORME-GT-P3100.md`, con las evidencias y `SHA256SUMS.txt`.
+  - **Inventario REA** de solo lectura:
+    - OMAP4430, SGX540 con GLES 2.0, 788 MB de RAM y Android 4.1.2 JZO54K;
+    - OpenSSL 1.0.1c y WebKit 534.30;
+    - TLS 1.2 disponible pero apagado por defecto y sin suites GCM.
+    - Kernel y boot: NO VERIFICADO (sin root).
+    - En API 16 fallan tres herramientas REA: `inspect_adb_display`, `pull_adb_package` y `capture_adb_screen`.
+  - **Servidor:**
+    - token de cliente con alcance (`client_tokens.scope`, se migra solo); el de la tableta solo abre `/api/tableta/*` y `/api/voz/{transcribir,hablar}` (`eolfi/tableta.py`);
+    - `eolfi serve --tls-legado`: ECDHE-AES-CBC-SHA en TLS 1.2, lo único que negocia Android 4.1.
+  - **App** `eolfi/tableta-android/`:
+    - APK de 24 KB construido sin SDK ni descargas (javac + D8 de jadx + aapt2 de apktool);
+    - firma v1 propia (el `jarsigner` del JDK 21 no vale para Android 4.1).
+  - **Smoke real en la tableta** contra un panel de prueba en 18779 por HTTPS:
+    - vínculo con huella fijada, diagnóstico, visor, chat con Gemma, dictado → whisper → chat → voz;
+    - encontró y se corrigieron dos fallos: sin cifrado común, y realimentación del micrófono (ahora es semidúplex).
+    - Voz de salida: el titular la oyó perfectamente (19/11).
+  - **Pruebas:**
+    - `tests/test_tableta.py`, `tests/test_tableta_android.py` y TLS legado: 26 pasan;
+    - puentes: 70 pasan y 4 omitidas, y 211/211;
+    - e2e: 26/26.
+    - suite completa `python -m pytest -q` en el worktree: 1305 pasan, 12 omitidas, 0 fallos (antes 4 fallos: 3 traducciones i18n de los textos nuevos y el instalador, por un `import` de `tableta` que tumbaba el panel entero; ahora solo se carga con un token con alcance);
+    - tras el commit, `tests/test_instalador.py` 12/12: la rueda incluye `eolfi/tableta.py` y excluye las fuentes Android (`tools/verificar_paquete.py`).
+  - **A9 con voz real del titular (19/11):** dictado en la tableta → whisper → texto revisable en la caja (o envío al soltar) → Gemma → `/api/voz/hablar` 200. Si Eolas está ocupado, el texto vuelve a la caja con aviso. El titular oyó la respuesta perfectamente por el altavoz.
+  - **C7:** en Android 4.1 el panel web no es compatible con el navegador (WebKit 534, sin módulos ES ni `getUserMedia`); C7 en la tableta pasa por la app satélite.
+  - Requisito del titular: sin Google ni Samsung. La app solo usa AOSP, la JDK y org.json (prueba `test_app_android_sin_google_ni_samsung`). Quitar las apps de sistema o cambiar de ROM queda pendiente de su permiso.
+  - La tableta sigue vinculada al panel de prueba 18779, ya parado: hay que vincularla de nuevo contra el panel real con `--cert --key --tls-legado`.
+- **Revisión de vulnerabilidades de Codex (20/11, incluida tras quedarse sin cuota):** límites de cuerpo que cortan
+  de verdad y `/v1/reset` solo desde el panel (puente); rutas generadas sin `..` ni enlaces simbólicos y `pages`
+  validadas (generador); contexto de `assist` sin enlaces simbólicos; entorno de REA por lista blanca y ruta de Ghidra
+  como argumento aparte; VS Code bloquea órdenes codificadas/`iex`, más rangos reservados anti-SSRF, gunzip acotado y
+  lectura de archivos enormes rechazada. Ajustes de Claude: `rea_env` admite `REA_*` no secretos y variables básicas de
+  Windows (prueba nueva); pruebas de Ghidra WSL, adjuntos y spec sin páginas al día. pytest 1377 + 1 corregida,
+  puente 73+4, VS Code 211, e2e salida 0.
+- **G6 ter: opciones del Q5 en perfiles reconstruidos (20/11 08:24–08:49, sin confirmar):** `eolfi/eolas_v2.py`
+  valida `extra_args` de reconstruidos con la lista blanca `USER_EXTRA_ARGS`; pruebas en
+  `tests/test_modelos_reconstruir.py` (166 + 6 omitidas en las cuatro suites de modelos/Eolas; `python -m pytest -q` completo 1373 + 8 omitidas, salida 0). Perfil real con
+  `-fa on`, KV q8_0, `-np 1`, `--cache-ram 1024` (respaldo `C:\Users\mejil\.eolfi\eolas-v2.json.antes-opciones-q5-20261120`). Examen aislado: **aprobado** 26/28 a la
+  primera (código 95 %, herramientas 88 %), 10,8 tok/s. Informe `informes/g6-recon-q4-opciones-q5-20261120-082642.json`. Falta la admisión real.
+  **Examen real (20/11 09:12–09:40, aprobado por Luis):** config y memoria reales, puerto 8090, ronda `df2d2e05`, `informes/g6-recon-q4-examen-real-20261120-091443.json`/`.log`, salida 0: **no aprueba** (código 19/20 = 95 %, herramientas 4/6 → descartado por «2 fallos de herramientas: ya no puede llegar al 85 %»), 9,8 tok/s. Fallos: `rle_bytes`, `identificar_binario` (como en las rondas aisladas) y `elegir_entre_varias`, nuevo: el modelo emitió una llamada a `ejecutar_python` con JSON incompleto y llama-server respondió HTTP 500 («Failed to parse tool call arguments as JSON… unexpected end of input»); en la ronda aislada `f344d724` esa misma tarea salió bien. Muestra única: la diferencia entre 7/8 y 4/6 en herramientas es variabilidad de una ronda, no está medida. `admitido` sigue en no; activo `gemma`. **2.º examen real (20/11 09:55–10:18, pedido por Luis para medir variabilidad):** ronda `7887e271`, `informes/g6-recon-q4-examen-real-2-20261120-095551.json`/`.log`, salida 0: **aprobado y admitido** (código 19/20 = 95 %, herramientas 7/8 = 88 %), 10,8 tok/s. Fallan solo `rle_bytes` e `identificar_binario`; `elegir_entre_varias` sale bien, así que el JSON incompleto del 1.er examen fue un fallo intermitente (1 de 3 rondas con las opciones del Q5). `admitido` = sí; **Activado (20/11 10:25, decisión de Luis):** `eolfi eolas-v2 activo gemma4_recon_q4`, salida 0; la config real solo cambia `active_profile` (respaldo `C:\Users\mejil\.eolfi\eolas-v2.json.antes-activar-recon-20261120`). Los roles no cambian (redactor `gemma`, completo/revisor `gemma_q4`, rápido `mistral`).
+- **G6 bis: Q4 reconstruido con los ajustes del Q5 (20/11 06:05–06:36, sin confirmar):** aprobado por Luis, solo en la
+  config aislada `C:\Users\mejil\.eolfi\b7-ronda-20261120b\` (40 capas, ctx 16384, lotes 512; los `extra_args` no se
+  admiten en perfiles reconstruidos). `eolas-v2 examen gemma4_recon_q4` salida 0: **aprobado**, 25/28 a la primera
+  (código 90 %, herramientas 88 %), 7,9 tok/s frente a 2,9 antes. Fallan `restar_intervalos`, `rle_bytes` (truncadas) e
+  `identificar_binario`. Informe `informes/g6-recon-q4-igualado-20261120-060527.json`. Dos intentos previos conservados
+  como diagnóstico (`…-rechazado-extra-args.log`, `…-interrumpido.log`). Después, con aprobación de Luis, los 4 ajustes pasaron al perfil real (`~/.eolfi/eolas-v2.json`,
+  respaldo `C:\Users\mejil\.eolfi\eolas-v2.json.antes-g6bis-20261120`); validado con `load_config`, activo sigue `gemma`. Falta la admisión real (examen sin aislar).
+- **Grupo 1 del plan y relevo de Codex (20/11 madrugada, `luis/voz-piper`):**
+  - **E4:** `rea herramientas` detecta el Cutter portátil y su Rizin incluido (Cutter no usa el Rizin externo).
+  - **B7/G6:** ronda aislada Q5 frente al Q4 reconstruido: 28/28 frente a 23/28; el reconstruido no aprueba y va a
+    2,9 tok/s por su perfil (8 capas GPU). Propuesta de igualar ajustes, sin aplicar: decide el titular.
+  - **B6:** primer caso real con varias rondas (6/12 → 7/12 → cortada); se conserva la ronda 2 como parcial. Defecto de
+    `best_attempt` corregido en `assist.py` con regresión.
+  - **Codex** trabajó en paralelo coordinándose por `COORDINACION.md` (local, ignorado por Git): cambios en el puente,
+    `cliente_api`, `juez`, `modelos_actualizar` y e2e, con informe `informes/auditoria-repositorio-2026-11-20.md`.
+    Sus 16 fallos de pytest eran de su sandbox: aquí sus 13 áreas pasan 333 + 1 omitida. Luis encargó a Claude el
+    cierre y la subida.
+
+- **Cierre de suites en `luis/voz-piper` (20/11, sin confirmar):** con el árbol de 37 archivos modificados y los nuevos
+  módulos (`cortafuegos`, `herramientas_rea`), las cuatro suites se ejecutaron en este equipo sin bloqueo de loopback:
+  `python -m pytest -q` 1332 aprobadas y 8 omitidas, salida 0 (14 min 20 s); `node --test` en `eolfi/bridge` 70 aprobadas
+  y 4 omitidas, salida 0; `node --test` en `eolfi/vscode-bridge` 211/211, salida 0; `npm.cmd test` en `tests/e2e`
+  28/28, salida 0. Ruff F y `git diff --check`, salida 0. `.gitignore` excluye ahora `.codex/` y los instaladores de
+  Cutter y Npcap de la evidencia E4 (LIM-054; hashes recalculados e iguales). No se ha hecho commit. Siguen pendientes
+  del titular: hashes de confianza (G2), regla de cortafuegos (G3), registrar Cutter portátil en REA, micrófono físico,
+  dictado en Android (TLS 1.2) y la revisión de `REGISTRO_LIMPIEZA.md`.
+
+- **E4/D3/C7, continuación local (19/11):** sigrok-cli 0.7.2 existente y 111 decodificadores; Npcap 1.90
+  instalado y `dumpcap -D` salida 0 sin captura; Cutter 2.5.0 portátil arrancó con Rizin 0.9.1 incluido.
+  REA aún no detecta Cutter y el uso del Rizin externo está **NO VERIFICADO**. D3 completó la misma ronda
+  de 28 casos: Q5 28/28 y Q4 26/28 a la primera, con regresiones `ofuscado` y `duracion`; examen y
+  comparación salieron 0. La tableta Android 4.1.2 conectada no pudo negociar TLS 1.2 con el panel:
+  dictado **NO VERIFICADO**. El servidor de prueba se detuvo. Perfil original `gemma`, servidor detenido.
+  Pruebas seleccionadas 124/124, Ruff y `git diff --check` con salida 0. Detalles, límites y hashes en
+  `informes/plan-encadenado-2026-11-19.md`.
+
+- **E4/D3/C7 desde el cliente restringido (19/11):** WSL devuelve `E_ACCESSDENIED`; Npcap no existe y
+  `dumpcap -D` sale 2; Cutter no está; Rizin 0.9.1 sí responde. Docker Desktop arrancó, pero el canal del motor
+  mantiene `permission denied`, por lo que la ronda Q5/Q4 salió 1 antes de cargar modelos y no creó informe.
+  `adb devices -l` no enumera dispositivos: **NO VERIFICADO: no hay dispositivo ADB conectado**. Detalle y hashes
+  en `informes/e4-d3-c7-copilot-2026-11-19.md`.
+
+- **Plan encadenado (19/11, sin confirmar):** implementados y documentados la carga en telemetría (B4), dos casos
+  inéditos y comparación emparejada (B7/D3), firma automática del puente Node (B8), lanzador macOS y firma opcional
+  con SignTool (C2), procedencia del auditor y sockets Linux/macOS (G1), confianza antes de cuantizar y hacer smoke
+  (G2), regla reversible de cortafuegos Windows (G3), procedencia compilada de los tamaños K (G4), reanudación HTTP
+  y comparación previa a adoptar (G5), propuesta RSI para el plazo de arranque (G6) y exportación SFT de la memoria
+  verificada (G7). Informe: informes/plan-encadenado-2026-11-19.md.
+  La regla real Eolfi sin red 8d2f9bb440e2 está ausente. La memoria real aporta 2 peticiones distintas y G7 exige
+  20, así que no se inició entrenamiento. Suites completas: NO VERIFICADAS por bloqueo de loopback del entorno.
+
+- **G1, procedencia en el auditor y en el chat (19/11).** El informe de archivo y el inventario de carpeta
+  devuelven `procedencia: NO VERIFICADO`. El chat recibe ese dato y la instrucción de distinguirlo del estado
+  estructural. La regresión usa un GGUF dentro de una carpeta cuyo nombre coincide con su SHA-256.
+  En Windows, `python -m eolfi modelos auditar` sobre el GGUF original de Alejandría devolvió código 0,
+  `estructura_verificada`, procedencia `NO VERIFICADO`, 7.121.860.000 bytes y SHA-256
+  `43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6`.
+  Las pruebas de chat, modelos y MCP pasaron (58). Respuesta final de Gemma con el cambio: NO VERIFICADO;
+  el entorno bloqueó la conexión al panel en 127.0.0.1:8777 (WinError 10013).
+
+- **Voz Piper, herramientas del chat y micrófono (19/11, rama `luis/voz-piper`, apilada sobre `luis/panel-stderr-adjuntos`/#103):**
+  - Lectura con **Piper 1.8.0** local (venv `~/.eolfi/tools/piper-venv`, voces es_ES davefx y sharvard en
+    `~/.eolfi/voces/piper`, descargadas con permiso del titular). Ajustes original, natural y pausada; `para_leer`
+    prepara el texto para el oído; el panel lee por trozos con precarga. El titular eligió sharvard mujer y davefx
+    con el ajuste natural (`~/.eolfi/voz.json`; copia previa en `voz.json.antes-piper-20261119`).
+  - **Chat**:
+    - Los adjuntos se guardan con su nombre real (`samples/adjuntos/<sha>/<nombre>`).
+    - Se recuerdan durante toda la conversación (`adjuntos_previos`).
+    - Si el modelo pasa solo el nombre, el chat lo traduce a la ruta.
+    - Nueva herramienta `eolfi_extraer_archivo` (`eolfi/archivos.py`): extracción segura de zip/tar, sin ejecutar nada.
+    - El prompt ordena actuar con «adelante» y no dar un proyecto por hecho sin su estado.
+    - Los encargos a VS Code que pide el titular desde su equipo se aprueban solos; se desactiva con
+      `{"auto_aprobar_encargos": false}` en `~/.eolfi/chat.json`.
+  - **Micrófono**:
+    - `eolfi voz microfonos` y `GET /api/voz/microfonos` leen de Core Audio cuál es el predeterminado, y si está silenciado, desconectado o con poco volumen.
+    - Si la grabación es silencio, se dice qué revisar en vez de «no se entendió».
+    - El panel muestra con qué micrófono graba.
+    - En este equipo, «Micrófono (High Definition Audio Device)» está activo, es el predeterminado, sin silenciar y al 100 %, pero graba silencio (pico 1 de 32767); la segunda toma de micrófono y la entrada de línea figuran como desconectadas. Probablemente es la conexión física. Voz real: NO VERIFICADO.
+  - **robots.txt con el sitio caído (19/11, misma rama, sin confirmar aún):** celtiaia.com daba 502 también en
+    `robots.txt`; el aviso decía «no permite». Ahora `Fetcher.get` dice la causa («robots.txt respondió 502 … vuelve a
+    intentarlo») y `eolfi web` lo muestra sin traza (la CLI captura `FetchError`). Pruebas en `tests/test_phase4.py`.
+    C3 en sitio público hecho con es.wikipedia.org y E2 en vivo con Gemma Q5 (detalles en `PLAN_DEFINITIVO.md`).
+    Copia `eolfi/eolas_v2.py.pre-alejandria-20261118` idéntica a HEAD: registrada como LIM-049, no se toca.
+  - **B6 con modelo real (19/11):** `create --juez --ai --provider eolas-v2` (Gemma 12B Q5) en verde a la primera
+    ronda, juez 8/8, memoria de ejemplos verificados escrita. Reparación desde el mejor intento con modelo real: NO
+    VERIFICADO (no hizo falta segunda ronda). e2e: la primera vez se colgó (04:30, parada); repetido, 28/28.
+  - **B7 ronda completa real (19/11, solo Gemma Q5 por decisión del titular):** `eolas-v2 examen gemma`, 22 min,
+    26/26 a la primera (código 18/18, herramientas 8/8) → aprobado y admitido; `recomendar-perfil` = `gemma` sin
+    aplicar (ya era el activo). Al terminar, Eolas dejó Gemma Q5 arrancada (PID 21692, con vigilante de inactividad).
+    Cerrado a petición del titular el panel 8778 (sobrante). Pendiente: Q4 y otros perfiles; el banco satura al 100 %.
+  - **G1, elección por el modelo real (19/11):** Gemma Q5 en el chat de 8777 elige sola `eolfi_modelos_auditar` para un
+    GGUF y para una carpeta, y `eolfi_triage` (no el auditor) para `notepad.exe`: 3/3. Respuesta con dos pasos de más
+    («legítima» y el hash de la carpeta tomado como prueba de origen). Evidencia en `informes/modelos-g-2026-11-16/`.
+  - **Galaxy Tab 2 (GT-P3100)**:
+    - La tableta tiene Android 4.1.2 (API 16), con el último firmware oficial P3100XXDMC1, y una GPU PowerVR SGX540 (GLES 2.0).
+    - Daggerfall Unity 1.1.1.9 exige API 23 y GLES 3.0: `adb install` → `INSTALL_FAILED_OLDER_SDK`.
+    - Una ROM no oficial subiría Android, pero no la GPU: el juego seguiría sin arrancar.
 
 - **B1 juez .NET (18/11, rama `luis/b1-juez-dotnet`):** criterios `"escritorio": true` (pulsar, seleccionar,
   escribir, comprobar presente/ausente) conducidos con UI Automation sobre el ejecutable Avalonia. Real: la app
@@ -75,6 +261,49 @@
   «encargo_como_hecho» si el chat da por creada una app pendiente. Pruebas: `tests/test_encargos_vscode.py`
   (integración real con VS Code simulado: aprobar desde VS Code genera un estático verificado) y
   `eolfi/vscode-bridge/test/encargos.test.js`. Con un VS Code real: **NO VERIFICADO**.
+  **19/11, prueba real (VS Code 1.146 abierto en `D:\Eolfi-proyectos-vscode`, chat con Gemma en 8777):**
+  1. Primer intento: el modelo no llamó a la herramienta, porque dijo que el puente no respondía. El estado se
+     comprueba una vez por turno, justo al abrir VS Code. Repetido con VS Code ya arrancado, sí la llama.
+  2. Fallo 1, corregido en local: la aprobación automática del titular usaba
+     `origen="titular (chat, aprobación automática)"`, que `encargos_vscode.decidir` rechaza (solo panel o
+     vscode). El encargo se quedaba pendiente con la herramienta en ERROR y la prueba no lo detectaba porque
+     simulaba `decidir`. Ahora existe el origen `chat`, una prueba pasa por el `decidir` real y el panel lo
+     rotula. Además la traza del chat guarda el texto del error de cada herramienta, no solo `ok: false`.
+  3. Fallo 2, sin resolver: aprobado y arrancado, el trabajo falla en «generar» con
+     `PlanError: no hay fuentes analizadas`. `propose_plan` acepta una descripción sin fuentes y promete
+     «el primer proyecto se derivará del prompt», pero `build_spec` y `create_project` exigen al menos una fuente.
+     Crear desde solo una descripción no está implementado; el chat informó del fallo con honestidad en el turno
+     siguiente.
+  Por tanto, crear desde VS Code real sigue **NO VERIFICADO**.
+  **20/11, crear sin fuentes (pedido por el titular), en local y sin commit:**
+  - Qué se añadió:
+    - `spec_from_description` en `eolfi/generador/spec.py`: base marcada `from_description`, sin copiar la
+      descripción, con tecnología `static` si no se pide otra.
+    - `create_project(..., description=...)` en `eolfi/flows/create_flow.py`: sin fuentes, la IA (assist) recibe la
+      descripción y las instrucciones como encargo. Si no deja lo pedido en verde, o no hay motor, la verificación
+      NO queda en verde y se registra una incógnita.
+    - El paso «generar» del plan ya no falla por «no hay fuentes analizadas» cuando el plan no tiene fuentes.
+    - Espera a Eolas en dos sitios, hasta `EOLFI_ESPERA_IA_SEG` (1200 s): el assist del proyecto, porque el
+      encargo nace dentro de un turno de chat que retiene el motor; y el chat (`EolfiApp._eolas_en_turno`), porque
+      el titular pidió que el segundo trabajo cargue solo en vez de fallar. La espera del chat es cancelable.
+    - Mensajes traducidos.
+    - 9 pruebas nuevas en `tests/test_project_flow.py` y `tests/test_chat_herramientas.py`.
+  - Prueba real (encargo `cce24ac9`, `D:\Eolfi-proyectos-vscode\notas-rapidas-2`, Gemma 4 12B Q4):
+    - El chat encarga, se aprueba solo y arranca; espera a que Eolas quede libre (43 s).
+    - La base se genera y se verifica (pruebas y juez funcional 3/3).
+    - Gemma hace 3 rondas de unos 10 a 16 minutos cada una:
+      1. Se corta por longitud.
+      2. Rompe la prueba de enlaces de `index.html`.
+      3. Edita la propia prueba y la deja con un error de sintaxis.
+    - Sin verde, Eolfi restaura la base y marca el encargo como fallido y NO VERIFICADO.
+  - El flujo de punta a punta funciona y es honesto; la app pedida NO se consiguió con este modelo.
+  - Pendientes:
+    - Impedir que assist edite las pruebas de la plantilla.
+    - Rondas más cortas o un modelo más capaz para código; por ejemplo Nemotron Dory 4B, que necesita el fork de
+      llama.cpp y un GGUF.
+    - Restos para revisar: `notas-rapidas` (base del intento con `EolasBusy`) y `notas-rapidas-2` (base restaurada).
+  - Nota: el panel de 8777 lo sirve un `serve --reload` (pid 10224) que no corta trabajos en curso. Mis «reinicios» con
+    pid fallaban: el puerto ya estaba ocupado.
 - **C4 idioma de los proyectos generados (18/11, rama `luis/c4-i18n`):** `create --idioma-proyecto en` (API
   `idioma_proyecto`, selector del panel) genera interfaz, errores, ayuda de la CLI y nombres de las pruebas en
   inglés en los 13 destinos (`eolfi/generador/textos.py`, traducción en el escritor; castellano por defecto sin
@@ -144,11 +373,12 @@
   `#version` y el `change` del selector se perdía (0 subidas). `initEolasChat` procesa lo ya elegido y marca
   `data-ready`; prueba de regresión que retrasa el módulo.
 
-- **C1 idiomas, parcial (17/11, rama `luis/c1-idiomas`):** panel con selector ES/EN (`eolfi/web/i18n.js` +
+- **C1 idiomas, primera etapa superada (17/11, rama `luis/c1-idiomas`):** panel con selector ES/EN (`eolfi/web/i18n.js` +
   `i18n-en.json`, 289/289 textos fijos; nunca traduce chats, evidencias ni casos), API con `?lang`/cookie/
   `Accept-Language` (61/61 errores fijos, `Content-Language`) y CLI con `--idioma en` (129/129 ayudas de
   subcomandos). Castellano por defecto. Verificado en el navegador (vista previa en 8791 con base temporal) y con
-  e2e 22/22. Pendiente: textos dinámicos del JS, errores con partes variables y ayuda de argumentos. Corregidos a
+  e2e 22/22. Los textos dinámicos del JS, errores con partes variables y ayuda de argumentos se completaron después
+  (véase la entrada C1 del 18/11 arriba). Corregidos a
   castellano dos mensajes de la API que estaban en gallego («Abre VS Code y vincula la extensión de Eolfi.»,
   «Mensaje o proyecto no válido.») y dos
   avisos del chat local del panel (`app.js`), con su traducción al inglés en el catálogo.

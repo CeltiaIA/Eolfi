@@ -67,7 +67,10 @@ def carpeta_modelos(carpeta: Path, limite: int = 200) -> dict[str, Any]:
                 pass
         modelos.append(item)
     return {
-        "carpeta": str(carpeta), "archivos": len(archivos), "subcarpetas": [p.name for p in subcarpetas][:limite],
+        "carpeta": str(carpeta), "procedencia": "NO VERIFICADO",
+        "limites": ["El nombre de la carpeta y los SHA-256 de archivos laterales son datos locales. "
+                    "Este inventario no contrasta el origen con una referencia independiente."],
+        "archivos": len(archivos), "subcarpetas": [p.name for p in subcarpetas][:limite],
         "modelos_gguf": modelos[:limite], "modelos_omitidos": max(0, len(modelos) - limite),
         "otros_archivos": [p.name for p in archivos if p.suffix.lower() != ".gguf"][:limite],
         "siguiente_paso": "Audita cada modelo con eolfi_modelos_auditar y su ruta (lee el archivo entero: puede "
@@ -87,6 +90,34 @@ def _obj(props: dict[str, Any], required: list[str] | None = None) -> dict[str, 
 
 
 _STR = {"type": "string"}
+
+
+def _validar_argumentos(args: Any, schema: dict[str, Any]) -> None:
+    """Aplica las restricciones de los esquemas planos publicados por este servidor."""
+    if not isinstance(args, dict):
+        raise ToolError("arguments debe ser un objeto")
+    props = schema.get("properties", {})
+    for key in schema.get("required", []):
+        if key not in args:
+            raise ToolError(f"falta el argumento requerido: {key}")
+    for key, value in args.items():
+        if key not in props:
+            if schema.get("additionalProperties") is False:
+                raise ToolError(f"argumento no admitido: {key}")
+            continue
+        spec = props[key]
+        tipo = spec.get("type")
+        if tipo == "string" and not isinstance(value, str):
+            raise ToolError(f"{key} debe ser un texto")
+        if tipo == "integer":
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ToolError(f"{key} debe ser un entero")
+            if "minimum" in spec and value < spec["minimum"]:
+                raise ToolError(f"{key} no puede ser menor que {spec['minimum']}")
+            if "maximum" in spec and value > spec["maximum"]:
+                raise ToolError(f"{key} no puede ser mayor que {spec['maximum']}")
+        if "enum" in spec and value not in spec["enum"]:
+            raise ToolError(f"valor no admitido para {key}")
 
 
 class EolfiMCP:
@@ -363,8 +394,9 @@ class EolfiMCP:
         if not entry:
             raise KeyError(name)
         try:
+            _validar_argumentos(args, entry[0]["inputSchema"])
             with contextlib.redirect_stdout(sys.stderr):   # nada de los flujos ensucia el protocolo
-                res = entry[1](args or {})
+                res = entry[1](args)
         except ToolError as exc:
             return {"content": [{"type": "text", "text": f"Error: {exc}"}], "isError": True}
         except (FileNotFoundError, ValueError, PermissionError, OSError) as exc:
@@ -383,9 +415,11 @@ class EolfiMCP:
     def handle(self, msg: Any) -> dict[str, Any] | None:
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not isinstance(msg.get("method"), str):
             return _err(msg.get("id") if isinstance(msg, dict) else None, -32600, "petición no válida")
-        mid, method, params = msg.get("id"), msg["method"], msg.get("params") or {}
+        mid, method, params = msg.get("id"), msg["method"], msg.get("params", {})
         if mid is None:   # notificación: sin respuesta
             return None
+        if not isinstance(params, dict):
+            return _err(mid, -32602, "params debe ser un objeto")
         if method == "initialize":
             asked = params.get("protocolVersion")
             ver = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
@@ -405,7 +439,7 @@ class EolfiMCP:
             return _ok(mid, {"tools": [t for t, _ in self.tools.values()]})
         if method == "tools/call":
             name = params.get("name")
-            args = params.get("arguments") or {}
+            args = params.get("arguments", {})
             if not isinstance(args, dict):
                 return _err(mid, -32602, "arguments debe ser un objeto")
             try:

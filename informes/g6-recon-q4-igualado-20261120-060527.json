@@ -1,0 +1,721 @@
+{
+  "protocol": "ronda completa: código (8) + tareas nuevas (6) + inéditos (6) + herramientas reales de Eolfi (8); aprobado = ≥85 % a la primera en código y en herramientas",
+  "battery": "completa",
+  "results": [
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "palindromo",
+      "case_label": "Código · generar (palíndromo)",
+      "kind": "codigo",
+      "question": "Escribe en Python la función es_palindromo(texto) que devuelva True si el texto es un palíndromo ignorando mayúsculas, espacios, signos de puntuación y tildes (á→a, ü→u…), y False si no.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 780,
+        "salida": 521
+      },
+      "answer": "```python\nimport unicodedata\n\ndef es_palindromo(texto):\n    # Normalizar para separar tildes (NFD) y convertir a minúsculas\n    texto_normalizado = unicodedata.normalize('NFD', texto).lower()\n    \n    # Filtrar para mantener solo caracteres alfanuméricos\n    # Esto elimina espacios, signos de puntuación y los acentos ya separados\n    limpio = \"\".join(c for c in texto_normalizado if c.isalnum())\n    \n    # Comparar la cadena con su versión invertida\n    return limpio == limpio[::-1]\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 58.72
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "cabecera_binaria",
+      "case_label": "Código · desempaquetar (cabecera binaria)",
+      "kind": "codigo",
+      "question": "Escribe en Python leer_cabecera(datos) que reciba bytes y desempaquete con el módulo struct una cabecera little-endian de 10 bytes: version (entero sin signo de 2 bytes), tamano (entero sin signo de 4 bytes) y firma (4 bytes ASCII). Devuelve un dict con las claves version, tamano y firma (str). Si datos tiene menos de 10 bytes, lanza ValueError.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 856,
+        "salida": 539
+      },
+      "answer": "```python\nimport struct\n\ndef leer_cabecera(datos):\n    if len(datos) < 10:\n        raise ValueError(\"Los datos deben tener al menos 10 bytes.\")\n    \n    # < : little-endian\n    # H : unsigned short (2 bytes)\n    # I : unsigned int (4 bytes)\n    # 4s: 4 bytes for the string\n    version, tamano, firma_bytes = struct.unpack('<H I 4s', datos[:10])\n    \n    return {\n        \"version\": version,\n        \"tamano\": tamano,\n        \"firma\": firma_bytes.decode('ascii')\n    }\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 60.47
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "base64_zlib",
+      "case_label": "Código · desempaquetar (base64 + zlib)",
+      "kind": "codigo",
+      "question": "Escribe en Python desempaquetar(texto) que reciba una cadena base64 cuyo contenido son datos comprimidos con zlib y devuelva el texto original decodificado como UTF-8.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 748,
+        "salida": 504
+      },
+      "answer": "```python\nimport base64\nimport zlib\n\ndef desempaquetar(texto):\n    if not texto:\n        return \"\"\n    \n    # Decodificar de base64 a bytes\n    compressed_data = base64.b64decode(texto)\n    \n    # Descomprimir con zlib\n    decompressed_data = zlib.decompress(compressed_data)\n    \n    # Decodificar bytes a string UTF-8\n    return decompressed_data.decode('utf-8')\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 57.36
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "construir_url",
+      "case_label": "Código · construir (URL)",
+      "kind": "codigo",
+      "question": "Escribe en Python construir_url(base, ruta, params) que una base y ruta con exactamente una barra entre ellas y, si params (dict) no está vacío, añada '?' y la consulta con las claves ordenadas alfabéticamente y codificada como urllib.parse.urlencode. Si params está vacío, sin '?'.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 806,
+        "salida": 596
+      },
+      "answer": "```python\nimport urllib.parse\n\ndef construir_url(base, ruta, params):\n    # Asegurar que haya exactamente una barra entre base y ruta\n    # Eliminamos barras al final de base y al inicio de ruta para unirlas con una sola /\n    base_clean = base.rstrip('/')\n    ruta_clean = ruta.lstrip('/')\n    url = f\"{base_clean}/{ruta_clean}\"\n    \n    if params:\n        # urlencode con doseq=False por defecto, pero ordenamos las llaves alfabéticamente\n        # El comportamiento de urlencode con un diccionario ya mantiene el orden si se pasan los items\n        # pero para asegurar orden alfabético de las llaves:\n        sorted_params = {k: params[k] for k in sorted(params.keys())}\n        query = urllib.parse.urlencode(sorted_params)\n        return f\"{url}?{query}\"\n    \n    return url\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 68.16
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "arbol_rutas",
+      "case_label": "Código · construir (árbol de rutas)",
+      "kind": "codigo",
+      "question": "Escribe en Python construir_arbol(rutas) que reciba una lista de rutas como 'a/b/c' y devuelva un diccionario anidado en el que cada parte de la ruta es una clave y las hojas son diccionarios vacíos.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 776,
+        "salida": 544
+      },
+      "answer": "```python\ndef construir_arbol(rutas):\n    arbol = {}\n    for ruta in rutas:\n        segmentos = ruta.split('/')\n        nodo_actual = arbol\n        for i, segmento in enumerate(segmentos):\n            if i == len(segmentos) - 1:\n                # Es el último segmento de la ruta actual, debe ser un diccionario vacío\n                nodo_actual[segmento] = {}\n            else:\n                # No es el último, debe ser un diccionario que contenga el siguiente nivel\n                if segmento not in nodo_actual:\n                    nodo_actual[segmento] = {}\n                nodo_actual = nodo_actual[segmento]\n    return arbol\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 62.97
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "ofuscado",
+      "case_label": "Código · ingeniería inversa (función ofuscada)",
+      "kind": "codigo",
+      "question": "Esta función está ofuscada: f = lambda n: sum(i*i for i in range(n) if not i % 3). Escribe en Python una función legible equivalente llamada equivalente(n), con un bucle normal, que devuelva exactamente lo mismo para todo entero n >= 0.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 792,
+        "salida": 432
+      },
+      "answer": "```python\ndef equivalente(n):\n    total = 0\n    for i in range(n):\n        if i % 3 == 0:\n            total += i * i\n    return total\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 55.05
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "busqueda_binaria",
+      "case_label": "Código · corregir (búsqueda binaria)",
+      "kind": "codigo",
+      "question": "Esta búsqueda binaria en Python tiene un fallo:\ndef buscar(xs, x):\n    lo, hi = 0, len(xs)\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if xs[mid] < x:\n            lo = mid\n        else:\n            hi = mid\n    return lo if lo < len(xs) and xs[lo] == x else -1\nCorrígela: debe devolver el índice de x en la lista ordenada xs, o -1 si no está. Mantén el nombre buscar(xs, x).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 924,
+        "salida": 481
+      },
+      "answer": "```python\ndef buscar(xs, x):\n    lo, hi = 0, len(xs) - 1\n    while lo <= hi:\n        mid = (lo + hi) // 2\n        if xs[mid] == x:\n            return mid\n        if xs[mid] < x:\n            lo = mid + 1\n        else:\n            hi = mid - 1\n    return -1\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 58.92
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "parsear_log",
+      "case_label": "Código · analizar (línea de log)",
+      "kind": "codigo",
+      "question": "Escribe en Python parsear_log(linea) que reciba líneas como '2026-11-12 03:41:05 [ERROR] fallo de disco en /dev/sda' y devuelva un dict con fecha ('2026-11-12'), hora ('03:41:05'), nivel ('ERROR') y mensaje (el resto del texto). Si la línea no tiene ese formato, devuelve None.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 866,
+        "salida": 599
+      },
+      "answer": "```python\nimport re\n\ndef parsear_log(linea):\n    # El patrón busca:\n    # 1. Fecha (YYYY-MM-DD)\n    # 2. Espacio\n    # 3. Hora (HH:MM:SS)\n    # 4. Espacio\n    # 5. Nivel entre corchetes [LEVEL]\n    # 6. Espacio\n    # 7. Mensaje (el resto)\n    pattern = r'^(\\d{4}-\\d{2}-\\d{2}) (\\d{2}:\\d{2}:\\d{2}) \\[(\\w+)\\] (.+)$'\n    match = re.match(pattern, linea)\n    \n    if match:\n        fecha, hora, nivel, mensaje = match.groups()\n        return {\n            'fecha': fecha,\n            'hora': hora,\n            'nivel': nivel,\n            'mensaje': mensaje\n        }\n    return None\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 71.31
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "fusion_intervalos",
+      "case_label": "Nuevo · fusionar intervalos",
+      "kind": "codigo_nuevo",
+      "question": "Escribe en Python fusionar(intervalos) que reciba una lista de pares [inicio, fin] (enteros, inicio <= fin), sin orden, y devuelva la lista de intervalos fusionados donde se solapan o se tocan, ordenada por inicio, como lista de listas.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 783,
+        "salida": 549
+      },
+      "answer": "```python\ndef fusionar(intervalos):\n    if not intervalos:\n        return []\n\n    # Ordenar los intervalos por el valor de inicio\n    sorted_intervals = sorted(intervalos, key=lambda x: x[0])\n    \n    merged = []\n    for current in sorted_intervals:\n        # Si la lista está vacía o el intervalo actual no se solapa/toca con el último añadido\n        if not merged or current[0] > merged[-1][1]:\n            merged.append(current)\n        else:\n            # Fusionar con el último intervalo de la lista de resultados\n            merged[-1][1] = max(merged[-1][1], current[1])\n            \n    return merged\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 61.03
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "csv_totales",
+      "case_label": "Nuevo · totales de un CSV",
+      "kind": "codigo_nuevo",
+      "question": "Escribe en Python totales(texto_csv) que reciba el texto de un CSV con cabecera producto,cantidad,precio y devuelva un dict producto -> importe total (cantidad*precio, sumando filas repetidas), redondeado a 2 decimales. Ignora las líneas vacías.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 787,
+        "salida": 541
+      },
+      "answer": "```python\nimport csv\nimport io\n\ndef totales(texto_csv):\n    f = io.StringIO(texto_csv.strip())\n    reader = csv.DictReader(f)\n    resultados = {}\n    \n    for fila in reader:\n        producto = fila['producto']\n        if not producto:\n            continue\n        \n        cantidad = float(fila['cantidad'])\n        precio = float(fila['precio'])\n        importe = cantidad * precio\n        \n        if producto in resultados:\n            resultados[producto] += importe\n        else:\n            resultados[producto] = importe\n            \n    return {k: round(v, 2) for k, v in resultados.items()}\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 65.08
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "rot13_bytes",
+      "case_label": "Nuevo · descifrar XOR",
+      "kind": "codigo_nuevo",
+      "question": "Escribe en Python descifrar(datos, clave) que reciba bytes cifrados con XOR repitiendo la clave (bytes) y devuelva los bytes originales. Si la clave está vacía, lanza ValueError.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 754,
+        "salida": 466
+      },
+      "answer": "```python\ndef descifrar(datos, clave):\n    if not clave:\n        raise ValueError(\"La clave no puede estar vacía.\")\n    \n    resultado = bytearray()\n    for i in range(len(datos)):\n        resultado.append(datos[i] ^ clave[i % len(clave)])\n    \n    return bytes(resultado)\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 58.72
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "version_semver",
+      "case_label": "Nuevo · comparar versiones",
+      "kind": "codigo_nuevo",
+      "question": "Escribe en Python comparar_versiones(a, b) para cadenas como '1.10.2' y '1.9' (números separados por puntos; faltantes cuentan como 0). Devuelve -1 si a < b, 0 si son iguales y 1 si a > b.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 795,
+        "salida": 562
+      },
+      "answer": "```python\ndef comparar_versiones(a, b):\n    parts_a = [int(x) for x in a.split('.')]\n    parts_b = [int(x) for x in b.split('.')]\n    \n    max_len = max(len(parts_a), len(parts_b))\n    \n    for i in range(max_len):\n        val_a = parts_a[i] if i < len(parts_a) else 0\n        val_b = parts_b[i] if i < len(parts_b) else 0\n        \n        if val_a > val_b:\n            return 1\n        if val_a < val_b:\n            return -1\n            \n    return 0\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 67.28
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "aplanar",
+      "case_label": "Nuevo · aplanar listas anidadas",
+      "kind": "codigo_nuevo",
+      "question": "Escribe en Python aplanar(datos) que reciba una lista con elementos o listas anidadas a cualquier profundidad y devuelva una lista plana con los elementos en el mismo orden (las cadenas no se descomponen).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 754,
+        "salida": 444
+      },
+      "answer": "```python\ndef aplanar(datos):\n    resultado = []\n    for elemento in datos:\n        if isinstance(elemento, list):\n            resultado.extend(aplanar(elemento))\n        else:\n            resultado.append(elemento)\n    return resultado\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 56.78
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "corregir_media",
+      "case_label": "Nuevo · corregir una media móvil",
+      "kind": "codigo_nuevo",
+      "question": "Esta función en Python tiene un fallo:\ndef media_movil(xs, n):\n    return [sum(xs[i:i + n]) / n for i in range(len(xs))]\nCorrígela: debe devolver la media de cada ventana COMPLETA de n elementos consecutivos (len(xs)-n+1 valores) y una lista vacía si n > len(xs). Mantén el nombre media_movil(xs, n).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 862,
+        "salida": 450
+      },
+      "answer": "```python\ndef media_movil(xs, n):\n    if n > len(xs) or n <= 0:\n        return []\n    return [sum(xs[i:i + n]) / n for i in range(len(xs) - n + 1)]\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 53.95
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "restar_intervalos",
+      "case_label": "Inédito · diferencia de intervalos",
+      "kind": "inedito",
+      "question": "Escribe restar_intervalos(base, cortes) en Python. Cada argumento es una lista desordenada de pares enteros (a,b) con a <= b que representan intervalos [a,b). Devuelve la unión de base menos la unión de cortes, en pares ordenados, sin vacíos y fusionando adyacentes. Conserva las entradas.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 814,
+        "salida": 1084
+      },
+      "passed": false,
+      "first_try": false,
+      "error": "La evaluación se truncó por límite de salida; no se puntúa como respuesta válida",
+      "seconds": 112.25,
+      "answer": "```python\ndef restar_intervalos(base, cortes):\n    def merge_intervals(intervals):\n        if not intervals:\n            return []\n        # Sort by start point\n        sorted_intervals = sorted(intervals, key=lambda x: x[0])\n        merged = []\n        curr_start, curr_end = sorted_intervals[0]\n        for next_start, next_end in sorted_intervals[1:]:\n            if next_start <= curr_end:\n                curr_end = max(curr_end, next_end)\n            else:\n                if curr_start < curr_end:\n                    merged.append((curr_start, curr_end))\n                curr_start, curr_end = next_start, next_end\n        if curr_start < curr_end:\n            merged.append((curr_start, curr_end))\n        return merged\n\n    # Step 1: Merge base intervals to get a clean union\n    base_union = merge_intervals(base)\n    # Step 2: Merge cut intervals to get a clean union\n    cut_union = merge_intervals(cortes)\n\n    result = []\n    for b_start, b_end in base_union:\n        current_segments = [(b_start, b_end)]\n        \n        # Subtract each cut from the current set of segments\n        for c_start, c_end in cut_union:\n            new_segments = []\n            for s_start, s_end in current_segments:\n                # If no overlap\n                if c_end <= s_start or c_start >= s_end:\n                    new_segments.append((s_start, s_end))\n                else:\n                    # Part before the cut\n                    if s_start < c_start:\n                        new_segments.append((s_start, c_start))\n                    # Part after the cut\n                    if s_end > c_end:\n                        new_segments.append((c_end, s_end))\n            current_segments = new_segments\n        \n        result.extend(current_segments)\n\n    # Final pass to merge adjacent intervals (e.g., (1,2) and (2,3) -> (1,3))\n    # This handles cases where a cut might have split a base into two adjacent parts\n    # or where multiple base intervals were adjacent.\n    if not result:\n        return []\n    \n    result.sort()\n    final_merged = []\n    if result:\n        curr_s, curr_e = result[0]\n        for i in range(1, len(result)):\n            next_s, next_e = result[i]\n            if next_s <= curr_e:\n                curr_e = max(curr_e, next_e)\n            else:\n                if curr_s < curr_e:\n                    final_merged.append((curr_s, curr_e))\n                curr_s, curr_e = next_s, next_e\n        if curr_s < curr_e:\n            final_merged.append((curr_",
+      "truncado": true
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "repartir_centimos",
+      "case_label": "Inédito · reparto exacto por restos",
+      "kind": "inedito",
+      "question": "Escribe repartir_centimos(total, pesos). total es un entero no negativo. pesos es una lista de enteros no negativos con suma positiva. Reparte el total en proporción al peso: asigna primero la parte entera de cada cuota y reparte los céntimos sobrantes por resto descendente. Desempata por índice ascendente. Devuelve una lista de enteros exactos incluso con totales superiores a 2**53.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 846,
+        "salida": 859
+      },
+      "answer": "```python\nfrom decimal import Decimal, getcontext\n\ndef repartir_centimos(total, pesos):\n    getcontext().prec = 100\n    \n    suma_pesos = sum(pesos)\n    # Usamos Decimal para evitar errores de precisión de punto flotante\n    # con números grandes y para calcular los restos de forma exacta.\n    \n    # 1. Calcular partes enteras iniciales\n    # La parte entera de (peso * total / suma_pesos)\n    # Para evitar decimales, usamos división entera: (peso * total) // suma_pesos\n    partes_enteras = [(p * total) // suma_pesos for p in pesos]\n    \n    # 2. Calcular el sobrante\n    sobrante = total - sum(partes_enteras)\n    \n    if sobrante == 0:\n        return partes_enteras\n    \n    # 3. Determinar quién recibe los céntimos sobrantes.\n    # El criterio es el resto de (peso * total) % suma_pesos.\n    # Si hay empate en el resto, el índice menor gana (desempate por índice ascendente).\n    # Para implementar \"repartir por resto descendente y desempate por índice ascendente\",\n    # ordenamos los índices basándonos en (resto DESC, índice ASC).\n    \n    restos = [( (p * total) % suma_pesos, i) for i, p in enumerate(pesos)]\n    \n    # Ordenamos los índices:\n    # Primero por resto (descendente), luego por índice (ascendente).\n    # Para el resto descendente en una función de ordenamiento, usamos el valor negativo.\n    indices_ordenados = sorted(range(len(pesos)), \n                                key=lambda i: (-(restos[i][0]), i))\n    \n    # 4. Repartir el sobrante\n    for i in range(sobrante):\n        idx = indices_ordenados[i]\n        partes_enteras[idx] += 1\n        \n    return partes_enteras\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 96.2
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "romano",
+      "case_label": "Inédito · números romanos",
+      "kind": "inedito",
+      "question": "Escribe en Python romano(n) que devuelva el número romano (mayúsculas) de un entero 1 ≤ n ≤ 3999 con las restas canónicas (IV, IX, XL, XC, CD, CM). Si n está fuera de rango, lanza ValueError.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 786,
+        "salida": 637
+      },
+      "answer": "```python\ndef romano(n):\n    if not (1 <= n <= 3999):\n        raise ValueError(\"El número debe estar en el rango 1-3999.\")\n    \n    # Mapeo de valores y sus representaciones romanas correspondientes\n    # Incluye las restas canónicas (CM, CD, XC, XL, IX, IV)\n    mapping = [\n        (1000, \"M\"),\n        (900, \"CM\"),\n        (500, \"D\"),\n        (400, \"CD\"),\n        (100, \"C\"),\n        (90, \"XC\"),\n        (50, \"L\"),\n        (40, \"XL\"),\n        (10, \"X\"),\n        (9, \"IX\"),\n        (5, \"V\"),\n        (4, \"IV\"),\n        (1, \"I\")\n    ]\n    \n    result = \"\"\n    for value, symbol in mapping:\n        while n >= value:\n            result += symbol\n            n -= value\n            \n    return result\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 79.81
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "rle_bytes",
+      "case_label": "Inédito · compresión RLE de bytes",
+      "kind": "inedito",
+      "question": "Escribe en Python rle_bytes(data: bytes) -> bytes que codifique por longitud de racha: por cada racha de un mismo byte emite dos bytes (longitud, valor), con longitud máxima 255 (las rachas más largas se parten). b'' devuelve b''.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 790,
+        "salida": 1084
+      },
+      "passed": false,
+      "first_try": false,
+      "error": "La evaluación se truncó por límite de salida; no se puntúa como respuesta válida",
+      "seconds": 107.19,
+      "answer": "```python\ndef rle_bytes(data: bytes) -> bytes:\n    if not data:\n        return b''\n    \n    result = bytearray()\n    i = 0\n    n = len(data)\n    \n    while i < n:\n        current_byte = data[i]\n        count = 0\n        \n        # Contar la racha del byte actual\n        while i + count < n and data[i + count] == current_byte:\n            count += 1\n        \n        # Dividir la racha en bloques de máximo 255\n        while count > 0:\n            chunk_size = min(count, 255)\n            result.append(chunk_size)\n            result.append(current_byte)\n            count -= chunk_size\n        \n        i += (count + (count if count == 0 else 0)) # Este es un error de lógica mental, corregimos:\n        # El avance correcto es el número de elementos procesados en la racha original\n        # Pero como el bucle interno ya contó 'count' sobre la racha total:\n        # Re-estructuramos para claridad:\n        \n    # Re-implementación limpia para evitar errores de lógica en el salto de índice\n    pass\n\n# Re-escribiendo de forma limpia y correcta:\ndef rle_bytes(data: bytes) -> bytes:\n    if not data:\n        return b''\n    \n    result = bytearray()\n    i = 0\n    n = len(data)\n    \n    while i < n:\n        current_byte = data[i]\n        run_length = 0\n        while i + run_length < n and data[i + run_length] == current_byte:\n            run_length += 1\n        \n        # Procesar la racha encontrada\n        while run_length > 0:\n            chunk = min(run_length, 255)\n            result.append(chunk)\n            result.append(current_byte)\n            run_length -= chunk\n        \n        i += (run_length + (run_length if run_length == 0 else 0)) # No, el salto es el total de la racha\n        # El salto correcto es la cantidad de elementos que el bucle interno contó\n        # Vamos a hacerlo de forma más directa:\n    \n    # Versión final corregida:\n    return _rle_bytes_final(data)\n\ndef _rle_bytes_final(data: bytes) -> bytes:\n    result = bytearray()\n    i = 0\n    while i < len(data):\n        char = data[i]\n        count = 0\n        while i + count < len(data) and data[i + count] == char:\n            count += 1\n        \n        while count > 0:\n            chunk = min(count, 255)\n            result.append(chunk)\n            result.append(char)\n            count -= chunk\n        i += (count + (count if count == 0 else 0)) #",
+      "truncado": true
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "orden_topologico",
+      "case_label": "Inédito · orden topológico determinista",
+      "kind": "inedito",
+      "question": "Escribe en Python orden_topologico(dependencias: dict[str, list[str]]) -> list[str]. Cada clave es una tarea y su lista, las tareas que deben ir ANTES. Incluye también las tareas que solo aparecen como dependencia. Cuando varias estén disponibles a la vez, elige primero la menor alfabéticamente. Si hay un ciclo, lanza ValueError.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 820,
+        "salida": 836
+      },
+      "answer": "```python\nimport heapq\n\ndef orden_topologico(dependencias: dict[str, list[str]]) -> list[str]:\n    # Identificar todos los nodos únicos (claves y dependencias)\n    all_nodes = set(dependencias.keys())\n    for deps in dependencias.values():\n        for d in deps:\n            all_nodes.add(d)\n    \n    # Construir el grafo de adyacencia (quién depende de quién)\n    # y contar el grado de entrada (cuántas dependencias tiene cada tarea)\n    adj = {node: [] for node in all_nodes}\n    in_degree = {node: 0 for node in all_nodes}\n    \n    for task, deps in dependencias.items():\n        # El input dice que 'deps' son tareas que deben ir ANTES de 'task'\n        # Por lo tanto, la relación es: dep -> task\n        in_degree[task] = len(set(deps))\n        for d in set(deps):\n            adj[d].append(task)\n            \n    # Usar un min-heap para garantizar el orden alfabético entre tareas disponibles\n    # Las tareas disponibles son aquellas con in_degree == 0\n    ready_tasks = [node for node in all_nodes if in_degree[node] == 0]\n    heapq.heapify(ready_tasks)\n    \n    result = []\n    while ready_tasks:\n        current = heapq.heappop(ready_tasks)\n        result.append(current)\n        \n        for neighbor in adj[current]:\n            in_degree[neighbor] -= 1\n            if in_degree[neighbor] == 0:\n                heapq.heappush(ready_tasks, neighbor)\n                \n    # Si el resultado no contiene todos los nodos, hay un ciclo\n    if len(result) != len(all_nodes):\n        raise ValueError(\"Ciclo detectado en las dependencias\")\n        \n    return result\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 91.44
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "duracion",
+      "case_label": "Inédito · leer una duración",
+      "kind": "inedito",
+      "question": "Escribe en Python duracion(texto: str) -> int que convierta duraciones como '1h30m', '45s', '2h' o '1h0m5s' a segundos. Las unidades van en orden h, m, s, cada una como mucho una vez, y al menos una. Cualquier otro formato (vacío, unidades repetidas o desordenadas, números negativos) lanza ValueError.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 846,
+        "salida": 956
+      },
+      "answer": "```python\nimport re\n\ndef duracion(texto: str) -> int:\n    if not texto:\n        raise ValueError(\"El texto no puede estar vacío.\")\n    \n    # Expresión regular para capturar grupos de (número + unidad)\n    # Las unidades deben ser h, m, s en ese orden específico.\n    # El patrón busca números positivos seguidos de h, m o s.\n    pattern = r'(\\d+)([hms])'\n    \n    # Encontrar todas las coincidencias\n    matches = list(re.finditer(pattern, texto))\n    \n    # Validar que el texto solo contenga las coincidencias (sin caracteres extra)\n    # y que no haya números negativos o caracteres inválidos.\n    full_match_string = \"\".join(m.group(0) for m in matches)\n    if full_match_string != texto:\n        raise ValueError(\"Formato no válido o caracteres no permitidos.\")\n    \n    if not matches:\n        raise ValueError(\"No hay unidades válidas.\")\n\n    # Validar orden y repetición de unidades\n    # El orden debe ser h, luego m, luego s.\n    # Esto significa que la secuencia de unidades extraídas debe ser no decreciente\n    # en el orden h < m < s y no puede haber duplicados de la misma letra.\n    seen_units = []\n    total_seconds = 0\n    \n    # Definimos el orden de prioridad para validar orden y unicidad\n    unit_order = {'h': 0, 'm': 1, 's': 2}\n    \n    last_rank = -1\n    for m in matches:\n        value = int(m.group(1))\n        unit = m.group(2)\n        \n        if value < 0: # Aunque \\d+ no captura negativos, por seguridad\n            raise ValueError(\"Valor no permitido.\")\n            \n        current_rank = unit_order[unit]\n        \n        # Si el rango actual es menor al anterior, el orden es incorrecto\n        # Si el rango es igual, la unidad se repite\n        if current_rank <= last_rank:\n            raise ValueError(\"Orden incorrecto o unidad repetida.\")\n        \n        if unit == 'h':\n            total_seconds += value * 3600\n        elif unit == 'm':\n            total_seconds += value * 60\n        elif unit == 's':\n            total_seconds += value\n            \n        last_rank = current_rank\n        \n    return total_seconds\n```",
+      "test_output": "EOLFI-OK\n",
+      "repaired": false,
+      "passed": true,
+      "first_try": true,
+      "seconds": 100.95
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "identificar_binario",
+      "case_label": "Herramientas · identificar un binario",
+      "kind": "herramientas",
+      "question": "Identifica el archivo C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-3dmunnqv\\modulo.wasm con las herramientas de Eolfi: ¿qué formato tiene y cuál es su SHA-256? Devuelve SOLO JSON válido con las claves formato y sha256.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 7476,
+        "salida": 551
+      },
+      "formato_invalido": "la respuesta no es solo el objeto JSON pedido",
+      "answer": "",
+      "tool_calls": [
+        {
+          "name": "eolfi_triage",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"modo\": \"local\", \"ruta\": \"C:\\\\Users\\\\mejil\\\\AppData\\\\Local\\\\Temp\\\\eolfi-ronda-3dmunnqv\\\\modulo.wasm\"}"
+        },
+        {
+          "name": "ejecutar_python",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"codigo\": \"import hashlib\\n\\nfile_path = r\\\"C:\\\\Users\\\\mejil\\\\AppData\\\\Local\\\\Temp\\\\eolfi-ronda-3dmunnqv\\\\modulo.wasm\\\""
+        },
+        {
+          "name": "eolfi_triage",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"modo\": \"normal\", \"ruta\": \"C:\\\\Users\\\\mejil\\\\AppData\\\\Local\\\\Temp\\\\eolfi-ronda-3dmunnqv\\\\modulo.wasm\"}"
+        },
+        {
+          "name": "eolfi_biblioteca_buscar",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"consulta\": \"hash_sha256_modulo.wasm\"}"
+        },
+        {
+          "name": "ejecutar_python",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"codigo\": \"import hashlib\\nimport os\\n\\nfile_path = r\\\"C:\\\\Users\\\\mejil\\\\AppData\\\\Local\\\\Temp\\\\eolfi-ronda-3dmunnqv\\\\mo"
+        },
+        {
+          "name": "eolfi_triage",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"modo\": \"profundo\", \"ruta\": \"C:\\\\Users\\\\mejil\\\\AppData\\\\Local\\\\Temp\\\\eolfi-ronda-3dmunnqv\\\\modulo.wasm\"}"
+        }
+      ],
+      "required_tools": [
+        "eolfi_triage"
+      ],
+      "tools_ok": true,
+      "passed": false,
+      "first_try": false,
+      "seconds": 137.05
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "buscar_definicion",
+      "case_label": "Herramientas · encontrar una definición en Alejandría",
+      "kind": "herramientas",
+      "question": "Busca en la biblioteca Alejandría el archivo del corpus de Eolfi donde se DEFINE la clase AlexandriaLibrary (no donde solo se usa). Devuelve SOLO JSON válido con la clave ruta, tal como la da la herramienta.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 2235,
+        "salida": 61
+      },
+      "answer": "```json\n{\n  \"ruta\": \"corpus/codigo/Eolfi/eolfi/library.py\"\n}\n```",
+      "tool_calls": [
+        {
+          "name": "eolfi_biblioteca_buscar",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"consulta\": \"definición de la clase AlexandriaLibrary\"}"
+        }
+      ],
+      "required_tools": [
+        "eolfi_biblioteca_buscar",
+        "eolfi_biblioteca_leer"
+      ],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 25.19
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "leer_constante",
+      "case_label": "Herramientas · leer un valor en Alejandría",
+      "kind": "herramientas",
+      "question": "Lee en Alejandría el archivo de Eolfi que define la constante MAX_READ_CHARS y di su valor. Devuelve SOLO JSON válido con la clave valor (número).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 5736,
+        "salida": 86
+      },
+      "answer": "```json\n{\n  \"valor\": 30000\n}\n```",
+      "tool_calls": [
+        {
+          "name": "eolfi_biblioteca_buscar",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"consulta\": \"MAX_READ_CHARS\"}"
+        },
+        {
+          "name": "eolfi_biblioteca_leer",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"ruta\": \"corpus/codigo/Eolfi/eolfi/library.py\"}"
+        }
+      ],
+      "required_tools": [
+        "eolfi_biblioteca_buscar",
+        "eolfi_biblioteca_leer"
+      ],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 49.12
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "calcular_con_codigo",
+      "case_label": "Herramientas · calcular ejecutando código",
+      "kind": "herramientas",
+      "question": "Usa la herramienta ejecutar_python para calcular la suma de los cuadrados de todos los números primos menores que 1000. Devuelve SOLO JSON válido con la clave resultado (número).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 1314,
+        "salida": 141
+      },
+      "answer": "```json\n{\n  \"resultado\": 49345379\n}\n```",
+      "tool_calls": [
+        {
+          "name": "ejecutar_python",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"codigo\": \"def is_prime(n):\\n    if n < 2:\\n        return False\\n    for i in range(2, int(n**0.5) + 1):\\n        if n"
+        }
+      ],
+      "required_tools": [
+        "ejecutar_python"
+      ],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 19.64
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "reimplementar_de_biblioteca",
+      "case_label": "Herramientas · reimplementar lo que hay en Alejandría",
+      "kind": "herramientas",
+      "question": "Lee en Alejandría cómo normaliza Eolfi el texto en la búsqueda de su biblioteca (función _normal del archivo library.py de Eolfi) y escribe en Python una función normalizar(texto) que haga exactamente lo mismo. Pruébala con ejecutar_python antes de responder. Responde SOLO con el código final en un bloque ```python```.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 10175,
+        "salida": 349
+      },
+      "test_output": "EOLFI-OK\n",
+      "answer": "```python\nimport unicodedata\n\ndef normalizar(texto: str) -> str:\n    texto = unicodedata.normalize(\"NFKD\", texto.casefold())\n    return \"\".join(c for c in texto if not unicodedata.combining(c))\n```",
+      "tool_calls": [
+        {
+          "name": "eolfi_biblioteca_buscar",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"consulta\": \"función _normal en library.py de Eolfi\"}"
+        },
+        {
+          "name": "eolfi_biblioteca_leer",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"ruta\": \"corpus/codigo/Eolfi/eolfi/library.py\"}"
+        },
+        {
+          "name": "ejecutar_python",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"codigo\": \"import unicodedata\\n\\ndef normalizar(texto: str) -> str:\\n    texto = unicodedata.normalize(\\\"NFKD\\\", texto."
+        }
+      ],
+      "required_tools": [
+        "eolfi_biblioteca_buscar",
+        "eolfi_biblioteca_leer"
+      ],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 94.5
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "elegir_entre_varias",
+      "case_label": "Herramientas · elegir la correcta entre varias",
+      "kind": "herramientas",
+      "question": "Calcula el número de Fibonacci F(40), con F(1) = F(2) = 1. Devuelve SOLO JSON válido con la clave resultado (número).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 1467,
+        "salida": 298
+      },
+      "answer": "```json\n{\n  \"resultado\": 102334155\n}\n```",
+      "tool_calls": [
+        {
+          "name": "ejecutar_python",
+          "valid_args": true,
+          "ok": true,
+          "args": "{\"codigo\": \"def fib(n):\\n    a, b = 0, 1\\n    for _ in range(n):\\n        a, b = b, a + b\\n    return a\\n\\n# F(1)=1, F(2"
+        }
+      ],
+      "required_tools": [
+        "ejecutar_python"
+      ],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 35.84
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "sin_herramienta",
+      "case_label": "Herramientas · no usarlas cuando no hacen falta",
+      "kind": "herramientas",
+      "question": "¿Cuántos lados tiene un hexágono? Devuelve SOLO JSON válido con la clave lados (número).",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 574,
+        "salida": 17
+      },
+      "answer": "```json\n{\n  \"lados\": 6\n}\n```",
+      "tool_calls": [],
+      "required_tools": [],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 2.09
+    },
+    {
+      "profile": "gemma4_recon_q4",
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "case": "para_que_sirve_cada_una",
+      "case_label": "Herramientas · saber para qué sirve cada una",
+      "kind": "herramientas",
+      "question": "Sin llamar a ninguna herramienta, di cuál de las que tienes usarías para cada tarea: a) saber el formato y el SHA-256 de un archivo; b) localizar en qué archivo de la biblioteca aparece un nombre; c) ver el contenido de ese archivo; d) obtener un resultado numérico ejecutando código. Devuelve SOLO JSON válido con las claves a, b, c y d, y como valor el nombre exacto de la herramienta.",
+      "load_seconds": 30.17,
+      "tokens": {
+        "entrada": 645,
+        "salida": 64
+      },
+      "answer": "```json\n{\n  \"a\": \"eolfi_triage\",\n  \"b\": \"eolfi_biblioteca_buscar\",\n  \"c\": \"eolfi_biblioteca_leer\",\n  \"d\": \"ejecutar_python\"\n}\n```",
+      "tool_calls": [],
+      "required_tools": [],
+      "tools_ok": true,
+      "passed": true,
+      "first_try": true,
+      "seconds": 6.89
+    }
+  ],
+  "summary": {
+    "gemma4_recon_q4": {
+      "alias": "gemma-4-12b-it-q4_k_m-reconstruido:local",
+      "carga_s": 30.17,
+      "codigo": {
+        "casos": 8,
+        "primera": 8,
+        "final": 8
+      },
+      "codigo_nuevo": {
+        "casos": 6,
+        "primera": 6,
+        "final": 6
+      },
+      "inedito": {
+        "casos": 6,
+        "primera": 4,
+        "final": 4
+      },
+      "herramientas": {
+        "casos": 8,
+        "primera": 7,
+        "final": 7
+      },
+      "codigo_primera_pct": 90,
+      "herramientas_pct": 88,
+      "aprobado": true
+    }
+  },
+  "mejor": "gemma4_recon_q4",
+  "aprobados": [
+    "gemma4_recon_q4"
+  ],
+  "no_aprueban": [],
+  "aportes": "C:\\Users\\mejil\\.eolfi\\b7-ronda-20261120b\\aportes",
+  "restored_profile": null,
+  "ronda": "e72bcbd9-3a5a-439f-9bae-8d051c7194f1",
+  "casos_previstos": {
+    "palindromo": "08af25da6b90d65c",
+    "cabecera_binaria": "acf2199049cab97e",
+    "base64_zlib": "15de2b77d34fe291",
+    "construir_url": "d61b097f596be505",
+    "arbol_rutas": "21cc6e918f2ec9d6",
+    "ofuscado": "cd527af13d21d2ea",
+    "busqueda_binaria": "4df094dd6ff29ece",
+    "parsear_log": "1a6fe8ea829fd793",
+    "fusion_intervalos": "0bf6e8e78739980e",
+    "csv_totales": "7dc46817ecf510dc",
+    "rot13_bytes": "493e2c8cd41a227d",
+    "version_semver": "1bfab40090c5b0a2",
+    "aplanar": "3b525f9b5edc9d3e",
+    "corregir_media": "8eec56ff7d7bca9a",
+    "restar_intervalos": "6260d91739794eb0",
+    "repartir_centimos": "aa6c3c4576cf4269",
+    "romano": "1056350695a14507",
+    "rle_bytes": "6850f7d2eef288b4",
+    "orden_topologico": "180e42002c513ffd",
+    "duracion": "6ed4083a82ba9814",
+    "identificar_binario": "e470e9ddd9688e78",
+    "buscar_definicion": "55123f5ecefbcd63",
+    "leer_constante": "6d0cbcc319af33d8",
+    "calcular_con_codigo": "fdb02533b6984e56",
+    "reimplementar_de_biblioteca": "756932f6184adc12",
+    "elegir_entre_varias": "cef86e98bd6fe22a",
+    "sin_herramienta": "0b62731794ebf5d1",
+    "para_que_sirve_cada_una": "72d44f4f8b839989"
+  },
+  "examenes": "C:\\Users\\mejil\\.eolfi\\b7-ronda-20261120b\\aportes\\examenes\\ronda-20261120-060527-e72bcbd9.jsonl"
+}

@@ -2,6 +2,37 @@
 correctos: nunca se enseñan a los motores ni se guardan como aportes."""
 
 REFERENCIAS = {
+    "restar_intervalos": '''
+def restar_intervalos(base, cortes):
+    cambios = {}
+    for clase, intervalos in enumerate((base, cortes)):
+        for a, b in intervalos:
+            cambios.setdefault(a, [0, 0])[clase] += 1
+            cambios.setdefault(b, [0, 0])[clase] -= 1
+    cubiertos = tapados = 0
+    inicio = None
+    salida = []
+    for punto, (delta_base, delta_cortes) in sorted(cambios.items()):
+        cubiertos += delta_base
+        tapados += delta_cortes
+        if cubiertos and not tapados:
+            if inicio is None:
+                inicio = punto
+        elif inicio is not None:
+            salida.append((inicio, punto))
+            inicio = None
+    return salida
+''',
+    "repartir_centimos": '''
+def repartir_centimos(total, pesos):
+    suma = sum(pesos)
+    cuotas = [divmod(total * peso, suma) for peso in pesos]
+    asignados = [entero for entero, resto in cuotas]
+    orden = sorted(range(len(pesos)), key=lambda i: (-cuotas[i][1], i))
+    for i in orden[:total - sum(asignados)]:
+        asignados[i] += 1
+    return asignados
+''',
     "romano": '''
 def romano(n):
     if not isinstance(n, int) or not 1 <= n <= 3999:

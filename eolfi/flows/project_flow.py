@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 from eolfi.core.cases import CaseStore
 from eolfi.core.evidence import EvidenceStore
+from eolfi.flows import rutas_descripcion
 
 PLAN_FORMAT = 1
 MODES = ("auto", "guided")
@@ -49,10 +50,13 @@ def _non_empty(p: Path) -> bool:
     return p.exists() and (not p.is_dir() or any(p.iterdir()))
 
 
-def default_out(name: str, base: str | Path = "generated") -> str:
-    """generated/<nombre>; si ya existe con contenido, <nombre>-2, -3…: un plan nuevo nunca pisa ni choca con otro."""
+def default_out(name: str, base: str | Path | None = None) -> str:
+    """<carpeta de proyectos>/<nombre> (fuera del repositorio de Eolfi, ver eolfi.proyectos); si ya existe con
+    contenido, <nombre>-2, -3…: un plan nuevo nunca pisa ni choca con otro."""
+    from eolfi import proyectos
     from eolfi.server import _folder_slug
 
+    base = proyectos.carpeta() if base is None else base
     slug = _folder_slug(name or "proyecto")
     cand, n = Path(base) / slug, 2
     while _non_empty(cand):
@@ -136,14 +140,19 @@ def _steps(sources: list[dict[str, str]], interp: dict[str, Any], out: str) -> l
     opts = [k for k, v in interp["options"].items() if v]
     steps.append({"id": "generar", "action": "generate",
                   "title": f"Generar el proyecto ({interp['target']}{', ' + ', '.join(opts) if opts else ''})",
-                  "what": "genera código propio con el generador de plantillas de Eolfi a partir del análisis; "
-                          "no copia código de las fuentes",
+                  "what": ("genera código propio con el generador de plantillas de Eolfi a partir del análisis; "
+                           "no copia código de las fuentes") if sources else
+                          ("genera la base con las plantillas de Eolfi y la IA local (Eolas) implementa lo pedido en "
+                           "la descripción, verificando cada ronda"),
                   "uses": ["especificar"], "produces": f"proyecto nuevo en {out}",
                   "verification": "instalación/restauración, compilación, pruebas y prueba de humo obligatorias "
-                                  "(eolfi.generador.verify); sin verificación verde el resultado es parcial",
+                                  "(eolfi.generador.verify); sin verificación verde el resultado es parcial"
+                                  + ("" if sources else "; si la IA no deja lo pedido en verde, tampoco"),
                   "rationale": "reutiliza create_project, el mismo flujo de la CLI y el panel",
                   "risks": ["la verificación necesita el toolchain del destino; si falta queda NO VERIFICADO",
-                            "lo no observado ni especificado se genera como base y queda pendiente"]})
+                            "lo no observado ni especificado se genera como base y queda pendiente"]
+                           + ([] if sources else ["usa el modelo de IA local; las pruebas que escribe la IA solo "
+                                                  "cubren lo que ella entendió de la descripción"])})
     return steps
 
 
@@ -215,6 +224,13 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
                 raise PlanError(f"'{ref}' no es una URL, una ruta existente ni un objetivo ya analizado")
         srcs.append({"ref": ref, "kind": kind})
     explicit_out = bool(out)
+    if out:
+        from eolfi.proyectos import comprobar_fuera
+
+        try:
+            comprobar_fuera(out)
+        except ValueError as exc:
+            raise PlanError(str(exc)) from exc
     out = out or default_out(name)
     interp = interpret(description)
     cases = CaseStore(store)
@@ -228,6 +244,9 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
                            "limits": "La conformidad técnica del proyecto se decide después de generar, compilar y ejecutar las pruebas."},
             "interpretation": {"directives": interp["directives"], "uninterpreted": interp["uninterpreted"]},
             "reasoning": _reasoning(srcs, interp) + (
+                [f"La descripción nombra {', '.join(str(r) for r in rd)}: al generar, Eolfi leerá sus datos (solo "
+                 "lectura, sin ejecutar nada) y se los dará a la IA para que no invente cifras ni arquitectura."]
+                if not srcs and (rd := rutas_descripcion.rutas(description)) else []) + (
                 [f"La carpeta destino {out} ya existe y no está vacía: generar fallará salvo que la vacíes o "
                  f"elijas otra."] if explicit_out and _non_empty(Path(out)) else []),
             "steps": _steps(srcs, interp, out), "proposed_at": time.time()}
@@ -412,16 +431,26 @@ def _execute(store: EvidenceStore, case_id: str, plan: dict[str, Any], step: dic
         from eolfi.flows.create_flow import create_project
 
         subjects = [r["subject"] for k, r in st["results"].items() if k.startswith("analizar-") and r.get("subject")]
-        if not subjects:
+        # Sin fuentes en el plan (20/11/2026): se crea desde la descripción, como promete el razonamiento del plan.
+        # Con fuentes que no dieron ningún objetivo, sigue siendo un error.
+        encargo = "\n\n".join(x for x in [str(plan.get("description") or "").strip(),
+                                          *[str(i).strip() for i in plan.get("instructions") or []]] if x)
+        if not subjects and (plan["sources"] or not encargo):
             raise PlanError("no hay fuentes analizadas")
         rep = create_project(subjects, store, plan["out"], name=plan["name"], target=plan["target"], do_verify=True,
                              workdir=workdir, db="sqlite" if plan["options"].get("sqlite") else "memory",
                              auth=bool(plan["options"].get("auth")), progress=log, case_id=case_id,
                              accesibilidad=plan["options"].get("accesibilidad"),
-                             provenance="plan aprobado de crear proyecto")
+                             provenance="plan aprobado de crear proyecto",
+                             description=None if subjects else encargo)
         ver = rep.get("verification") or {}
         verified = bool(ver.get("ok"))
+        asistida = rep.get("assist")
         return {"status": "done" if verified else "partial", "verified": verified, "out": rep.get("out"),
+                **({"from_description": True, "assist": {"ok": bool(asistida.get("ok")),
+                                                         "summary": str(asistida.get("summary") or "")[:1000],
+                                                         "files_changed": (asistida.get("files_changed") or [])[:50]}}
+                   if not subjects and asistida else {}),
                 "target": rep.get("target"), "files": rep.get("files"),
                 "verification": {"ok": verified, **({"error": ver["error"]} if ver.get("error") else {}),
                                  "steps": [{k: s.get(k) for k in ("step", "exit", "seconds")}

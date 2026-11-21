@@ -79,6 +79,26 @@ def test_partial_query_reports_unknown(monkeypatch):
     assert result["cobertura"]["tcp_ipv6"] == "NO VERIFICADO"
 
 
+def test_proveedor_posix_distingue_escucha_y_conexion(monkeypatch):
+    import types
+
+    tcp = SimpleNamespace(family=socket.AF_INET, type=socket.SOCK_STREAM, laddr=("0.0.0.0", 123),
+                          raddr=(), status="LISTEN")
+    udp = SimpleNamespace(family=socket.AF_INET6, type=socket.SOCK_DGRAM, laddr=("::1", 456))
+    provider = types.ModuleType("psutil")
+    provider.__version__ = "prueba"
+    provider.Error = RuntimeError
+    provider.Process = lambda pid: SimpleNamespace(net_connections=lambda kind: [tcp, udp], is_running=lambda: True)
+    monkeypatch.setitem(sys.modules, "psutil", provider)
+    monkeypatch.setattr(red, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(red, "os", SimpleNamespace(name="posix"))
+    result = red.snapshot(42)
+    assert result["estado"] == "observado" and result["tcp_escuchas_no_loopback"] == 1
+    assert result["conexiones"][1] == {"protocolo": "UDP", "familia": 6, "local": "::1", "puerto_local": 456}
+    provider.Process = lambda pid: (_ for _ in ()).throw(PermissionError("PID inaccesible"))
+    assert red.snapshot(42)["estado"] == "NO VERIFICADO"
+
+
 def test_cli_keeps_unknown_status(monkeypatch, capsys, tmp_path):
     import json
     from eolfi.cli import main
@@ -100,9 +120,13 @@ def test_invalid_pid(pid):
         red.snapshot(pid)
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Proveedor Windows IP Helper; no equivale a Linux/macOS")
 def test_real_loopback_sockets_are_seen_without_starting_a_model():
     from contextlib import ExitStack
+
+    if sys.platform != "win32":
+        if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
+            pytest.skip("Sin proveedor para este sistema")
+        pytest.importorskip("psutil", minversion="6.0")
 
     with ExitStack() as stack:
         expected = []

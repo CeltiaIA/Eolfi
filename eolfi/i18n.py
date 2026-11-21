@@ -113,6 +113,10 @@ API_EN: dict[str, str] = {
     "'sources' debe ser una lista no vacía": "'sources' must be a non-empty list",
     "Abre VS Code y vincula la extensión de Eolfi.": "Open VS Code and link the Eolfi extension.",
     "Chat local limitado a este equipo.": "Local chat is limited to this computer.",
+    "La voz solo se configura desde este equipo.": "The voice can only be configured from this computer.",
+    "por el puente de la tableta solo se vinculan tabletas": "only tablets can be linked through the tablet bridge",
+    "por el puente de la tableta solo entran tokens de la tableta":
+        "only tablet tokens are accepted through the tablet bridge",
     "el plan cambió desde que se propuso el encargo: revísalo en el panel":
         "the plan changed since the task was proposed: review it in the panel",
     "los encargos se deciden en el panel o en la extensión de VS Code":
@@ -135,6 +139,8 @@ API_EN: dict[str, str] = {
     "código incorrecto o caducado: genera otro en el panel (Proveedores → Vincular VS Code)":
         "wrong or expired code: generate another one in the panel (Providers → Link VS Code)",
     "demasiados códigos pendientes": "too many pending codes",
+    "este dispositivo solo puede usar las rutas de la tableta": "this device can only use the tablet routes",
+    "scope desconocido (admitido: {})": "unknown scope (allowed: {})",
     "el cuerpo debe ser un objeto JSON": "the body must be a JSON object",
     "el código de vinculación se genera en el panel de Eolfi": "the link code is generated in the Eolfi panel",
     "elige entre 2 y 6 chats": "choose between 2 and 6 chats",
@@ -189,6 +195,7 @@ API_EN: dict[str, str] = {
     "Creación fallida: la verificación del proyecto no se superó y autofix no lo corrigió ({})":
         "Creation failed: the project verification did not pass and autofix did not fix it ({})",
     "attachments: hasta {} archivos": "attachments: up to {} files",
+    "adjuntos_previos: hasta {} archivos": "adjuntos_previos: up to {} files",
     "analyze.kind debe ser uno de {} con su destino": "analyze.kind must be one of {} with its target",
     "el encargo ya está {}": "the task is already {}",
     "{} fuera de las carpetas permitidas: {} (permitidas: {})": "{} outside the allowed folders: {} (allowed: {})",
@@ -220,6 +227,10 @@ API_EN: dict[str, str] = {
     "hecho": "done",
     "fallido": "failed",
     "trabajo no encontrado": "job not found",
+    "el trabajo ya terminó; envíalo como mensaje nuevo": "the job has already finished; send it as a new message",
+    "hay demasiados mensajes pendientes; espera a que los lea": "too many pending messages; wait until they are read",
+    "solo se puede escribir a un trabajo de chat": "only chat jobs accept messages",
+    "texto obligatorio y de como mucho {} caracteres": "text is required and must be at most {} characters",
     "upload inválido": "invalid upload",
     "variables debe ser un objeto de textos": "variables must be an object of strings",
     "El cuerpo de la petición no está en UTF-8": "The request body is not UTF-8",
@@ -292,12 +303,18 @@ CLI_EN: dict[str, str] = {
     "Arranca todo junto: Eolas local (CeltIA), el puente de chats web y el panel":
         "Starts everything together: local Eolas (CeltIA), the web chat bridge and the panel",
     "Servidor de desarrollo (API + panel web)": "Development server (API + web panel)",
+    "Puente TLS de la tableta satélite hacia el Eolfi en vivo (127.0.0.1:8777)":
+        "TLS bridge from the satellite tablet to the live Eolfi (127.0.0.1:8777)",
     "Recalcula la cadena SHA-256 del registro": "Recomputes the log's SHA-256 chain",
     "Copia la cabeza de la cadena a un archivo externo": "Copies the head of the chain to an external file",
     "Muestra los últimos eventos": "Shows the latest events",
     "Comprueba estructura GGUF y SHA-256": "Checks GGUF structure and SHA-256",
     "Consulta sockets de un PID, sin iniciar el motor": "Queries the sockets of a PID without starting the engine",
     "Comprueba un hash contra un manifiesto autorizado": "Checks a hash against an authorized manifest",
+    "Calcula identidades para revisar; no autoriza ni activa modelos":
+        "Calculates identities for review; does not authorize or activate models",
+    "GGUF local (repetible)": "Local GGUF (repeatable)",
+    "JSON nuevo de propuesta; nunca se sobrescribe": "New proposal JSON; never overwritten",
     "G5: compara los modelos locales con lo publicado (abre la red con --red)":
         "G5: compares local models with the published ones (opens the network with --red)",
     "G5: descarga un GGUF fijado por commit y SHA-256 y lo audita": "G5: downloads a GGUF pinned by commit and SHA-256 and audits it",
@@ -345,6 +362,17 @@ CLI_EN: dict[str, str] = {
     "Detiene solo el llama-server que inició Eolas": "Stops only the llama-server that Eolas started",
     "Catálogo: etiqueta, si se puede usar, roles y admisión de cada perfil":
         "Catalogue: label, whether it can be used, roles and admission of each profile",
+    "Comparar dos perfiles examinados en la misma ronda completa": "Compare two profiles tested in the same full round",
+    "Informe JSON devuelto por examen": "JSON report returned by examen",
+    "Segundo perfil para una ronda emparejada con informe completo": "Second profile for a paired round with a full report",
+    "Guarda atómicamente el informe completo en un JSON nuevo":
+        "Atomically saves the full report to a new JSON file",
+    "Usar peticiones y resúmenes verificados de assist para SFT": "Use requests and verified assist summaries for SFT",
+    "Continuar el parcial de esta misma revisión y SHA-256": "Resume the partial download for this revision and SHA-256",
+    "Bloqueo de salida del ejecutable del servidor (Windows)": "Block outbound traffic from the server executable (Windows)",
+    "llama-server.exe; por defecto usa el perfil activo": "llama-server.exe; defaults to the active profile",
+    "Crear y comprobar la regla de bloqueo": "Create and verify the blocking rule",
+    "Retirar solo la regla exacta de Eolfi": "Remove only Eolfi's exact rule",
     "Da de alta un GGUF local como perfil nuevo (no lo activa)": "Registers a local GGUF as a new profile (does not activate it)",
     "Elige el perfil activo (sin arrancarlo); los nuevos deben estar admitidos":
         "Selects the active profile (without starting it); new ones must be admitted",
@@ -419,6 +447,8 @@ CLI_EN: dict[str, str] = {
         "Checks the SHA-256 hashes of a package made with --paquete (without REA)",
     "Módulo WebAssembly sin ejecutarlo: validez, secciones, importaciones y exportaciones (WABT 1.0.42)":
         "WebAssembly module without running it: validity, sections, imports and exports (WABT 1.0.42)",
+    "Estado de Npcap, sigrok y Cutter; solo lectura, no instala nada":
+        "Status of Npcap, sigrok and Cutter; read-only, installs nothing",
     "Observaciones, casos de regresión, propuestas, reglas y registro":
         "Observations, regression cases, proposals, rules and log",
     "Comprueba la cadena SHA-256 del registro": "Checks the log's SHA-256 chain",
@@ -431,6 +461,8 @@ CLI_EN: dict[str, str] = {
     "Descarta una propuesta": "Discards a proposal",
     "Devuelve una propuesta aplicada a su valor anterior": "Returns an applied proposal to its previous value",
     "Motores disponibles, idioma y voces": "Available engines, language and voices",
+    "Micrófonos de Windows: cuál es el predeterminado, si está silenciado o desconectado":
+        "Windows microphones: which one is the default, whether it is muted or unplugged",
     "Voz a texto de un WAV (PCM de 16 bits)": "Speech-to-text of a WAV (16-bit PCM)",
     "Texto a voz: escribe un WAV": "Text-to-speech: writes a WAV",
     "Graba del micrófono del equipo y lo transcribe (nada se guarda)":
@@ -497,8 +529,12 @@ CLI_EN: dict[str, str] = {
     "Carpeta donde guardar los archivos subidos": "Folder where uploaded files are stored",
     "Carpeta local o URL git": "Local folder or git URL",
     "Carpeta nueva; nunca sobrescribe una anterior": "New folder; never overwrites a previous one",
-    "Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; en modo remoto, solo samples/ y generated/":
-        "Allowed folder for local paths (repeatable). Without --root, no restriction locally; in remote mode, only samples/ and generated/",
+    "Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; en modo remoto, solo samples/ y la carpeta de proyectos (Eolfi-proyectos)":
+        "Allowed folder for local paths (repeatable). Without --root, no restriction locally; in remote mode, only samples/ and the projects folder (Eolfi-proyectos)",
+    "Dónde escucha el puente (la tableta llega por la red)": "Where the bridge listens (the tablet comes over the network)",
+    "IP de loopback del Eolfi en vivo (nunca un nombre)": "Loopback IP of the live Eolfi (never a hostname)",
+    "Certificado cuya huella fija la app de la tableta": "Certificate whose fingerprint the tablet app pins",
+    "ECDHE con AES-CBC-SHA en TLS 1.2 (Android 4.1-4.4)": "ECDHE with AES-CBC-SHA on TLS 1.2 (Android 4.1-4.4)",
     "Carpeta permitida para rutas locales (repetible; también EOLFI_ROOTS)":
         "Allowed folder for local paths (repeatable; also EOLFI_ROOTS)",
     "Carpeta que abrir en VS Code (opcional)": "Folder to open in VS Code (optional)",
@@ -600,6 +636,10 @@ CLI_EN: dict[str, str] = {
     "Sirve por HTTPS con este certificado (el móvil solo deja usar el micrófono con HTTPS)":
         "Serve over HTTPS with this certificate (phones only allow the microphone over HTTPS)",
     "Clave privada del certificado de --cert": "Private key for the --cert certificate",
+    "Con --cert, admite también ECDHE con AES-CBC-SHA en TLS 1.2: lo único que negocia Android 4.1-4.4 (p. ej. la "
+    "tableta satélite)":
+        "With --cert, also accepts ECDHE with AES-CBC-SHA on TLS 1.2: the only thing Android 4.1-4.4 negotiates (e.g. the "
+        "satellite tablet)",
     "Permite escuchar fuera de localhost": "Allows listening outside localhost",
     "Persistencia de los backends FastAPI/Express (sqlite: sin dependencias nuevas)":
         "Persistence of the FastAPI/Express backends (sqlite: no new dependencies)",
@@ -729,6 +769,7 @@ CLI_EN: dict[str, str] = {
 # una excepción o de una herramienta externa sigue en su idioma.
 AVISOS_EN: dict[str, str] = {
     "eolfi: --key necesita --cert": "eolfi: --key requires --cert",
+    "eolfi: --tls-legado necesita --cert": "eolfi: --tls-legado requires --cert",
     "eolfi: no se pudo cargar el certificado ({})": "eolfi: could not load the certificate ({})",
     # cli.py
     "Eolfi: --verify está obsoleta y no hace nada (la verificación siempre es obligatoria); se retirará en una "
@@ -837,6 +878,11 @@ AVISOS_EN: dict[str, str] = {
     "{} archivos verificados y copiados a {}": "{} files verified and copied to {}",
     "{} archivos generados en {}": "{} files generated in {}",
     "criterios del juez funcional instalados ({} comprobaciones)": "functional judge criteria installed ({} checks)",
+    "sin fuentes: la base sale de la descripción y lo pedido lo implementa la IA":
+        "no sources: the base comes from the description and the AI implements what was asked",
+    "la IA no está disponible: {}": "the AI is not available: {}",
+    "Eolas está ocupado: espero a que termine para pedir los cambios ({} s como máximo)…":
+        "Eolas is busy: waiting for it to finish before asking for the changes (at most {} s)…",
     "'{}' se interpreta como la carpeta {}": "'{}' is interpreted as the folder {}",
     "verificando en una carpeta limpia ({}) antes de escribir sobre el origen…":
         "verifying in a clean folder ({}) before writing over the source…",

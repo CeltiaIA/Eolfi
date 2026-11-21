@@ -1,0 +1,72 @@
+{
+  "vivo_escuchando_0.0.0.0": {
+    "schema": "eolfi.modelos.conexiones/v1",
+    "pid": 720,
+    "fecha_utc": "2026-11-21T01:10:51.498465+00:00",
+    "conexiones": [
+      {
+        "protocolo": "TCP",
+        "familia": 4,
+        "local": "0.0.0.0",
+        "puerto_local": 36277,
+        "estado": "LISTEN",
+        "remoto": null,
+        "puerto_remoto": null,
+        "remoto_no_loopback": false,
+        "escucha_no_loopback": true
+      }
+    ],
+    "incognitas": [],
+    "proveedor": {
+      "nombre": "psutil",
+      "plataforma": "linux",
+      "version": "7.2.2"
+    },
+    "cobertura": {
+      "tcp_ipv4": "consultada",
+      "tcp_ipv6": "consultada",
+      "udp_ipv4": "consultada",
+      "udp_ipv6": "consultada"
+    },
+    "limites": [
+      "Instantánea: no descarta conexiones anteriores ni posteriores",
+      "Las tablas se leen una tras otra; las conexiones pueden cambiar entre lecturas",
+      "No verifica que el PID esté vivo ni que haya cargado el GGUF indicado",
+      "Un remoto no loopback no distingue conexiones entrantes de salientes",
+      "UDP solo muestra enlaces locales; destinos e historial no observados"
+    ],
+    "tcp_remotos_no_loopback": 0,
+    "tcp_escuchas_no_loopback": 1,
+    "estado": "observado"
+  },
+  "tras_terminar": {
+    "schema": "eolfi.modelos.conexiones/v1",
+    "pid": 720,
+    "fecha_utc": "2026-11-21T01:10:51.510974+00:00",
+    "conexiones": [],
+    "incognitas": [
+      "Consulta de sockets del PID incompleta: [Errno 2] No such file or directory: '/proc/720/ns/net'"
+    ],
+    "proveedor": {
+      "nombre": "psutil",
+      "plataforma": "linux",
+      "version": "7.2.2"
+    },
+    "cobertura": {
+      "tcp_ipv4": "NO VERIFICADO",
+      "tcp_ipv6": "NO VERIFICADO",
+      "udp_ipv4": "NO VERIFICADO",
+      "udp_ipv6": "NO VERIFICADO"
+    },
+    "limites": [
+      "Instantánea: no descarta conexiones anteriores ni posteriores",
+      "Las tablas se leen una tras otra; las conexiones pueden cambiar entre lecturas",
+      "No verifica que el PID esté vivo ni que haya cargado el GGUF indicado",
+      "Un remoto no loopback no distingue conexiones entrantes de salientes",
+      "UDP solo muestra enlaces locales; destinos e historial no observados"
+    ],
+    "tcp_remotos_no_loopback": 0,
+    "tcp_escuchas_no_loopback": 0,
+    "estado": "NO VERIFICADO"
+  }
+}

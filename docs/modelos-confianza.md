@@ -20,6 +20,17 @@ Las URL y otras cadenas del resto de metadatos se muestran para revisión; no so
 
 ## Manifiesto explícito
 
+Antes de autorizar nada se puede preparar una propuesta local:
+
+```powershell
+python -m eolfi modelos proponer-confianza --archivo D:\modelos\modelo.gguf --out propuesta.json
+```
+
+`--archivo` es repetible. La propuesta calcula SHA-256, tamaño y estado de auditoría, incluye todas las partes
+de un GGUF dividido y marca cada procedencia como `NO VERIFICADO`. Se escribe de forma atómica en un JSON nuevo.
+Usa el esquema `eolfi.modelos.confianza-propuesta/v1`, que la política rechaza deliberadamente: no establece
+`EOLFI_MODELOS_CONFIANZA`, no autoriza modelos y no convierte una identidad local en prueba de procedencia.
+
 Un manifiesto autorizado tiene esta forma (sustituir ruta y hash por valores revisados):
 
 ```json
@@ -43,7 +54,8 @@ y `sha256` de cada shard. Se exigen todas las partes, rutas absolutas y hashes i
 No se admiten entradas principales duplicadas ni partes duplicadas.
 
 Establecer `EOLFI_MODELOS_CONFIANZA` con la ruta del manifiesto activa la comprobación en los arranques
-Python de Eolas V2 y del proveedor antiguo llama.cpp. Si el manifiesto falta, el archivo no está autorizado
+Python de Eolas V2 y del proveedor antiguo llama.cpp, y al ejecutar una cuantización o un smoke con llama-cli.
+Si el manifiesto falta, el archivo no está autorizado
 o algún hash difiere, se aborta antes de consultar el servidor o lanzar procesos. Con esta política no se
 admiten `extra_args` en V2: podrían sustituir el modelo que se acaba de comprobar.
 
@@ -64,7 +76,7 @@ No distingue entrada/salida, no conoce destinos UDP ni historia, ni vincula el G
 Las tablas se leen una tras otra. Si no hay filas del PID, solo se sabe que no se observaron sockets de ese
 PID; no acredita que el proceso esté vivo. Una escucha no tiene extremo remoto definido. IPv4 mapeada en
 IPv6 se clasifica por su dirección IPv4; los identificadores de ámbito IPv6 se convierten de orden de red.
-En Linux/macOS este proveedor sigue **NO VERIFICADO**, sin fingir una tabla vacía satisfactoria.
+En Linux/macOS la ejecución del proveedor psutil sigue **NO VERIFICADA**; un fallo no se presenta como tabla vacía.
 
 El chat y los clientes MCP tienen `eolfi_modelos_auditar` (solo lectura, argumento `ruta`). Respeta las
 raíces configuradas y sirve para los adjuntos `.bin` cuyo contenido sea GGUF. No inicia el motor ni cambia
@@ -78,6 +90,16 @@ el tipo real se valida por la cabecera. La elección efectiva de herramienta por
 La preparación y ejecución explícita de cuantizaciones se describen en [Reconstrucción de modelos](modelos-reconstruccion.md).
 No adopta un modelo ni añade sus hashes al manifiesto de confianza.
 
-G1 conserva pendientes los layouts ambiguos y los proveedores de conexiones Linux/macOS. G2 requiere extender y activar la política en todas
+G1 conserva pendientes los layouts ambiguos. Linux y macOS pueden consultar los sockets del PID mediante el extra
+`conexiones` (psutil 6 o posterior). Un error de permisos deja la consulta como NO VERIFICADO.
+La ejecución en Linux y macOS sigue pendiente. G2 requiere extender y activar la política en todas
 las rutas de carga y aprobar una lista con procedencia contrastada. G3–G7 conservan su estado pendiente
 o parcial en `PLAN_DEFINITIVO.md`: aislamiento, reconstrucciones reales, actualizaciones, compatibilidad y LoRA.
+## Modo sin red y cortafuegos
+
+Con EOLAS_OFFLINE=1, «eolfi eolas-v2 status» informa por separado de las opciones offline del proceso y de la regla
+del sistema. En Windows se consulta con «eolfi eolas-v2 cortafuegos», se crea y comprueba con «--aplicar», y se
+retira con «--quitar».
+
+La regla de salida usa el programa absoluto. Al quitarla, se comprueba que pertenece al mismo ejecutable. Las rutas
+se pasan mediante variables de entorno a PowerShell. La vista previa no cambia el sistema.

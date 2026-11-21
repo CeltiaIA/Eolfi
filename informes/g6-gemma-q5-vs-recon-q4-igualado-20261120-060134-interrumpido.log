@@ -1,0 +1,9 @@
+gemma: cargando como único motor…
+gemma: 1/28 · Código · generar (palíndromo)
+gemma: correcto a la primera en 60.2 s
+gemma: 2/28 · Código · desempaquetar (cabecera binaria)
+gemma: correcto a la primera en 53.8 s
+gemma: 3/28 · Código · desempaquetar (base64 + zlib)
+gemma: correcto a la primera en 51.9 s
+gemma: 4/28 · Código · construir (URL)
+exit=interrumpido (Luis: basta con examinar el reconstruido)

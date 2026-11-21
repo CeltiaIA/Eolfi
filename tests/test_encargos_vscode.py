@@ -43,6 +43,11 @@ def test_el_chat_ofrece_la_herramienta_y_avisa_de_que_queda_pendiente():
     hallazgos = hon.revisar("He creado la aplicación en tu carpeta.", llamada, {"eolfi_vscode_encargo"})
     assert [h["codigo"] for h in hallazgos] == ["encargo_como_hecho"]
     con_estado = llamada + [{"name": "eolfi_vscode_encargo_estado", "ok": True}]
+    assert "encargo_como_hecho" in {h["codigo"] for h in hon.revisar(
+        "He creado la aplicación.", con_estado, {"eolfi_vscode_encargo"})}
+    con_estado = [{"name": "eolfi_vscode_encargo", "ok": True, "encargo": "e1"},
+                  {"name": "eolfi_vscode_encargo_estado", "ok": True, "encargo": "e1",
+                   "estado_encargo": "hecho", "proyecto_verificado": True}]
     assert hon.revisar("He creado la aplicación.", con_estado, {"eolfi_vscode_encargo"}) == []
     assert chat._links(json.dumps({"encargo_id": "a" * 32, "case_id": "c"})) == {"encargo": "a" * 32}
 

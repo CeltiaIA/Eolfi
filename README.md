@@ -71,8 +71,8 @@ es una implementación propia.
   en un entorno virtual nuevo y comprueba la versión, que estén todos los archivos del panel y los scripts
   `.mjs`, y que el panel responda.
 - `python -m eolfi acceso-directo [--donde escritorio|menu] [--port N]` muestra el lanzador de `eolfi up` que
-  crearía (`Eolfi.lnk` en Windows, `eolfi.desktop` en Linux); `--aplicar` lo crea y `--quitar` lo retira.
-  Nunca sustituye un archivo que no sea un lanzador de Eolfi. macOS aún no está soportado.
+  crearía (`Eolfi.lnk` en Windows, `eolfi.desktop` en Linux y `Eolfi.command` en macOS);
+  `--aplicar` lo crea y `--quitar` lo retira. Apertura desde Finder en macOS: NO VERIFICADO.
 - Idioma (es/en): el panel tiene un selector ES/EN en la cabecera (o `?lang=en`); la CLI muestra la ayuda en
   inglés con `--idioma en` delante del subcomando o `EOLFI_IDIOMA=en`; la API responde sus errores en inglés con
   `?lang=en`, la cookie del panel o `Accept-Language: en`. Por defecto, castellano. La traducción es parcial: ver C1
@@ -273,7 +273,9 @@ python -m eolfi create \
    funcionará lo generado) y `source_platforms` (sistemas de las apps analizadas).
 4. La verificación es **obligatoria**: instala las dependencias en su **última versión**, las
    fija en `package.json`/`requirements.txt`, compila y pasa las pruebas
-   (Python usa un `.venv` propio, nunca el global).
+   (Python usa un `.venv` propio, nunca el global). `EOLFI_JUEZ=0` omite el juez funcional solo
+   para diagnóstico: si el proyecto tiene criterios funcionales, queda **NO VERIFICADO**
+   (`verification.ok=false`) y no se considera terminado.
 
 Ninguna línea de código ni texto procede de las fuentes: solo su estructura,
 pila y tokens de diseño. Revisa la licencia de cada fuente antes de inspirarte
@@ -599,7 +601,15 @@ python -m eolfi triage binario-macos              # Mach-O fino o universal
 python -m eolfi decompile programa.exe --functions entry,main   # pseudo-C con Ghidra
 python -m eolfi compare <objetivo_v1> <objetivo_v2>             # qué cambió entre versiones
 python -m eolfi export informe.stix.json          # STIX 2.1
+python -m eolfi rea api captura.pcapng --cliente cliente.py     # borrador OpenAPI + cliente de lo observado
 ```
+
+El cliente de una captura requiere el análisis completo de campos, no sobrescribe el archivo de destino y solo
+incluye los métodos vistos. Al usarlo, `Cliente` acepta bases HTTP/HTTPS con host y limita cada respuesta a 16 MiB;
+el tope se ajusta con `Cliente(max_respuesta=BYTES)`. Las redirecciones a otro origen se bloquean por defecto; si una
+API las necesita, `redirecciones_externas=True` las permite sin reenviar `Authorization`, cookies ni cabeceras de
+proxy al nuevo origen. Revisa credenciales y datos antes de ejecutarlo o compartirlo: una captura no demuestra que
+la API carezca de otras operaciones.
 
 ## Verificación diferencial
 

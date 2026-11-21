@@ -195,8 +195,10 @@ def safe_font(f: str) -> str:
 
 
 def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-proyecto",
-               target: str = "auto") -> dict[str, Any]:
+               target: str = "auto", description: str | None = None) -> dict[str, Any]:
     if not subjects:
+        if description and description.strip():
+            return spec_from_description(description, name=name, target=target)
         raise ValueError("hace falta al menos una fuente")
     votes: Counter = Counter()
     categories: dict[str, str] = {}
@@ -372,6 +374,53 @@ def build_spec(store: EvidenceStore, subjects: list[str], *, name: str = "nuevo-
         ],
     }
 
+
+# Palabras de la descripción que dan pistas al crear SIN fuentes (20/11/2026). Solo eligen secciones y rasgos de la
+# base; lo que pide la descripción lo implementa después la IA (assist) y lo valida la verificación.
+_DESC_FEATURES = [(r"\b(guard\w*|recarg\w*|persist\w*|localstorage|almacenamiento local|navegador)\b", "localStorage"),
+                  (r"\b(api|servidor|backend|fetch)\b", "fetch")]
+_DESC_SECTIONS = [(r"\b(contacto|formulario de contacto)\b", "ContactForm"), (r"\b(precios?|planes)\b", "Pricing"),
+                  (r"\b(preguntas frecuentes|faq)\b", "Faq"), (r"\b(equipo)\b", "Team"), (r"\b(blog|noticias)\b", "PostList")]
+
+
+def spec_from_description(description: str, *, name: str = "nuevo-proyecto", target: str = "auto") -> dict[str, Any]:
+    """Especificación BASE cuando no hay fuentes: solo la descripción del titular.
+
+    No hay nada observado: las secciones son las mínimas del generador (anotadas en «sections_added») y la
+    tecnología es la pedida o, si no se dice, «static» (una página que funciona sin instalar nada). La descripción
+    no se copia en la especificación: viaja aparte como encargo para la IA. «from_description» marca el proyecto
+    como base por validar."""
+    low = description.lower()
+    chosen = "static" if target == "auto" else target
+    if chosen not in TARGETS:
+        raise ValueError(f"target desconocido: {chosen} (opciones: {', '.join(TARGETS)})")
+    features = sorted({f for rx, f in _DESC_FEATURES if re.search(rx, low)})
+    secs = ["Hero", "Features"] + [s for rx, s in _DESC_SECTIONS if re.search(rx, low)]
+    secs = [s for s in SECTION_ORDER if s in secs]
+    return {
+        "name": _slug(name),
+        "title": safe_title(name),
+        "target": chosen,
+        "platforms": _platforms_for(chosen),
+        "source_platforms": [],
+        "sources": [],
+        "from_description": True,
+        "stack_votes": {},
+        "pages": ["home"],
+        "sections": secs,
+        "sections_added": ["Hero", "Features"],
+        "design": {"palette": palette([]), "font": "system-ui", "breakpoints": _bps(Counter()),
+                   "dark_mode": "localStorage" in features},
+        "api": {"resources": ["items"] if chosen in ("fastapi", "express") else [], "observed_endpoints": [],
+                "observed_methods": {}, "auth_endpoints": []},
+        "features": features,
+        "conventions": {"typescript": False, "tests": True, "ci": False, "docker": False, "lint": False},
+        "notes": [
+            "Sin fuentes: base derivada solo de la descripción; lo pedido lo implementa la IA y lo valida la "
+            "verificación del proyecto.",
+            "Los textos son de ejemplo: sustitúyelos por los tuyos.",
+        ],
+    }
 
 def _choose_target(votes: Counter, cats: dict[str, str], endpoints: Counter) -> str:
     def score(*names: str) -> int:

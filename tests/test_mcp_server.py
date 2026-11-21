@@ -4,10 +4,57 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 from eolfi.mcp_server import EolfiMCP
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("args", [None, False, 0, [], ""])
+def test_protocolo_no_convierte_argumentos_invalidos_en_objeto(tmp_path, args):
+    srv = EolfiMCP(str(tmp_path / "e.db"))
+    spec, _ = srv.tools["eolfi_doctor"]
+    srv.tools["eolfi_doctor"] = (spec, lambda a: pytest.fail("argumentos inválidos no se ejecutan"))
+    r = srv.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": "eolfi_doctor", "arguments": args}})
+    assert r["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("name,args", [
+    ("eolfi_evidencias", {"limite": -1}), ("eolfi_evidencias", {"limite": 0}),
+    ("eolfi_evidencias", {"limite": 501}), ("eolfi_evidencias", {"limite": True}),
+    ("eolfi_evidencias", {"limite": 2.5}), ("eolfi_evidencias", {"limite": "2"}),
+    ("eolfi_triage", {}), ("eolfi_triage", {"ruta": 12}),
+    ("eolfi_triage", {"ruta": "x", "modo": "inventado"}), ("eolfi_doctor", {"ignorado": 1}),
+])
+def test_esquema_se_valida_antes_de_ejecutar(tmp_path, name, args):
+    srv = EolfiMCP(str(tmp_path / "e.db"))
+    spec, _ = srv.tools[name]
+    srv.tools[name] = (spec, lambda a: pytest.fail("no debe ejecutarse con argumentos inválidos"))
+    assert srv.call_tool(name, args)["isError"] is True
+
+
+@pytest.mark.parametrize("params", [None, False, [], 1, "texto"])
+def test_parametros_de_protocolo_invalidos_no_rompen_servidor(tmp_path, params):
+    srv = EolfiMCP(str(tmp_path / "e.db"))
+    r = srv.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params})
+    assert r["error"]["code"] == -32602
+    assert srv.handle({"jsonrpc": "2.0", "id": 2, "method": "ping"})["result"] == {}
+
+
+@pytest.mark.parametrize("name,args", [("eolfi_evidencias", {"limite": 1}),
+                                       ("eolfi_evidencias", {"limite": 500}),
+                                       ("eolfi_evidencias", {}), ("eolfi_doctor", {}),
+                                       ("eolfi_web", {"fuente": "x", "max_assets": 0})])
+def test_esquema_conserva_valores_validos_y_opcionales(tmp_path, name, args):
+    srv = EolfiMCP(str(tmp_path / "e.db"))
+    recibidos = []
+    spec, _ = srv.tools[name]
+    srv.tools[name] = (spec, lambda a: recibidos.append(a) or {"ok": True})
+    assert srv.call_tool(name, args)["isError"] is False
+    assert recibidos == [args]
 
 
 def _call(srv, name, args=None, mid=1):
@@ -128,6 +175,7 @@ def test_carpeta_de_modelos_se_lista_sin_leer_los_pesos(tmp_path):
     r = _call(srv, "eolfi_modelos_auditar", {"ruta": str(carpeta)})
     assert r["isError"] is False
     c = r["structuredContent"]
+    assert c["procedencia"] == "NO VERIFICADO"
     assert [m["nombre"] for m in c["modelos_gguf"]] == ["a-Q5.gguf", "b-Q4.gguf"]
     assert c["modelos_gguf"][0]["sha256_publicado"] == sha and c["modelos_gguf"][0]["bytes"] == 14
     assert "sha256_publicado" not in c["modelos_gguf"][1]

@@ -7,8 +7,10 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -131,8 +133,12 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                    ai_base_url: str | None = None, db: str = "memory", auth: bool = False,
                    progress: Callable[[str], None] | None = None, case_id: str | None = None,
                    provenance: str = "", autofix: bool = False, juez: str | None = None,
-                   accesibilidad: bool | None = None, idioma: str = "es") -> dict[str, Any]:
+                   accesibilidad: bool | None = None, idioma: str = "es",
+                   description: str | None = None) -> dict[str, Any]:
     """idioma: idioma de la interfaz y las pruebas del proyecto generado (C4: «es» o «en»).
+    description: sin fuentes (20/11/2026), la base sale de la descripción (``spec_from_description``) y lo pedido
+    lo implementa la IA (``ai_brief``, por defecto la propia descripción); si la IA no deja el proyecto en verde con
+    lo pedido, la verificación NO queda en verde aunque la plantilla base pase sus pruebas.
     autofix: si la verificación falla, la IA (ai_provider) intenta corregir el proyecto (ver run_autofix).
     accesibilidad: None (por defecto) la mide con axe en los destinos que cubre el juez funcional; True la exige
     también en los demás (sin juez para ese destino, la verificación no queda en verde); False la omite.
@@ -140,7 +146,17 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
     se registra como «reconstruction», con la verificación y sus pasos. Sin verificación verde: «partial»."""
     from eolfi.core.cases import case_run
 
-    params = {"sources": sources, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
+    desde_descripcion = not sources and bool(description and description.strip())
+    if desde_descripcion and not (ai_brief and ai_brief.strip()):
+        ai_brief = str(description).strip()
+        # 21/11/2026 («ilfy»): las rutas que nombra la descripción se leen y sus datos reales van con el encargo.
+        from eolfi.flows.rutas_descripcion import bloque
+
+        if datos := bloque(ai_brief):
+            (progress or (lambda _m: None))("la descripción nombra rutas existentes: leo sus datos (solo lectura) "
+                                            "para que la IA no los invente")
+            ai_brief = f"{ai_brief}\n\n{datos}"
+    params = {"sources": sources, "from_description": desde_descripcion, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
               "force": force, "reanalyze": reanalyze, "db": db, "auth": auth, "ai": bool(ai_brief),
               "ai_provider": ai_provider if (ai_brief or autofix) else None, "autofix": autofix,
               "juez": bool(juez), "accesibilidad": accesibilidad, "idioma": idioma}
@@ -150,7 +166,8 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
                               reanalyze=reanalyze, workdir=workdir, ai_brief=ai_brief, ai_client=ai_client,
                               ai_provider=ai_provider, ai_model=ai_model, ai_base_url=ai_base_url, db=db,
                               auth=auth, progress=progress, case_id=case_id, autofix=autofix, juez=juez,
-                              accesibilidad=accesibilidad, idioma=idioma)
+                              accesibilidad=accesibilidad, idioma=idioma,
+                              description=description if desde_descripcion else None)
         if run.active:
             for src in rep["sources"]:
                 run.associate(src["subject"])
@@ -179,7 +196,8 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
                     do_verify: bool, force: bool, reanalyze: bool, workdir: str, ai_brief: str | None,
                     autofix: bool = False, juez: str | None = None, accesibilidad: bool | None = None,
                     idioma: str = "es", ai_client, ai_provider: str, ai_model: str | None, ai_base_url: str | None, db: str,
-                    auth: bool, progress: Callable[[str], None] | None, case_id: str | None) -> dict[str, Any]:
+                    auth: bool, progress: Callable[[str], None] | None, case_id: str | None,
+                    description: str | None = None) -> dict[str, Any]:
     from eolfi.generador.generators import generate
     from eolfi.generador.spec import build_spec
 
@@ -188,8 +206,13 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
     log = progress or (lambda _m: None)
     if idioma not in IDIOMAS:
         raise ValueError(f"idioma del proyecto no admitido: {idioma!r} (usa {', '.join(IDIOMAS)})")
-    if not sources:
+    if not sources and not description:
         raise ValueError("indica al menos una fuente (--from)")
+    from eolfi.proyectos import comprobar_fuera
+
+    comprobar_fuera(out)     # 21/11/2026: nunca dentro del repositorio de Eolfi
+    if not sources:
+        log("sin fuentes: la base sale de la descripción y lo pedido lo implementa la IA")
     subjects: list[str] = []
     analyzed: list[dict[str, str]] = []
     for src in sources:
@@ -256,7 +279,7 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
     if re.search(r"[\\/]", name) or re.match(r"^[A-Za-z]:[\\/]", name):
         # Solo si parece una ruta («C:\x\y», «a/b»); «Tienda: precios» sigue siendo un título.
         name = re.split(r"[\\/]", name.rstrip("\\/"))[-1] or "nuevo-proyecto"
-    spec = build_spec(store, subjects, name=name, target=target)
+    spec = build_spec(store, subjects, name=name, target=target, description=description)
     spec["idioma"] = idioma
     if accesibilidad is None:
         # Por defecto (C4, 17/11/2026, decisión del titular) en los destinos que el juez sabe abrir, cuando se
@@ -353,10 +376,67 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
         criterios = _juez.instalar(out_path, juez, accesibilidad=accesibilidad)
         result["juez"] = {"comprobaciones": sum(1 for p in criterios["pasos"] if "comprobar" in p)}
         log(f"criterios del juez funcional instalados ({result['juez']['comprobaciones']} comprobaciones)")
-    if ai_brief:
+    if ai_brief and description and not sources:
+        # Sin fuentes la plantilla es solo la base: lo pedido es la parte de la IA. Si no lo consigue (o no hay
+        # motor), el proyecto NO queda verificado aunque la base pase sus pruebas.
+        from eolfi.generador.assist import AssistError
+
+        if result.get("verification") and not result["verification"]["ok"]:
+            result["assist"] = {"ok": False, "summary": "la base no pasó su verificación; no se pidió nada a la IA"}
+        else:
+            try:
+                result["assist"] = _assist_esperando(store, out_path, ai_brief, client=ai_client,
+                                                     provider=ai_provider, model=ai_model, base_url=ai_base_url,
+                                                     progress=log)
+            except AssistError as exc:
+                log(f"la IA no está disponible: {exc}")
+                result["assist"] = {"ok": False, "error": str(exc), "summary": f"IA no disponible: {exc}"}
+        if do_verify and not result["assist"].get("ok"):
+            motivo = ("la IA no implementó lo pedido en la descripción con el proyecto en verde: "
+                      + str(result["assist"].get("summary") or result["assist"].get("error") or "sin detalle"))
+            result["verification"] = {**result["verification"], "ok": False, "error": motivo[:1000]}
+            store.add_incognita(Incognita(subject=subject, severity="high", question=(
+                f"Proyecto creado solo desde la descripción: {motivo[:600]}. Lo generado es la base de plantilla.")))
+        elif do_verify:
+            result["verification"] = {**result["verification"], "after": "assist"}
+    elif ai_brief:
         result["assist"] = run_assist(store, out_path, ai_brief, client=ai_client, provider=ai_provider,
                                       model=ai_model, base_url=ai_base_url, progress=log)
     return result
+
+
+_dormir = time.sleep      # sustituible en las pruebas
+
+
+def _assist_esperando(store: EvidenceStore, out_path: Path, brief: str, **kw: Any) -> dict[str, Any]:
+    """run_assist, esperando a que Eolas V2 quede libre (20/11/2026, prueba real): el encargo nace dentro de un
+    turno del chat que aún retiene el motor, así que la primera petición de la IA chocaba con «EolasBusy». Se
+    espera hasta EOLFI_ESPERA_IA_SEG segundos (1200 por defecto); si sigue ocupado, se informa como IA no
+    disponible (el proyecto no queda verificado)."""
+    from eolfi.eolas_v2 import EolasBusy
+    from eolfi.generador.assist import AssistError
+
+    log = kw.get("progress") or (lambda _m: None)
+    try:
+        maximo = float(os.environ.get("EOLFI_ESPERA_IA_SEG", "1200"))
+    except ValueError:
+        maximo = 1200.0
+    if not math.isfinite(maximo):   # «inf» o «nan» no pueden convertirse en una espera sin fin
+        maximo = 1200.0
+    maximo = max(0.0, maximo)
+    esperado, avisado = 0.0, False
+    while True:
+        try:
+            return run_assist(store, out_path, brief, **kw)
+        except EolasBusy as exc:
+            if esperado >= maximo:
+                raise AssistError(f"{exc} (esperados {esperado:.0f} s)") from exc
+            if not avisado:
+                log(f"Eolas está ocupado: espero a que termine para pedir los cambios ({maximo:.0f} s como máximo)…")
+                avisado = True
+            intervalo = min(10.0, maximo - esperado)   # nunca más allá del plazo pedido
+            _dormir(intervalo)
+            esperado += intervalo
 
 
 def _accesibilidad(proyecto: Path, activa: bool, log: Callable[[str], None]) -> list[str]:

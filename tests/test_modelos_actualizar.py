@@ -80,6 +80,28 @@ def test_respuestas_dudosas_son_no_verificado(tmp_path, fetch, motivo):
     assert res["estado"] == "NO VERIFICADO" and motivo in res["modelos"][0]["error"]
 
 
+@pytest.mark.parametrize("payload, motivo", [
+    ([], "lista de archivos"),
+    ({"sha": COMMIT, "siblings": "malformado"}, "lista de archivos"),
+    ({"sha": COMMIT, "siblings": [{"rfilename": "modelo-Q4_K_M.gguf", "lfs": "malformado"}]}, "LFS"),
+    ({"sha": COMMIT, "siblings": [{"rfilename": "modelo-Q4_K_M.gguf",
+                               "lfs": {"sha256": "2" * 64, "size": "10"}}]}, "tamaño"),
+])
+def test_metadatos_api_malformados_no_interrumpen_comprobacion(tmp_path, payload, motivo):
+    res = comprobar(_fuentes(tmp_path), red=True, fetch=lambda _: json.dumps(payload).encode())
+    assert res["estado"] == "NO VERIFICADO" and motivo in res["modelos"][0]["error"]
+
+
+def test_modelo_local_ilegible_no_interrumpe_comprobacion(tmp_path, monkeypatch):
+    from eolfi import modelos
+
+    local = tmp_path / "local.gguf"
+    local.write_bytes(b"pesos")
+    monkeypatch.setattr(modelos, "sha256", lambda _: (_ for _ in ()).throw(OSError("sin acceso")))
+    res = comprobar(_fuentes(tmp_path, sha256=None, local=str(local)), red=True, fetch=_api("2" * 64))
+    assert res["estado"] == "NO VERIFICADO" and "sin acceso" in res["modelos"][0]["error"]
+
+
 def test_sin_sha_local_calcula_el_del_archivo_o_queda_no_verificado(tmp_path):
     local = tmp_path / "local.gguf"
     local.write_bytes(b"pesos")
@@ -156,6 +178,36 @@ def test_nunca_sobrescribe(tmp_path, gguf):
     with pytest.raises(ActualizarError, match="nunca sobrescribe"):
         descargar("org/modelo-GGUF", "modelo-Q4_K_M.gguf", COMMIT, "1" * 64, out, red=True, stream=_stream(gguf))
     assert (out / "modelo-Q4_K_M.gguf").read_bytes() == b"previo"
+
+
+@pytest.mark.parametrize("status,desde,esperado", [(206, 12, "descargado"), (200, 12, "fallido"), (206, 1, "fallido")])
+def test_reanuda_desde_el_rango_confirmado(tmp_path, gguf, monkeypatch, status, desde, esperado):
+    import io
+    from eolfi import modelos_actualizar
+
+    def cortado(url):
+        yield gguf[:12]
+        raise OSError("interrumpido")
+
+    args = ("org/m", "m.gguf", COMMIT, hashlib.sha256(gguf).hexdigest(), tmp_path)
+    assert descargar(*args, red=True, stream=cortado)["estado"] == "fallido"
+    with pytest.raises(ActualizarError, match="no corresponde"):
+        descargar(*args[:3], "f" * 64, tmp_path, red=True, reanudar=True)
+
+    def abrir(url, *, offset):
+        assert offset == 12
+        response = io.BytesIO(gguf[offset:])
+        response.status = status
+        response.headers = {"Content-Range": f"bytes {desde}-{len(gguf)-1}/{len(gguf)}"}
+        return response
+
+    monkeypatch.setattr(modelos_actualizar, "_abrir", abrir)
+    result = descargar(*args, red=True, reanudar=True)
+    assert result["estado"] == esperado and result["bytes_reutilizados"] == 12
+    if esperado == "descargado":
+        assert (tmp_path / "m.gguf").read_bytes() == gguf
+    else:
+        assert (tmp_path / "m.gguf.part").read_bytes() == gguf[:12]
 
 
 @pytest.mark.parametrize("args, error", [

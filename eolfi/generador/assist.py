@@ -152,10 +152,16 @@ def _remember_verified_example(*, target: str, brief: str, summary: str, notes: 
     return True
 
 
-def _verification_score(ver: dict[str, Any]) -> tuple[int, int, int]:
+def _verification_score(ver: dict[str, Any]) -> tuple[int, int, int, int]:
+    """(verde, pasos superados, comprobaciones del juez superadas, pasos). El juez desempata: dos rondas que fallan
+    solo en el juez tienen los mismos pasos, y sin él ``best_attempt`` señalaba una ronda distinta de la que se
+    conserva como mejor intento (B6 con Gemma real, 20/11: ronda 1 6/12 frente a ronda 2 7/12)."""
     steps = ver.get("steps") if isinstance(ver.get("steps"), list) else []
     passed = sum(step.get("exit") == 0 for step in steps if isinstance(step, dict))
-    return (1 if ver.get("ok") is True else 0, passed, len(steps))
+    judge = ver.get("judge")
+    judge_passed = judge.get("passed") if isinstance(judge, dict) and judge.get("status") == "ok" else 0
+    return (1 if ver.get("ok") is True else 0, passed, judge_passed if isinstance(judge_passed, int) else 0,
+            len(steps))
 
 def _next_migration(root: Path, rel: str) -> bool:
     """La migración nueva debe llevar un número mayor que todos los existentes y no repetido."""
@@ -229,11 +235,13 @@ def _allowed(target: str, rel: str) -> bool:
 
 def collect_context(root: Path, target: str, budget: int = 350_000) -> tuple[list[str], dict[str, str]]:
     """Árbol completo (nombres) y contenido de los archivos editables (acotado)."""
+    root = root.resolve()
     tree, files = [], {}
     total = 0
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root).as_posix()
-        if not p.is_file() or re.search(r"(^|/)(node_modules|\.venv|\.git|dist|\.next|__pycache__)(/|$)", rel):
+        if (p.is_symlink() or not p.resolve().is_relative_to(root) or not p.is_file()
+                or re.search(r"(^|/)(node_modules|\.venv|\.git|dist|\.next|__pycache__)(/|$)", rel)):
             continue
         tree.append(rel)
         if _allowed(target, rel) and p.stat().st_size <= MAX_FILE_BYTES and total + p.stat().st_size <= budget:

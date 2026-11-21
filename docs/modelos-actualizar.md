@@ -26,6 +26,8 @@ python -m eolfi modelos actualizar --fuentes fuentes.json --red
   SHA-256 LFS publicado con el local. Si falta `sha256`, lo calcula del archivo `local` (lee el archivo entero).
 - Estados: `al_dia` (código 0), `nueva_version` y `NO VERIFICADO` (código 2). En `nueva_version` el resultado
   trae el bloque `descarga` (repo, archivo, commit, SHA-256 y tamaño) que hay que revisar antes de descargar.
+- Una respuesta remota sin lista de archivos, commit completo, SHA-256 LFS o tamaño LFS entero positivo queda
+  `NO VERIFICADO` y no genera el bloque `descarga`; esos datos no se completan ni se deducen de otros campos.
 - No envía credenciales: un repositorio privado o con licencia aceptada por cuenta queda NO VERIFICADO.
 
 ## 2. Descargar con permiso
@@ -86,6 +88,12 @@ Los perfiles de serie ya pasaron por las rondas de motores: para ellos el examen
 ## Límites
 
 - El hash publicado demuestra que se recibió lo publicado, no que los pesos sean seguros ni mejores.
-- No hay reanudación de descargas cortadas: el `.part` se conserva y hay que retirarlo a mano tras revisarlo.
-- Comparar con el banco antes de adoptar sigue siendo manual (el banco sobre la reconstrucción está suspendido).
+- Para continuar una descarga interrumpida, repite `modelos descargar` con los mismos argumentos y añade
+  `--reanudar`. Conserva juntos el `.part` y su `.part.control`. Eolfi comprueba el repositorio, el archivo,
+  la revisión y el SHA-256 antes de pedir el rango pendiente. Si el servidor ignora el rango se conserva el
+  parcial. Antes de publicar el archivo se calcula el hash completo, incluidos los bytes reutilizados.
+- Para examinar dos perfiles usa `eolfi eolas-v2 examen BASE CANDIDATO --informe ronda.json`. El destino debe
+  ser un JSON nuevo: se escribe atómicamente y nunca se sobrescribe una evidencia anterior. Después ejecuta
+  `eolfi eolas-v2 comparar-banco ronda.json BASE CANDIDATO` para ver qué casos ganó o perdió cada uno.
+  La comparación requiere una ronda con todos los casos previstos, ejecutados por ambos perfiles sin repesca.
 - Probado con respuestas simuladas; la consulta real a Hugging Face no se ha ejecutado: NO VERIFICADO.

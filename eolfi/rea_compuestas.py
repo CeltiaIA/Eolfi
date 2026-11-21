@@ -14,6 +14,7 @@ import json
 import os
 import re
 import struct
+import urllib.parse
 from collections import Counter, deque
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,11 @@ META_KEYS = ("general.architecture", "general.name", "general.basename", "genera
              "general.quantized_by", "general.file_type", "tokenizer.ggml.model")
 META_SUFFIXES = ("context_length", "block_count", "embedding_length", "attention.head_count", "attention.head_count_kv")
 MAX_PSEUDO = 1800
+MAX_CAPTURE_URI = 64 * 1024
+MAX_CAPTURE_QUERY_FIELDS = 1000
+MAX_CAPTURE_RECORDS = 100_000
+MAX_CAPTURE_BODY = 16 * 1024 * 1024
+MAX_CAPTURE_TOTAL_BODY = 256 * 1024 * 1024
 MAX_PSEUDO_ONE = 7000
 
 
@@ -975,11 +981,29 @@ def recuperar_fuentes_js(client: Any, path: str, destino: str, *, run: Any = Non
 
 
 _ID_SEGMENT = re.compile(r"^(\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,})$", re.I)
+_SECRET_PATH_SEGMENT = re.compile(
+    r"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{16,}|"
+    r"(?=[A-Za-z0-9_-]{24,}$)(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9_-]+|"
+    r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$", re.I)
 
 
 def _template(path: str) -> str:
     """/api/v1/productos/42 → /api/v1/productos/{id} (segmentos numéricos, UUID o hex largos)."""
     parts = [("{id}" if _ID_SEGMENT.match(p) else p) for p in path.split("/")]
+    return "/".join(parts) or "/"
+
+
+def _redact_capture_path(path: str) -> str:
+    """Oculta segmentos opacos que suelen ser tokens, conservando identificadores numéricos de ejemplo."""
+    marcadores = {"auth", "callback", "confirm", "confirmation", "invite", "password", "reset", "token",
+                  "verification", "verify"}
+    parts, previous = [], ""
+    for part in path.split("/"):
+        decoded = urllib.parse.unquote(part)
+        sensitive = bool(_SECRET_PATH_SEGMENT.match(decoded) or (previous.lower() in marcadores and part)
+                         or any(ord(c) < 32 or ord(c) == 127 for c in decoded))
+        parts.append("{id}" if sensitive else part)
+        previous = part
     return "/".join(parts) or "/"
 
 
@@ -1006,18 +1030,47 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     protocolos y hosts cifrados (SNI de TLS). Nivel completo (REA de WSL con tshark, `inspect_packet_capture`):
     métodos, códigos de respuesta, tipos de contenido y esquemas JSON → borrador OpenAPI 3. El tráfico cifrado solo
     deja ver el host."""
-    import urllib.parse
-
     n = _call(client, "inspect_pcap_capture", {"path": path, "detail": "complete"})
     servers, endpoints = set(), {}
-    for uri in n.get("http_request_uris") or []:
-        u = urllib.parse.urlsplit(str(uri))
-        if u.scheme and u.netloc:
-            servers.add(f"{u.scheme}://{u.netloc}")
-        ep = endpoints.setdefault(_template(u.path or "/"), {"ejemplos": [], "parametros": set()})
+    capture_uris = n.get("http_request_uris") or []
+    for index, uri in enumerate(capture_uris):
+        if index >= MAX_CAPTURE_RECORDS:
+            break
+        raw_uri = str(uri)
+        if len(raw_uri) > MAX_CAPTURE_URI or any(ord(c) < 32 or ord(c) == 127 for c in raw_uri):
+            continue
+        try:
+            u = urllib.parse.urlsplit(raw_uri)
+            scheme, host, port = u.scheme.lower(), u.hostname, u.port
+            query_items = urllib.parse.parse_qsl(
+                u.query, keep_blank_values=True, max_num_fields=MAX_CAPTURE_QUERY_FIELDS)
+        except ValueError:
+            continue
+        if scheme not in ("http", "https") or not host or any(c.isspace() or c in "/\\" for c in host):
+            continue
+        authority = f"[{host}]" if ":" in host else host
+        if port is not None:
+            authority += f":{port}"
+        servers.add(f"{scheme}://{authority}")
+        secretos = {"access_token", "api_key", "apikey", "auth", "authorization", "authorization_code", "code",
+                    "credential", "jwt", "passwd", "password", "secret", "secretkey", "session", "session_id",
+                    "sessionid", "sig", "signature", "token"}
+        consulta = []
+        for key, value in query_items:
+            snake_key = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key)
+            normalized = re.sub(r"[^a-z0-9]+", "_", snake_key.lower()).strip("_")
+            normalized = re.sub(r"_\d+$", "", normalized)
+            if normalized in secretos or any(normalized.endswith("_" + secret) for secret in secretos):
+                value = "REDACTED"
+            consulta.append((key, value))
+        query_segura = urllib.parse.urlencode(consulta, doseq=True)
+        ruta = u.path or "/"
+        ruta_segura = _redact_capture_path(ruta)
+        uri_segura = urllib.parse.urlunsplit((scheme, authority, ruta_segura, query_segura, ""))
+        ep = endpoints.setdefault(_template(ruta_segura), {"ejemplos": [], "parametros": set()})
         if len(ep["ejemplos"]) < 5:
-            ep["ejemplos"].append(str(uri))
-        ep["parametros"].update(urllib.parse.parse_qs(u.query, keep_blank_values=True))
+            ep["ejemplos"].append(uri_segura)
+        ep["parametros"].update(key for key, _ in consulta)
     out: dict[str, Any] = {
         "archivo": path, "sha256": ((n.get("target") or {}).get("sha256") if isinstance(n.get("target"), dict) else None),
         "formato": n.get("file_type"), "paquetes": n.get("packet_count"),
@@ -1036,21 +1089,32 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
     fields = ["http.request.method", "http.request.uri", "http.response.code", "http.request_in",
               "http.content_type", "http.file_data"]
     rows = _call(fields_client, "inspect_packet_capture", {"path": path, "fields": fields, "display_filter": "http",
-                                                           "match_limit": None})
+                                                           "match_limit": MAX_CAPTURE_RECORDS})
     frames = (rows.get("packets") or rows.get("matches") or rows.get("frames") or []) if isinstance(rows, dict) else rows or []
     ops: dict[tuple[str, str], dict[str, Any]] = {}
     pending: dict[str, tuple[str, str]] = {}
+    total_body = 0
 
     def field(fr: dict[str, Any], name: str) -> str | None:
         v = (fr.get("fields") or fr).get(name)
         return (v[0] if isinstance(v, list) and v else v) if v not in (None, "", []) else None
 
     def body_json(fr: dict[str, Any]) -> Any:
+        nonlocal total_body
         raw = field(fr, "http.file_data")
         if not raw:
             return None
+        if len(raw) > MAX_CAPTURE_BODY * 2:
+            return None
         text = raw
-        if re.fullmatch(r"(?:[0-9a-fA-F]{2})+", raw):
+        es_hex = bool(re.fullmatch(r"(?:[0-9a-fA-F]{2})+", raw))
+        if not es_hex and len(raw) > MAX_CAPTURE_BODY:
+            return None
+        body_size = len(raw) // 2 if es_hex else len(raw.encode("utf-8"))
+        if total_body + body_size > MAX_CAPTURE_TOTAL_BODY:
+            return None
+        total_body += body_size
+        if es_hex:
             try:
                 text = bytes.fromhex(raw).decode("utf-8")
             except (ValueError, UnicodeDecodeError):
@@ -1060,10 +1124,20 @@ def api_desde_captura(client: Any, path: str, fields_client: Any = None) -> dict
         except ValueError:
             return None
 
-    for fr in frames:
+    for index, fr in enumerate(frames):
+        if index >= MAX_CAPTURE_RECORDS:
+            break
+        if not isinstance(fr, dict):
+            continue
         method, uri = field(fr, "http.request.method"), field(fr, "http.request.uri")
         if method and uri:
-            key = (_template(urllib.parse.urlsplit(uri).path or "/"), method.lower())
+            if len(uri) > MAX_CAPTURE_URI or any(ord(c) < 32 or ord(c) == 127 for c in uri):
+                continue
+            try:
+                ruta = _template(_redact_capture_path(urllib.parse.urlsplit(uri).path or "/"))
+            except ValueError:
+                continue
+            key = (ruta, method.lower())
             op = ops.setdefault(key, {"respuestas": {}, "peticion": None})
             body = body_json(fr)
             if body is not None and op["peticion"] is None:

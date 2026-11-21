@@ -1,4 +1,5 @@
 """Chat del panel: el motor Eolas V2 decide qué herramientas de Eolfi usar y Eolfi las ejecuta."""
+import hashlib
 import json
 
 import pytest
@@ -10,7 +11,7 @@ class FakeMCP:
     def __init__(self, db=None, roots=None, library=None):
         self.roots, self.calls = roots, []
         self.tools = {n: ({"name": n, "description": "d", "inputSchema": {"type": "object"}}, None)
-                      for n in (*chat.CHAT_TOOLS, "eolfi_resolver")}
+                      for n in (*chat.CHAT_TOOLS, "herramienta_no_ofrecida")}
 
     def call_tool(self, name, args):
         self.calls.append((name, args))
@@ -41,11 +42,33 @@ def test_contexto_dice_donde_estan_los_adjuntos_y_que_analizar():
     assert chat.with_context([{"role": "user", "content": "x"}], [], None) == [{"role": "user", "content": "x"}]
 
 
+def test_una_ruta_gguf_escrita_en_el_mensaje_lleva_la_pista_del_auditor():
+    # 20/11/2026: desde la tableta, «Audita el modelo … pesos.gguf» no llevaba pista y el modelo no auditaba.
+    ruta = r"D:\Alejandria\corpus\modelos.gguf\objetos\sha256\32\32c5\pesos.gguf"
+    msgs = chat.with_context([{"role": "user", "content": f"Audita el modelo Gemma 4 Q5 en {ruta}"}], [], None)
+    text = msgs[-1]["content"]
+    assert f"- Ruta de modelo en el mensaje: {ruta} (modelo GGUF: usa eolfi_modelos_auditar" in text
+    assert chat.rutas_gguf(r"en \\srv\m\y.gguf, /home/a/b.GGUF y C:/m/x.gguf.") == [
+        r"\\srv\m\y.gguf", "/home/a/b.GGUF", "C:/m/x.gguf"]
+    assert chat.rutas_gguf(r"nada.gguf D:\a\b.ggufx D:\a\c.gguf.bak") == []
+    assert chat.rutas_gguf(" ".join([f"C:/m/{i}.gguf" for i in range(9)] + ["C:/m/0.gguf"])) == [
+        f"C:/m/{i}.gguf" for i in range(5)]
+    # Si ya va como adjunto o como objetivo de análisis, no se repite.
+    msgs = chat.with_context([{"role": "user", "content": f"mira {ruta}"}], [], {"kind": "archivo", "target": ruta})
+    assert msgs[-1]["content"].count(ruta) == 2   # en el mensaje y en «Analiza también…», no una tercera vez
+    # Un mensaje sin rutas .gguf queda igual.
+    assert chat.with_context([{"role": "user", "content": "hola"}], [], None) == [{"role": "user", "content": "hola"}]
+
+
 def test_chat_can_call_real_gguf_auditor_without_loading_model(tmp_path):
     from tests.test_modelos import fixture
-    from eolfi.mcp_server import EolfiMCP
+    from eolfi.mcp_server import DATA_NOTE, EolfiMCP
 
-    path = fixture(tmp_path / "upload.bin")
+    upload = fixture(tmp_path / "upload.bin")
+    digest = hashlib.sha256(upload.read_bytes()).hexdigest()
+    folder = tmp_path / digest
+    folder.mkdir()
+    path = upload.rename(folder / upload.name)
     mcp = EolfiMCP(db=str(tmp_path / "no-db.db"), roots=[str(tmp_path)])
     replies = iter([{"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": str(path)})]},
                     {"content": "Auditoría estructural; no demuestra seguridad de pesos."}])
@@ -54,7 +77,11 @@ def test_chat_can_call_real_gguf_auditor_without_loading_model(tmp_path):
                              lambda message: None,
                              request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
     assert result["tools"][0]["name"] == "eolfi_modelos_auditar" and result["tools"][0]["ok"]
-    assert any(m.get("role") == "tool" and '"sha256"' in m["content"] for m in sent[1])
+    tool_text = next(m["content"] for m in sent[1] if m.get("role") == "tool")
+    audit = json.loads(tool_text.removeprefix(DATA_NOTE))
+    assert audit["sha256"] == digest
+    assert audit["estado"] == "estructura_verificada"
+    assert audit["procedencia"] == "NO VERIFICADO"
     assert not (tmp_path / "no-db.db").exists()
 
 
@@ -72,7 +99,7 @@ def test_eolas_decide_las_herramientas_y_eolfi_las_ejecuta():
     mcp, steps, sent = FakeMCP(), [], []
     replies = iter([
         {"tool_calls": [_call("eolfi_triage", {"ruta": "C:/s/ab.bin"}), _call("ejecutar_python", {"codigo": "print(2)"}, "2"),
-                        _call("eolfi_resolver", {}, "3")]},
+                        _call("herramienta_no_ofrecida", {}, "3")]},
         {"content": "Es un PE de Windows. Propuestas: 1) …"},
     ])
     out = chat.agent_turn([{"role": "user", "content": "analiza"}], {"alias": "gemma", "url": "u"}, mcp, steps.append,
@@ -82,10 +109,10 @@ def test_eolas_decide_las_herramientas_y_eolfi_las_ejecuta():
     offered = {t["function"]["name"] for t in sent[0][1]}
     assert offered == {*chat.CHAT_TOOLS, "ejecutar_python"}                 # nunca las que no son del chat
     assert [(c["name"], c["ok"]) for c in out["tools"]] == [("eolfi_triage", True), ("ejecutar_python", True),
-                                                           ("eolfi_resolver", False)]
+                                                           ("herramienta_no_ofrecida", False)]
     assert mcp.calls == [("eolfi_triage", {"ruta": "C:/s/ab.bin"})]          # la no ofrecida no se ejecuta
     assert sent[0][0][0]["role"] == "system" and "DATOS" in sent[0][0][0]["content"]
-    assert any("Eolas pide a Eolfi: eolfi_triage" in s for s in steps)
+    assert any("Consulto eolfi_triage" in s for s in steps)
 
 
 def test_si_agota_las_rondas_pide_respuesta_final_sin_herramientas():
@@ -93,11 +120,13 @@ def test_si_agota_las_rondas_pide_respuesta_final_sin_herramientas():
 
     def request(c, convo, tools):
         sent.append(tools)
-        return {"tool_calls": [_call("eolfi_biblioteca_buscar", {"consulta": "x"})]} if tools else {"content": "Resumen."}
+        return ({"content": "Resumen."} if not tools or isinstance(tools, chat.Ninguna)
+                else {"tool_calls": [_call("eolfi_biblioteca_buscar", {"consulta": "x"})]})
 
     out = chat.agent_turn([{"role": "user", "content": "x"}], {"alias": "g", "url": "u"}, FakeMCP(), lambda s: None,
                           request=request, max_rounds=2)
-    assert out["text"] == "Resumen." and sent[-1] == [] and len(out["tools"]) == 2
+    # 21/11/2026: la vuelta final envía las mismas herramientas con tool_choice «none» (prefijo en caché).
+    assert out["text"] == "Resumen." and isinstance(sent[-1], chat.Ninguna) and len(out["tools"]) == 2
 
 
 def test_trabajo_chat_usa_el_motor_eolas_v2_y_no_pisa_el_banco(tmp_path, monkeypatch):
@@ -123,7 +152,7 @@ def test_trabajo_chat_usa_el_motor_eolas_v2_y_no_pisa_el_banco(tmp_path, monkeyp
     monkeypatch.setattr(mcp_server, "EolfiMCP", FakeMCP)
     seen = {}
     monkeypatch.setattr(app, "_chat_estado", lambda: {"vscode": {"activo": False}})
-    monkeypatch.setattr(chat, "agent_turn", lambda msgs, c, mcp, progress, estado=None:
+    monkeypatch.setattr(chat, "agent_turn", lambda msgs, c, mcp, progress, estado=None, **_dirigir:
                         seen.update(msgs=msgs, c=c, mcp=mcp, estado=estado) or
                         {"text": "Propuestas…", "tools": [{"name": "eolfi_triage", "args": "{}", "ok": True}]})
     out = app.chat({"messages": [{"role": "user", "content": "¿Qué genero?"}],
@@ -132,7 +161,9 @@ def test_trabajo_chat_usa_el_motor_eolas_v2_y_no_pisa_el_banco(tmp_path, monkeyp
     assert out["text"] == "Propuestas…" and out["model"].startswith("gemma-q4") and used == ["gemma_q4"]
     assert seen["c"]["headers"] == {"Authorization": f"Bearer {eolas_v2.api_key()}"}       # Eolas V2 con su clave
     assert seen["c"]["endpoint"] == "http://127.0.0.1:8090/v1/chat/completions"
-    assert str(app.samples / ("a" * 64 + ".bin")) in seen["msgs"][-1]["content"]
+    con_nombre = app.samples / "adjuntos" / ("a" * 64) / "x.exe"           # con su nombre y extensión reales
+    assert str(con_nombre) in seen["msgs"][-1]["content"] and con_nombre.read_bytes() == b"MZ"
+    assert seen["mcp"].adjuntos == {"x.exe": str(con_nombre)}
     assert seen["estado"] == {"vscode": {"activo": False}}                 # el chat recibe el estado real
 
     for bad in ({"messages": [{"role": "user", "content": "x"}], "analyze": {"kind": "inventado", "target": "y"}},
@@ -190,7 +221,8 @@ def test_herramientas_de_la_aplicacion_y_enlaces_para_la_pagina():
     box = chat.Toolbox(FakeMCP(), {"eolfi_proponer_proyecto": lambda a: hechas.append(a) or
                                    {"case_id": "c-1", "aviso": "no se ejecuta"},
                                    "eolfi_objetivos": lambda a: 1 / 0, "eolfi_inventada": lambda a: None})
-    assert "eolfi_inventada" not in box.tools and "eolfi_resolver" not in box.tools
+    assert "eolfi_inventada" not in box.tools and "herramienta_no_ofrecida" not in box.tools
+    assert "eolfi_resolver" in box.tools
     assert {"eolfi_triage", "eolfi_proponer_proyecto", "eolfi_objetivos"} <= set(box.tools)
     replies = iter([{"tool_calls": [_call("eolfi_proponer_proyecto", {"nombre": "x", "descripcion": "y"}),
                                     _call("eolfi_triage", {"ruta": "a"}, "2"), _call("eolfi_objetivos", {}, "3")]},
@@ -200,6 +232,7 @@ def test_herramientas_de_la_aplicacion_y_enlaces_para_la_pagina():
     assert hechas == [{"nombre": "x", "descripcion": "y"}]
     assert out["tools"][0]["proyecto"] == "c-1" and out["tools"][0]["ok"]
     assert out["tools"][2]["ok"] is False                                # el error llega al modelo como dato
+    assert out["tools"][2]["error"].startswith("Error") and "error" not in out["tools"][0]   # y queda en la traza
     assert chat._links('[nota] {"subject": "ab", "x": 1}') == {"objetivo": "ab"} and chat._links("nada") == {}
 
 
@@ -301,3 +334,326 @@ def test_el_chat_sabe_que_lo_que_ejecuta_se_pide_con_permiso():
     assert "rea_buscar" in chat.SYSTEM_PROMPT and "pide autorización" in chat.SYSTEM_PROMPT
     usar = rea_client.META_TOOLS["rea_usar"]["description"]
     assert "permitida" not in usar and "autorización" in usar
+
+
+def test_el_chat_ofrece_todo_el_catalogo_mcp_actual(tmp_path):
+    from eolfi.mcp_server import EolfiMCP
+
+    mcp = EolfiMCP(db=str(tmp_path / "e.db"), roots=[str(tmp_path)])
+    box = chat.Toolbox(mcp, {})
+    assert set(box.tools) == set(mcp.tools) == set(chat.CHAT_TOOLS)
+    assert box.call_tool("herramienta_no_ofrecida", {})["isError"] is True
+
+
+@pytest.mark.parametrize("nombre", chat.CHAT_TOOLS)
+def test_cada_herramienta_se_ofrece_se_ejecuta_y_devuelve_datos_al_motor(nombre):
+    mcp, sent = FakeMCP(), []
+    replies = iter([{"tool_calls": [_call(nombre, {"prueba": nombre})]}, {"content": "Resultado leído."}])
+    out = chat.agent_turn([{"role": "user", "content": "analiza"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
+    assert mcp.calls == [(nombre, {"prueba": nombre})]
+    assert out["tools"][0]["name"] == nombre and out["tools"][0]["ok"]
+    assert out["tools"][0]["valid_args"] is True
+    assert json.loads(sent[-1][-1]["content"])["summary"]["format"] == "pe"
+    assert out["ejecucion"] == {"recuperaciones": 0, "llamadas": 1, "correctas": 1}
+
+
+def test_promesa_sin_llamadas_se_recupera_ejecutando_y_leyendo_el_resultado():
+    mcp, sent, steps = FakeMCP(), [], []
+    replies = iter([{"content": "Iniciando la auditoría del modelo."},
+                    {"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": "D:/modelo.gguf"})]},
+                    {"content": "He consultado el resultado de la auditoría."}])
+    out = chat.agent_turn([{"role": "user", "content": "Audita D:/modelo.gguf"}], {"alias": "g"}, mcp, steps.append,
+                          request=lambda c, convo, tools: sent.append((list(convo), tools)) or next(replies))
+    assert mcp.calls == [("eolfi_modelos_auditar", {"ruta": "D:/modelo.gguf"})]
+    assert all(t for _, t in sent) and sent[-1][0][-1]["role"] == "tool"
+    assert out["ejecucion"] == {"recuperaciones": 1, "llamadas": 1, "correctas": 1}
+    assert out["revision"]["inicial"] == ["accion_en_curso"] and out["revision"]["final"] == []
+
+
+@pytest.mark.parametrize("primera", [{"content": ""}, {"content": "¿Quieres que lo audite?"}])
+def test_orden_sin_llamada_recibe_una_sola_recuperacion_y_no_finge_ejecucion(primera):
+    sent, mcp = [], FakeMCP()
+    replies = iter([primera, {"content": "Necesito que me indiques la ruta del archivo."}])
+    out = chat.agent_turn([{"role": "user", "content": "Audita el archivo"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda c, convo, tools: sent.append(tools) or next(replies))
+    assert len(sent) == 2 and all(sent) and not mcp.calls
+    assert out["text"].startswith("(No he llegado a ejecutar ninguna herramienta")
+    assert out["ejecucion"]["correctas"] == 0 and out["ejecucion"]["recuperaciones"] == 1
+
+
+def test_la_recuperacion_de_una_orden_obliga_a_llamar_y_solo_esa_vuelta():
+    """20/11/2026, tableta: con «auto» Gemma inventaba el resultado y en la recuperación se quedaba en bucle."""
+    sent = []
+    replies = iter([{"content": "Los proveedores son stdlib y capa."},
+                    {"tool_calls": [_call("eolfi_doctor", {})]}, {"content": "Proveedores comprobados."}])
+    out = chat.agent_turn([{"role": "user", "content": "Lista proveedores. Usa eolfi_doctor."}], {"alias": "g"},
+                          FakeMCP(), lambda s: None, request=lambda c, convo, tools: sent.append(tools) or next(replies))
+    assert [isinstance(t, chat.Obligatorias) for t in sent] == [False, True, False]
+    assert sent[1] == sent[0] and out["ejecucion"] == {"recuperaciones": 1, "llamadas": 1, "correctas": 1}
+
+
+def test_una_respuesta_solo_vacia_no_obliga_a_ejecutar():
+    sent = []
+    replies = iter([{"content": ""}, {"content": "Hola."}])
+    chat.agent_turn([{"role": "user", "content": "hola"}], {"alias": "g"}, FakeMCP(), lambda s: None,
+                    request=lambda c, convo, tools: sent.append(tools) or next(replies))
+    assert len(sent) == 2 and not any(isinstance(t, chat.Obligatorias) for t in sent)
+
+
+def test_el_motor_recibe_tool_choice_required_solo_con_obligatorias(monkeypatch):
+    enviados = []
+
+    class Resp:
+        def __init__(self, data):
+            self.data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self.data
+
+    class Opener:
+        def open(self, req, timeout=0):
+            enviados.append(json.loads(req.data))
+            return Resp(b'{"choices": [{"message": {"content": "ok"}}]}')
+
+    monkeypatch.setattr(chat.urllib.request, "build_opener", lambda *a: Opener())
+    herramientas = [{"type": "function", "function": {"name": "eolfi_doctor", "parameters": {"type": "object"}}}]
+    motor = {"alias": "g", "endpoint": "http://127.0.0.1:1/v1/chat/completions", "kind": "eolas-v2"}
+    chat._request(motor, [{"role": "user", "content": "x"}], herramientas)
+    chat._request(motor, [{"role": "user", "content": "x"}], chat.Obligatorias(herramientas))
+    chat._request(motor, [{"role": "user", "content": "x"}], [])
+    assert [e.get("tool_choice") for e in enviados] == ["auto", "required", None]
+    assert enviados[1]["tools"] == herramientas and "tools" not in enviados[2]
+
+
+def test_pregunta_teorica_no_fuerza_herramientas():
+    sent = []
+    out = chat.agent_turn([{"role": "user", "content": "¿Para qué sirve una auditoría GGUF?"}], {"alias": "g"},
+                          FakeMCP(), lambda s: None,
+                          request=lambda c, convo, tools: sent.append(tools) or {"content": "Comprueba la estructura."})
+    assert len(sent) == 1 and not out["tools"] and out["ejecucion"]["recuperaciones"] == 0
+
+
+def test_argumentos_invalidos_no_se_ejecutan_y_el_motor_puede_corregirlos():
+    mcp, sent = FakeMCP(), []
+    mala = _call("eolfi_evidencias", {})
+    mala["function"]["arguments"] = {"no": "texto JSON"}
+    replies = iter([{"tool_calls": [mala]}, {"tool_calls": [_call("eolfi_evidencias", {"limite": 1})]},
+                    {"content": "Consulta completada."}])
+    out = chat.agent_turn([{"role": "user", "content": "Lista las evidencias"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda c, convo, tools: sent.append(list(convo)) or next(replies))
+    assert mcp.calls == [("eolfi_evidencias", {"limite": 1})]
+    assert out["tools"][0]["valid_args"] is False and out["tools"][0]["ok"] is False
+    assert "no son un objeto JSON" in sent[1][-1]["content"]
+    assert out["tools"][1]["ok"] is True
+
+
+def test_error_de_herramienta_no_cuenta_como_paso_correcto():
+    mcp = FakeMCP()
+    mcp.call_tool = lambda name, args: {"isError": True, "content": [{"type": "text", "text": "Error: no existe"}]}
+    replies = iter([{"tool_calls": [_call("eolfi_modelos_auditar", {"ruta": "no.gguf"})]},
+                    {"content": "El archivo no existe."}])
+    out = chat.agent_turn([{"role": "user", "content": "Audita no.gguf"}], {"alias": "g"}, mcp, lambda s: None,
+                          request=lambda *a: next(replies))
+    assert out["ejecucion"]["correctas"] == 0 and out["tools"][0]["error"] == "Error: no existe"
+
+
+@pytest.mark.parametrize("argumentos", [None, False, 0, [], {}, ""])
+def test_argumentos_vacios_de_tipo_incorrecto_no_ejecutan(argumentos):
+    mcp = FakeMCP()
+    llamada = _call("eolfi_doctor", {})
+    llamada["function"]["arguments"] = argumentos
+    replies = iter([{"tool_calls": [llamada]}, {"content": "Argumentos inválidos; no se ejecutó."}])
+    out = chat.agent_turn([{"role": "user", "content": "Lista proveedores"}], {"alias": "g"}, mcp,
+                          lambda s: None, request=lambda *a: next(replies))
+    assert not mcp.calls
+    assert out["tools"][0]["valid_args"] is False
+    assert out["ejecucion"]["correctas"] == 0
+
+
+@pytest.mark.parametrize("respuesta", [None, [], {"choices": "texto"}, {"choices": [None]},
+                                        {"choices": [{"message": []}]}])
+def test_respuesta_del_motor_malformada_da_error_explicito(monkeypatch, respuesta):
+    import io
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            return io.BytesIO(json.dumps(respuesta).encode())
+
+    monkeypatch.setattr(chat.urllib.request, "build_opener", lambda *a: Opener())
+    with pytest.raises(RuntimeError, match="respuesta.*inválida"):
+        chat._request({"alias": "g", "endpoint": "http://127.0.0.1:1/chat"}, [], [])
+
+
+@pytest.mark.parametrize("llamadas", ["texto", [None], [{"function": []}],
+                                      [{"function": {"name": 3}}],
+                                      [_call("eolfi_doctor", {}), {"function": "rota"}]])
+def test_llamadas_malformadas_no_ejecutan_ni_parcialmente(llamadas):
+    mcp = FakeMCP()
+    with pytest.raises(RuntimeError, match="llamadas.*inválida"):
+        chat.agent_turn([{"role": "user", "content": "Lista proveedores"}], {"alias": "g"}, mcp,
+                        lambda s: None, request=lambda *a: {"tool_calls": llamadas})
+    assert mcp.calls == []
+
+
+def test_traza_conserva_estado_y_verificacion_del_encargo():
+    mcp = FakeMCP()
+    mcp.tools["eolfi_vscode_encargo_estado"] = ({"name": "eolfi_vscode_encargo_estado", "description": "d",
+                                               "inputSchema": {"type": "object"}}, None)
+    mcp.call_tool = lambda *a: {"content": [{"type": "text", "text": json.dumps({
+        "id": "e1", "estado": "pendiente_aprobacion", "proyecto": {"verificado": False}})}]}
+    replies = iter([{"tool_calls": [_call("eolfi_vscode_encargo_estado", {"encargo_id": "e1"})]},
+                    {"content": "El encargo sigue pendiente."}])
+    out = chat.agent_turn([{"role": "user", "content": "Consulta el encargo"}], {"alias": "g"}, mcp,
+                          lambda s: None, request=lambda *a: next(replies))
+    assert out["tools"][0]["encargo"] == "e1"
+    assert out["tools"][0]["estado_encargo"] == "pendiente_aprobacion"
+    assert out["tools"][0]["proyecto_verificado"] is False
+
+
+# 21/11/2026: dirigir el hilo mientras trabaja, cortar con Parar y plan interno con razonamiento.
+def test_un_mensaje_nuevo_durante_el_trabajo_entra_en_la_conversacion_con_prioridad():
+    buzon, vistos, progreso = [["mejor busca y"]], [], []
+
+    def request(c, convo, tools):
+        vistos.append([m["content"] for m in convo if m["role"] == "user"])
+        return ({"tool_calls": [_call("eolfi_biblioteca_buscar", {"consulta": "x"})]} if len(vistos) == 1
+                else {"content": "Hecho con y."})
+
+    out = chat.agent_turn([{"role": "user", "content": "busca x"}], {"alias": "g", "url": "u"}, FakeMCP(),
+                          progreso.append, request=request, steer=lambda: buzon.pop() if buzon else [])
+    assert out["text"] == "Hecho con y." and out["correcciones"] == ["mejor busca y"]
+    assert any("tiene prioridad" in u and "mejor busca y" in u for u in vistos[0])
+    assert any(p.startswith("Recibido:") for p in progreso)
+
+
+def test_si_la_correccion_llega_cuando_iba_a_contestar_hace_otra_vuelta():
+    buzon = [[], ["no, en castellano"]]
+    respuestas = iter([{"content": "Answer."}, {"content": "Respuesta."}])
+    out = chat.agent_turn([{"role": "user", "content": "hola"}], {"alias": "g", "url": "u"}, FakeMCP(),
+                          lambda s: None, request=lambda c, convo, tools: next(respuestas),
+                          steer=lambda: buzon.pop(0) if buzon else [])
+    assert out["text"] == "Respuesta." and out["correcciones"] == ["no, en castellano"]
+
+
+def test_parar_corta_una_llamada_larga_al_motor_en_el_acto():
+    import threading, time
+    liberar = threading.Event()
+
+    def request(c, convo, tools):
+        liberar.wait(10)
+        return {"content": "tarde"}
+
+    def vigilar():
+        raise RuntimeError("cancelado por el usuario")
+
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="cancelado"):
+        chat.agent_turn([{"role": "user", "content": "hola"}], {"alias": "g", "url": "u"}, FakeMCP(),
+                        lambda s: None, request=request, vigilar=vigilar)
+    liberar.set()
+    assert time.monotonic() - t0 < 3
+
+
+def test_vigilado_devuelve_el_resultado_y_propaga_errores():
+    assert chat.vigilado(lambda: 7, None) == 7
+    assert chat.vigilado(lambda: 8, lambda: None) == 8
+    with pytest.raises(ValueError):
+        chat.vigilado(lambda: (_ for _ in ()).throw(ValueError("x")), lambda: None)
+
+
+def test_plan_interno_solo_en_preguntas_abiertas_y_va_al_final_del_ultimo_mensaje():
+    vistos, pedidos = [], []
+
+    def plan(m):
+        pedidos.append(m)
+        return "Comparar ventajas y costes."
+
+    def request(c, convo, tools):
+        vistos.append(convo[-1]["content"])
+        return {"content": "Depende de..."}
+
+    out = chat.agent_turn([{"role": "user", "content": "¿Por qué conviene usar caché en el motor?"}],
+                          {"alias": "g", "url": "u"}, FakeMCP(), lambda s: None, request=request, plan=plan)
+    assert out["plan"] == "Comparar ventajas y costes." and "[Mi plan interno" in vistos[0]
+    pedidos.clear()
+    chat.agent_turn([{"role": "user", "content": "lista los proyectos"}], {"alias": "g", "url": "u"}, FakeMCP(),
+                    lambda s: None, request=lambda c, convo, tools: (
+                        {"content": "Lista."} if any(m["role"] == "tool" for m in convo)
+                        else {"tool_calls": [_call("eolfi_biblioteca_buscar", {"consulta": "x"})]}), plan=plan)
+    assert pedidos == []
+
+
+def test_un_plan_que_falla_no_impide_contestar():
+    def plan(m):
+        raise RuntimeError("motor ocupado")
+    out = chat.agent_turn([{"role": "user", "content": "¿Cómo funciona la caché del motor y por qué importa?"}],
+                          {"alias": "g", "url": "u"}, FakeMCP(), lambda s: None,
+                          request=lambda c, convo, tools: {"content": "Así."}, plan=plan)
+    assert out["text"] == "Así." and "plan" not in out
+
+
+def test_planificar_pide_razonamiento_sin_herramientas():
+    visto = {}
+
+    def request(c, mensajes, tools, timeout, **kw):
+        visto.update(tools=tools, **kw)
+        return {"content": "", "reasoning_content": "Primero miro X."}
+
+    assert chat.planificar({"kind": "eolas-v2"}, [{"role": "user", "content": "¿por qué?"}], request=request) == \
+        "Primero miro X."
+    assert visto["tools"] == [] and visto["pensar"] is True
+
+
+def test_request_traduce_ninguna_a_tool_choice_none(monkeypatch):
+    enviado = {}
+
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return json.dumps({"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}).encode()
+
+    class Opener:
+        def open(self, req, timeout=None):
+            enviado.update(json.loads(req.data))
+            return Resp()
+
+    monkeypatch.setattr(chat.urllib.request, "build_opener", lambda *a: Opener())
+    tools = [{"type": "function", "function": {"name": "a", "parameters": {"type": "object"}}}]
+    chat._request({"alias": "g", "endpoint": "http://127.0.0.1:1/v1/chat/completions", "kind": "eolas-v2"}, [],
+                  chat.Ninguna(tools))
+    assert enviado["tool_choice"] == "none" and enviado["tools"] and \
+        enviado["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+@pytest.mark.parametrize("respuesta, esperado", [
+    ({"content": "Empiezo a contestar", "reasoning_content": "Pienso X.", "_fin": "length"}, "Pienso X."),
+    ({"content": "Respuesta a medias", "_fin": "length"}, ""),
+    ({"content": "Plan: mirar X.", "_fin": "stop"}, "Plan: mirar X."),
+])
+def test_planificar_prefiere_el_razonamiento_y_descarta_respuestas_cortadas(respuesta, esperado):
+    assert chat.planificar({"kind": "eolas-v2"}, [{"role": "user", "content": "x"}],
+                           request=lambda *a, **k: respuesta) == esperado
+
+
+def test_una_respuesta_cortada_por_el_tope_se_termina():
+    """21/11/2026, titular: respuestas «cortas y cortadas». Si el motor se queda sin tokens, una vuelta más sin
+    herramientas para que termine; el hilo no se queda con la petición de continuar."""
+    vistos = []
+
+    def request(c, messages, tools, *a, **k):
+        vistos.append((len(messages), isinstance(tools, chat.Ninguna)))
+        if len(vistos) == 1:
+            return {"content": "El caso ilfy analiza el modelo Dory y tiene dos informes: el de", "_fin": "length"}
+        return {"content": "funcionalidades y el de mejoras.", "_fin": "stop"}
+
+    out = chat.agent_turn([{"role": "user", "content": "hola"}], {"alias": "x"}, type("M", (), {"tools": {}})(),
+                          lambda m: None, request=request)
+    assert out["text"] == "El caso ilfy analiza el modelo Dory y tiene dos informes: el de funcionalidades y el de mejoras."
+    assert vistos[1][1] is True and vistos[1][0] == vistos[0][0] + 2

@@ -1,0 +1,4 @@
+{"conexiones": [{"protocolo": "TCP", "familia": 4, "local": "0.0.0.0", "puerto_local": 36277, "estado": "LISTEN", "remoto": null, "puerto_remoto": null, "remoto_no_loopback": false, "escucha_no_loopback": true}], "tcp_escuchas_no_loopback": 1, "estado": "observado", "incognitas": []}
+{"conexiones": [], "estado": "NO VERIFICADO", "incognitas": ["Consulta de sockets del PID incompleta: [Errno 2] No such file or directory: '/proc/720/ns/net'"]}
+...............                                                          [100%]
+15 passed in 1.58s

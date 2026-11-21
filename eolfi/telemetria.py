@@ -7,6 +7,7 @@ ni respuestas. No sale del equipo: nada de este módulo abre una conexión.
 Eventos:
 - ``ronda``: una ronda de ``assist`` (generación, verificación, tokens, tokens/s, juez, paso que falló).
 - ``muestra``: una muestra de un banco del RSI (puntuación, minutos, semilla).
+- ``carga``: desde el lanzamiento del servidor hasta que el perfil responde a la comprobación de salud.
 """
 from __future__ import annotations
 
@@ -76,6 +77,7 @@ def ronda(*, proveedor: str, modelo: str | None, destino: str, numero: int, gene
     semilla = os.environ.get("EOLFI_SEMILLA", "")
     anotar("ronda", proveedor=proveedor, modelo=modelo, destino=destino, ronda=numero,
            generacion_s=float(generacion_s), verificacion_s=float(verificacion_s),
+           carga_declarada_s=tiempos.get("carga_declarada_s"),
            tokens_entrada=int(uso.get("input_tokens", 0) or 0), tokens_salida=salida,
            tokens_s=float(tps) if isinstance(tps, (int, float)) else None,
            lectura_tokens_s=float(tiempos["prompt_per_second"]) if isinstance(tiempos.get("prompt_per_second"), (int, float)) else None,
@@ -91,12 +93,18 @@ def _mediana(valores: list[float]) -> float | None:
 
 def resumen() -> dict[str, Any]:
     """Medianas por proveedor: lo que piden las métricas del plan (p50 por muestra, tokens/s, verificación)."""
-    rondas, muestras = eventos("ronda"), eventos("muestra")
+    todos = eventos()
+    rondas = [e for e in todos if e.get("tipo") == "ronda"]
+    muestras = [e for e in todos if e.get("tipo") == "muestra"]
+    cargas = [e for e in todos if e.get("tipo") == "carga"]
     por: dict[str, Any] = {}
-    for prov in sorted({str(r.get("proveedor")) for r in rondas}):
+    for prov in sorted({str(r.get("proveedor")) for r in rondas + cargas}):
         rs = [r for r in rondas if str(r.get("proveedor")) == prov]
         con_juez = [r for r in rs if isinstance(r.get("juez_total"), int) and r["juez_total"]]
         por[prov] = {
+            "cargas": sum(c.get("proveedor") == prov for c in cargas),
+            "carga_s_p50": _mediana([c.get("carga_s") for c in cargas if c.get("proveedor") == prov]),
+            "carga_declarada_s_p50": _mediana([r.get("carga_declarada_s") for r in rs]),
             "rondas": len(rs), "rondas_en_verde": sum(1 for r in rs if r.get("ok")),
             "generacion_s_p50": _mediana([r.get("generacion_s") for r in rs]),
             "verificacion_s_p50": _mediana([r.get("verificacion_s") for r in rs]),
@@ -115,6 +123,6 @@ def resumen() -> dict[str, Any]:
             "desviacion": round(statistics.stdev(notas), 3) if len(notas) > 1 else None,
             "sin_entrega": sum(1 for m in ms if m.get("exit") not in (None, 0)),
         }
-    return {"activa": activa(), "carpeta": str(carpeta()), "eventos": len(rondas) + len(muestras),
+    return {"activa": activa(), "carpeta": str(carpeta()), "eventos": len(rondas) + len(muestras) + len(cargas),
             "por_proveedor": por, "bancos": bancos}
 

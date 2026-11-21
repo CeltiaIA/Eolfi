@@ -37,6 +37,12 @@ test('aprobación: con la señal ya abortada no se abre diálogo y una respuesta
   assert.deepEqual(b.grants(), {});
 });
 
+test('aprobación: una respuesta inesperada del diálogo no permite el envío', async () => {
+  const a = createApprover({ showMessageBox: async () => ({ response: undefined }) });
+  assert.equal(await a.approve('meta', 'hola'), false);
+  assert.deepEqual(a.grants(), {});
+});
+
 // ------------------------------------------------------------------ send() de DeepSeek con un navegador falso
 function fakeDeepseek({ cancelAfterWrite = null, url = `${DEEPSEEK_ORIGIN}/` } = {}) {
   const log = { inserted: [], keys: [], loads: [] };

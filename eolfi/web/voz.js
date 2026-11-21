@@ -1,6 +1,7 @@
 // Voz en el panel (PLAN_DEFINITIVO.md, bloque A, 16/11/2026): dictado, lectura en voz alta y modo conversación.
 // El audio se graba aquí, se convierte a WAV de 16 kHz y se envía SOLO al servidor local de Eolfi
-// (/api/voz/transcribir). La lectura usa las voces del sistema del navegador; nada sale del equipo.
+// (/api/voz/transcribir). La lectura usa Piper (voz neuronal local, vía /api/voz/hablar) si está instalado y, si no,
+// las voces del sistema del navegador; nada sale del equipo.
 import { $, api } from "./runtime.js";
 
 const HZ = 16000;
@@ -113,7 +114,10 @@ async function empezar(destino = voz.destinos[0]) {
   voz.grabando = g;
   rec.start();
   pintar();
-  aviso(voz.conversacion ? "Te escucho… (Esc para salir)" : "Grabando… pulsa otra vez para terminar.");
+  // 19/11/2026: se dice de qué micrófono se graba (el titular no sabía si Eolfi detectaba el de la torre).
+  const mic = stream.getAudioTracks()[0]?.label;
+  const con = mic ? ` Micrófono: ${mic}.` : "";
+  aviso((voz.conversacion ? "Te escucho… (Esc para salir)" : "Grabando… pulsa otra vez para terminar.") + con);
 }
 
 // En modo conversación el turno se cierra solo tras hablar y callar SILENCIO_MS.
@@ -196,10 +200,67 @@ function limpio(texto) {
   return String(texto).replace(/```[\s\S]*?```/g, " (bloque de código) ").replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
 }
 
+// 18/11/2026: con Piper (voz neuronal local) el servidor genera el audio y prepara el texto para el oído. Se lee por
+// trozos de pocas frases y el siguiente se pide mientras suena el actual: la primera frase empieza en ~1 s aunque la
+// respuesta sea larga. Si Piper falla, se sigue con las voces del navegador.
+const lectura = { turno: 0, audio: null };
+
+export function trozos(texto, max = 280) {
+  const sinCodigo = String(texto).replace(/```[\s\S]*?```/g, "\n(bloque de código)\n");
+  const frases = sinCodigo.split(/(?<=[.!?…:])\s+|\n+/).map((f) => f.trim()).filter(Boolean);
+  const out = [];
+  for (const f of frases) {
+    if (out.length && (out[out.length - 1] + " " + f).length <= max) out[out.length - 1] += "\n" + f;
+    else out.push(f.slice(0, 3500));
+  }
+  return out;
+}
+
+async function audioDe(texto) {
+  const r = await fetch("/api/voz/hablar", { method: "POST", headers: { "X-Eolfi": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ texto }) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+  return URL.createObjectURL(await r.blob());
+}
+
+async function decirConPiper(texto, alAcabar) {
+  const turno = ++lectura.turno;
+  const partes = trozos(texto);
+  let siguiente = partes.length ? audioDe(partes[0]) : null;
+  for (let i = 0; i < partes.length; i++) {
+    let url;
+    try { url = await siguiente; } catch (err) {
+      if (turno !== lectura.turno) return;
+      aviso(`Piper no pudo leer (${err.message}); sigo con la voz del navegador.`, true);
+      decirNavegador(partes.slice(i).join(" "), alAcabar);
+      return;
+    }
+    siguiente = i + 1 < partes.length ? audioDe(partes[i + 1]) : null;
+    if (turno !== lectura.turno) { URL.revokeObjectURL(url); return; }
+    await new Promise((fin) => {
+      const a = new Audio(url);
+      lectura.audio = a;
+      a.addEventListener("ended", fin);
+      a.addEventListener("error", fin);
+      a.play().catch(fin);
+    });
+    URL.revokeObjectURL(url);
+    if (turno !== lectura.turno) return;
+  }
+  lectura.audio = null;
+  alAcabar();
+}
+
 export function decir(texto, alAcabar = () => {}) {
+  if (!String(texto || "").trim()) { alAcabar(); return; }
+  callar();
+  if (voz.estado?.lectura_activa === "piper") { decirConPiper(texto, alAcabar); return; }
+  decirNavegador(texto, alAcabar);
+}
+
+function decirNavegador(texto, alAcabar) {
   const t = limpio(texto || "");
   if (!t || !("speechSynthesis" in window)) { alAcabar(); return; }
-  callar();
   const u = new SpeechSynthesisUtterance(t.slice(0, 4000));
   const idioma = voz.estado?.idioma || "es-ES";
   u.lang = idioma;
@@ -213,7 +274,45 @@ export function decir(texto, alAcabar = () => {}) {
 }
 
 export function callar() {
+  lectura.turno += 1;
+  if (lectura.audio) { lectura.audio.pause(); lectura.audio = null; }
   if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+
+const hablando = () => !!lectura.audio || !!globalThis.speechSynthesis?.speaking;
+const puedeLeer = () => voz.estado?.lectura_activa === "piper" || "speechSynthesis" in window;
+
+// Voz de lectura: Piper (cada voz y hablante) con su ajuste. Se guarda en ~/.eolfi/voz.json (solo en este equipo).
+function pintarVoces() {
+  const sel = $("#voz-voz"), aj = $("#voz-ajuste");
+  const p = voz.estado?.piper;
+  const caja = sel?.closest(".voz-lectura");
+  if (!sel || !caja) return;
+  caja.hidden = !p?.disponible;
+  if (!p?.disponible) return;
+  sel.replaceChildren(...p.voces.flatMap((v) => Array.from({ length: v.hablantes }, (_, h) => {
+    const o = document.createElement("option");
+    o.value = JSON.stringify({ modelo: v.modelo, hablante: h });
+    o.textContent = v.nombre.replace(/^[a-z]{2}_[A-Z]{2}-/, "").replace(/-(medium|low|high|x_low)$/, "")
+      + (v.hablantes > 1 ? ` · ${h === 0 ? "hombre" : h === 1 ? "mujer" : `voz ${h + 1}`}` : "");
+    o.selected = v.modelo === p.modelo && h === p.hablante;
+    return o;
+  })));
+  aj.replaceChildren(...(voz.estado.ajustes || []).map((a) => {
+    const o = document.createElement("option");
+    o.value = a; o.textContent = a; o.selected = a === p.ajuste;
+    return o;
+  }));
+}
+
+async function guardarVoz() {
+  const elegido = JSON.parse($("#voz-voz").value);
+  try {
+    voz.estado = await api("/api/voz/config", { method: "POST",
+      body: JSON.stringify({ piper: { ...elegido, ajuste: $("#voz-ajuste").value } }) });
+    pintarVoces();
+    decir("Hola, así sueno con esta voz.");
+  } catch (err) { aviso(`No se pudo cambiar la voz: ${err.message}`, true); }
 }
 
 // El chat avisa de cada respuesta nueva: se lee si está activado o en modo conversación, y se vuelve a escuchar.
@@ -253,9 +352,12 @@ export async function initVoz(hooks) {
   try { voz.estado = await api("/api/voz/estado"); } catch { voz.estado = null; }
   const stt = puede && voz.estado?.voz_a_texto;
   $("#voz-mic").hidden = !stt;
-  $("#voz-conversar").hidden = !stt || !("speechSynthesis" in window);
+  $("#voz-conversar").hidden = !stt || !puedeLeer();
   $("#voz-leer").checked = !!voz.prefs.leer;
-  $("#voz-leer").closest("label").hidden = !("speechSynthesis" in window);
+  $("#voz-leer").closest("label").hidden = !puedeLeer();
+  pintarVoces();
+  $("#voz-voz")?.addEventListener("change", guardarVoz);
+  $("#voz-ajuste")?.addEventListener("change", guardarVoz);
   voz.destinos = [{ input: $("#eolas-chat-input"), boton: $("#voz-mic"), estado: $("#voz-estado"), chat: true }];
   voz.destino = voz.destinos[0];
   if (stt) for (const sel of OTROS) anadirDictado(sel);
@@ -284,7 +386,7 @@ export async function initVoz(hooks) {
       const d = voz.destinos.find((x) => x.input === document.activeElement) || voz.destinos[0];
       if (voz.grabando) parar(); else empezar(d);
     }
-    else if (e.key === "Escape" && (voz.conversacion || voz.grabando || speechSynthesis?.speaking)) {
+    else if (e.key === "Escape" && (voz.conversacion || voz.grabando || hablando())) {
       voz.conversacion = false; parar(); callar(); pintar(); aviso("Voz detenida.");
     }
   });

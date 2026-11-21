@@ -207,6 +207,9 @@ function makeActions(vscode) {
       if (isSecretTarget(full)) throw new ActionError(403, `${path.basename(full)} guarda secretos: Eolfi no lo lee ni lo envía al modelo`);
       const stat = await fs.stat(U(full));
       if (stat.size > MAX_READ && !(start_line || end_line)) throw new ActionError(413, `archivo de ${stat.size} bytes: pide un rango de líneas`);
+      // workspace.fs no ofrece lectura por flujo (también sirve workspaces remotos): no materializar
+      // un archivo arbitrariamente grande en el host de extensiones, ni siquiera para un rango.
+      if (stat.size > 8 * MAX_READ) throw new ActionError(413, `archivo de ${stat.size} bytes: divídelo antes de leerlo por rangos`);
       const bytes = await fs.readFile(U(full));
       if (bytes.subarray(0, 8000).includes(0)) throw new ActionError(415, 'archivo binario');
       let text = Buffer.from(bytes).toString('utf8');

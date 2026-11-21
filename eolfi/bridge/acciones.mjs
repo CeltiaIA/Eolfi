@@ -5,10 +5,10 @@
 // modo que Python y Node añaden eventos a una sola cadena y `eolfi acciones verificar` la comprueba entera.
 // Nunca guarda prompts ni respuestas: solo su SHA-256 y su longitud en bytes. Usa solo enteros (un decimal se
 // serializa distinto en Python y en JavaScript y rompería el hash).
-import { closeSync, mkdirSync, openSync, readSync, fstatSync, statSync, unlinkSync, writeSync, fsyncSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { closeSync, mkdirSync, openSync, readSync, readFileSync, realpathSync, fstatSync, statSync, unlinkSync, writeFileSync, writeSync, fsyncSync } from 'node:fs';
+import { createHash, createHmac } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 export const SCHEMA = 'eolfi-acciones/v1';
 export const CERO = '0'.repeat(64);
@@ -106,6 +106,32 @@ function ultimo(path) {
   } finally { closeSync(fd); }
 }
 
+function escribir(path, evento) {
+  evento.sha256 = digest(evento);
+  const fd = openSync(path, 'a');
+  try { writeFileSync(fd, canon(evento) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+function firmarEvento(path, evento, archivo) {
+  const params = { hasta_seq: evento.seq, cabeza: evento.sha256 };
+  const firma = { ...evento, seq: evento.seq + 1, fecha: new Date().toISOString(), operacion: 'acciones.firma',
+    origen: 'auto', prev: evento.sha256, params, ok: false, resultado: null, error: null };
+  try {
+    if (!archivo) throw new Error('falta la clave');
+    const ruta = realpathSync(archivo);
+    if (!relative(dirname(realpathSync(path)), dirname(ruta))) throw new Error('la clave está junto al registro');
+    const texto = readFileSync(ruta, 'utf8').trim();
+    if (!/^(?:[0-9a-f]{2}[ \t\r\n\f\v]*){32,}$/i.test(texto)) throw new Error('clave hexadecimal inválida');
+    const clave = Buffer.from(texto.replace(/\s/g, ''), 'hex');
+    params.clave_id = createHash('sha256').update('eolfi-acciones-clave|').update(clave).digest('hex').slice(0, 16);
+    firma.resultado = { hmac: createHmac('sha256', clave).update(`${SCHEMA}|${evento.seq}|${evento.sha256}`).digest('hex') };
+    firma.ok = true;
+  } catch (error) {
+    firma.error = limpio(`firma automática no hecha: ${error.message}`);
+  }
+  escribir(path, firma);
+}
+
 // Añade un evento a la cadena. Devuelve el evento o null si el registro está desactivado.
 export function anotar(operacion, { params = {}, resultado = null, ok = true, error = null, origen = null, env = process.env } = {}) {
   if (!activo(env)) return null;
@@ -118,9 +144,10 @@ export function anotar(operacion, { params = {}, resultado = null, ok = true, er
       params: limpio(params || {}), resultado: limpio(resultado), error: limpio(error),
       prev: last ? last.sha256 : CERO,
     };
-    evento.sha256 = digest(evento);
-    const fd = openSync(path, 'a');
-    try { writeSync(fd, canon(evento) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
+    escribir(path, evento);
+    if (operacion !== 'acciones.firma' && ['1', 'true', 'si', 'sí', 'yes'].includes(String(env.EOLFI_ACCIONES_FIRMA_AUTO).trim().toLowerCase())) {
+      firmarEvento(path, evento, env.EOLFI_ACCIONES_CLAVE);
+    }
     return evento;
   });
 }

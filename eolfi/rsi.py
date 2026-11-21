@@ -161,8 +161,8 @@ def _leer(superficie: str) -> Any:
 
     if superficie == "rea.timeout":
         return ajuste("rea.timeout")
-    if superficie == "eolas_v2.max_tokens":
-        return eolas_v2.load_config()["max_tokens"]
+    if superficie in ("eolas_v2.max_tokens", "eolas_v2.ready_timeout"):
+        return eolas_v2.load_config()[superficie.split(".")[1]]
     m = re.fullmatch(r"eolas_v2\.perfil\.(\w+)\.(ctx|gpu_layers)", superficie)
     if m:
         return eolas_v2.load_config()["profiles"][m[1]][m[2]]
@@ -190,8 +190,8 @@ def _escribir(superficie: str, valor: Any) -> None:
         return
     path = eolas_v2.config_file()
     user = _read_json(path, {})
-    if superficie == "eolas_v2.max_tokens":
-        user["max_tokens"] = valor
+    if superficie in ("eolas_v2.max_tokens", "eolas_v2.ready_timeout"):
+        user[superficie.split(".")[1]] = valor
     else:
         _, _, perfil, campo = superficie.split(".")
         user.setdefault("profiles", {}).setdefault(perfil, {})[campo] = valor
@@ -205,6 +205,8 @@ def validar(superficie: str, valor: Any) -> Any:
         return _rango(60, 7200)(valor)
     if superficie == "eolas_v2.max_tokens":
         return _rango(1024, 32768)(valor)
+    if superficie == "eolas_v2.ready_timeout":
+        return _rango(1, 7200)(valor)
     m = re.fullmatch(r"eolas_v2\.perfil\.(\w+)\.(ctx|gpu_layers)", superficie)
     if m and m[1] in eolas_v2.DEFAULT_PROFILES:
         return _rango(2048, 131072)(valor) if m[2] == "ctx" else _rango(0, 999)(valor)
@@ -224,6 +226,7 @@ SINTOMAS: dict[str, str] = {
     "js_sintaxis": r"sintaxis JS del sitio",
     "plazo_local": r"no termin[óo] en \d+ s",
     "leccion_inactiva": r"lecci[óo]n inactiva",
+    "arranque_agotado": r"Eolas no publicó health y el modelo",
 }
 
 
@@ -276,6 +279,9 @@ def _reactivar_leccion(ctx: dict[str, Any]) -> tuple[str, Any] | None:
 
 
 REGLAS: dict[str, dict[str, Any]] = {
+    "plazo_arranque_v2": {"sintoma": "arranque_agotado", "fuente": "eolas-v2", "motivo":
+                          "El motor agotó repetidamente el plazo de arranque configurado.",
+                          "proponer": _doblar("eolas_v2.ready_timeout", 7200)},
     "salida_cortada_v2": {"sintoma": "salida_cortada", "fuente": "eolas-v2", "motivo":
                           "Las respuestas de Eolas V2 se cortan por longitud: más tokens de salida.",
                           "proponer": _doblar("eolas_v2.max_tokens", 32768)},

@@ -11,7 +11,8 @@ PyInstaller no es dependencia de Eolfi: se usa el de un entorno propio (por defe
 3. Verifica el ejecutable con un directorio personal temporal y sin red: ``--version``, ``update --check`` (modo
    ``ejecutable``), los archivos de datos del paquete, ``-m eolfi --version`` y el panel (``/api/health`` y ``/``).
 
-Límites: no firma el ejecutable; Node.js y las dependencias del puente y de playwright-core siguen siendo externas;
+En Windows, ``--certificado HUELLA`` firma el ejecutable con SignTool y comprueba Authenticode antes de distribuirlo.
+Node.js y las dependencias del puente y de playwright-core siguen siendo externas;
 ``verify`` de proyectos Python necesita un Python del sistema (``python_base`` en ``eolfi/generador/verify.py``).
 Uso: python tools/construir_ejecutable.py [--pyinstaller RUTA] [--salida CARPETA] [--conservar]
 """
@@ -22,6 +23,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
@@ -30,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verificar_paquete as vp  # noqa: E402
 
-LIMITES = ("Sin firma de código. Node.js, las dependencias del puente y playwright-core siguen siendo externas. "
+LIMITES = ("Node.js, las dependencias del puente y playwright-core siguen siendo externas. "
            "«verify» de proyectos Python usa el Python del sistema.")
 
 
@@ -75,12 +77,18 @@ def opciones_paquete(fuente: Path, rutas: list[str]) -> list[str]:
     return opciones
 
 
-def construir(pyinstaller: Path, salida: Path, tmp: Path) -> dict:
+def construir(pyinstaller: Path, salida: Path, tmp: Path, certificado: str | None = None) -> dict:
     pasos: list[dict] = []
     version = vp.version_codigo()
     destino = salida / f"eolfi-{version}-{plataforma()}"
     out = {"schema": "eolfi.construir_ejecutable/v1", "version_codigo": version, "pyinstaller": str(pyinstaller),
-           "destino": str(destino), "pasos": pasos}
+           "destino": str(destino), "pasos": pasos, "firma": "no solicitada"}
+    if certificado is not None:
+        out["firma"] = "NO VERIFICADO"
+        signtool = shutil.which("signtool.exe")
+        if os.name != "nt" or not signtool or not re.fullmatch(r"[0-9A-Fa-f]{40}", certificado):
+            out.update(ok=False, estado="NO VERIFICADO", motivo="La firma requiere Windows, SignTool y la huella del certificado (40 hex)")
+            return out
     if not pyinstaller.is_file():
         out.update(ok=False, estado="NO VERIFICADO", motivo=f"no está PyInstaller en {pyinstaller}")
         return out
@@ -100,6 +108,15 @@ def construir(pyinstaller: Path, salida: Path, tmp: Path) -> dict:
     construido = tmp / "dist" / "eolfi"
     if p.returncode or not construido.is_dir():
         return vp.cerrar(out, pasos, LIMITES)
+
+    if certificado is not None:
+        exe_temporal = str(construido / "eolfi.exe")
+        for nombre, argumentos in (("firmar", ["sign", "/sha1", certificado, "/fd", "SHA256"]),
+                                   ("verificar_firma", ["verify", "/pa", "/all"])):
+            p = vp.paso(pasos, nombre, [signtool, *argumentos, exe_temporal], cwd=tmp, timeout=120)
+            if p.returncode:
+                return vp.cerrar(out, pasos, LIMITES)
+        out["firma"] = "verificada"
 
     salida.mkdir(parents=True, exist_ok=True)
     shutil.move(str(construido), str(destino))
@@ -130,10 +147,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--pyinstaller", type=Path, default=pyinstaller_por_defecto())
     ap.add_argument("--salida", type=Path, default=vp.RAIZ / "dist")
     ap.add_argument("--conservar", action="store_true", help="Conserva la carpeta temporal de construcción")
+    ap.add_argument("--certificado", help="Huella del certificado de firma del almacén personal de Windows")
     args = ap.parse_args(argv)
     tmp = Path(tempfile.mkdtemp(prefix="eolfi-ejecutable-"))
     try:
-        out = construir(args.pyinstaller, args.salida.resolve(), tmp)
+        out = construir(args.pyinstaller, args.salida.resolve(), tmp, args.certificado)
     finally:
         if not args.conservar:
             shutil.rmtree(tmp, ignore_errors=True)

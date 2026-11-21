@@ -19,7 +19,7 @@ from eolfi.acciones import registrada
 from datetime import datetime, timezone
 from pathlib import Path
 
-from eolfi.modelos import audit, sha256
+from eolfi.modelos import audit, enforce_trust, sha256
 
 TYPES = {"Q4_0": 2, "Q3_K_M": 12, "Q4_K_M": 15, "Q5_K_M": 17, "Q6_K": 18, "Q8_0": 7}
 SCHEMA = "eolfi.modelos.reconstruccion/v1"
@@ -170,6 +170,7 @@ def execute(recipe, *, timeout=None):
         raise ValueError("Receta o argumentos modificados")
     if list(_stamp(source)) != recipe["entrada_stamp"]:
         raise ValueError("La entrada cambió después de preparar la receta")
+    enforce_trust(source)
     for item in [recipe["herramienta"], *recipe["herramienta"]["bibliotecas_locales"]]:
         if sha256(item["archivo"]) != item["sha256"]:
             raise ValueError("El cuantizador o una biblioteca cambió después de preparar la receta")
@@ -359,6 +360,7 @@ def execute_smoke(plan):
         raise ValueError("Plan o argumentos modificados")
     if list(_stamp(model)) != plan["modelo_stamp"]:
         raise ValueError("El modelo cambió después de preparar el smoke")
+    enforce_trust(model)
     for item in [plan["herramienta"], *plan["herramienta"]["bibliotecas_locales"]]:
         if sha256(item["archivo"]) != item["sha256"]:
             raise ValueError("El ejecutor o una biblioteca cambió después de preparar el smoke")

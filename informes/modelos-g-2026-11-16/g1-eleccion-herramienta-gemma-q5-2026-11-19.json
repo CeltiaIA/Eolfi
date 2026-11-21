@@ -1,0 +1,53 @@
+[
+ {
+  "etiqueta": "1 GGUF por ruta",
+  "estado": "done",
+  "error": null,
+  "segundos": 153,
+  "herramientas": [
+   {
+    "name": "eolfi_modelos_auditar",
+    "ok": true,
+    "args": "{\"ruta\": \"D:\\\\Alejandria\\\\corpus\\\\modelos.gguf\\\\objetos\\\\sha256\\\\43\\\\43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6\\\\pesos.gguf\"}"
+   }
+  ],
+  "respuesta": "He analizado la estructura del archivo `pesos.gguf` utilizando las herramientas de auditoría de Eolfi. Aquí tienes los resultados detallados:\n\n### 1. Análisis de Estructura y Tecnología\n*   **Formato:** Es un archivo **GGUF versión 3**, el estándar actual para modelos optimizados para inferencia local.\n*   **Modelo:** Se identifica como **Gemma-4-12B-It**.\n*   **Arquitectura:** Utiliza la arquitectura `gemma4`.\n*   **Dimensiones Técnicas:**\n    *   **Contexto:** 262,144 tokens (un contexto muy amplio).\n    *   **Capas (Blocks):** 48.\n    *   **Embeddings:** 3,840.\n    *   **Cabezales de Atención:** 16.\n    *   **Ventana Deslizante:** 1,024.\n*   **Integridad:** El archivo tiene un tamaño de aproximadamente **7.12 GB**. Los desplazamientos de los tensores coinciden con la estructura declarada, lo que confirma que el archivo no está corrupto y los datos están donde deberían estar.\n\n### 2. Verificación de Seguridad y Origen\n*   **Hash SHA-256:** El hash del archivo es `43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6`. Este coincide exactamente con la ruta de la carpeta donde se encuentra, lo que indica que el archivo es el original esperado en ese directorio.\n*   **Origen:** Los metadatos apuntan a `unsloth` en Hugging Face, basándose en el modelo original de Google (`google/gemma-4-12b-it`).\n*   **Licencia:** Incluye el enlace oficial a la licencia de Gemma 4.\n\n### 3. Hallazgos y Observaciones\n*   **¿Algo raro?:** No se detectan anomalías estructurales. La canti",
+  "esperada": "eolfi_modelos_auditar",
+  "elige_la_esperada": true,
+  "auditor_usado": true
+ },
+ {
+  "etiqueta": "2 carpeta de modelos",
+  "estado": "done",
+  "error": null,
+  "segundos": 24,
+  "herramientas": [
+   {
+    "name": "eolfi_modelos_auditar",
+    "ok": true,
+    "args": "{\"ruta\": \"D:\\\\Alejandria\\\\corpus\\\\modelos.gguf\\\\objetos\\\\sha256\\\\43\\\\43fec98c5102b1c446b4ddd0a9439f1db3a2e1f2e0b8cd143ce1ea619a9403d6\"}"
+   }
+  ],
+  "respuesta": "En la carpeta especificada se encuentra el siguiente modelo:\n\n*   **Nombre:** `pesos.gguf`\n*   **Tamaño:** 7,121,860,000 bytes (aproximadamente **6.65 GB**).\n\nAdemás, la carpeta contiene otros archivos de información: `estructura.json`, `FICHA.md` y `procedencia.json`.",
+  "esperada": "eolfi_modelos_auditar",
+  "elige_la_esperada": true,
+  "auditor_usado": true
+ },
+ {
+  "etiqueta": "3 control: ejecutable",
+  "estado": "done",
+  "error": null,
+  "segundos": 123,
+  "herramientas": [
+   {
+    "name": "eolfi_triage",
+    "ok": true,
+    "args": "{\"modo\": \"normal\", \"ruta\": \"C:\\\\Windows\\\\System32\\\\notepad.exe\"}"
+   }
+  ],
+  "respuesta": "El archivo `C:\\Windows\\System32\\notepad.exe` es el ejecutable estándar del **Bloc de notas** de Windows. Tras realizar un triaje inicial, aquí tienes el resumen del análisis:\n\n### 1. Análisis del archivo\n*   **Formato y Tecnología:** Es un binario ejecutable de Windows en formato **PE (Portable Executable)** diseñado para la arquitectura **amd64** (64 bits).\n*   **Estructura y Mitigaciones:** El archivo cuenta con protecciones de seguridad estándar activas, como **ASLR** (Address Space Layout Randomization), **CFG** (Control Flow Guard) y **DEP** (Data Execution Prevention). No presenta indicios de estar empaquetado (*packed*).\n*   **Dependencias:** Utiliza una amplia gama de librerías del sistema para su funcionamiento, incluyendo:\n    *   `USER32.dll` y `GDI32.dll`: Para la interfaz gráfica y el dibujo de texto.\n    *   `COMCTL32.dll`: Para los controles de la interfaz de usuario.\n    *   Múltiples librerías `api-ms-win-core-*`: Que proporcionan funciones básicas de archivos, registro, memoria y gestión de hilos.\n*   **Capacidades detectadas:** El binario tiene permisos para realizar acciones comunes de una aplicación de edición de texto, como crear/eliminar archivos y directorios, manipular el registro, leer atributos de archivos y gestionar ventanas gráficas.\n\n### 2. Propuestas de acción\nA partir de este análisis, Eolfi podría realizar lo siguiente:\n1.  **Análisis de Funciones Críticas:** Usar `eolfi_explicar_binario` para obtener el pseudocódigo de las funciones principa",
+  "esperada": "eolfi_triage",
+  "elige_la_esperada": true,
+  "auditor_usado": false
+ }
+]

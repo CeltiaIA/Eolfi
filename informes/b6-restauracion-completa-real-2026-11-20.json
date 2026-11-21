@@ -1,0 +1,194 @@
+{
+  "schema": "eolfi.b6.restauracion-real/v1",
+  "modelo": "gemma-4-12b-it-q4_k_m-reconstruido:local (Eolas V2 local)",
+  "control_negativo": {
+    "selector": "body",
+    "cuenta_esperada": 0,
+    "cuenta_observada": 1
+  },
+  "limites_de_inferencia": {
+    "razonamiento": false,
+    "max_tokens_por_respuesta": 1500,
+    "timeout_s": 180
+  },
+  "plantilla_inicial_verificada": true,
+  "rondas": [
+    {
+      "ronda": 1,
+      "archivos_escritos": [
+        "js/restauracion.js"
+      ],
+      "nota_juez": 0.0,
+      "paso_fallido": "juez funcional (0/1)",
+      "verificacion": {
+        "ok": false,
+        "steps": [
+          {
+            "step": "sintaxis JS del sitio (js/main.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "sintaxis JS del sitio (js/restauracion.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "sintaxis JS del sitio (sw.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "pruebas (node --test)",
+            "exit": 0,
+            "seconds": 0.2
+          },
+          {
+            "step": "juez funcional (0/1)",
+            "exit": 1,
+            "seconds": 0.9
+          }
+        ],
+        "judge": {
+          "status": "ok",
+          "passed": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "ronda": 2,
+      "archivos_escritos": [
+        "js/restauracion.js"
+      ],
+      "nota_juez": 0.0,
+      "paso_fallido": "juez funcional (0/1)",
+      "verificacion": {
+        "ok": false,
+        "steps": [
+          {
+            "step": "sintaxis JS del sitio (js/main.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "sintaxis JS del sitio (js/restauracion.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "sintaxis JS del sitio (sw.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "pruebas (node --test)",
+            "exit": 0,
+            "seconds": 0.2
+          },
+          {
+            "step": "juez funcional (0/1)",
+            "exit": 1,
+            "seconds": 0.8
+          }
+        ],
+        "judge": {
+          "status": "ok",
+          "passed": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "ronda": 3,
+      "archivos_escritos": [
+        "js/restauracion.js"
+      ],
+      "nota_juez": 0.0,
+      "paso_fallido": "juez funcional (0/1)",
+      "verificacion": {
+        "ok": false,
+        "steps": [
+          {
+            "step": "sintaxis JS del sitio (js/main.js)",
+            "exit": 0,
+            "seconds": 0.2
+          },
+          {
+            "step": "sintaxis JS del sitio (js/restauracion.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "sintaxis JS del sitio (sw.js)",
+            "exit": 0,
+            "seconds": 0.1
+          },
+          {
+            "step": "pruebas (node --test)",
+            "exit": 0,
+            "seconds": 0.2
+          },
+          {
+            "step": "juez funcional (0/1)",
+            "exit": 1,
+            "seconds": 1.1
+          }
+        ],
+        "judge": {
+          "status": "ok",
+          "passed": 0,
+          "total": 1
+        }
+      }
+    }
+  ],
+  "resultado": {
+    "ok": false,
+    "parcial": false,
+    "restored": true,
+    "files_changed": [],
+    "verified_memory_saved": false
+  },
+  "memoria_aislada_creada": false,
+  "escrituras_observadas": true,
+  "antes": {
+    ".gitignore": "9400965e8b4cd52c1bcbe87c6940724a30c14b8888db23a076ae0b4ea24c36c5",
+    "DESPLIEGUE.md": "9a3b3f6561945b638fa4693a9232af7090050d4059f6f8563474208c5d41fc88",
+    "eolfi.juez.json": "c76cd73c9e18fc6301b374dc7a0d8fdb8329fedac4fca886696bb56ffb6b907d",
+    "eolfi.spec.json": "d5a08a402a90b69a065c2aa024d82cdbfcf89c4415a9ceaeccf96d5270e52a23",
+    "icon.svg": "7ab0bc74d50df45dcbb302cc2a733f0e6cba14fb93e96beac9d9c4dd2e5b4769",
+    "index.html": "28d9c3db9a650acb1d8e284ff673f7c338d06387417b64040f4c7ce0d00ced93",
+    "manifest.webmanifest": "89a705d1decc2317dfffcaa69ef4883cb77219903107b0b1b9d972863231fae1",
+    "package.json": "22e0282d1a8f9ff65eee398256bec33e0f49b696e6353d394e6c7ff51327bf4a",
+    "README.md": "504243d6eb210f066ccc0522d7df7a97cf83c9268679cba5741ca41c4497886d",
+    "sw.js": "2a4ac74971773eb147afaa786ce2eed2532ff84806bf66a693e1f93c3fe222f7",
+    "css/base.css": "488fe697b275dbc082cf10223a0253d07f08d67f935fe88e9b7266089f0964ce",
+    "css/tokens.css": "625e0544e4bfaae3f11ff66e4ce382b133c2ae57160dd8600c793c5688eb3e3d",
+    "js/main.js": "643402bdf7d9f1a17f4b98f2954ea16a1c5daae2ef5d9729aec7ab0e2635622f",
+    "scripts/serve.mjs": "7aa3f1f2058bd4b3348e5c7007c49ada8e32d11df821df1756621692c1bfd0a3",
+    "tests/site.test.mjs": "e52bf65d1da7516e732f8df8fad006733e93a8907a35893e78f45bf5ab5182c2",
+    ".github/workflows/ci.yml": "2892c1215f8e32e3c13268586405ad7267bf60edc03e553d6e5a56a11b19ffe0"
+  },
+  "despues": {
+    ".gitignore": "9400965e8b4cd52c1bcbe87c6940724a30c14b8888db23a076ae0b4ea24c36c5",
+    "DESPLIEGUE.md": "9a3b3f6561945b638fa4693a9232af7090050d4059f6f8563474208c5d41fc88",
+    "eolfi.juez.json": "c76cd73c9e18fc6301b374dc7a0d8fdb8329fedac4fca886696bb56ffb6b907d",
+    "eolfi.spec.json": "d5a08a402a90b69a065c2aa024d82cdbfcf89c4415a9ceaeccf96d5270e52a23",
+    "icon.svg": "7ab0bc74d50df45dcbb302cc2a733f0e6cba14fb93e96beac9d9c4dd2e5b4769",
+    "index.html": "28d9c3db9a650acb1d8e284ff673f7c338d06387417b64040f4c7ce0d00ced93",
+    "manifest.webmanifest": "89a705d1decc2317dfffcaa69ef4883cb77219903107b0b1b9d972863231fae1",
+    "package.json": "22e0282d1a8f9ff65eee398256bec33e0f49b696e6353d394e6c7ff51327bf4a",
+    "README.md": "504243d6eb210f066ccc0522d7df7a97cf83c9268679cba5741ca41c4497886d",
+    "sw.js": "2a4ac74971773eb147afaa786ce2eed2532ff84806bf66a693e1f93c3fe222f7",
+    "css/base.css": "488fe697b275dbc082cf10223a0253d07f08d67f935fe88e9b7266089f0964ce",
+    "css/tokens.css": "625e0544e4bfaae3f11ff66e4ce382b133c2ae57160dd8600c793c5688eb3e3d",
+    "js/main.js": "643402bdf7d9f1a17f4b98f2954ea16a1c5daae2ef5d9729aec7ab0e2635622f",
+    "scripts/serve.mjs": "7aa3f1f2058bd4b3348e5c7007c49ada8e32d11df821df1756621692c1bfd0a3",
+    "tests/site.test.mjs": "e52bf65d1da7516e732f8df8fad006733e93a8907a35893e78f45bf5ab5182c2",
+    ".github/workflows/ci.yml": "2892c1215f8e32e3c13268586405ad7267bf60edc03e553d6e5a56a11b19ffe0"
+  },
+  "mismos_archivos_y_hashes": true,
+  "evidencia_local_sha256": "67f4c116015da61f2687b062f5c4bc29a20b2d461353d9d8645e1f6fc5b6d0d8",
+  "alcance": "Prueba negativa de restauración con proveedor real, no un proyecto funcional entregado."
+}

@@ -1,6 +1,7 @@
 """GGUF hostiles y control de identidad, sin ejecutar ningún modelo."""
 import hashlib
 import json
+import os
 import struct
 
 import pytest
@@ -91,6 +92,39 @@ def test_trust_checks_contents_again(tmp_path):
         modelos.check_trust(path, trust)
 
 
+def test_propuesta_confianza_no_autoriza_y_no_sobrescribe(tmp_path, capsys, monkeypatch):
+    path = fixture(tmp_path / "m.gguf")
+    out = tmp_path / "propuesta.json"
+    monkeypatch.delenv("EOLFI_MODELOS_CONFIANZA", raising=False)
+    assert main(["modelos", "proponer-confianza", "--archivo", str(path), "--out", str(out)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert printed["schema"] == saved["schema"] == "eolfi.modelos.confianza-propuesta/v1"
+    assert saved["estado"] == "NO VERIFICADO"
+    assert saved["modelos"][0]["sha256"] == modelos.sha256(path)
+    assert saved["modelos"][0]["procedencia"] == "NO VERIFICADO"
+    assert "EOLFI_MODELOS_CONFIANZA" not in os.environ
+    with pytest.raises(ValueError, match="Manifiesto de confianza"):
+        modelos.check_trust(path, out)
+    with pytest.raises(FileExistsError, match="ya existe"):
+        modelos.propose_trust([path], out)
+
+
+def test_propuesta_confianza_modelo_dividido_exige_y_hashea_partes(tmp_path):
+    first = fixture(tmp_path / "m-00001-of-00002.gguf")
+    second = fixture(tmp_path / "m-00002-of-00002.gguf")
+    result = modelos.propose_trust([first], tmp_path / "propuesta.json")
+    parts = result["modelos"][0]["partes"]
+    assert [part["archivo"] for part in parts] == [str(first.resolve()), str(second.resolve())]
+    assert [part["sha256"] for part in parts] == [modelos.sha256(first), modelos.sha256(second)]
+    second.unlink()
+    with pytest.raises(FileNotFoundError, match="Faltan partes"):
+        modelos.propose_trust([first], tmp_path / "otra.json")
+    second = fixture(tmp_path / "m-00002-of-00002.gguf")
+    with pytest.raises(ValueError, match="primera parte"):
+        modelos.propose_trust([second], tmp_path / "desde-segunda.json")
+
+
 def test_split_requires_every_shard(tmp_path):
     path = fixture(tmp_path / "m-00001-of-00002.gguf")
     with pytest.raises(ValueError, match="Faltan partes"):
@@ -144,6 +178,45 @@ def test_policy_rejects_model_overrides(tmp_path, monkeypatch):
     monkeypatch.setattr(eolas_v2, "_runtime", lambda: pytest.fail("No debe consultar runtime"))
     with pytest.raises(ValueError, match="extra_args"):
         eolas_v2._start_locked("gemma_q4", {"extra_args": ["-m", "otro.gguf"]})
+
+
+@pytest.mark.parametrize("scope", ["global", "perfil", "ambos"])
+def test_confianza_admite_opciones_acotadas_sin_cambiar_el_perfil(tmp_path, monkeypatch, scope):
+    from eolfi import eolas_v2
+
+    path = fixture(tmp_path / "m.gguf")
+    monkeypatch.setenv("EOLFI_MODELOS_CONFIANZA", str(manifest(tmp_path, path)))
+    monkeypatch.setattr(eolas_v2, "is_retired", lambda *a: False)
+    monkeypatch.setattr(eolas_v2, "profile_config", lambda *a: {"model": str(path)})
+    def runtime():
+        raise RuntimeError("runtime alcanzado después de validar confianza")
+    monkeypatch.setattr(eolas_v2, "_runtime", runtime)
+    extra = ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"]
+    cfg = {"extra_args": extra if scope in ("global", "ambos") else [],
+           "profiles": {"gemma_q4": {"extra_args": extra if scope in ("perfil", "ambos") else []}}}
+    before = json.dumps(cfg, sort_keys=True)
+    with pytest.raises(RuntimeError, match="runtime alcanzado"):
+        eolas_v2._start_locked("gemma_q4", cfg)
+    assert json.dumps(cfg, sort_keys=True) == before
+
+
+@pytest.mark.parametrize("scope", ["global", "perfil"])
+@pytest.mark.parametrize("extra", [["--model", "otro.gguf"], ["--lora", "otro.gguf"],
+                                  ["--mmproj", "otro.gguf"], ["--host", "0.0.0.0"],
+                                  ["--api-key", "otra"], ["-fa", "--model"],
+                                  ["-np", "--model"], ["-fa"]])
+def test_confianza_sigue_bloqueando_opciones_no_acotadas(tmp_path, monkeypatch, scope, extra):
+    from eolfi import eolas_v2
+
+    path = fixture(tmp_path / "m.gguf")
+    monkeypatch.setenv("EOLFI_MODELOS_CONFIANZA", str(manifest(tmp_path, path)))
+    monkeypatch.setattr(eolas_v2, "is_retired", lambda *a: False)
+    monkeypatch.setattr(eolas_v2, "profile_config", lambda *a: {"model": str(path)})
+    monkeypatch.setattr(eolas_v2, "_runtime", lambda: pytest.fail("No consultar runtime con opciones no autorizadas"))
+    cfg = {"extra_args": extra if scope == "global" else [],
+           "profiles": {"gemma_q4": {"extra_args": extra if scope == "perfil" else []}}}
+    with pytest.raises(ValueError, match="extra_args"):
+        eolas_v2._start_locked("gemma_q4", cfg)
 
 
 def test_split_hashes_every_part(tmp_path):

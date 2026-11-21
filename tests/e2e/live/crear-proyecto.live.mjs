@@ -9,7 +9,7 @@
 //   EOLFI_E2E_CHANNEL=msedge | EOLFI_E2E_BROWSER=/ruta/al/chrome
 //
 // Usa solo una muestra sintética propia (un sitio estático generado aquí). Deja en la base del panel un caso
-// llamado «e2e en vivo <fecha>» con su proyecto en generated/: así queda la evidencia del recorrido.
+// llamado «e2e en vivo <fecha>» con su proyecto en la carpeta de proyectos (Eolfi-proyectos, fuera del repositorio): así queda la evidencia del recorrido.
 import { chromium } from 'playwright-core';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

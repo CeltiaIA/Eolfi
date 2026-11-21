@@ -29,8 +29,9 @@ import urllib.request
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
-# Lo que no forma parte del producto instalado: pruebas, fixtures y scripts de desarrollo de la extensión.
-EXCLUIDOS = re.compile(r"^eolfi/(vscode-bridge/(test|e2e|fixtures|scripts)/|.*\.gitignore$|.*/__pycache__/)")
+# Lo que no forma parte del producto instalado: pruebas, fixtures y scripts de desarrollo de la extensión, y las
+# fuentes de la app Android de la tableta (se construyen aparte con su construir.py).
+EXCLUIDOS = re.compile(r"^eolfi/(vscode-bridge/(test|e2e|fixtures|scripts)/|tableta-android/|.*\.gitignore$|.*/__pycache__/)")
 LIMITE_PIPX = "pipx no se ejecuta: se reproduce su instalación (entorno virtual propio, pip install de la rueda)."
 
 

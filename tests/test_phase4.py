@@ -150,8 +150,21 @@ def test_robots_5xx_means_disallow(local_server):
     from eolfi.sites.fetch import FetchError, Fetcher
     _srv, base = local_server
     _Handler.routes = {"/robots.txt": (503, {}, b"caido"), "/": (200, {"Content-Type": "text/html"}, b"<p>hola</p>")}
-    with pytest.raises(FetchError, match="robots"):
+    # 19/11/2026: con el sitio caído el aviso decía «no permite», como si lo prohibiera; ahora dice la causa.
+    with pytest.raises(FetchError, match="robots.txt respondió 503 .*caído.*Vuelve a intentarlo"):
         Fetcher(delay=0).get(base + "/")
+    _Handler.routes["/robots.txt"] = (200, {}, b"User-agent: *\nDisallow: /")
+    with pytest.raises(FetchError, match="robots.txt no permite"):
+        Fetcher(delay=0).get(base + "/")
+
+
+def test_cli_web_sin_traza_si_no_se_puede_rastrear(local_server, capsys, tmp_path):
+    from eolfi import cli
+    _srv, base = local_server
+    _Handler.routes = {"/robots.txt": (502, {}, b"error code: 502")}
+    assert cli.main(["--db", str(tmp_path / "e.db"), "web", base + "/"]) == 1
+    err = capsys.readouterr().err
+    assert "robots.txt respondió 502" in err and "Traceback" not in err
 
 
 def test_redirect_to_private_blocked_when_page_is_public(local_server):
@@ -350,7 +363,8 @@ def test_remote_mode_defaults_to_eolfi_folders(tmp_path):
     from eolfi.server import make_server
     httpd = make_server(str(tmp_path / "r.db"), "127.0.0.1", 0, tmp_path / "s", token="t" * 32)
     try:
-        assert httpd.app.roots == [(tmp_path / "s").resolve(), Path("generated").resolve()]
+        from eolfi.proyectos import carpeta
+        assert httpd.app.roots == [(tmp_path / "s").resolve(), carpeta()]
     finally:
         httpd.server_close()
 

@@ -21,7 +21,8 @@ BLOCKS = {0: (1, 4), 1: (1, 2), 2: (32, 18), 3: (32, 20), 6: (32, 22),
           24: (1, 1), 25: (1, 2), 26: (1, 4), 27: (1, 8), 28: (1, 8), 30: (1, 2)}
 # Cuantizaciones K con superbloque de 256 (el formato actual). El identificador solo no distingue los formatos
 # históricos, así que estos tamaños NO se dan por buenos: se aceptan únicamente si los desplazamientos del propio
-# archivo los confirman (ver _confirm_k).
+# archivo los confirman (ver _confirm_k). Referencia compilada: leejet/ggml a5915eb0,
+# src/ggml-common.h e include/ggml.h; evidencia en informes/plan-2026-11-19.md.
 K_STANDARD = {10: (256, 84), 11: (256, 110), 12: (256, 144), 13: (256, 176), 14: (256, 210), 15: (256, 292)}
 PATTERN = re.compile(r"https?://[^\s\"'<>]+|\b(?:curl|wget|socket|subprocess|powershell|eval|exec)\b", re.I)
 LIMIT = 256 * 1024 * 1024
@@ -102,9 +103,12 @@ def _confirm_k(tensors, candidates, alignment):
 def audit(path):
     """Lectura acotada de estructura y hash completo, sin cargar el modelo."""
     path = Path(path).resolve()
-    result = {"schema": SCHEMA, "archivo": str(path), "errores": [], "incognitas": [],
+    result = {"schema": SCHEMA, "archivo": str(path), "procedencia": "NO VERIFICADO",
+              "errores": [], "incognitas": [],
               "limites": ["No descarta puertas traseras en los pesos ni vulnerabilidades del motor",
-                          "No observa conexiones; no ejecuta el modelo ni la plantilla"]}
+                          "No observa conexiones; no ejecuta el modelo ni la plantilla",
+                          "El SHA-256 identifica los bytes leídos. Una carpeta con ese nombre y los metadatos "
+                          "del GGUF no aportan una referencia independiente sobre el origen."]}
     errors, unknown = result["errores"], result["incognitas"]
     try:
         before = path.stat()
@@ -277,6 +281,53 @@ def check_trust(path, manifest):
             raise ValueError(f"SHA-256 distinto: {part['archivo']}")
     return {"estado": "hash_autorizado", "archivo": str(path), "partes": len(parts),
             "limite": "La autorización del hash no demuestra seguridad de los pesos"}
+
+
+def propose_trust(paths, out):
+    """Prepara identidades para revisión; el esquema resultante NO activa la política de confianza."""
+    target = Path(out).resolve()
+    if target.suffix.casefold() != ".json":
+        raise ValueError("La propuesta debe terminar en .json")
+    if target.exists():
+        raise FileExistsError(f"La propuesta ya existe: {target}")
+    if not paths:
+        raise ValueError("Indica al menos un modelo")
+    entries, seen = [], set()
+    for raw in paths:
+        path = Path(raw).resolve()
+        if path in seen:
+            raise ValueError(f"Modelo duplicado: {path}")
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        seen.add(path)
+        audited = audit(path)
+        if not audited.get("sha256"):
+            raise ValueError(f"No se pudo identificar el modelo: {path}")
+        entry = {"archivo": str(path), "sha256": audited.get("sha256"), "bytes": path.stat().st_size,
+                 "auditoria": audited.get("estado"), "procedencia": "NO VERIFICADO"}
+        match = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", path.name, re.I)
+        if match:
+            if int(match.group(1)) != 1:
+                raise ValueError("Para un modelo dividido indica la primera parte")
+            total = int(match.group(2))
+            parts = [path.with_name(path.name[:match.start()] + f"-{i:05d}-of-{total:05d}.gguf").resolve()
+                     for i in range(1, total + 1)]
+            missing = [str(part) for part in parts if not part.is_file()]
+            if missing:
+                raise FileNotFoundError("Faltan partes: " + ", ".join(missing))
+            entry.pop("sha256", None)
+            entry["partes"] = [{"archivo": str(part), "sha256": audited["sha256"] if part == path else sha256(part),
+                                 "bytes": part.stat().st_size} for part in parts]
+        entries.append(entry)
+    proposal = {"schema": "eolfi.modelos.confianza-propuesta/v1", "estado": "NO VERIFICADO",
+                "modelos": entries,
+                "limite": ("Los hashes solo identifican los bytes locales. Esta propuesta no autoriza modelos, "
+                           "no demuestra procedencia ni seguridad y no es aceptada por EOLFI_MODELOS_CONFIANZA.")}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp = target.with_name(target.name + f".{os.getpid()}.tmp")
+    temp.write_text(json.dumps(proposal, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temp, target)
+    return {**proposal, "archivo": str(target)}
 
 
 def enforce_trust(path):

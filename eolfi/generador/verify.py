@@ -135,6 +135,28 @@ def _site_scripts(root: Path) -> list[str]:
     return found
 
 
+_CIERRES = ("</main>", "</body>", "</html>")
+
+
+def html_incompleto(root: Path) -> list[str]:
+    """Páginas del sitio que no terminan: les falta el cierre de main, body o html.
+
+    21/11/2026 (regeneración real de «ilfy»): la IA dejó index.html cortado a mitad de frase, sin </main> ni
+    </html>; el navegador lo pinta igual, las pruebas de la plantilla solo buscan <main> y el juez no vio errores,
+    así que la verificación quedó en verde con medio informe."""
+    skip = {"node_modules", "tests", "test", "scripts", ".git"}
+    malas = []
+    for path in sorted(root.rglob("*.html")):
+        rel = path.relative_to(root)
+        if skip.intersection(rel.parts[:-1]) or not path.is_file():
+            continue
+        texto = path.read_text(encoding="utf-8", errors="replace").lower()
+        faltan = [c for c in _CIERRES if (c != "</main>" or "<main" in texto) and c not in texto]
+        if faltan:
+            malas.append(f"{rel.as_posix()}: falta {', '.join(faltan)} (la página está cortada)")
+    return malas
+
+
 def pin_nuget_versions(project: Path, dotnet: str) -> dict[str, str]:
     """Sustituye Version="*" por la versión que NuGet restauró de verdad (proyecto reproducible)."""
     import re
@@ -422,6 +444,13 @@ def _verify(project: str | Path, target: str, *, progress: Callable[[str], None]
             ok = True
             for script in _site_scripts(root):
                 ok = step([node, "--check", script], f"sintaxis JS del sitio ({script})") and ok
+            malas = html_incompleto(root)
+            etiqueta = "HTML completo (páginas cerradas)"
+            log(f"→ {etiqueta}")      # mismos textos que step(): ya traducidos
+            steps.append({"cmd": "html_incompleto", "step": etiqueta, "seconds": 0,
+                          "exit": 1 if malas else 0, "tail": "\n".join(malas)})
+            log(f"  {'FALLO' if malas else 'OK'} ({0} s)")
+            ok = ok and not malas
             if ok:
                 step([node, "--test"], "pruebas (node --test)")
         else:

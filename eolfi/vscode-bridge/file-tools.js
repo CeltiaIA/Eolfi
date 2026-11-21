@@ -125,7 +125,7 @@ function archiveInfo(file) {
   const format = magic(bytes);
   if (format === 'zip') return { path: full, format, entries: zipEntries(bytes).map(({ name, compressed, uncompressed, directory }) => ({ name, compressed, uncompressed, directory })) };
   if (format === 'gzip') {
-    const decoded = zlib.gunzipSync(bytes);
+    const decoded = zlib.gunzipSync(bytes, { maxOutputLength: MAX_ARCHIVE_BYTES });
     const tar = tarEntries(decoded);
     return { path: full, format: tar.length ? 'tar.gz' : 'gzip', entries: tar.length ? tar.map(({ name, size, directory }) => ({ name, uncompressed: size, directory })) : [{ name: path.basename(full, path.extname(full)), uncompressed: decoded.length, directory: false }] };
   }
@@ -153,7 +153,7 @@ function extractArchive(file, outputDir) {
       }
     } catch (error) { fs.rmSync(output, { recursive: true, force: true }); throw error; }
   } else if (format === 'gzip') {
-    const decoded = zlib.gunzipSync(bytes);
+    const decoded = zlib.gunzipSync(bytes, { maxOutputLength: MAX_ARCHIVE_BYTES });
     entries = tarEntries(decoded);
     if (!entries.length) {
       fs.mkdirSync(output, { recursive: false });

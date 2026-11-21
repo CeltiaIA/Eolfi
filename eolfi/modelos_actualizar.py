@@ -26,6 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -83,12 +84,14 @@ class _SoloHostsPermitidos(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _abrir(url: str):
+def _abrir(url: str, *, offset: int = 0):
     if not _host_permitido(url):
         raise ActualizarError(f"destino no permitido: {url}")
     opener = urllib.request.build_opener(_SoloHostsPermitidos())
     # Sin cabecera de autorización ni cookies: nunca se envían credenciales del usuario.
     req = urllib.request.Request(url, headers={"User-Agent": "eolfi-modelos/1", "Accept": "*/*"})
+    if offset:
+        req.add_header("Range", f"bytes={offset}-")
     return opener.open(req, timeout=TIMEOUT)
 
 
@@ -100,12 +103,27 @@ def _fetch_red(url: str) -> bytes:
     return data
 
 
-def _stream_red(url: str) -> Iterator[bytes]:
-    with _abrir(url) as resp:
+def _stream_red(url: str, offset: int = 0) -> Iterator[bytes]:
+    with _abrir(url, offset=offset) as resp:
+        restantes = None
+        if offset:
+            rango = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", resp.headers.get("Content-Range", ""))
+            if resp.status != 206 or not rango:
+                raise ActualizarError("el servidor no confirmó el rango solicitado")
+            inicio, fin, total = map(int, rango.groups())
+            if inicio != offset or fin < inicio or fin != total - 1:
+                raise ActualizarError("Content-Range incompatible con el archivo parcial")
+            restantes = fin - inicio + 1
         while True:
             chunk = resp.read(4 * 1024 * 1024)
             if not chunk:
+                if restantes:
+                    raise ActualizarError("el servidor interrumpió el rango; se conserva el parcial")
                 return
+            if restantes is not None:
+                if len(chunk) > restantes:
+                    raise ActualizarError("el servidor excedió el rango solicitado")
+                restantes -= len(chunk)
             yield chunk
 
 
@@ -169,26 +187,35 @@ def comprobar(fuentes: str | Path, *, nombre: str | None = None, red: bool = Fal
 
 def _comprobar_una(fuente: dict[str, Any], fetch: Fetch) -> dict[str, Any]:
     base = {"nombre": fuente["nombre"], "repo": fuente["repo"], "archivo": fuente["archivo"]}
-    sha_local, origen = _sha_local(fuente)
+    try:
+        sha_local, origen = _sha_local(fuente)
+    except OSError as exc:
+        return {**base, "estado": "NO VERIFICADO", "error": f"No se pudo leer el modelo local: {exc}"[:300]}
     base.update(sha256_local=sha_local, sha256_local_origen=origen)
     url = API.format(repo=fuente["repo"], rev=urllib.parse.quote(fuente["rama"], safe=""))
     try:
         info = json.loads(fetch(url).decode("utf-8"))
     except (OSError, ValueError, urllib.error.URLError, ActualizarError) as exc:
         return {**base, "estado": "NO VERIFICADO", "error": f"{type(exc).__name__}: {exc}"[:300]}
+    if not isinstance(info, dict) or not isinstance(info.get("siblings"), list):
+        return {**base, "estado": "NO VERIFICADO", "error": "respuesta de la API sin lista de archivos"}
     commit = str(info.get("sha") or "")
-    sibling = next((s for s in info.get("siblings") or [] if isinstance(s, dict)
+    sibling = next((s for s in info["siblings"] if isinstance(s, dict)
                     and s.get("rfilename") == fuente["archivo"]), None)
     if not _COMMIT.fullmatch(commit):
         return {**base, "estado": "NO VERIFICADO", "error": "la API no devolvió un commit válido"}
     if sibling is None:
         return {**base, "estado": "NO VERIFICADO", "revision": commit,
                 "error": "el archivo ya no está publicado en ese repositorio"}
-    lfs = sibling.get("lfs") or {}
+    lfs = sibling.get("lfs")
+    if not isinstance(lfs, dict):
+        return {**base, "estado": "NO VERIFICADO", "revision": commit, "error": "metadatos LFS inválidos"}
     remoto = str(lfs.get("sha256") or "").lower()
-    size = lfs.get("size") or sibling.get("size")
+    size = lfs.get("size")
     if not _SHA.fullmatch(remoto):
         return {**base, "estado": "NO VERIFICADO", "revision": commit, "error": "sin SHA-256 LFS publicado"}
+    if type(size) is not int or size <= 0:
+        return {**base, "estado": "NO VERIFICADO", "revision": commit, "error": "tamaño LFS inválido"}
     out = {**base, "revision": commit, "sha256_publicado": remoto, "bytes": size,
            "ultima_modificacion": info.get("lastModified")}
     if sha_local is None:
@@ -202,10 +229,29 @@ def _comprobar_una(fuente: dict[str, Any], fetch: Fetch) -> dict[str, Any]:
 
 # ── Descargar ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-@registrada("modelos.descargar", campos=("repo", "archivo", "revision", "sha256", "destino"),
+@contextmanager
+def _control_descarga(path: Path):
+    """Cerrojo por archivo final. El SO lo libera al morir el escritor; el archivo conserva la identidad."""
+    if path.is_symlink():
+        raise ActualizarError("el control de descarga debe ser un archivo local ordinario")
+    with path.open("a+b") as control:
+        control.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(control.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(control, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise ActualizarError("no se pudo reservar la descarga; comprueba si hay otro escritor") from exc
+        yield control
+
+
+@registrada("modelos.descargar", campos=("repo", "archivo", "revision", "sha256", "destino", "reanudar"),
             resultado=("estado", "archivo_local", "sha256_obtenido", "bytes", "error"))
 def descargar(repo: str, archivo: str, revision: str, sha256: str, destino: str | Path, *, red: bool = False,
-              bytes_esperados: int | None = None, stream: Stream | None = None) -> dict[str, Any]:
+              bytes_esperados: int | None = None, stream: Stream | None = None, reanudar: bool = False) -> dict[str, Any]:
     """Descarga un archivo fijado por commit y SHA-256 a una carpeta, sin sobrescribir, y lo audita (G1)."""
     if not _REPO.fullmatch(repo or ""):
         raise ActualizarError("repo debe ser propietario/nombre")
@@ -218,25 +264,69 @@ def descargar(repo: str, archivo: str, revision: str, sha256: str, destino: str 
     carpeta = Path(destino)
     final = carpeta / Path(archivo).name
     parcial = final.with_name(final.name + ".part")
-    for p in (final, parcial, final.with_name(final.name + ".rechazado")):
-        if p.exists():
-            raise ActualizarError(f"ya existe {p}: G5 nunca sobrescribe")
+    if bytes_esperados is not None and bytes_esperados <= 0:
+        raise ActualizarError("el tamaño publicado debe ser positivo")
     _exigir_red(red)
     carpeta.mkdir(parents=True, exist_ok=True)
+    with _control_descarga(parcial.with_suffix(".part.control")) as control:
+        for p in (final, final.with_name(final.name + ".rechazado")):
+            if p.exists() or p.is_symlink():
+                raise ActualizarError(f"ya existe {p}: G5 nunca sobrescribe")
+        identidad = json.dumps([repo, archivo, revision, sha256]).encode()
+        anterior = control.read()
+        if reanudar:
+            if parcial.is_symlink() or not parcial.is_file() or anterior != identidad:
+                raise ActualizarError("el parcial no corresponde a la descarga fijada")
+        else:
+            if parcial.exists() or parcial.is_symlink():
+                raise ActualizarError(f"ya existe {parcial}: G5 nunca sobrescribe")
+            if anterior and anterior != identidad:
+                raise ActualizarError("el destino está reservado para otra descarga; usa una carpeta nueva")
+            if not anterior:
+                control.write(identidad)
+                control.flush()
+                os.fsync(control.fileno())
+        return _descargar_fijado(repo, archivo, revision, sha256, final, parcial, bytes_esperados, stream, reanudar)
+
+
+def _publicar_sin_reemplazar(parcial, destino):
+    if os.name == "nt":
+        parcial.rename(destino)  # Windows rechaza un destino existente
+    else:
+        os.link(parcial, destino)
+        parcial.unlink()
+
+
+def _descargar_fijado(repo, archivo, revision, sha256, final, parcial, bytes_esperados, stream, reanudar):
+    carpeta = final.parent
+    offset = parcial.stat().st_size if reanudar else 0
+    if bytes_esperados and offset > bytes_esperados:
+        raise ActualizarError("el parcial supera el tamaño publicado")
     if bytes_esperados:
         libre = shutil.disk_usage(carpeta).free
-        if libre < bytes_esperados + 64 * 1024 * 1024:
+        if libre < bytes_esperados - offset + 64 * 1024 * 1024:
             raise ActualizarError(f"espacio insuficiente: hacen falta {bytes_esperados} bytes y quedan {libre}")
     url = RESOLVE.format(repo=repo, rev=revision, archivo=urllib.parse.quote(archivo))
-    stream = stream or _stream_red
     h = hashlib.sha256()
-    total = 0
+    total = offset
     recibo: dict[str, Any] = {"schema": SCHEMA_DESCARGA, "inicio": _ahora(), "repo": repo, "archivo": archivo,
                               "revision": revision, "sha256_esperado": sha256, "bytes_esperados": bytes_esperados,
                               "url": url}
     try:
-        with open(parcial, "xb") as fh:
-            for chunk in stream(url):
+        with open(parcial, "r+b" if reanudar else "xb") as fh:
+            if reanudar:
+                for bloque in iter(lambda: fh.read(4 * 1024 * 1024), b""):
+                    h.update(bloque)
+            recibo["bytes_reutilizados"] = offset
+            if reanudar and (offset == bytes_esperados or h.hexdigest() == sha256):
+                chunks = ()
+            elif offset:
+                if stream is not None:
+                    raise ActualizarError("el proveedor de stream personalizado no admite rangos")
+                chunks = _stream_red(url, offset)
+            else:
+                chunks = (stream or _stream_red)(url)
+            for chunk in chunks:
                 total += len(chunk)
                 if bytes_esperados and total > bytes_esperados:
                     raise ActualizarError("se recibieron más bytes de los publicados")
@@ -256,12 +346,12 @@ def descargar(repo: str, archivo: str, revision: str, sha256: str, destino: str 
     recibo.update(bytes=total, sha256_obtenido=obtenido, fin=_ahora())
     if obtenido != sha256 or (bytes_esperados and total != bytes_esperados):
         rechazado = final.with_name(final.name + ".rechazado")
-        os.replace(parcial, rechazado)
+        _publicar_sin_reemplazar(parcial, rechazado)
         recibo.update(estado="fallido", archivo_rechazado=str(rechazado),
                       error="el SHA-256 o el tamaño no coinciden con lo publicado: no se usa")
         _escribir_recibo(carpeta, recibo)
         return recibo
-    os.replace(parcial, final)
+    _publicar_sin_reemplazar(parcial, final)
     from eolfi.modelos import audit
 
     auditoria = audit(final)
@@ -277,7 +367,12 @@ def descargar(repo: str, archivo: str, revision: str, sha256: str, destino: str 
 
 def _escribir_recibo(carpeta: Path, recibo: dict[str, Any]) -> None:
     path = carpeta / "descarga.json"
-    if path.exists():
-        path = carpeta / f"descarga-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
-    path.write_text(json.dumps(recibo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        fh = path.open("x", encoding="utf-8")
+    except FileExistsError:
+        from uuid import uuid4
+        path = carpeta / f"descarga-{uuid4().hex}.json"
+        fh = path.open("x", encoding="utf-8")
+    with fh:
+        fh.write(json.dumps(recibo, ensure_ascii=False, indent=2) + "\n")
     recibo["recibo"] = str(path)

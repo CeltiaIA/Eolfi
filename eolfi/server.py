@@ -17,8 +17,11 @@ import contextlib
 import hashlib
 import http.client
 import json
+import math
 import os
 import re
+import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -31,6 +34,7 @@ from urllib.parse import parse_qs, urlparse
 
 from eolfi import __version__
 from eolfi.core.evidence import EvidenceStore
+from eolfi.proyectos import carpeta as proyectos_carpeta
 from eolfi.core.models import Status
 
 WEB_DIR = Path(__file__).with_name("web")
@@ -46,10 +50,13 @@ _CTYPE = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=
           ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8"}
 # frame-ancestors: el panel solo se puede incrustar en VS Code (Simple Browser, esquema vscode-webview:).
 # frame-src: el panel incrusta VS Code web (code serve-web), que escucha en 127.0.0.1 en un puerto libre.
-_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+_CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; "
         "connect-src 'self'; frame-src http://127.0.0.1:*; frame-ancestors 'self' vscode-webview:; "
         "base-uri 'none'; form-action 'none'")
 _LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
+# Cabecera que pone el puente de la tableta (eolfi/tableta_puente.py). Solo puede rebajar permisos (nivel usuario y
+# solo tokens de tableta), así que fiarse de ella desde 127.0.0.1 no da nada que el loopback no tuviera ya.
+PUENTE_HEADER = "X-Eolfi-Puente"
 _CASE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # Informe de caso: HTML autocontenido sin scripts; solo necesita estilos en línea.
 _REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
@@ -277,6 +284,7 @@ class EolfiApp:
     _JOB_FIELDS = ("id", "kind", "status", "label", "started", "finished", "error", "subject")
     MAX_STORED_RESULT = 4_000_000
     HISTORY_KEEP = 4
+    ARCHIVE_KEEP = 1000   # tope del archivo de evidencia, para que la base no crezca sin límite
 
     def _history(self):
         s = self.store()
@@ -287,6 +295,12 @@ class EolfiApp:
         s.conn.execute("CREATE TABLE IF NOT EXISTS job_results (id TEXT PRIMARY KEY, result TEXT, log TEXT)")
         # Trabajos en marcha y el proceso que los ejecuta: si ese proceso ya no existe, el trabajo se cortó.
         s.conn.execute("CREATE TABLE IF NOT EXISTS job_live (id TEXT PRIMARY KEY, pid INTEGER)")
+        # Archivo de evidencia (20/11/2026): el historial visible sigue con HISTORY_KEEP trabajos (decisión del
+        # titular), pero lo que sale de él ya no se borra: pasa aquí con su resultado y su registro, y se puede
+        # consultar por id. Antes, los trabajos citados como evidencia daban 404 al cabo de cuatro trabajos más.
+        s.conn.execute("CREATE TABLE IF NOT EXISTS job_archive (id TEXT PRIMARY KEY, kind TEXT, status TEXT, "
+                       "label TEXT, started REAL, finished REAL, error TEXT, subject TEXT, body TEXT, result TEXT, "
+                       "log TEXT, archived REAL)")
         return s
 
     INTERRUPTED = ("El servidor se reinició o se cerró con el trabajo en marcha; el registro llega hasta el último "
@@ -332,10 +346,18 @@ class EolfiApp:
                         result = json.dumps({"omitido": f"resultado de {len(result)} caracteres: no se guarda"})
                     log = json.dumps((job.get("log") or [])[-2000:], ensure_ascii=False, default=str)
                     s.conn.execute("INSERT OR REPLACE INTO job_results VALUES (?,?,?)", (job["id"], result, log))
-                    # El historial guarda solo los últimos trabajos terminados (decisión del titular, 12/11/2026).
-                    s.conn.execute("DELETE FROM job_history WHERE id NOT IN "
-                                   "(SELECT id FROM job_history ORDER BY started DESC LIMIT ?)", (self.HISTORY_KEEP,))
+                    # El historial guarda solo los últimos trabajos terminados (decisión del titular, 12/11/2026);
+                    # los que salen se archivan antes de quitarlos (20/11/2026).
+                    keep = "(SELECT id FROM job_history ORDER BY started DESC LIMIT ?)"
+                    s.conn.execute(
+                        "INSERT OR REPLACE INTO job_archive SELECT h.id, h.kind, h.status, h.label, h.started, "
+                        "h.finished, h.error, h.subject, h.body, r.result, r.log, ? FROM job_history h "
+                        f"LEFT JOIN job_results r ON r.id = h.id WHERE h.id NOT IN {keep} "
+                        "AND h.status NOT IN ('queued', 'running')", (time.time(), self.HISTORY_KEEP))
+                    s.conn.execute(f"DELETE FROM job_history WHERE id NOT IN {keep}", (self.HISTORY_KEEP,))
                     s.conn.execute("DELETE FROM job_results WHERE id NOT IN (SELECT id FROM job_history)")
+                    s.conn.execute("DELETE FROM job_archive WHERE id NOT IN "
+                                   "(SELECT id FROM job_archive ORDER BY started DESC LIMIT ?)", (self.ARCHIVE_KEEP,))
             finally:
                 s.close()
         except Exception:  # noqa: BLE001 — el historial nunca tumba un trabajo
@@ -352,13 +374,18 @@ class EolfiApp:
     def _stored_result(self, job_id: str) -> dict[str, Any] | None:
         """Un trabajo terminado de una ejecución anterior del servidor, con su resultado y su registro."""
         row = self._stored_job(job_id) if job_id else None
-        if row is None:
-            return None
+        archived = None
         s = self._history()
         try:
-            extra = s.conn.execute("SELECT result, log FROM job_results WHERE id=?", (job_id,)).fetchone()
+            if row is None and job_id:
+                archived = s.conn.execute("SELECT * FROM job_archive WHERE id=?", (job_id,)).fetchone()
+                row = extra = archived
+            else:
+                extra = s.conn.execute("SELECT result, log FROM job_results WHERE id=?", (job_id,)).fetchone()
         finally:
             s.close()
+        if row is None:
+            return None
         log = json.loads(extra["log"]) if extra and extra["log"] else []
         out = {"id": row["id"], "kind": row["kind"], "status": row["status"], "log": log, "next": len(log),
                "elapsed": round((row["finished"] or row["started"]) - row["started"], 1), "stored": True}
@@ -366,6 +393,8 @@ class EolfiApp:
             out["result"] = json.loads(extra["result"])
         if row["error"]:
             out["error"] = row["error"]
+        if archived is not None:
+            out["archived"] = True
         return out
 
     def repeat_job(self, job_id: str, nivel: str = "usuario") -> dict[str, Any]:
@@ -477,16 +506,24 @@ class EolfiApp:
         limite = chat.limite_adjuntos(nivel)
         if not isinstance(raw, list) or (limite is not None and len(raw) > limite):
             raise ApiError(400, f"attachments: hasta {limite} archivos")
-        attachments = []
-        for att in raw:
-            up = att.get("upload") if isinstance(att, dict) else None
-            if not isinstance(up, str) or not re.fullmatch(r"[0-9a-f]{64}", up):
-                raise ApiError(400, "adjunto inválido")
-            path = self.samples / f"{up}.bin"
-            if not path.is_file():
-                raise ApiError(404, "adjunto no encontrado: vuelve a adjuntarlo")
-            attachments.append({"name": str(att.get("name") or "adjunto")[:200], "path": str(path),
-                                "kind": "binario" if att.get("kind") == "binario" else "archivo"})
+        previos = body.get("adjuntos_previos") or []
+        if not isinstance(previos, list) or len(previos) > chat.MAX_ADJUNTOS_PREVIOS:
+            raise ApiError(400, f"adjuntos_previos: hasta {chat.MAX_ADJUNTOS_PREVIOS} archivos")
+        attachments = [self._chat_adjunto(att) for att in raw]
+        # 18/11/2026: los adjuntos de mensajes anteriores también se ven (antes, en el segundo mensaje el modelo solo
+        # tenía el nombre y las herramientas fallaban con «que-tal-socio.sh»). No cuentan para el límite: ya se subieron.
+        vistos = {a["path"] for a in attachments}
+        anteriores = []
+        for att in previos:
+            try:
+                a = self._chat_adjunto(att)
+            except ApiError as exc:
+                if exc.status == 404:      # un adjunto antiguo que ya no está no impide seguir hablando
+                    continue
+                raise
+            if a["path"] not in vistos:
+                vistos.add(a["path"])
+                anteriores.append(a)
         analyze = body.get("analyze") or None
         if analyze is not None:
             kind, target = analyze.get("kind") if isinstance(analyze, dict) else None, str((analyze or {}).get("target") or "").strip()
@@ -505,7 +542,8 @@ class EolfiApp:
         rea = self._chat_rea(self._case_id(body))
         mcp = chat.Toolbox(EolfiMCP(db=self.db, roots=roots), {
             "eolfi_proponer_proyecto": self._chat_propose_project,
-            "eolfi_vscode_encargo": self._chat_vscode_encargo,
+            "eolfi_vscode_encargo": lambda a: self._chat_vscode_encargo(a, nivel),
+            "eolfi_extraer_archivo": self._chat_extraer_archivo,
             "eolfi_vscode_encargo_estado": self._chat_vscode_encargo_estado,
             "eolfi_objetivos": self._chat_subjects,
             "eolfi_casos": lambda _a: {"casos": [{k: c.get(k) for k in ("case_id", "name", "status", "updated_at")}
@@ -513,7 +551,8 @@ class EolfiApp:
             "eolfi_automejora": lambda _a: self.rsi_overview(),
             **(self._chat_rea_composites(rea, self._case_id(body)) if rea is not None else {}),
         }, rea=rea)
-        context = chat.with_context(messages, attachments, analyze)
+        mcp.adjuntos = {**{a["name"]: a["path"] for a in anteriores}, **{a["name"]: a["path"] for a in attachments}}
+        context = chat.with_context(messages, attachments, analyze, anteriores)
         try:
             return self._chat_answer(context, remote, mcp)
         finally:
@@ -717,24 +756,119 @@ class EolfiApp:
 
         try:
             ws = vscode_action("workspace", timeout=4)
-            return {"vscode": {"activo": True, "carpetas": [str(f) for f in (ws.get("folders") or [])][:5]}}
+            vs = {"activo": True, "carpetas": [str(f) for f in (ws.get("folders") or [])][:5]}
         except (LLMError, OSError, ValueError):
-            return {"vscode": {"activo": False}}
+            vs = {"activo": False}
+        return {"vscode": vs, "memoria": self._chat_memoria()}
+
+    def _chat_memoria(self) -> dict[str, list[dict[str, Any]]]:
+        """Lo que Eolfi ya ha hecho, con nombre (21/11/2026, titular: «tiene que poder recordar si hizo un proyecto con
+        nombre incluido»): los últimos encargos de aplicaciones con su estado REAL y los últimos casos. Sin esto, al
+        preguntar «¿cómo va el último proyecto?» el chat pedía aclaraciones o se inventaba el estado."""
+        from eolfi import encargos_vscode as enc
+
+        out: dict[str, list[dict[str, Any]]] = {"proyectos": [], "casos": []}
+        try:
+            for e in enc.listar()[:8]:
+                try:
+                    real = self._encargo_estado(e)
+                except Exception:   # noqa: BLE001 - un encargo roto no debe dejar al chat sin memoria
+                    real = e
+                verificado = (real.get("proyecto") or {}).get("verificado")
+                out["proyectos"].append({"nombre": e.get("nombre"), "estado": real.get("estado"),
+                                         "verificado": verificado, "carpeta": e.get("carpeta"),
+                                         "fecha": e.get("creado"), "encargo_id": e.get("id")})
+        except (OSError, ValueError):
+            pass
+        try:
+            def leer(c, _s):
+                filas = c.conn.execute("SELECT case_id, name, description, updated_at FROM cases "
+                                       "ORDER BY updated_at DESC, rowid DESC LIMIT 8").fetchall()
+                casos = []
+                for cid, nombre, desc, fecha in filas:
+                    # La carpeta del último proyecto generado en el caso (titular: «D:\Eolfi\generated\ilfy»).
+                    carpeta = None
+                    for (carga,) in c.conn.execute("SELECT payload FROM case_records WHERE case_id=? "
+                                                   "ORDER BY created_at DESC, rowid DESC LIMIT 20", (cid,)):
+                        try:
+                            arts = json.loads(carga).get("artifacts") or []
+                        except (ValueError, AttributeError):
+                            continue
+                        carpeta = next((a.removeprefix("proyecto:") for a in arts
+                                        if isinstance(a, str) and a.startswith("proyecto:")), None)
+                        if carpeta:
+                            # Proyectos antiguos de generated/ movidos a la carpeta de proyectos (21/11/2026).
+                            movida = proyectos_carpeta() / Path(carpeta).name
+                            if not Path(carpeta).exists() and movida.is_dir():
+                                carpeta = str(movida)
+                            break
+                    casos.append({"nombre": nombre, "descripcion": str(desc or "")[:140], "fecha": fecha,
+                                  **({"carpeta": carpeta} if carpeta else {})})
+                return casos
+
+            out["casos"] = self._cases(leer)
+        except (ApiError, sqlite3.Error):
+            pass
+        return out
+
+    _dormir = staticmethod(time.sleep)      # sustituible en las pruebas
+
+    @contextlib.contextmanager
+    def _eolas_en_turno(self, profile: str):
+        """El motor para este mensaje; si otro trabajo lo está usando, espera su turno y arranca solo (20/11/2026,
+        titular: «que cargue el segundo trabajo él solo»). Antes fallaba en el acto con «está respondiendo una
+        petición». Espera hasta EOLFI_ESPERA_IA_SEG segundos (1200 por defecto) y se puede cancelar mientras."""
+        from eolfi import eolas_v2
+
+        try:
+            maximo = float(os.environ.get("EOLFI_ESPERA_IA_SEG", "1200"))
+        except ValueError:
+            maximo = 1200.0
+        if not math.isfinite(maximo):
+            maximo = 1200.0
+        maximo = max(0.0, maximo)
+        esperado, avisado = 0.0, False
+        while True:
+            try:
+                cm = eolas_v2.inference_profile(profile)
+                c = cm.__enter__()
+            except eolas_v2.EolasBusy as exc:
+                if esperado >= maximo:
+                    raise RuntimeError(f"{exc} (esperados {esperado:.0f} s)") from exc
+                if not avisado:
+                    self._progress("Eolas está ocupado con otro trabajo: tu mensaje espera su turno y empezará solo…")
+                    avisado = True
+                self._progress_check()
+                intervalo = min(5.0, maximo - esperado)
+                self._dormir(intervalo)
+                esperado += intervalo
+                continue
+            break
+        with contextlib.ExitStack() as pila:
+            pila.push(cm)
+            if avisado:
+                self._progress(f"Eolas ya está libre: empieza tu mensaje (tras {esperado:.0f} s de espera)")
+            yield c
 
     def _chat_answer(self, context: list[dict[str, str]], remote: Any, mcp: Any) -> dict[str, Any]:
         from eolfi import chat, eolas_v2
 
         estado = self._chat_estado()
+        # 21/11/2026: buzón de correcciones, «Parar» inmediato y plan interno con razonamiento.
+        dirigir = {"steer": self._job_inbox, "vigilar": self._progress_check, "en_hilo": self._en_hilo_del_trabajo}
         try:
             if remote:
                 self._progress(f"Consultando {remote['label']}…")
-                return {**chat.agent_turn(context, remote, mcp, self._progress, estado=estado), "model": remote["label"]}
+                return {**chat.agent_turn(context, remote, mcp, self._progress, estado=estado, **dirigir),
+                        "model": remote["label"]}
             profile = str(eolas_v2.load_config()["active_profile"])
             self._progress(f"Cargando el motor Eolas V2 ({profile})…")
-            with eolas_v2.inference_profile(profile) as c:
+            with self._eolas_en_turno(profile) as c:
                 engine = chat.local_engine(c)
                 self._progress(f"Eolas ({c['alias']}) está pensando…")
-                return {**chat.agent_turn(context, engine, mcp, self._progress, estado=estado), "model": engine["label"]}
+                return {**chat.agent_turn(context, engine, mcp, self._progress, estado=estado, **dirigir,
+                                          plan=lambda m: chat.planificar(engine, m)),
+                        "model": engine["label"]}
         except RuntimeError as exc:
             raise ApiError(502, str(exc)) from exc
 
@@ -748,13 +882,48 @@ class EolfiApp:
         return {"case_id": state.get("case_id"), "estado": state.get("status"), "plan": state.get("plan"),
                 "aviso": "El plan NO se ejecuta hasta que el usuario lo revise y lo apruebe en el panel."}
 
-    def _chat_vscode_encargo(self, a: dict[str, Any]) -> dict[str, Any]:
+    def _chat_adjunto(self, att: Any) -> dict[str, Any]:
+        """Adjunto subido → archivo con su nombre real (enlace duro a la copia por huella, o copia si no se puede).
+
+        Así las herramientas ven la extensión (un .zip ya no sale como «unknown») y el modelo lee rutas reconocibles."""
+        up = att.get("upload") if isinstance(att, dict) else None
+        if not isinstance(up, str) or not re.fullmatch(r"[0-9a-f]{64}", up):
+            raise ApiError(400, "adjunto inválido")
+        path = self.samples / f"{up}.bin"
+        if not path.is_file():
+            raise ApiError(404, "adjunto no encontrado: vuelve a adjuntarlo")
+        name = str(att.get("name") or "adjunto")[:200]
+        segura = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", Path(name.replace("\\", "/")).name).strip(" .") or "adjunto"
+        con_nombre = self.samples / "adjuntos" / up / segura[:120]
+        if not con_nombre.is_file():
+            con_nombre.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(path, con_nombre)
+            except OSError:
+                shutil.copy2(path, con_nombre)
+        return {"name": name, "path": str(con_nombre), "kind": "binario" if att.get("kind") == "binario" else "archivo"}
+
+    def _chat_extraer_archivo(self, a: dict[str, Any]) -> dict[str, Any]:
+        """Herramienta del chat: extrae un .zip/.tar(.gz/.bz2/.xz) en una carpeta nueva de samples/, sin ejecutar nada."""
+        from eolfi import archivos
+
+        ruta = str(a.get("ruta") or "").strip()
+        if not ruta:
+            raise ValueError("falta la ruta del archivo comprimido")
+        p = Path(ruta).expanduser().resolve()
+        muestras = self.samples.resolve()
+        if not (muestras == p or muestras in p.parents):   # los adjuntos viven en samples/; lo demás, carpetas permitidas
+            self._check_root(p, "ruta")
+        self._progress(f"Extrayendo {Path(ruta).name}…")
+        return archivos.extraer(ruta, self.samples / "extraidos")
+
+    def _chat_vscode_encargo(self, a: dict[str, Any], nivel: str = "usuario") -> dict[str, Any]:
         """Herramienta del chat: encarga a @eolfi en VS Code una aplicación nueva (18/11/2026).
 
         Usa el flujo verificado (plan de proyecto → create con verificación, juez y accesibilidad) con destino en la
         carpeta abierta en VS Code. NO ejecuta nada: deja el encargo pendiente en la cola; el titular lo aprueba en el
         panel o en VS Code, que recibe el aviso por el puente."""
-        from eolfi import encargos_vscode as enc
+        from eolfi import chat as chat_cfg, encargos_vscode as enc
         from eolfi.flows.project_flow import default_out
 
         nombre = str(a.get("nombre") or "").strip()
@@ -782,6 +951,17 @@ class EolfiApp:
                                    "out": str(destino)})
         e = enc.crear(nombre=nombre, descripcion=descripcion, carpeta=str(destino), fuentes=fuentes,
                       case_id=state["case_id"], plan_version=int(state["plan"]["version"]))
+        if nivel == "titular" and chat_cfg.auto_aprobar_encargos():
+            # 18/11/2026, titular: «crear proyecto automáticamente a través de @eolfi en VS Code». Lo pide el titular
+            # desde su equipo: se aprueba y arranca sin otro paso (sigue sin sobrescribir una carpeta con contenido).
+            # Desde otro dispositivo, o con la opción desactivada, queda pendiente como antes.
+            st = self.vscode_encargo_decidir(e["id"], "aprobar", origen="chat")
+            aviso = self._avisar_vscode(e)
+            return {"encargo_id": e["id"], "estado": st.get("estado"), "carpeta": e["carpeta"], "case_id": e["case_id"],
+                    "job_id": st.get("job_id"), "riesgos": e["riesgos"], "aviso_vscode": aviso,
+                    "aviso": "Aprobado automáticamente porque lo pidió el titular desde este equipo: el proyecto se "
+                             "está creando y verificando AHORA, pero todavía NO está hecho. Consulta su estado con "
+                             "eolfi_vscode_encargo_estado antes de decir que está terminado."}
         aviso = self._avisar_vscode(e)
         return {"encargo_id": e["id"], "estado": "pendiente_aprobacion", "carpeta": e["carpeta"],
                 "case_id": e["case_id"], "riesgos": e["riesgos"], "aviso_vscode": aviso,
@@ -932,6 +1112,58 @@ class EolfiApp:
             conn.execute("DELETE FROM vscode_activity WHERE run_id IN "
                          "(SELECT run_id FROM vscode_activity ORDER BY updated DESC LIMIT -1 OFFSET 20)")
             return {"activity": run}
+
+    PALABRAS_PARAR = frozenset({"para", "parar", "detente", "stop", "cancela", "cancelar", "déjalo", "dejalo"})
+
+    def job_message(self, job_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/jobs/<id>/mensaje {"texto"} (21/11/2026, titular: «que a Eolfi se le pueda dirigir el hilo»):
+        un mensaje escrito mientras el chat trabaja entra en su buzón y el turno lo lee antes de la siguiente llamada
+        al motor, con prioridad sobre lo anterior. «para» (y sinónimos) cancela. Si el trabajo ya terminó, 409: el
+        cliente lo manda entonces como mensaje nuevo."""
+        from eolfi import chat
+
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise ApiError(404, "trabajo no encontrado")
+        texto = str(body.get("texto") or "").strip()
+        if not texto or len(texto) > chat.MAX_MESSAGE_CHARS:
+            raise ApiError(400, f"texto obligatorio y de como mucho {chat.MAX_MESSAGE_CHARS} caracteres")
+        if job["kind"] != "chat":
+            raise ApiError(409, "solo se puede escribir a un trabajo de chat")
+        if job["status"] not in ("queued", "running"):
+            raise ApiError(409, "el trabajo ya terminó; envíalo como mensaje nuevo", estado=job["status"])
+        if texto.lower().strip(" .!¡") in self.PALABRAS_PARAR:
+            job["cancel"] = True
+            return {"id": job_id, "accion": "cancelar", "status": job["status"]}
+        with self._jobs_guard:
+            buzon = job.setdefault("inbox", [])
+            if len(buzon) >= 20:
+                raise ApiError(429, "hay demasiados mensajes pendientes; espera a que los lea")
+            buzon.append(texto)
+            job["log"].append({"t": round(time.time() - job["started"], 1),
+                               "msg": "Mensaje tuyo en cola: lo leo antes del siguiente paso"})
+        return {"id": job_id, "accion": "recibido", "pendientes": len(buzon), "status": job["status"]}
+
+    def _job_inbox(self) -> list[str]:
+        """Vacía el buzón del trabajo en curso (lo llama el turno del chat)."""
+        job = getattr(self._tl, "job", None)
+        if job is None:
+            return []
+        with self._jobs_guard:
+            nuevos, job["inbox"] = list(job.get("inbox") or []), []
+        return nuevos
+
+    def _en_hilo_del_trabajo(self, fn: Callable[[], Any]) -> Callable[[], Any]:
+        """Para chat.vigilado: el hilo auxiliar hereda el trabajo en curso (progreso y cancelación)."""
+        job = getattr(self._tl, "job", None)
+
+        def correr() -> Any:
+            self._tl.job = job
+            try:
+                return fn()
+            finally:
+                self._tl.job = None
+        return correr
 
     def cancel_job(self, q: dict[str, str]) -> dict[str, Any]:
         job = self.jobs.get(q.get("id", ""))
@@ -1173,6 +1405,10 @@ class EolfiApp:
         s = self.store()
         s.conn.execute("CREATE TABLE IF NOT EXISTS client_tokens (id TEXT PRIMARY KEY, token_sha256 TEXT UNIQUE, "
                        "name TEXT, created REAL, last_used REAL)")
+        # Alcance del token (19/11/2026): NULL = cliente completo (VS Code); "tableta" = solo su superficie.
+        if "scope" not in {r[1] for r in s.conn.execute("PRAGMA table_info(client_tokens)")}:
+            with s.conn:
+                s.conn.execute("ALTER TABLE client_tokens ADD COLUMN scope TEXT")
         return s
 
     def pair_code(self, _body) -> dict[str, Any]:
@@ -1190,8 +1426,13 @@ class EolfiApp:
     def pair_exchange(self, body: dict[str, Any]) -> dict[str, Any]:
         import secrets as _s
 
+        from eolfi import tableta
+
         code = str(body.get("code", "")).strip()
         name = str(body.get("name") or "VS Code")[:80]
+        scope = body.get("scope")
+        if scope not in (None, tableta.SCOPE):
+            raise ApiError(400, f"scope desconocido (admitido: {tableta.SCOPE})")
         if self._pair_codes.pop(code, 0) < time.time():
             # Fallos: 1 s de espera y, al quinto fallo, se anulan TODOS los códigos pendientes (los intentos en
             # paralelo ya no pueden tantear el millón de combinaciones: hay que generar otro en el panel).
@@ -1206,13 +1447,19 @@ class EolfiApp:
         s = self._clients()
         try:
             with s.conn:
-                s.conn.execute("INSERT INTO client_tokens VALUES (?,?,?,?,?)",
-                               (_s.token_hex(6), hashlib.sha256(token.encode()).hexdigest(), name, time.time(), None))
+                s.conn.execute("INSERT INTO client_tokens (id, token_sha256, name, created, last_used, scope) "
+                               "VALUES (?,?,?,?,?,?)",
+                               (_s.token_hex(6), hashlib.sha256(token.encode()).hexdigest(), name, time.time(), None,
+                                scope))
         finally:
             s.close()
-        return {"token": token, "name": name}
+        return {"token": token, "name": name, **({"scope": scope} if scope else {})}
 
     def client_ok(self, token: str) -> bool:
+        return self.client_scope(token) is not False
+
+    def client_scope(self, token: str) -> str | None | bool:
+        """False si el token no vale; si vale, su alcance (None = completo)."""
         if not token.startswith("ect_"):
             return False
         s = self._clients()
@@ -1220,14 +1467,17 @@ class EolfiApp:
             h = hashlib.sha256(token.encode()).hexdigest()
             with s.conn:
                 cur = s.conn.execute("UPDATE client_tokens SET last_used=? WHERE token_sha256=?", (time.time(), h))
-            return cur.rowcount == 1
+                if cur.rowcount != 1:
+                    return False
+                return s.conn.execute("SELECT scope FROM client_tokens WHERE token_sha256=?", (h,)).fetchone()[0]
         finally:
             s.close()
 
     def clients(self, _q) -> dict[str, Any]:
         s = self._clients()
         try:
-            rows = s.conn.execute("SELECT id, name, created, last_used FROM client_tokens ORDER BY created DESC").fetchall()
+            rows = s.conn.execute("SELECT id, name, created, last_used, scope FROM client_tokens "
+                                  "ORDER BY created DESC").fetchall()
             return {"clients": [dict(r) for r in rows]}
         finally:
             s.close()
@@ -1435,7 +1685,7 @@ class EolfiApp:
         if not isinstance(sources, list) or not sources or not all(isinstance(x, str) and x.strip() for x in sources):
             raise ApiError(400, "'sources' debe ser una lista no vacía")
         name = str(body.get("name") or "Nuevo proyecto")[:80]
-        out = body.get("out") or str(Path("generated") / _folder_slug(name))
+        out = body.get("out") or str(proyectos_carpeta() / _folder_slug(name))
         self._check_root(out, "carpeta destino")
         for src in sources:
             self._check_local_source(src.strip())
@@ -1970,7 +2220,11 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                        "application/json; charset=utf-8", {"Content-Language": idioma, **(extra or {})})
 
         def _nivel(self) -> str:
-            """Titular si la conexión sale de este equipo; desde otro dispositivo (modo remoto), usuario normal."""
+            """Titular si la conexión sale de este equipo; desde otro dispositivo (modo remoto), usuario normal.
+            Un token con alcance (tableta) o lo que llega por el puente de la tableta es siempre usuario: con el
+            puente delante (20/11/2026) la tableta conecta desde 127.0.0.1 y, por la dirección, sería titular."""
+            if getattr(self, "_scope", None) is not None or self.headers.get(PUENTE_HEADER) is not None:
+                return "usuario"
             return "titular" if self.client_address[0] in _LOOPBACK else "usuario"
 
         def _check_host(self) -> bool:
@@ -2015,7 +2269,9 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
             if path == "/api/clients/token":   # el canje del código es lo único que se hace sin token
                 return True
             if self.headers.get("X-Eolfi-Client") or bearer.startswith("ect_"):
-                return app.client_ok(bearer)
+                scope = app.client_scope(bearer)
+                self._scope = scope if scope is not False else None
+                return scope is not False
             if not token:
                 return True
             import hmac
@@ -2068,8 +2324,18 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
             path = url.path
             q = {k: v[-1] for k, v in parse_qs(url.query).items()}
             try:
+                self._scope = None
                 if not self._authorized(q):
                     self._reject(401, "falta el token: abre la URL con ?token=… que mostró `eolfi serve`")
+                if self._scope is not None:  # solo los tokens con alcance cargan el módulo de la tableta
+                    from eolfi import tableta as _tab
+
+                    if self._scope == _tab.SCOPE and not _tab.permitida(method, path):
+                        self._reject(403, "este dispositivo solo puede usar las rutas de la tableta")
+                if (self.headers.get(PUENTE_HEADER) is not None and path != "/api/clients/token"
+                        and self._scope != "tableta"):
+                    # El puente solo sirve a la tableta: otro token (VS Code, completo) no entra por él.
+                    self._reject(403, "por el puente de la tableta solo entran tokens de la tableta")
                 self._precheck(method)
                 if method == "POST" and ((path == "/api/upload" and q.get("store") == "1")
                                          or path == "/api/projects/upload"):
@@ -2111,11 +2377,21 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                                                         __import__("eolfi.chat", fromlist=["x"]).limite_adjuntos(self._nivel())},
                         "/api/rea/autorizaciones": app.rea_authorizations, "/api/rsi": app.rsi_overview,
                         "/api/voz/estado": lambda _q: __import__("eolfi.voz", fromlist=["x"]).estado(),
+                        "/api/voz/microfonos": lambda _q: __import__("eolfi.voz", fromlist=["x"]).microfonos(),
                         "/api/eolas/perfiles": lambda _q: _perfiles_eolas(),
                         "/api/eolas/lecciones": lambda _q: __import__("eolfi.eolas_v2", fromlist=["x"]).lessons_report(),
                     }
                     if path in routes:
                         return self._json(200, routes[path](q))
+                    if path in ("/api/tableta/estado", "/api/tableta/trabajos", "/api/tableta/chat"):
+                        if path.endswith("estado"):
+                            return self._json(200, _tab.estado(app))
+                        if path.endswith("trabajos"):
+                            return self._json(200, _tab.trabajos(app))
+                        try:
+                            return self._json(200, _tab.chat_estado(app, q))
+                        except KeyError as exc:
+                            raise ApiError(404, "trabajo no encontrado") from exc
                     if path == "/api/cases":
                         return self._json(200, app.cases_list(q))
                     m = re.fullmatch(r"/api/cases/([0-9a-f-]{36})(/report|/export)?", path)
@@ -2192,7 +2468,10 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                             raise ApiError(403, "el código de vinculación se genera en el panel de Eolfi")
                         return self._json(200, app.pair_code(self._obj()))
                     if path == "/api/clients/token":
-                        return self._json(200, app.pair_exchange(self._obj()))
+                        body = self._obj()
+                        if self.headers.get(PUENTE_HEADER) is not None and body.get("scope") != "tableta":
+                            raise ApiError(403, "por el puente de la tableta solo se vinculan tabletas")
+                        return self._json(200, app.pair_exchange(body))
                     if path == "/api/bridge/compare":
                         return self._json(200, app.bridge_compare(self._obj()))
                     if path == "/api/cases":
@@ -2237,6 +2516,30 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                                                               voz=body.get("voz")), "audio/wav")
                         except voz.VozError as exc:
                             raise ApiError(400, str(exc)) from exc
+                    if path == "/api/voz/config":
+                        # Voz de lectura (Piper, ajuste): cambia ~/.eolfi/voz.json, así que solo desde este equipo.
+                        if self._nivel() != "titular":
+                            raise ApiError(403, "La voz solo se configura desde este equipo.")
+                        from eolfi import voz as _voz
+                        try:
+                            _voz.guardar({k: v for k, v in self._obj().items() if k in ("lectura", "piper")})
+                        except _voz.VozError as exc:
+                            raise ApiError(400, str(exc)) from exc
+                        return self._json(200, _voz.estado())
+                    if path == "/api/tableta/chat/mensaje":
+                        try:
+                            return self._json(202, _tab.chat_mensaje(app, self._obj()))
+                        except KeyError as exc:
+                            raise ApiError(404, "trabajo no encontrado") from exc
+                        except ValueError as exc:
+                            raise ApiError(400, str(exc)) from exc
+                    if path in ("/api/tableta/chat", "/api/tableta/diagnostico"):
+                        try:
+                            if path.endswith("chat"):
+                                return self._json(202, _tab.chat_iniciar(app, self._obj(), self._nivel()))
+                            return self._json(200, _tab.diagnostico(self._obj(), len(self._raw)))
+                        except ValueError as exc:
+                            raise ApiError(400, str(exc)) from exc
                     if path == "/api/chat/motor":
                         return self._json(200, app.chat_set_profile(self._obj()))
                     if path == "/api/projects/plan":
@@ -2257,6 +2560,9 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         data = self._body()
                         return self._json(200, app.triage_upload(
                             data, q.get("name", "upload"), q.get("mode", "local"), q.get("providers")))
+                    m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/mensaje", path)
+                    if m:
+                        return self._json(202, app.job_message(m.group(1), self._obj()))
                     m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/repeat", path)
                     if m:
                         return self._json(202, app.repeat_job(m.group(1), self._nivel()))
@@ -2356,15 +2662,23 @@ def make_server(db: str, host: str = "127.0.0.1", port: int = 8777,
         token = secrets.token_urlsafe(24)   # fuera de loopback la API nunca queda abierta
     app = EolfiApp(db, samples_dir)
     if token and not app.roots:
-        # Modo remoto sin carpetas configuradas: solo las de Eolfi (muestras y proyectos generados).
-        app.roots = [Path(samples_dir).resolve(), Path("generated").resolve()]
+        # Modo remoto sin carpetas configuradas: solo las de Eolfi (muestras y proyectos generados, fuera del repo).
+        app.roots = [Path(samples_dir).resolve(), proyectos_carpeta()]
     httpd = _Server((host, port), make_handler(app, allowed, token))
     httpd.app = app
     httpd.token = token
     return httpd
 
 
-def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None = None) -> ThreadingHTTPServer:
+# Android 4.1-4.4 (OpenSSL 1.0.1 de la Galaxy Tab 2) solo ofrece en TLS 1.2 suites ECDHE con AES-CBC y HMAC-SHA1,
+# que Python excluye por defecto (!SHA1). Con --tls-legado se admiten, siempre con ECDHE (secreto hacia delante) y
+# TLS 1.2 como mínimo; RC4, 3DES, NULL y el intercambio RSA estático siguen fuera.
+TLS_LEGADO = ("@SECLEVEL=2:ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES:DHE+AES:!aNULL:!eNULL:!aDSS:!AESCCM"
+              ":!DHE+SHA1:!kRSA:!3DES:!RC4")
+
+
+def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None = None,
+            legado: bool = False) -> ThreadingHTTPServer:
     """HTTPS con el certificado del titular (C7, 18/11/2026). En el móvil, el navegador solo deja usar el micrófono
     en un contexto seguro (https o localhost): sin esto, el dictado del panel no funciona desde otro dispositivo.
     El saludo TLS se hace en el hilo de cada petición, no en el que acepta conexiones."""
@@ -2372,6 +2686,8 @@ def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    if legado:
+        ctx.set_ciphers(TLS_LEGADO)
     ctx.load_cert_chain(str(cert), str(key) if key else None)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
     httpd.tls = True
@@ -2380,7 +2696,7 @@ def con_tls(httpd: ThreadingHTTPServer, cert: str | Path, key: str | Path | None
 
 def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool = False,
           samples_dir: str | Path = "samples", cert: str | Path | None = None,
-          key: str | Path | None = None) -> int:
+          key: str | Path | None = None, tls_legado: bool = False) -> int:
     _salidas_tolerantes()
     if host not in _LOOPBACK and not allow_remote:
         print(f"eolfi: negando escuchar en {host}: usa --allow-remote si de verdad lo quieres "
@@ -2396,7 +2712,7 @@ def serve(db: str, host: str = "127.0.0.1", port: int = 8777, allow_remote: bool
         import ssl
 
         try:
-            con_tls(httpd, cert, key)
+            con_tls(httpd, cert, key, legado=tls_legado)
         except (OSError, ssl.SSLError) as exc:
             httpd.server_close()
             print(f"eolfi: no se pudo cargar el certificado ({exc})", file=sys.stderr)

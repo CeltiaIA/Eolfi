@@ -111,9 +111,20 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
     if (req.method === 'POST' && url.pathname === '/v1/compare') {
       const chunks = [];
       let size = 0;
-      req.on('data', (c) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
+      req.on('data', (c) => {
+        size += c.length;
+        if (size > MAX_BODY) {
+          if (!res.headersSent) {
+            res.setHeader('Connection', 'close');
+            json(res, 413, { error: 'petición demasiado grande' });
+          }
+          if (size > 64 * MAX_BODY) req.destroy();
+          return;
+        }
+        chunks.push(c);
+      });
       req.on('end', async () => {
-        if (size > MAX_BODY) return json(res, 413, { error: 'petición demasiado grande' });
+        if (res.writableEnded || size > MAX_BODY) return;
         let body;
         try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: 'JSON inválido' }); }
         const names = Array.isArray(body?.providers) ? [...new Set(body.providers)].filter((p) => typeof p === 'string') : [];
@@ -132,12 +143,18 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
         const approval = new AbortController();
         const expire = setTimeout(() => approval.abort(new Error('aprobación caducada')), approveTimeoutMs);
         expire.unref?.();
+        const onCancel = () => approval.abort(new Error('Eolfi canceló la comparativa'));
+        controller.signal.addEventListener('abort', onCancel, { once: true });
         try {
           const allowed = source === 'panel' || await Promise.race([
             Promise.resolve(approve(free.join('+'), prompt, approval.signal, conv)).then((ok) => ok === true && !approval.signal.aborted),
             new Promise((r) => approval.signal.addEventListener('abort', () => r(false), { once: true })),
           ]);
           const cparams = { providers: free, conversation: conv, source, prompt: huella(prompt) };
+          if (controller.signal.aborted) {
+            anota('puente.comparativa', { params: cparams, ok: false, resultado: { decision: 'cancelado' } });
+            return;
+          }
           if (!allowed) {
             anota('puente.comparativa', { params: cparams, ok: false, resultado: { decision: approval.signal.aborted ? 'caducado' : 'denegado' } });
             return json(res, approval.signal.aborted ? 408 : 403, { error: 'Comparativa no aprobada en el puente' });
@@ -167,6 +184,7 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
           if (!res.writableEnded) json(res, 502, { error: String(e?.message || e) });
         } finally {
           clearTimeout(expire);
+          controller.signal.removeEventListener('abort', onCancel);
           if (!approval.signal.aborted) approval.abort(new Error('comparativa terminada'));
           free.forEach((p) => busy.delete(p));
         }
@@ -176,9 +194,23 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
 
     // Levantar el estado «dudoso» de una conversación (turno interrumpido) o revocar permisos temporales.
     if (req.method === 'POST' && (url.pathname === '/v1/reset' || url.pathname === '/v1/revoke')) {
+      if (url.pathname === '/v1/reset' && !isPanel) return json(res, 403, { error: 'solo el panel puede reiniciar una conversación' });
       const chunks = [];
-      req.on('data', (c) => { if (chunks.reduce((n, x) => n + x.length, 0) < 4096) chunks.push(c); });
+      let size = 0;
+      req.on('data', (c) => {
+        size += c.length;
+        if (size > 4096) {
+          if (!res.headersSent) {
+            res.setHeader('Connection', 'close');
+            json(res, 413, { error: 'petición demasiado grande' });
+          }
+          if (size > 64 * 4096) req.destroy();
+          return;
+        }
+        chunks.push(c);
+      });
       req.on('end', async () => {
+        if (res.writableEnded || size > 4096) return;
         let body;
         try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { return json(res, 400, { error: 'JSON inválido' }); }
         const { provider } = body || {};
@@ -201,9 +233,21 @@ export function startBridgeServer({ adapters, approve, token, panelToken, port =
 
     if (req.method === 'POST' && url.pathname === '/v1/input') {
       const chunks = [];
-      let got = 0;   // contador acumulado (antes se sumaban todos los trozos en cada uno: O(n²); B2)
-      req.on('data', (c) => { if (got < 64 * 1024) { chunks.push(c); got += c.length; } });
+      let size = 0;
+      req.on('data', (c) => {
+        size += c.length;
+        if (size > 64 * 1024) {
+          if (!res.headersSent) {
+            res.setHeader('Connection', 'close');
+            json(res, 413, { error: 'petición demasiado grande' });
+          }
+          if (size > 64 * 64 * 1024) req.destroy();
+          return;
+        }
+        chunks.push(c);
+      });
       req.on('end', async () => {
+        if (res.writableEnded || size > 64 * 1024) return;
         let ev;
         try { ev = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: 'JSON inválido' }); }
         if (!Object.hasOwn(inputs, ev?.provider)) return json(res, 404, { error: 'sin entrada para ese proveedor' });

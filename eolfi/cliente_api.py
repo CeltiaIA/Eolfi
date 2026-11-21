@@ -36,13 +36,17 @@ def _identifier(text: str, fallback: str) -> str:
 
 def _path_params(template: str) -> tuple[str, list[str]]:
     """'/a/{id}/b/{id}' → ('/a/{id}/b/{id_2}', ['id', 'id_2']): nombres únicos y válidos en Python."""
-    seen: dict[str, int] = {}
+    used: set[str] = set()
     names: list[str] = []
 
     def repl(m: re.Match[str]) -> str:
         base = _identifier(m.group(1), "param")
-        seen[base] = seen.get(base, 0) + 1
-        name = base if seen[base] == 1 else f"{base}_{seen[base]}"
+        if base in {"self", "cuerpo"}:
+            base += "_ruta"
+        name, index = base, 2
+        while name in used:
+            name, index = f"{base}_{index}", index + 1
+        used.add(name)
         names.append(name)
         return "{" + name + "}"
 
@@ -95,6 +99,7 @@ dedujeron de ejemplos. Cada respuesta indica si su código fue observado («obse
 from __future__ import annotations
 
 import json
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -113,15 +118,62 @@ class Respuesta:
     codigos_observados: list[str] = field(default_factory=list)
 
 
+def _origen(url: str) -> tuple[str, str, int | None]:
+    parsed = urllib.parse.urlsplit(url)
+    scheme = parsed.scheme.lower()
+    port = parsed.port or (443 if scheme == "https" else 80 if scheme == "http" else None)
+    return scheme, (parsed.hostname or "").lower(), port
+
+
+class _RedireccionSegura(urllib.request.HTTPRedirectHandler):
+    """Sigue redirecciones, pero no entrega credenciales a otro origen."""
+
+    def __init__(self, permitir_externa: bool = False):
+        super().__init__()
+        self.permitir_externa = permitir_externa
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        cambia_origen = _origen(req.full_url) != _origen(newurl)
+        if cambia_origen and not self.permitir_externa:
+            raise urllib.error.URLError("redirección a otro origen bloqueada")
+        nueva = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if nueva is not None and cambia_origen:
+            seguras = {{"accept", "accept-language", "user-agent"}}
+            for nombre in list(nueva.headers):
+                if nombre.lower() not in seguras:
+                    nueva.remove_header(nombre)
+        return nueva
+
+
 class Cliente:
-    def __init__(self, base: str | None = None, *, cabeceras: dict[str, str] | None = None, tiempo: float = 30.0):
+    def __init__(self, base: str | None = None, *, cabeceras: dict[str, str] | None = None, tiempo: float = 30.0,
+                 max_respuesta: int = 16 * 1024 * 1024, redirecciones_externas: bool = False):
         if base is None:
             if not SERVIDORES:
                 raise ValueError("la captura no mostró ningún servidor: indica «base»")
             base = SERVIDORES[0]
+        if type(base) is not str or "?" in base or "#" in base:
+            raise ValueError("«base» debe ser una URL HTTP o HTTPS con host válido")
+        try:
+            parsed = urllib.parse.urlsplit(base)
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("«base» debe ser una URL HTTP o HTTPS con host válido") from exc
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or any(c.isspace() or c in "/\\\\" for c in parsed.hostname)
+                or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment):
+            raise ValueError("«base» debe ser una URL HTTP o HTTPS con host válido")
+        if type(tiempo) not in (int, float) or not math.isfinite(tiempo) or tiempo <= 0:
+            raise ValueError("«tiempo» debe ser un número positivo y finito de segundos")
+        if type(max_respuesta) is not int or max_respuesta <= 0:
+            raise ValueError("«max_respuesta» debe ser un número entero positivo de bytes")
+        if type(redirecciones_externas) is not bool:
+            raise ValueError("«redirecciones_externas» debe ser verdadero o falso")
         self.base = base.rstrip("/")
         self.cabeceras = dict(cabeceras or {{}})
         self.tiempo = tiempo
+        self.max_respuesta = max_respuesta
+        self._abridor = urllib.request.build_opener(_RedireccionSegura(redirecciones_externas))
 
     def _pedir(self, metodo: str, ruta: str, consulta: dict[str, Any], cuerpo: Any, observados: list[str]) -> Respuesta:
         url = self.base + ruta
@@ -135,13 +187,18 @@ class Cliente:
             cabeceras["Content-Type"] = "application/json"
         peticion = urllib.request.Request(url, data=datos, method=metodo, headers=cabeceras)
         try:
-            with urllib.request.urlopen(peticion, timeout=self.tiempo) as r:
-                codigo, hdrs, bruto = r.status, dict(r.headers.items()), r.read()
+            with self._abridor.open(peticion, timeout=self.tiempo) as r:
+                codigo, hdrs, bruto = r.status, dict(r.headers.items()), r.read(self.max_respuesta + 1)
         except urllib.error.HTTPError as e:
-            codigo, hdrs, bruto = e.code, dict(e.headers.items()), e.read()
+            codigo = e.code
+            hdrs = dict(e.headers.items()) if e.headers is not None else {{}}
+            bruto = e.read(self.max_respuesta + 1)
+        if len(bruto) > self.max_respuesta:
+            raise ValueError(f"la respuesta supera el límite de {{self.max_respuesta}} bytes")
         texto = bruto.decode("utf-8", errors="replace")
         valor: Any = texto
-        if "json" in (hdrs.get("Content-Type") or hdrs.get("content-type") or ""):
+        content_type = next((value for key, value in hdrs.items() if key.lower() == "content-type"), "")
+        if "json" in content_type.lower():
             try:
                 valor = json.loads(texto) if texto else None
             except ValueError:
@@ -184,9 +241,17 @@ def generar_cliente(openapi: dict[str, Any]) -> str:
             args.append("*")
         if op["cuerpo"]:
             args.append("cuerpo: Any")
-        q_names = {q: _identifier(q, "param") for q in op["parametros_consulta"]}
-        clash = set(op["parametros_ruta"]) | {"self", "cuerpo"}
-        q_names = {q: (f"{n}_q" if n in clash else n) for q, n in q_names.items()}
+        reserved = set(op["parametros_ruta"]) | {"self", "cuerpo"}
+        used_names = set(reserved)
+        q_names = {}
+        for q in op["parametros_consulta"]:
+            base = _identifier(q, "param")
+            name = f"{base}_q" if base in reserved else base
+            candidate, index = name, 2
+            while candidate in used_names:
+                candidate, index = f"{name}_{index}", index + 1
+            q_names[q] = candidate
+            used_names.add(candidate)
         args += [f"{n}: Any = None" for n in q_names.values()]
         codes = ", ".join(op["codigos"]) or "ninguna"
         shown = re.sub(r'["\\\x00-\x1f]', "?", op["plantilla"])  # la ruta viene de la captura: dato, no código

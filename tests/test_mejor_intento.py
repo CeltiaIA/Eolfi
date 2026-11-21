@@ -45,6 +45,11 @@ def test_sin_verde_se_conserva_el_mejor_intento_marcado_como_parcial(tmp_path, m
     r = assist(out, "Implementa la lista", provider=cliente)
     assert (r["ok"], r["parcial"], r["restored"]) == (False, True, False)
     assert r["mejor_intento"] == {"ronda": 2, "juez": "5/6", "nota": 0.8333}
+    # best_attempt describe la misma ronda que se conserva, y sus hashes son los del disco (B6 real, 20/11).
+    assert r["best_attempt"]["round"] == 2 and r["rounds"][1].get("best_attempt") is True
+    import hashlib
+    assert r["best_attempt"]["files"] == [{"path": "index.html",
+                                           "sha256": hashlib.sha256((out / "index.html").read_bytes()).hexdigest()}]
     final = (out / "index.html").read_text(encoding="utf-8")
     assert "<p>dos</p>" in final and "<p>tres</p>" not in final and final != original
     assert r["files_changed"] == ["index.html"]
@@ -74,7 +79,8 @@ def test_si_deja_de_pasar_las_pruebas_tambien_se_vuelve_a_la_mejor(tmp_path, mon
     html = (out / "index.html").read_text(encoding="utf-8")
     rompe = {"summary": "rompe", "notes": [], "files": [
         {"path": "index.html", "content": html.replace("</main>", "<h1>otro h1</h1></main>")},
-        {"path": "nueva.html", "content": "<p>x</p>"}]}
+        # Página completa (21/11/2026: una sin cerrar ya la para antes el paso «HTML completo»).
+        {"path": "nueva.html", "content": "<!doctype html><html lang=\"es\"><body><p>x</p></body></html>"}]}
     cliente = FakeClient([_cambio(out, "uno"), rompe, rompe])
     r = assist(out, "Implementa la lista", provider=cliente)
     assert r["parcial"] and r["mejor_intento"]["ronda"] == 1

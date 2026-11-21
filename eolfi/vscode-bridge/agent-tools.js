@@ -23,6 +23,8 @@ const BLOCKED = [
   [/(\brm\s+-[a-z]*r[a-z]*f?\s+(\/|~|\$HOME|[a-z]:\\?)(\s|$))|remove-item\s+(-\w+\s+)*['"]?([a-z]:\\?|~|\$home|\$env:userprofile)['"]?(\s|$)/i, 'borra una unidad o tu carpeta de usuario entera'],
   [/(^|[\s;&|(])(env|printenv|set)(\s*$|\s*[|>;&])|get-childitem\s+env:|\bgci\s+env:|\bls\s+env:|\$env:\w*(token|key|secret|pass)/i, 'mostraría variables de entorno (pueden contener tokens)'],
   [/\b(git\s+push\b.*(--force|-f\b)|git\s+(credential|config\s+.*credential))/i, 'reescribe historial remoto o toca credenciales de git'],
+  [/\b(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+-{1,2}(?:encodedcommand|enc|e)(?:\s|:|$)|\b(?:invoke-expression|iex)\b|\bfrombase64string\s*\(/i,
+    'oculta o evalúa una orden que no se puede inspeccionar'],
 ];
 const DELETES = /\b(rm|rmdir|del|erase|rd|remove-item|ri|git\s+clean|git\s+reset\s+--hard|truncate)\b/i;
 
@@ -39,11 +41,15 @@ function checkCommand(cmd, isSecretPath) {
 function isPrivateIp(ip) {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
+    const c = Number(ip.split('.')[2]);
     return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+      || (a === 192 && (b === 168 || b === 0 && c === 0 || b === 88 && c === 99 || b === 0 && c === 2))
+      || (a === 198 && (b === 18 || b === 19 || b === 51 && c === 100))
+      || (a === 203 && b === 0 && c === 113) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
   }
   const x = ip.toLowerCase();
-  return x === '::1' || x === '::' || x.startsWith('fc') || x.startsWith('fd') || x.startsWith('fe80') || x.startsWith('::ffff:');
+  return x === '::1' || x === '::' || x.startsWith('fc') || x.startsWith('fd') || x.startsWith('fe80')
+    || x.startsWith('2001:db8:') || x === '2001:db8::' || x.startsWith('::ffff:');
 }
 
 async function checkUrl(raw, lookup = dns.lookup, allowPrivate = false) {

@@ -111,6 +111,25 @@ def test_assist_detecta_js_del_sitio_con_error_de_sintaxis(tmp_path):
     assert "SyntaxError" in r["rounds"][0]["failed_output"]
 
 
+def test_una_pagina_cortada_no_pasa_la_verificacion(tmp_path):
+    """21/11/2026, regeneración real de «ilfy»: la IA dejó index.html cortado a mitad de frase y la verificación
+    quedó en verde. Ahora el paso «HTML completo» lo detecta y la IA tiene otra ronda para terminarlo."""
+    from eolfi.generador.verify import html_incompleto
+
+    out = _project(tmp_path)
+    good = (out / "index.html").read_text(encoding="utf-8")
+    cortada = good[:good.index("</main>")] + "<p>Informe sobre el modelo: el uso de bucles permite, aumentando la"
+    client = FakeClient([
+        {"summary": "Informe", "notes": [], "files": [{"path": "index.html", "content": cortada}]},
+        {"summary": "Informe completo", "notes": [], "files": [{"path": "index.html", "content": good}]},
+    ])
+    r = assist(out, "Escribe el informe", provider=client)
+    assert r["ok"] and len(r["rounds"]) == 2
+    assert r["rounds"][0]["failed_step"] == "HTML completo (páginas cerradas)"
+    assert "falta </main>, </body>, </html>" in r["rounds"][0]["failed_output"]
+    assert html_incompleto(out) == []
+
+
 def test_scripts_del_sitio_excluye_pruebas_y_herramientas(tmp_path):
     from eolfi.generador.verify import _site_scripts
 
@@ -168,6 +187,9 @@ def test_puntuacion_del_mejor_intento_prioriza_verificacion_real():
     llega_a_pruebas = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}]}
     verde = {"ok": True, "steps": [{"exit": 0}]}
     assert _verification_score(falla_pronto) < _verification_score(llega_a_pruebas) < _verification_score(verde)
+    juez6 = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}], "judge": {"status": "ok", "passed": 6, "total": 12}}
+    juez7 = {"ok": False, "steps": [{"exit": 0}, {"exit": 1}], "judge": {"status": "ok", "passed": 7, "total": 12}}
+    assert _verification_score(juez6) < _verification_score(juez7) < _verification_score(verde)
 
 
 def test_assist_refusal(tmp_path):

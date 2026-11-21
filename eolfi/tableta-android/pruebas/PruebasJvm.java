@@ -1,0 +1,228 @@
+import com.celtiaia.eolfi.tableta.Cliente;
+import com.celtiaia.eolfi.tableta.Reglas;
+import com.celtiaia.eolfi.tableta.Wav;
+import com.celtiaia.eolfi.tableta.Conversaciones;
+import com.celtiaia.eolfi.tableta.ArchivoConversaciones;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Pruebas de la parte sin Android de la app, en la JVM y sin dependencias.
+ *   java PruebasJvm unidad
+ *   java PruebasJvm cliente URL CODIGO     (contra un panel real de pruebas que levanta pytest)
+ * Termina con código 0 si todo pasa; imprime cada fallo.
+ */
+public final class PruebasJvm {
+    private static int fallos, total;
+
+    private static void ok(boolean c, String que) {
+        total++;
+        if (!c) {
+            fallos++;
+            System.out.println("FALLA: " + que);
+        }
+    }
+
+    private static void lanza(Runnable r, String que) {
+        try {
+            r.run();
+            ok(false, que + " (no lanzó)");
+        } catch (IllegalArgumentException e) {
+            ok(true, que);
+        }
+    }
+
+    public static void main(String[] a) throws Exception {
+        if (a.length > 0 && a[0].equals("cliente")) cliente(a[1], a[2]);
+        else { unidad(); conversaciones(); }
+        System.out.println((fallos == 0 ? "OK " : "FALLOS " + fallos + " de ") + total + " comprobaciones");
+        System.exit(fallos == 0 ? 0 : 1);
+    }
+
+    static void conversaciones() throws Exception {
+        Conversaciones h = Conversaciones.cargar(null);
+        Conversaciones.Charla una = h.activa();
+        una.respuesta("Primera pregunta", "Respuesta uno");
+        una.vista = "Tú: Primera pregunta\n\nEolas: Respuesta uno";
+        una.borrador = "áéíóú\n\"borrador\"";
+        String id = una.id;
+        Conversaciones.Charla dos = h.nueva();
+        dos.respuesta("Segunda pregunta", "Respuesta dos"); dos.pendiente = "No respondido";
+        h.seleccionar(id);
+        String guardado = h.guardar();
+        Conversaciones leido = Conversaciones.cargar(guardado);
+        ok(leido.lista().size() == 2 && leido.activa().id.equals(id), "historial: retoma selección al reiniciar");
+        ok(leido.activa().borrador.equals(una.borrador) && leido.activa().vista.equals(una.vista), "historial: borrador y vista Unicode");
+        ok(leido.activa().contexto().size() == 2 && !Reglas.cuerpoChat("otra", leido.activa().contexto()).contains("Segunda"),
+                "historial: contextos separados");
+        leido.activa().contexto().get(0)[1] = "alterado";
+        ok(leido.activa().mensajes.get(0)[1].equals("Primera pregunta"), "historial: copia independiente para la red");
+        leido.seleccionar(dos.id);
+        ok(leido.activa().pendiente.equals("No respondido"), "historial: pendiente no se pierde");
+        lanza(new Runnable() { public void run() { Conversaciones.cargar("version=99\ntotal=0"); } }, "historial: versión desconocida");
+        final String corrupto = guardado.replace(".rol=user", ".rol=system");
+        lanza(new Runnable() { public void run() { Conversaciones.cargar(corrupto); } }, "historial: no importa roles de sistema");
+        String largo = new String(new char[600]).replace('\0', 'x');
+        Conversaciones acotado = new Conversaciones(1600);
+        for (int i = 0; i < 6; i++) { acotado.nueva().respuesta("pregunta " + i, largo); }
+        String ultima = acotado.activa().id;
+        String limitado = acotado.guardar();
+        ok(limitado.getBytes("UTF-8").length <= 1600 && acotado.recortes > 0, "historial: límite en bytes y recorte antiguo");
+        ok(Conversaciones.cargar(limitado).activa().id.equals(ultima), "historial: nunca elimina la conversación activa");
+        for (int i = 0; i < 12; i++) acotado.activa().respuesta("turno " + i, largo);
+        acotado.activa().vista = largo + largo + largo;
+        limitado = acotado.guardar();
+        ok(limitado.getBytes("UTF-8").length <= 1600 && acotado.activa().mensajes.get(acotado.activa().mensajes.size()-2)[1].equals("turno 11"),
+                "historial: conversación larga conserva lo reciente");
+        Conversaciones importado = Conversaciones.cargar(null);
+        importado.importar("Tú: hola\n\nEolas: respuesta\n\nTú: continúa");
+        ok(importado.activa().mensajes.size() == 3 && importado.activa().mensajes.get(1)[0].equals("assistant"),
+                "historial: recuperación explícita del chat antiguo");
+        java.io.File carpeta = java.nio.file.Files.createTempDirectory("eolfi-historial").toFile();
+        java.io.File archivo = new java.io.File(carpeta, "historial.properties");
+        java.io.File copia = new java.io.File(archivo + ".bak");
+        try {
+            ArchivoConversaciones a = new ArchivoConversaciones(carpeta);
+            ok(a.leer() == null, "archivo: vacío antes de guardar");
+            a.guardar(guardado);
+            ok(a.leer().equals(guardado) && !copia.exists(), "archivo: guardado completo sin duplicado permanente");
+            a.guardar(limitado);
+            ok(a.leer().equals(limitado), "archivo: sustituye después de escribir y sincronizar");
+            ok(archivo.renameTo(copia) && a.leer().equals(limitado), "archivo: recupera copia tras interrupción");
+            a.guardar(guardado);
+            java.io.RandomAccessFile gigante = new java.io.RandomAccessFile(archivo, "rw");
+            gigante.setLength(Conversaciones.MAX_GUARDADO + 1L); gigante.close();
+            try { a.leer(); ok(false, "archivo: presupuesto de lectura"); }
+            catch (java.io.IOException e) { ok(true, "archivo: presupuesto de lectura"); }
+        } finally {
+            archivo.delete(); copia.delete(); new java.io.File(archivo + ".tmp").delete(); carpeta.delete();
+        }
+    }
+
+    static void unidad() {
+        // WAV: ida y vuelta, cabecera exacta y pico.
+        short[] m = {0, 1000, -32768, 32767, -5};
+        byte[] w = Wav.codificar(m, 5, 16000);
+        ok(w.length == 54, "wav: 44 + 2*n bytes");
+        ok(new String(w, 0, 4).equals("RIFF") && new String(w, 8, 4).equals("WAVE"), "wav: RIFF/WAVE");
+        int[] f = Wav.leer(w);
+        ok(f[0] == 16000 && f[1] == 1 && f[2] == 44 && f[3] == 10, "wav: leer formato " + Arrays.toString(f));
+        ok((w[46] & 0xff) == (1000 & 0xff) && w[47] == (byte) (1000 >> 8), "wav: little endian");
+        ok(Wav.pico(m, 5) == 32767, "wav: pico recorta -32768");
+        ok(Wav.pico(m, 2) == 1000, "wav: pico de las n primeras");
+        lanza(new Runnable() { public void run() { Wav.leer(new byte[10]); } }, "wav: corto");
+        final byte[] mal = w.clone();
+        mal[34] = 8;   // 8 bits
+        lanza(new Runnable() { public void run() { Wav.leer(mal); } }, "wav: 8 bits rechazado");
+        final byte[] trozo = w.clone();
+        trozo[16] = (byte) 0xff; trozo[17] = (byte) 0xff; trozo[18] = (byte) 0xff; trozo[19] = (byte) 0xff;
+        lanza(new Runnable() { public void run() { Wav.leer(trozo); } }, "wav: trozo gigante rechazado");
+        lanza(new Runnable() { public void run() { Wav.codificar(new short[2], 3, 16000); } }, "wav: n > longitud");
+
+        // Dirección del panel.
+        ok("https://192.168.1.133:8777".equals(Reglas.direccion(" 192.168.1.133:8777/ ")), "dir: https por defecto");
+        ok("http://pc.local:80".equals(Reglas.direccion("HTTP://PC.local:080")), "dir: minúsculas y puerto");
+        ok("https://[fe80::1]".equals(Reglas.direccion("https://[fe80::1]")), "dir: IPv6");
+        for (String x : new String[] {null, "", "ftp://x", "https://x/ruta", "https://u@x", "https://x:0",
+                "https://x:70000", "https://x:12a", "https://x?y", "https://", "https://x y", "javascript:alert(1)"}) {
+            ok(Reglas.direccion(x) == null, "dir: rechaza " + x);
+        }
+        // Código.
+        ok("012345".equals(Reglas.codigo(" 012 345 ")), "código: espacios");
+        ok(Reglas.codigo("12345") == null && Reglas.codigo("12345a") == null && Reglas.codigo("1234567") == null,
+                "código: solo 6 cifras");
+        // Huellas.
+        String h = Reglas.sha256("abc".getBytes());
+        ok(h.equals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "sha256 conocido");
+        ok(Reglas.huellaCorta(h).equals("ba78 16bf 8f01 cfea"), "huella corta");
+        ok(Reglas.mismaHuella(h, h) && !Reglas.mismaHuella(h, h.replace('b', 'c')) && !Reglas.mismaHuella(h, null),
+                "misma huella");
+        // JSON y cuerpo del chat.
+        ok(Reglas.json("a\"b\\c\n\u0001 ").equals("\"a\\\"b\\\\c\\n\\u0001\\u2028\""), "json escape");
+        List<String[]> hist = new ArrayList<String[]>();
+        for (int i = 0; i < 20; i++) hist.add(new String[] {i % 2 == 0 ? "user" : "assistant", "m" + i});
+        hist.add(new String[] {"system", "inyección"});
+        hist.add(new String[] {"user", "   "});
+        String c = Reglas.cuerpoChat("  hola  ", hist);
+        ok(c.startsWith("{\"texto\":\"hola\",\"historial\":[{\"role\":\"user\",\"content\":\"m8\"}"), "chat: últimos 12 " + c);
+        ok(!c.contains("system") && !c.contains("inyección") && c.endsWith("{\"role\":\"assistant\",\"content\":\"m19\"}]}"),
+                "chat: descarta roles extraños y vacíos");
+        lanza(new Runnable() { public void run() { Reglas.cuerpoChat("  ", new ArrayList<String[]>()); } }, "chat: vacío");
+        char[] largo = new char[3000];
+        Arrays.fill(largo, 'x');
+        ok(Reglas.cuerpoChat(new String(largo), new ArrayList<String[]>()).length() < 2100, "chat: recorta a 2000");
+        // Diagnóstico.
+        ok(Reglas.claveDiagnostico("tls.por_defecto") && !Reglas.claveDiagnostico("Tls") && !Reglas.claveDiagnostico("a b")
+                && !Reglas.claveDiagnostico("1x") && !Reglas.claveDiagnostico(""), "claves de diagnóstico");
+        // Semidúplex.
+        ok(Reglas.motivoParaNoGrabar(false, false) == null, "semidúplex: libre");
+        ok(Reglas.motivoParaNoGrabar(true, false) != null, "semidúplex: no graba mientras habla");
+        ok(Reglas.motivoParaNoGrabar(false, true) == null, "semidúplex: graba mientras Eolas trabaja (corrección)");
+        // Corrección a mitad de trabajo (21/11).
+        ok(Reglas.cuerpoMensaje("0123456789abcdef", " en tres viñetas ").equals(
+                "{\"id\":\"0123456789abcdef\",\"texto\":\"en tres viñetas\"}"), "mensaje: cuerpo");
+        lanza(new Runnable() { public void run() { Reglas.cuerpoMensaje("../x", "hola"); } }, "mensaje: id inválido");
+        lanza(new Runnable() { public void run() { Reglas.cuerpoMensaje("0123456789abcdef", " "); } }, "mensaje: vacío");
+        ok(Reglas.cuerpoMensaje("0123456789abcdef", new String(new char[3000]).replace('\0', 'y')).length() < 2100,
+                "mensaje: recorta a 2000");
+        ok(Reglas.conAnadidos("Pregunta", Arrays.asList("más corto", " ")).equals(
+                "Pregunta\n\n[Añadido mientras trabajabas] más corto"), "mensaje: añadidos al historial");
+        // Chat sin respuesta: el texto vuelve a la caja; si Eolas atendía otra petición se dice así (19/11, en vivo).
+        String ocup = Reglas.avisoChatFallido("Eolas V2 está respondiendo una petición (PID 40136 desde 03:38:38); espera a que termine");
+        ok(ocup.contains("ocupado") && ocup.contains("vuelve a la caja") && !ocup.contains("PID"), "chat: Eolas ocupado");
+        ok(Reglas.avisoChatFallido("modelo no cargado").contains("modelo no cargado")
+                && Reglas.avisoChatFallido(null).contains("sin detalle"), "chat: otros fallos");
+        // Cliente: rutas fuera de la API y direcciones malas.
+        lanza(new Runnable() { public void run() { new Cliente("ftp://x", null, null, false); } }, "cliente: dirección");
+        try {
+            new Cliente("http://127.0.0.1:9", null, null, false).pedir("GET", "/otra", null, null, 1000);
+            ok(false, "cliente: ruta fuera de /api/");
+        } catch (IllegalArgumentException e) {
+            ok(true, "cliente: ruta fuera de /api/");
+        } catch (java.io.IOException e) {
+            ok(false, "cliente: debió fallar antes de conectar");
+        }
+    }
+
+    static void cliente(String url, String codigo) throws Exception {
+        // 1) Sin huella y sin permitir la primera: no se conecta (no hay CA en la que confiar).
+        try {
+            new Cliente(url, null, null, false).json("GET", "/api/health", null, 5000);
+            ok(false, "tls: sin huella debe fallar");
+        } catch (java.io.IOException e) {
+            ok(true, "tls: sin huella falla");
+        }
+        // 2) Vincular aceptando la primera huella.
+        Cliente v = new Cliente(url, null, null, true);
+        Cliente.Respuesta r = v.json("POST", "/api/clients/token",
+                "{\"code\":" + Reglas.json(codigo) + ",\"name\":\"Tableta JVM\",\"scope\":\"tableta\"}", 10000);
+        ok(r.ok() && r.texto().contains("\"scope\": \"tableta\""), "vincular: " + r.estado + " " + r.texto());
+        String huella = v.huellaVista();
+        ok(huella != null && huella.length() == 64, "vincular: huella vista");
+        String token = r.texto().replaceAll("(?s).*\"token\": \"(ect_[^\"]+)\".*", "$1");
+        ok(token.startsWith("ect_"), "vincular: token");
+        // 3) Con la huella fijada: su superficie sí, lo demás 403.
+        Cliente c = new Cliente(url, token, huella, false);
+        Cliente.Respuesta e = c.json("GET", "/api/tableta/estado", null, 10000);
+        ok(e.ok() && e.texto().contains("\"scope\": \"tableta\""), "estado: " + e.estado);
+        ok(c.json("GET", "/api/subjects", null, 10000).estado == 403, "fuera de superficie: 403");
+        Cliente.Respuesta d = c.json("POST", "/api/tableta/diagnostico", "{\"jvm.prueba\": true}", 10000);
+        ok(d.ok(), "diagnóstico: " + d.estado);
+        // Corrección: la ruta está en su superficie (404 por id ajeno, no 403).
+        Cliente.Respuesta m = c.json("POST", "/api/tableta/chat/mensaje", Reglas.cuerpoMensaje("0123456789abcdef", "hola"), 10000);
+        ok(m.estado == 404, "mensaje: id ajeno 404 (" + m.estado + ")");
+        // 4) Huella distinta: se corta la conexión aunque el token sea bueno.
+        String otra = (huella.charAt(0) == 'a' ? "b" : "a") + huella.substring(1);
+        try {
+            new Cliente(url, token, otra, false).json("GET", "/api/tableta/estado", null, 5000);
+            ok(false, "huella distinta debe fallar");
+        } catch (java.io.IOException ex) {
+            ok(true, "huella distinta falla");
+        }
+        // 5) Token mal: 401.
+        ok(new Cliente(url, token + "x", huella, false).json("GET", "/api/tableta/estado", null, 5000).estado == 401,
+                "token malo: 401");
+    }
+}

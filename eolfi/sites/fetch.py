@@ -170,6 +170,7 @@ class Fetcher:
         self.total = 0
         self.allow_private: bool | None = None   # se fija con la primera URL
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        self._robots_motivo: dict[str, str] = {}   # por qué se prohíbe todo el origen (5xx, red…), para el aviso
         # Conexión a IP fijada y validada (anti DNS rebinding). Sin proxy: con proxy la IP final
         # no se podría validar, y un proxy del sistema podría alcanzar la red interna.
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect,
@@ -207,16 +208,25 @@ class Fetcher:
                 elif r.status is None or r.status in (401, 403) or r.status >= 500:
                     # RFC 9309: inaccesible (red caída, 5xx) = no rastrear; antes un corte de red «permitía todo» (B21).
                     rp.disallow_all = True
+                    self._robots_motivo[origin] = (f"respondió {r.status}" if r.status else "no se pudo leer") + (
+                        " (el servidor falla o está caído; RFC 9309: entonces no se rastrea)" if (r.status or 500) >= 500
+                        else " (acceso denegado; RFC 9309: entonces no se rastrea)")
                 else:
                     rp.allow_all = True   # 404 y similares: no hay robots.txt
-            except FetchError:
+            except FetchError as exc:
                 rp.disallow_all = True
+                self._robots_motivo[origin] = f"no se pudo leer ({str(exc)[:120]}); RFC 9309: entonces no se rastrea"
             self._robots[origin] = rp
         rp = self._robots[origin]
         return rp.can_fetch(USER_AGENT, url) if rp else True
 
     def get(self, url: str) -> Response:
         if not self.robots_allowed(url):
+            u = urllib.parse.urlsplit(url)
+            motivo = self._robots_motivo.get(f"{u.scheme}://{u.netloc}")
+            if motivo:   # 19/11/2026: con celtiaia.com caído (502) decía «no permite», como si lo prohibiera
+                raise FetchError(f"robots.txt {motivo}: no se rastrea {url[:120]}. Vuelve a intentarlo cuando el "
+                                 "sitio responda (o usa --ignore-robots solo si tienes permiso)")
             raise FetchError(f"robots.txt no permite {url[:120]} (usa --ignore-robots solo si tienes permiso)")
         return self._raw_get(url, limit=self.max_bytes)
 

@@ -25,6 +25,16 @@ def test_apagada_no_escribe_nada(monkeypatch):
     assert not telemetria.carpeta().exists() and telemetria.resumen()["eventos"] == 0
 
 
+def test_v1_lee_carga_en_nanosegundos_y_descarta_la_medicion_anterior(monkeypatch):
+    replies = iter([{"message": {"content": "{}"}, "load_duration": 375_000_000},
+                    {"message": {"content": "{}"}}])
+    monkeypatch.setattr(llm, "_post", lambda *a, **kw: next(replies))
+    provider = llm.EolasV1Provider("http://example.invalid", "modelo")
+    for expected in (0.375, None):
+        provider.complete("sistema", [], {}, None)
+        assert provider.last_timings.get("carga_declarada_s") == expected
+
+
 def test_una_carpeta_que_no_se_puede_escribir_no_rompe_el_trabajo(monkeypatch, tmp_path):
     bloqueo = tmp_path / "es-un-archivo"
     bloqueo.write_text("x", encoding="utf-8")

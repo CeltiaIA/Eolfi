@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 import uuid
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -495,6 +496,46 @@ def test_desktop_coverage_without_provider(monkeypatch, tmp_path, platform):
     assert coverage["status"] == "not_available"
     assert "Windows (UI Automation)" in coverage["reason"]
 
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="UI Automation solo en Windows")
+def test_desktop_timeout_keeps_partial_actions(monkeypatch, tmp_path):
+    """20/11/2026: con el equipo cargado, el controlador agotaba el margen y el paso quedaba con `actions: []`,
+    perdiendo lo ya observado. Ahora se conserva lo guardado tras cada acción y el paso sigue siendo «timeout»."""
+    import subprocess
+
+    from eolfi.observe import session
+
+    seen = {}
+
+    def slow_driver(cmd, **kwargs):
+        request = json.loads(Path(cmd[-1]).read_text(encoding="utf-8"))
+        seen.update(request)
+        Path(request["result_path"]).write_text(json.dumps({"status": "ok", "actions": [
+            {"id": "_inicio", "do": "read", "status": "ok", "windows": [{"title": "Muestra", "elements": []}]}]}),
+            encoding="utf-8")
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(session.subprocess, "run", slow_driver)
+    step = {"timeout": 1, "actions": [{"id": "pulsar", "do": "invoke", "automation_id": "x"}], "close": True}
+    norm = session._Normalizer(tmp_path, {})
+    rec = session._desktop_step(step, [sys.executable, "-c", "import time; time.sleep(1)"], tmp_path, dict(os.environ),
+                                norm)
+    assert seen["result_path"].endswith("partial.json") and seen["timeout_ms"] == 1000
+    assert rec["status"] == "timeout"
+    assert "se conservan 1 acciones" in rec["error"]
+    assert [a["id"] for a in rec["actions"]] == ["_inicio"]
+    assert rec["actions"][0]["windows"][0]["title"] == "Muestra"
+
+
+def test_uia_driver_has_utf8_bom():
+    """20/11/2026: Windows PowerShell 5.1 lee como ANSI un .ps1 sin BOM y los mensajes con tildes del controlador
+    (p. ej. «no se encontró el elemento») llegaban corruptos («acciÃ³n»)."""
+    from eolfi.observe.session import UIA_DRIVER
+
+    raw = UIA_DRIVER.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    raw.decode("utf-8")
 
 
 def test_desktop_step_validation():
