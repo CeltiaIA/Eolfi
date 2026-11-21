@@ -17,6 +17,7 @@ import contextlib
 import hashlib
 import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -757,6 +758,45 @@ class EolfiApp:
         except (LLMError, OSError, ValueError):
             return {"vscode": {"activo": False}}
 
+    _dormir = staticmethod(time.sleep)      # sustituible en las pruebas
+
+    @contextlib.contextmanager
+    def _eolas_en_turno(self, profile: str):
+        """El motor para este mensaje; si otro trabajo lo está usando, espera su turno y arranca solo (20/11/2026,
+        titular: «que cargue el segundo trabajo él solo»). Antes fallaba en el acto con «está respondiendo una
+        petición». Espera hasta EOLFI_ESPERA_IA_SEG segundos (1200 por defecto) y se puede cancelar mientras."""
+        from eolfi import eolas_v2
+
+        try:
+            maximo = float(os.environ.get("EOLFI_ESPERA_IA_SEG", "1200"))
+        except ValueError:
+            maximo = 1200.0
+        if not math.isfinite(maximo):
+            maximo = 1200.0
+        maximo = max(0.0, maximo)
+        esperado, avisado = 0.0, False
+        while True:
+            try:
+                cm = eolas_v2.inference_profile(profile)
+                c = cm.__enter__()
+            except eolas_v2.EolasBusy as exc:
+                if esperado >= maximo:
+                    raise RuntimeError(f"{exc} (esperados {esperado:.0f} s)") from exc
+                if not avisado:
+                    self._progress("Eolas está ocupado con otro trabajo: tu mensaje espera su turno y empezará solo…")
+                    avisado = True
+                self._progress_check()
+                intervalo = min(5.0, maximo - esperado)
+                self._dormir(intervalo)
+                esperado += intervalo
+                continue
+            break
+        with contextlib.ExitStack() as pila:
+            pila.push(cm)
+            if avisado:
+                self._progress(f"Eolas ya está libre: empieza tu mensaje (tras {esperado:.0f} s de espera)")
+            yield c
+
     def _chat_answer(self, context: list[dict[str, str]], remote: Any, mcp: Any) -> dict[str, Any]:
         from eolfi import chat, eolas_v2
 
@@ -767,7 +807,7 @@ class EolfiApp:
                 return {**chat.agent_turn(context, remote, mcp, self._progress, estado=estado), "model": remote["label"]}
             profile = str(eolas_v2.load_config()["active_profile"])
             self._progress(f"Cargando el motor Eolas V2 ({profile})…")
-            with eolas_v2.inference_profile(profile) as c:
+            with self._eolas_en_turno(profile) as c:
                 engine = chat.local_engine(c)
                 self._progress(f"Eolas ({c['alias']}) está pensando…")
                 return {**chat.agent_turn(context, engine, mcp, self._progress, estado=estado), "model": engine["label"]}

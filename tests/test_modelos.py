@@ -180,6 +180,45 @@ def test_policy_rejects_model_overrides(tmp_path, monkeypatch):
         eolas_v2._start_locked("gemma_q4", {"extra_args": ["-m", "otro.gguf"]})
 
 
+@pytest.mark.parametrize("scope", ["global", "perfil", "ambos"])
+def test_confianza_admite_opciones_acotadas_sin_cambiar_el_perfil(tmp_path, monkeypatch, scope):
+    from eolfi import eolas_v2
+
+    path = fixture(tmp_path / "m.gguf")
+    monkeypatch.setenv("EOLFI_MODELOS_CONFIANZA", str(manifest(tmp_path, path)))
+    monkeypatch.setattr(eolas_v2, "is_retired", lambda *a: False)
+    monkeypatch.setattr(eolas_v2, "profile_config", lambda *a: {"model": str(path)})
+    def runtime():
+        raise RuntimeError("runtime alcanzado después de validar confianza")
+    monkeypatch.setattr(eolas_v2, "_runtime", runtime)
+    extra = ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-np", "1", "--cache-ram", "1024"]
+    cfg = {"extra_args": extra if scope in ("global", "ambos") else [],
+           "profiles": {"gemma_q4": {"extra_args": extra if scope in ("perfil", "ambos") else []}}}
+    before = json.dumps(cfg, sort_keys=True)
+    with pytest.raises(RuntimeError, match="runtime alcanzado"):
+        eolas_v2._start_locked("gemma_q4", cfg)
+    assert json.dumps(cfg, sort_keys=True) == before
+
+
+@pytest.mark.parametrize("scope", ["global", "perfil"])
+@pytest.mark.parametrize("extra", [["--model", "otro.gguf"], ["--lora", "otro.gguf"],
+                                  ["--mmproj", "otro.gguf"], ["--host", "0.0.0.0"],
+                                  ["--api-key", "otra"], ["-fa", "--model"],
+                                  ["-np", "--model"], ["-fa"]])
+def test_confianza_sigue_bloqueando_opciones_no_acotadas(tmp_path, monkeypatch, scope, extra):
+    from eolfi import eolas_v2
+
+    path = fixture(tmp_path / "m.gguf")
+    monkeypatch.setenv("EOLFI_MODELOS_CONFIANZA", str(manifest(tmp_path, path)))
+    monkeypatch.setattr(eolas_v2, "is_retired", lambda *a: False)
+    monkeypatch.setattr(eolas_v2, "profile_config", lambda *a: {"model": str(path)})
+    monkeypatch.setattr(eolas_v2, "_runtime", lambda: pytest.fail("No consultar runtime con opciones no autorizadas"))
+    cfg = {"extra_args": extra if scope == "global" else [],
+           "profiles": {"gemma_q4": {"extra_args": extra if scope == "perfil" else []}}}
+    with pytest.raises(ValueError, match="extra_args"):
+        eolas_v2._start_locked("gemma_q4", cfg)
+
+
 def test_split_hashes_every_part(tmp_path):
     first = fixture(tmp_path / "m-00001-of-00002.gguf")
     second = fixture(tmp_path / "m-00002-of-00002.gguf")

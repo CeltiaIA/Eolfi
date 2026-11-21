@@ -211,3 +211,45 @@ def test_la_aprobacion_automatica_pasa_por_decidir_real(app, tmp_path, monkeypat
     assert out["estado"] == "aprobado" and out["job_id"] == "job9" and acciones == [("caso1", "approve")]
     e = enc.obtener(out["encargo_id"])
     assert e["estado"] == "aprobado" and e["origen"] == "chat" and e["job_id"] == "job9"
+
+
+def test_el_mensaje_espera_si_eolas_esta_ocupado_y_empieza_solo(app, monkeypatch):
+    """20/11/2026, titular: el segundo trabajo debe cargar solo cuando Eolas queda libre, no fallar."""
+    from contextlib import contextmanager
+
+    from eolfi import eolas_v2
+
+    ocupado = iter([True, True, False])
+    soltado = []
+
+    @contextmanager
+    def profile(name):
+        if next(ocupado):
+            raise eolas_v2.EolasBusy("Eolas V2 está respondiendo una petición")
+        try:
+            yield {"alias": "gemma", "url": "http://127.0.0.1:8090"}
+        finally:
+            soltado.append(name)
+
+    monkeypatch.setattr(eolas_v2, "inference_profile", profile)
+    esperas, avisos = [], []
+    monkeypatch.setattr(app, "_dormir", esperas.append)
+    monkeypatch.setattr(app, "_progress", avisos.append)
+    with app._eolas_en_turno("gemma") as c:
+        assert c["alias"] == "gemma" and soltado == []
+    assert soltado == ["gemma"] and esperas == [5, 5]                 # el candado se suelta al terminar
+    assert any("espera su turno" in a for a in avisos) and any("ya está libre" in a for a in avisos)
+
+
+def test_el_mensaje_no_espera_para_siempre(app, monkeypatch):
+    from eolfi import eolas_v2
+
+    def siempre(name):
+        raise eolas_v2.EolasBusy("Eolas V2 está respondiendo una petición")
+
+    monkeypatch.setenv("EOLFI_ESPERA_IA_SEG", "10")
+    monkeypatch.setattr(eolas_v2, "inference_profile", siempre)
+    monkeypatch.setattr(app, "_dormir", lambda s: None)
+    with pytest.raises(RuntimeError, match="esperados 10 s"):
+        with app._eolas_en_turno("gemma"):
+            pass

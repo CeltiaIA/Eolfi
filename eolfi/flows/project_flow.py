@@ -136,14 +136,19 @@ def _steps(sources: list[dict[str, str]], interp: dict[str, Any], out: str) -> l
     opts = [k for k, v in interp["options"].items() if v]
     steps.append({"id": "generar", "action": "generate",
                   "title": f"Generar el proyecto ({interp['target']}{', ' + ', '.join(opts) if opts else ''})",
-                  "what": "genera código propio con el generador de plantillas de Eolfi a partir del análisis; "
-                          "no copia código de las fuentes",
+                  "what": ("genera código propio con el generador de plantillas de Eolfi a partir del análisis; "
+                           "no copia código de las fuentes") if sources else
+                          ("genera la base con las plantillas de Eolfi y la IA local (Eolas) implementa lo pedido en "
+                           "la descripción, verificando cada ronda"),
                   "uses": ["especificar"], "produces": f"proyecto nuevo en {out}",
                   "verification": "instalación/restauración, compilación, pruebas y prueba de humo obligatorias "
-                                  "(eolfi.generador.verify); sin verificación verde el resultado es parcial",
+                                  "(eolfi.generador.verify); sin verificación verde el resultado es parcial"
+                                  + ("" if sources else "; si la IA no deja lo pedido en verde, tampoco"),
                   "rationale": "reutiliza create_project, el mismo flujo de la CLI y el panel",
                   "risks": ["la verificación necesita el toolchain del destino; si falta queda NO VERIFICADO",
-                            "lo no observado ni especificado se genera como base y queda pendiente"]})
+                            "lo no observado ni especificado se genera como base y queda pendiente"]
+                           + ([] if sources else ["usa el modelo de IA local; las pruebas que escribe la IA solo "
+                                                  "cubren lo que ella entendió de la descripción"])})
     return steps
 
 
@@ -412,16 +417,26 @@ def _execute(store: EvidenceStore, case_id: str, plan: dict[str, Any], step: dic
         from eolfi.flows.create_flow import create_project
 
         subjects = [r["subject"] for k, r in st["results"].items() if k.startswith("analizar-") and r.get("subject")]
-        if not subjects:
+        # Sin fuentes en el plan (20/11/2026): se crea desde la descripción, como promete el razonamiento del plan.
+        # Con fuentes que no dieron ningún objetivo, sigue siendo un error.
+        encargo = "\n\n".join(x for x in [str(plan.get("description") or "").strip(),
+                                          *[str(i).strip() for i in plan.get("instructions") or []]] if x)
+        if not subjects and (plan["sources"] or not encargo):
             raise PlanError("no hay fuentes analizadas")
         rep = create_project(subjects, store, plan["out"], name=plan["name"], target=plan["target"], do_verify=True,
                              workdir=workdir, db="sqlite" if plan["options"].get("sqlite") else "memory",
                              auth=bool(plan["options"].get("auth")), progress=log, case_id=case_id,
                              accesibilidad=plan["options"].get("accesibilidad"),
-                             provenance="plan aprobado de crear proyecto")
+                             provenance="plan aprobado de crear proyecto",
+                             description=None if subjects else encargo)
         ver = rep.get("verification") or {}
         verified = bool(ver.get("ok"))
+        asistida = rep.get("assist")
         return {"status": "done" if verified else "partial", "verified": verified, "out": rep.get("out"),
+                **({"from_description": True, "assist": {"ok": bool(asistida.get("ok")),
+                                                         "summary": str(asistida.get("summary") or "")[:1000],
+                                                         "files_changed": (asistida.get("files_changed") or [])[:50]}}
+                   if not subjects and asistida else {}),
                 "target": rep.get("target"), "files": rep.get("files"),
                 "verification": {"ok": verified, **({"error": ver["error"]} if ver.get("error") else {}),
                                  "steps": [{k: s.get(k) for k in ("step", "exit", "seconds")}

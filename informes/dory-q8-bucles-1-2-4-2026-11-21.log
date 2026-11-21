@@ -1,0 +1,204 @@
+dory_q8_b1: cargando como único motor…
+dory_q8_b1: 1/28 · Código · generar (palíndromo)
+dory_q8_b1: correcto a la primera en 38.7 s
+dory_q8_b1: 2/28 · Código · desempaquetar (cabecera binaria)
+dory_q8_b1: correcto a la primera en 24.5 s
+dory_q8_b1: 3/28 · Código · desempaquetar (base64 + zlib)
+dory_q8_b1: correcto a la primera en 23.9 s
+dory_q8_b1: 4/28 · Código · construir (URL)
+dory_q8_b1: NO resuelto en 47.3 s
+dory_q8_b1: 5/28 · Código · construir (árbol de rutas)
+dory_q8_b1: correcto a la primera en 37.3 s
+dory_q8_b1: 6/28 · Código · ingeniería inversa (función ofuscada)
+dory_q8_b1: correcto a la primera en 52.6 s
+dory_q8_b1: 7/28 · Código · corregir (búsqueda binaria)
+dory_q8_b1: correcto a la primera en 32.7 s
+dory_q8_b1: 8/28 · Código · analizar (línea de log)
+dory_q8_b1: NO resuelto en 58.7 s
+dory_q8_b1: 9/28 · Nuevo · fusionar intervalos
+dory_q8_b1: NO resuelto en 39.7 s
+dory_q8_b1: 10/28 · Nuevo · totales de un CSV
+dory_q8_b1: correcto a la primera en 20.3 s
+dory_q8_b1: 11/28 · Nuevo · descifrar XOR
+dory_q8_b1: correcto a la primera en 19.0 s
+dory_q8_b1: 12/28 · Nuevo · comparar versiones
+dory_q8_b1: correcto a la primera en 21.1 s
+dory_q8_b1: 13/28 · Nuevo · aplanar listas anidadas
+dory_q8_b1: correcto a la primera en 16.8 s
+dory_q8_b1: 14/28 · Nuevo · corregir una media móvil
+dory_q8_b1: correcto a la primera en 15.4 s
+dory_q8_b1: 15/28 · Inédito · diferencia de intervalos
+dory_q8_b1: NO resuelto en 33.6 s
+dory_q8_b1: descartado — 4 fallos de código a la primera: ya no puede llegar al 85 %; salto el resto del código y paso a herramientas
+dory_q8_b1: 21/28 · Herramientas · identificar un binario
+dory_q8_b1: herramienta eolfi_triage {"ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm", "modo": "local"} correcta
+dory_q8_b1: herramienta ejecutar_python {"codigo": "import hashlib\npath = r'C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm'\nwith op con error
+dory_q8_b1: NO resuelto en 18.6 s
+dory_q8_b1: 22/28 · Herramientas · encontrar una definición en Alejandría
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "clase AlexandriaLibrary definida", "limite": 10} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+dory_q8_b1: correcto a la primera en 34.5 s
+dory_q8_b1: 23/28 · Herramientas · leer un valor en Alejandría
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "MAX_READ_CHARS"} correcta
+dory_q8_b1: NO resuelto en 4.8 s
+dory_q8_b1: 24/28 · Herramientas · calcular ejecutando código
+dory_q8_b1: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n correcta
+dory_q8_b1: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n correcta
+dory_q8_b1: herramienta ejecutar_python {"codigo": "import json\nresult = 49345379\nprint(json.dumps({\"resultado\": result}))"} correcta
+dory_q8_b1: correcto a la primera en 29.5 s
+dory_q8_b1: 25/28 · Herramientas · reimplementar lo que hay en Alejandría
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "función _normal archivo library.py Eolfi normaliza texto búsqueda biblioteca", "limite": 10} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi-eolfi/library.py"} con error
+dory_q8_b1: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/aportes/reimplementar_de_biblioteca/msmall_q5-4d13123cd738.py"} con error
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "normalizar texto unicodedata NFKD casefold combining", "limite": 5} correcta
+dory_q8_b1: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    texto_normalizado = unicodedata.normalize('NFK con error
+dory_q8_b1: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    texto_normalizado = unicodedata.normalize('NFK con error
+dory_q8_b1: NO resuelto en 38.8 s
+dory_q8_b1: 26/28 · Herramientas · elegir la correcta entre varias
+dory_q8_b1: herramienta ejecutar_python {"codigo": "def fib(n):\n    a,b = 1,1\n    for _ in range(3, n+1):\n        a,b = b, a+b\n    return a\nprint(fib(40))" correcta
+dory_q8_b1: herramienta ejecutar_python {"codigo": "import json\nprint(json.dumps({\"resultado\": 63245986}))"} correcta
+dory_q8_b1: NO resuelto en 17.3 s
+dory_q8_b1: 27/28 · Herramientas · no usarlas cuando no hacen falta
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "hexágono lados"} correcta
+dory_q8_b1: NO resuelto en 6.0 s
+dory_q8_b1: 28/28 · Herramientas · saber para qué sirve cada una
+dory_q8_b1: herramienta eolfi_triage {"ruta": "/path/to/file", "modo": "local"} con error
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "nombre"} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_leer {"ruta": "documento.txt"} con error
+dory_q8_b1: herramienta ejecutar_python {"codigo": "print(42)"} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "archivo contenido"} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/generador/juez.py"} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_buscar {"consulta": "SHA-256 archivo formato"} correcta
+dory_q8_b1: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/rea_paquete.py"} correcta
+dory_q8_b1: NO resuelto en 33.0 s
+dory_q8_b1: código 11/20 a la primera (55 %), herramientas 2/8 (25 %) → no aprueba
+dory_q8: cargando como único motor…
+dory_q8: 1/28 · Código · generar (palíndromo)
+dory_q8: correcto a la primera en 20.1 s
+dory_q8: 2/28 · Código · desempaquetar (cabecera binaria)
+dory_q8: correcto a la primera en 24.1 s
+dory_q8: 3/28 · Código · desempaquetar (base64 + zlib)
+dory_q8: correcto a la primera en 21.3 s
+dory_q8: 4/28 · Código · construir (URL)
+dory_q8: NO resuelto en 31.8 s
+dory_q8: 5/28 · Código · construir (árbol de rutas)
+dory_q8: correcto a la primera en 20.4 s
+dory_q8: 6/28 · Código · ingeniería inversa (función ofuscada)
+dory_q8: correcto a la primera en 20.0 s
+dory_q8: 7/28 · Código · corregir (búsqueda binaria)
+dory_q8: correcto a la primera en 22.2 s
+dory_q8: 8/28 · Código · analizar (línea de log)
+dory_q8: NO resuelto en 35.8 s
+dory_q8: 9/28 · Nuevo · fusionar intervalos
+dory_q8: NO resuelto en 37.4 s
+dory_q8: 10/28 · Nuevo · totales de un CSV
+dory_q8: correcto a la primera en 25.2 s
+dory_q8: 11/28 · Nuevo · descifrar XOR
+dory_q8: correcto a la primera en 20.9 s
+dory_q8: 12/28 · Nuevo · comparar versiones
+dory_q8: correcto a la primera en 22.7 s
+dory_q8: 13/28 · Nuevo · aplanar listas anidadas
+dory_q8: correcto a la primera en 20.4 s
+dory_q8: 14/28 · Nuevo · corregir una media móvil
+dory_q8: correcto a la primera en 20.9 s
+dory_q8: 15/28 · Inédito · diferencia de intervalos
+dory_q8: NO resuelto en 50.9 s
+dory_q8: descartado — 4 fallos de código a la primera: ya no puede llegar al 85 %; salto el resto del código y paso a herramientas
+dory_q8: 21/28 · Herramientas · identificar un binario
+dory_q8: herramienta eolfi_triage {"ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm", "modo": "local"} correcta
+dory_q8: herramienta ejecutar_python {"codigo": "import hashlib, os\npath = r'C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm'\nwit con error
+dory_q8: herramienta ejecutar_python {"codigo": "import os\npath = r'C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm'\nprint(os.pat correcta
+dory_q8: NO resuelto en 31.8 s
+dory_q8: 22/28 · Herramientas · encontrar una definición en Alejandría
+dory_q8: herramienta eolfi_biblioteca_buscar {"consulta": "AlexandriaLibrary clase definida", "limite": 10} correcta
+dory_q8: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+dory_q8: correcto a la primera en 25.8 s
+dory_q8: 23/28 · Herramientas · leer un valor en Alejandría
+dory_q8: herramienta eolfi_biblioteca_buscar {"consulta": "MAX_READ_CHARS"} correcta
+dory_q8: NO resuelto en 5.6 s
+dory_q8: 24/28 · Herramientas · calcular ejecutando código
+dory_q8: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    if n == 2:\n        return True\n    if n % 2 ==  correcta
+dory_q8: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    if n == 2:\n        return True\n    if n % 2 ==  correcta
+dory_q8: correcto a la primera en 24.3 s
+dory_q8: 25/28 · Herramientas · reimplementar lo que hay en Alejandría
+dory_q8: herramienta eolfi_biblioteca_buscar {"consulta": "función _normal en library.py de Eolfi normalización texto búsqueda", "limite": 10} correcta
+dory_q8: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py", "desde": 1} correcta
+dory_q8: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.c correcta
+dory_q8: herramienta ejecutar_python {"codigo": "def normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.casefold())\n    return correcta
+dory_q8: herramienta ejecutar_python {"codigo": "def normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.casefold())\n    return correcta
+dory_q8: correcto a la primera en 56.3 s
+dory_q8: 26/28 · Herramientas · elegir la correcta entre varias
+dory_q8: herramienta ejecutar_python {"codigo": "def fib(n):\n    a,b = 1,1\n    for _ in range(3, n+1):\n        a,b = b, a+b\n    return a\nprint(fib(40))" correcta
+dory_q8: NO resuelto en 11.0 s
+dory_q8: 27/28 · Herramientas · no usarlas cuando no hacen falta
+dory_q8: herramienta eolfi_biblioteca_buscar {"consulta": "hexágono lados"} correcta
+dory_q8: NO resuelto en 6.7 s
+dory_q8: 28/28 · Herramientas · saber para qué sirve cada una
+dory_q8: herramienta eolfi_triage {"ruta": "placeholder", "modo": "local"} con error
+dory_q8: herramienta eolfi_biblioteca_buscar {"consulta": "nombre", "limite": 1} correcta
+dory_q8: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/web/mapa.js", "desde": 0} correcta
+dory_q8: herramienta eolfi_biblioteca_buscar {"consulta": "SHA-256", "limite": 1} correcta
+dory_q8: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/cli.py", "desde": 130} correcta
+dory_q8: NO resuelto en 24.3 s
+dory_q8: código 11/20 a la primera (55 %), herramientas 3/8 (38 %) → no aprueba
+dory_q8_b4: cargando como único motor…
+dory_q8_b4: 1/28 · Código · generar (palíndromo)
+dory_q8_b4: correcto a la primera en 30.4 s
+dory_q8_b4: 2/28 · Código · desempaquetar (cabecera binaria)
+dory_q8_b4: correcto tras corregir en 40.5 s
+dory_q8_b4: 3/28 · Código · desempaquetar (base64 + zlib)
+dory_q8_b4: correcto a la primera en 25.9 s
+dory_q8_b4: 4/28 · Código · construir (URL)
+dory_q8_b4: NO resuelto en 38.5 s
+dory_q8_b4: 5/28 · Código · construir (árbol de rutas)
+dory_q8_b4: correcto a la primera en 29.7 s
+dory_q8_b4: 6/28 · Código · ingeniería inversa (función ofuscada)
+dory_q8_b4: correcto a la primera en 26.4 s
+dory_q8_b4: 7/28 · Código · corregir (búsqueda binaria)
+dory_q8_b4: correcto a la primera en 29.8 s
+dory_q8_b4: 8/28 · Código · analizar (línea de log)
+dory_q8_b4: NO resuelto en 42.4 s
+dory_q8_b4: 9/28 · Nuevo · fusionar intervalos
+dory_q8_b4: NO resuelto en 43.3 s
+dory_q8_b4: descartado — 4 fallos de código a la primera: ya no puede llegar al 85 %; salto el resto del código y paso a herramientas
+dory_q8_b4: 21/28 · Herramientas · identificar un binario
+dory_q8_b4: herramienta eolfi_triage {"ruta": "C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm", "modo": "local"} correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "import hashlib, os\npath = r'C:\\Users\\mejil\\AppData\\Local\\Temp\\eolfi-ronda-j0hs5rjj\\modulo.wasm'\nwit con error
+dory_q8_b4: herramienta ejecutar_python {"codigo": "import os\npath = 'C:\\\\Users\\\\mejil\\\\AppData\\\\Local\\\\Temp\\\\eolfi-ronda-j0hs5rjj\\\\modulo.wasm'\ correcta
+dory_q8_b4: NO resuelto en 37.3 s
+dory_q8_b4: 22/28 · Herramientas · encontrar una definición en Alejandría
+dory_q8_b4: herramienta eolfi_biblioteca_buscar {"consulta": "AlexandriaLibrary clase definida", "limite": 10} correcta
+dory_q8_b4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py", "desde": 110} correcta
+dory_q8_b4: NO resuelto en 36.1 s
+dory_q8_b4: 23/28 · Herramientas · leer un valor en Alejandría
+dory_q8_b4: herramienta eolfi_biblioteca_buscar {"consulta": "MAX_READ_CHARS"} correcta
+dory_q8_b4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+dory_q8_b4: correcto a la primera en 9.6 s
+dory_q8_b4: 24/28 · Herramientas · calcular ejecutando código
+dory_q8_b4: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    if n == 2:\n        return True\n    if n % 2 ==  correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "def is_prime(n):\n    if n < 2:\n        return False\n    if n == 2:\n        return True\n    if n % 2 ==  correcta
+dory_q8_b4: correcto a la primera en 34.0 s
+dory_q8_b4: 25/28 · Herramientas · reimplementar lo que hay en Alejandría
+dory_q8_b4: herramienta eolfi_biblioteca_buscar {"consulta": "función _normal en library.py de Eolfi normalización texto búsqueda biblioteca", "limite": 10} correcta
+dory_q8_b4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/library.py"} correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.c correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.c correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "def normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.casefold())\n    return correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "import unicodedata\n\ndef normalizar(texto: str) -> str:\n    text = unicodedata.normalize(\"NFKD\", texto.c correcta
+dory_q8_b4: NO resuelto en 81.5 s
+dory_q8_b4: 26/28 · Herramientas · elegir la correcta entre varias
+dory_q8_b4: herramienta ejecutar_python {"codigo": "def fib(n):\n    a,b = 1,1\n    for _ in range(3, n+1):\n        a,b = b, a+b\n    return a\nprint(fib(40))" correcta
+dory_q8_b4: NO resuelto en 13.0 s
+dory_q8_b4: 27/28 · Herramientas · no usarlas cuando no hacen falta
+dory_q8_b4: herramienta eolfi_biblioteca_buscar {"consulta": "hexágono lados"} correcta
+dory_q8_b4: NO resuelto en 7.0 s
+dory_q8_b4: 28/28 · Herramientas · saber para qué sirve cada una
+dory_q8_b4: herramienta eolfi_triage {"ruta": "placeholder", "modo": "local"} con error
+dory_q8_b4: herramienta eolfi_biblioteca_buscar {"consulta": "nombre", "limite": 1} correcta
+dory_q8_b4: herramienta eolfi_biblioteca_leer {"ruta": "corpus/codigo/Eolfi/eolfi/web/mapa.js", "desde": 0} correcta
+dory_q8_b4: herramienta ejecutar_python {"codigo": "print('hola')"} correcta
+dory_q8_b4: NO resuelto en 25.7 s
+dory_q8_b4: código 5/20 a la primera (25 %), herramientas 2/8 (25 %) → no aprueba
+{"informe": "D:\\Eolfi\\informes\\dory-q8-bucles-1-2-4-2026-11-21.json", "ronda": "28737e0f-8a27-432c-9748-3b3b96ce7844", "perfiles": ["dory_q8", "dory_q8_b1", "dory_q8_b4"]}
+{"dory_q8_b1": {"alias": "nemotron-dory1.0-4b-q8_0-b1:local", "carga_s": 138.86, "codigo": {"casos": 8, "primera": 6, "final": 6}, "codigo_nuevo": {"casos": 6, "primera": 5, "final": 5}, "inedito": {"casos": 1, "primera": 0, "final": 0}, "herramientas": {"casos": 8, "primera": 2, "final": 2}, "codigo_primera_pct": 55, "herramientas_pct": 25, "aprobado": false, "descartado": "4 fallos de código a la primera: ya no puede llegar al 85 %"}, "dory_q8": {"alias": "nemotron-dory1.0-4b-q8_0:local", "carga_s": 21.8, "codigo": {"casos": 8, "primera": 6, "final": 6}, "codigo_nuevo": {"casos": 6, "primera": 5, "final": 5}, "inedito": {"casos": 1, "primera": 0, "final": 0}, "herramientas": {"casos": 8, "primera": 3, "final": 3}, "codigo_primera_pct": 55, "herramientas_pct": 38, "aprobado": false, "descartado": "4 fallos de código a la primera: ya no puede llegar al 85 %"}, "dory_q8_b4": {"alias": "nemotron-dory1.0-4b-q8_0-b4:local", "carga_s": 22.47, "codigo": {"casos": 8, "primera": 5, "final": 6}, "codigo_nuevo": {"casos": 1, "primera": 0, "final": 0}, "inedito": {"casos": 0, "primera": 0, "final": 0}, "herramientas": {"casos": 8, "primera": 2, "final": 2}, "codigo_primera_pct": 25, "herramientas_pct": 25, "aprobado": false, "descartado": "4 fallos de código a la primera: ya no puede llegar al 85 %"}}
+salida 0

@@ -1,0 +1,6 @@
+DESTINO_EXISTE=False
+eolfi eolas-v2: error: RuntimeError: La ronda necesita el contenedor y no está disponible (Docker no responde o falta la imagen local python:3.12-slim: permission denied while trying to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine).
+EXIT_D3=1
+INFORME_EXISTE=False
+
+El error ocurrió antes de cargar modelos. No se creó el informe JSON y no hubo comparación Q5/Q4.

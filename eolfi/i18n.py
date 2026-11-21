@@ -874,6 +874,11 @@ AVISOS_EN: dict[str, str] = {
     "{} archivos verificados y copiados a {}": "{} files verified and copied to {}",
     "{} archivos generados en {}": "{} files generated in {}",
     "criterios del juez funcional instalados ({} comprobaciones)": "functional judge criteria installed ({} checks)",
+    "sin fuentes: la base sale de la descripción y lo pedido lo implementa la IA":
+        "no sources: the base comes from the description and the AI implements what was asked",
+    "la IA no está disponible: {}": "the AI is not available: {}",
+    "Eolas está ocupado: espero a que termine para pedir los cambios ({} s como máximo)…":
+        "Eolas is busy: waiting for it to finish before asking for the changes (at most {} s)…",
     "'{}' se interpreta como la carpeta {}": "'{}' is interpreted as the folder {}",
     "verificando en una carpeta limpia ({}) antes de escribir sobre el origen…":
         "verifying in a clean folder ({}) before writing over the source…",

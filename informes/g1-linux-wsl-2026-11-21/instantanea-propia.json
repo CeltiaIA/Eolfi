@@ -1,0 +1,63 @@
+{
+  "schema": "eolfi.modelos.conexiones/v1",
+  "pid": 688,
+  "fecha_utc": "2026-11-21T01:10:41.213101+00:00",
+  "conexiones": [
+    {
+      "protocolo": "UDP",
+      "familia": 4,
+      "local": "127.0.0.1",
+      "puerto_local": 52783
+    },
+    {
+      "protocolo": "TCP",
+      "familia": 4,
+      "local": "127.0.0.1",
+      "puerto_local": 41989,
+      "estado": "LISTEN",
+      "remoto": null,
+      "puerto_remoto": null,
+      "remoto_no_loopback": false,
+      "escucha_no_loopback": false
+    },
+    {
+      "protocolo": "TCP",
+      "familia": 4,
+      "local": "127.0.0.1",
+      "puerto_local": 50468,
+      "estado": "ESTABLISHED",
+      "remoto": "127.0.0.1",
+      "puerto_remoto": 41989,
+      "remoto_no_loopback": false,
+      "escucha_no_loopback": false
+    }
+  ],
+  "incognitas": [],
+  "proveedor": {
+    "nombre": "psutil",
+    "plataforma": "linux",
+    "version": "7.2.2"
+  },
+  "cobertura": {
+    "tcp_ipv4": "consultada",
+    "tcp_ipv6": "consultada",
+    "udp_ipv4": "consultada",
+    "udp_ipv6": "consultada"
+  },
+  "limites": [
+    "Instantánea: no descarta conexiones anteriores ni posteriores",
+    "Las tablas se leen una tras otra; las conexiones pueden cambiar entre lecturas",
+    "No verifica que el PID esté vivo ni que haya cargado el GGUF indicado",
+    "Un remoto no loopback no distingue conexiones entrantes de salientes",
+    "UDP solo muestra enlaces locales; destinos e historial no observados"
+  ],
+  "tcp_remotos_no_loopback": 0,
+  "tcp_escuchas_no_loopback": 0,
+  "estado": "observado",
+  "esperado": {
+    "pid": 688,
+    "tcp_escucha": 41989,
+    "udp": 52783,
+    "tcp_cliente": 50468
+  }
+}

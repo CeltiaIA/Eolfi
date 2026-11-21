@@ -961,8 +961,14 @@ def _start_locked(name: str, cfg: dict[str, Any] | None = None, *, popen: Callab
     from eolfi.modelos import enforce_trust
 
     policy = enforce_trust(c["model"])
-    if policy and (cfg.get("extra_args") or cfg.get("profiles", {}).get(name, {}).get("extra_args")):
-        raise ValueError("La política de confianza no admite extra_args: podrían sustituir el modelo autorizado")
+    if policy:
+        # Solo pares de la lista acotada: caché, FA y paralelismo; nunca rutas, puertos ni claves.
+        # Se valida también la configuración global, que no pasa por la validación del perfil de usuario.
+        try:
+            _validate_extra_args(cfg.get("extra_args"), "de confianza")
+            _validate_extra_args(cfg.get("profiles", {}).get(name, {}).get("extra_args"), "de confianza")
+        except ValueError as exc:
+            raise ValueError(f"La política de confianza no admite extra_args fuera de la lista acotada: {exc}") from exc
     record = _runtime()
     if _record_alive(record):
         if record.get("profile") == name and _healthy(c, str(c["alias"])):
