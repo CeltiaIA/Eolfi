@@ -192,6 +192,11 @@ USER_PROFILE_MARKER = "eolfi.modelos.usuario/v1"
 USER_EXTRA_ARGS: dict[str, frozenset[str] | None] = {
     "-fa": frozenset({"on", "off", "auto"}), "-ctk": frozenset({"f16", "q8_0", "q4_0"}),
     "-ctv": frozenset({"f16", "q8_0", "q4_0"}), "-np": None, "--cache-ram": None,
+    # Bucles de los modelos Dory (llama.cpp con soporte Dory): solo los valores de su ficha (1–4 bucles y modo
+    # de caché KV), nunca una sobrescritura de metadatos arbitraria.
+    "--override-kv": frozenset({f"dory.num_loops=int:{n}" for n in range(1, 5)}
+                               | {f"dory.num_loops=int:{n},dory.recurrent_kv_cache_mode=str:{m}"
+                                  for n in range(1, 5) for m in ("per_loop", "last_loop")}),
 }
 PROFILE_NAME = re.compile(r"[a-z][a-z0-9_]{1,63}")
 REDACT = re.compile(r"(?i)(api[_-]?key|token|password|secret)(\s*[:=]\s*)([^\s,;]+)")

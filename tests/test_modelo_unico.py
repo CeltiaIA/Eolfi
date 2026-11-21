@@ -55,13 +55,24 @@ def test_alta_de_un_gguf_sin_tocar_codigo_y_aparece_en_el_catalogo(cfg_path, tmp
 
 @pytest.mark.parametrize("cambio", [
     {"extra_args": ["--host", "0.0.0.0"]}, {"extra_args": ["-ctk", "rm -rf"]}, {"plantilla": "otra"},
-    {"reasoning_format": "otro"}, {"model": "relativo.gguf"}, {"model": "C:/x/modelo.bin"}, {"desconocido": 1}])
+    {"reasoning_format": "otro"}, {"model": "relativo.gguf"}, {"model": "C:/x/modelo.bin"}, {"desconocido": 1},
+    {"extra_args": ["--override-kv", "dory.num_loops=int:5"]},
+    {"extra_args": ["--override-kv", "general.architecture=str:llama"]},
+    {"extra_args": ["--override-kv", "dory.num_loops=int:2,tokenizer.chat_template=str:x"]}])
 def test_un_perfil_de_usuario_no_admite_opciones_peligrosas_ni_campos_raros(cambio):
     base = {"managed_by": eolas_v2.USER_PROFILE_MARKER, "alias": "a:latest", "model": str(Path.cwd() / "a.gguf"),
             "ctx": 4096, "gpu_layers": 10, "batch": 256, "ubatch": 128}
     eolas_v2._validate_user_profile("mi_modelo", base)
     with pytest.raises(ValueError):
         eolas_v2._validate_user_profile("mi_modelo", {**base, **cambio})
+
+
+@pytest.mark.parametrize("valor", ["dory.num_loops=int:1", "dory.num_loops=int:4",
+                                   "dory.num_loops=int:2,dory.recurrent_kv_cache_mode=str:last_loop"])
+def test_un_perfil_de_usuario_admite_los_bucles_de_dory_de_su_ficha(valor):
+    base = {"managed_by": eolas_v2.USER_PROFILE_MARKER, "alias": "a:latest", "model": str(Path.cwd() / "a.gguf"),
+            "ctx": 4096, "gpu_layers": 10, "batch": 256, "ubatch": 128, "extra_args": ["--override-kv", valor]}
+    eolas_v2._validate_user_profile("mi_modelo", base)
 
 
 def test_un_perfil_nuevo_no_se_activa_ni_recibe_rol_sin_aprobar_el_examen(cfg_path, tmp_path):
