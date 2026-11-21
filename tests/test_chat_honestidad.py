@@ -181,13 +181,13 @@ def test_una_promesa_recibe_otra_oportunidad_con_herramientas_sin_perder_la_revi
     assert "ACTIVO" in sistema and "Recursive Self-Improvement" in sistema
     convo, tools = sent[1]
     assert tools and convo[-1]["role"] == "user" and "Todavía no has ejecutado" in convo[-1]["content"]
-    assert any("no se ha llamado a herramientas" in s for s in steps)
+    assert any("No he llamado a ninguna herramienta" in s for s in steps)
 
 
 def test_si_la_correccion_sigue_fallando_el_usuario_ve_un_aviso():
     mala = {"content": "En mi próxima respuesta te entregaré el Blueprint del RSI (Recursive State Inference)."}
     out, sent, _ = _turno([mala, mala, mala])
-    assert out["text"].startswith("⚠ Aviso de Eolfi") and "Blueprint" in out["text"]
+    assert out["text"].startswith("⚠ Ojo") and "Blueprint" in out["text"]
     assert out["revision"]["final"] == ["accion_en_curso", "capacidad_inventada"] and len(sent) == 3
 
 
@@ -245,3 +245,22 @@ def test_el_medidor_de_deriva_cuenta_defectos_y_variantes(tmp_path, monkeypatch)
 
 def chat_honestidad_codigos(texto):
     return [h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)]
+
+
+# 21/11/2026: con un encargo realmente lanzado (tiene id), decir que sigue en marcha es verdad.
+ENCARGO = {"name": "eolfi_vscode_encargo", "ok": True, "encargo": "a" * 16}
+
+
+@pytest.mark.parametrize("texto", [
+    "He lanzado el encargo y sigue en marcha en VS Code.",
+    "El encargo está en curso; podrás ver el progreso en el panel.",
+])
+def test_un_encargo_real_permite_decir_que_sigue_en_marcha(texto):
+    assert hon.revisar(texto, [ENCARGO], OFRECIDAS) == []
+    assert [h["codigo"] for h in hon.revisar(texto, [], OFRECIDAS)] == ["accion_en_curso"]
+
+
+@pytest.mark.parametrize("encargo", [ENCARGO, {**ENCARGO, "ok": False}, {**ENCARGO, "encargo": None}])
+def test_te_avisare_sigue_siendo_promesa_aunque_haya_encargo(encargo):
+    assert [h["codigo"] for h in hon.revisar("Encargo lanzado. Te avisaré cuando termine.", [encargo], OFRECIDAS)] \
+        == ["accion_en_curso"]

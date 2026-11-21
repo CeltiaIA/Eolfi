@@ -645,7 +645,6 @@
  "Enviando a Eolas…": "Sending to Eolas…",
  "Enviando a {}…": "Sending to {}…",
  "Eolas pide ejecutar «{}»": "Eolas asks to run \"{}\"",
- "Eolfi trabajando…": "Eolfi working…",
  "Escritorio (Electron)": "Desktop (Electron)",
  "Escritorio (Tauri)": "Desktop (Tauri)",
  "Escritorio .NET (Avalonia)": ".NET desktop (Avalonia)",
@@ -732,5 +731,13 @@
  "Chat · {}": "Chat · {}",
  "{}{} · SDK {}–{}": "{}{} · SDK {}–{}",
  "HTTP {}": "HTTP {}",
- "El micrófono necesita HTTPS: arranca Eolfi con «serve --cert» o ábrelo en este equipo (localhost).": "The microphone needs HTTPS: start Eolfi with “serve --cert” or open it on this computer (localhost)."
+ "El micrófono necesita HTTPS: arranca Eolfi con «serve --cert» o ábrelo en este equipo (localhost).": "The microphone needs HTTPS: start Eolfi with “serve --cert” or open it on this computer (localhost).",
+ "Cortar lo que Eolfi está haciendo ahora": "Stop what Eolfi is doing now",
+ "Parar": "Stop",
+ "Tú · mientras trabajaba": "You · while it was working",
+ "Añadir al hilo": "Add to thread",
+ "Eolfi está trabajando: tu mensaje entra en el mismo hilo y lo tendrá en cuenta": "Eolfi is working: your message joins the same thread and will be taken into account",
+ "(no llegó: {})": "(not delivered: {})",
+ "[Añadido mientras trabajabas] {}": "[Added while you were working] {}",
+ "Parado a petición tuya. Tu mensaje vuelve al editor por si quieres retomarlo.": "Stopped at your request. Your message is back in the editor in case you want to resume it."
 }

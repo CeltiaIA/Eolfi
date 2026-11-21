@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any
 
 EOLAS_URL = os.environ.get("CELTIAIA_EOLAS_URL", "http://127.0.0.1:11435").rstrip("/")
-IDLE_MINUTES = float(os.environ.get("EOLFI_LOCAL_IDLE_MINUTES", "15"))
+# 21/11/2026: 60 min (antes 15). Con 15, una pausa corta en la conversación descargaba el motor y el siguiente
+# mensaje pagaba otra vez la carga del modelo y la caché de prompts vacía.
+IDLE_MINUTES = float(os.environ.get("EOLFI_LOCAL_IDLE_MINUTES", "60"))
 POLL_SECONDS = 30.0
 
 

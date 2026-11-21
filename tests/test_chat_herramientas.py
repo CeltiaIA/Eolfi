@@ -131,7 +131,7 @@ def test_el_chat_recuerda_los_adjuntos_de_la_conversacion(app, monkeypatch):
     (app.samples / f"{h_sh}.bin").write_text("echo hola")
     visto = {}
 
-    def turno(msgs, c, mcp, progress, estado=None):
+    def turno(msgs, c, mcp, progress, estado=None, **_dirigir):
         visto.update(msgs=msgs, mcp=mcp)
         return {"text": "ok", "tools": []}
     monkeypatch.setattr(chat, "agent_turn", turno)

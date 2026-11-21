@@ -1,7 +1,7 @@
 // Chat con Eolfi a través del motor Eolas V2 (12/11/2026): tú le pides a Eolas y Eolas manda hacer a Eolfi.
 // Los adjuntos se suben por su huella; el modelo decide qué herramientas de Eolfi usar (triaje, web, repositorio,
 // Alejandría, Python en el contenedor) y cada llamada se ve en la conversación. Todo se pinta como texto.
-import { $, el, api, runJob } from "./runtime.js";
+import { $, el, api, runJob, jobMessage, cancelJob } from "./runtime.js";
 import { initVoz, decir } from "./voz.js";
 
 const STORE_KEY = "eolfi.eolasChat";
@@ -12,7 +12,7 @@ const AUTO_PROMPT = "Analiza lo que te adjunto y propón qué se podría generar
 const MAX_ADJUNTOS_USUARIO = 5;
 const KIND_LABEL = { archivo: "archivo", binario: "binario", url: "web", repositorio: "repositorio", repo: "repositorio" };
 
-const chat = { messages: [], attachments: [], busy: false, uploading: 0, maxAdjuntos: undefined };
+const chat = { messages: [], attachments: [], busy: false, uploading: 0, maxAdjuntos: undefined, jobId: null, pendientes: [] };
 
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(chat.messages.slice(-40))); } catch { /* sin almacenamiento */ }
@@ -34,7 +34,7 @@ function richText(text) {
 }
 
 function bubble(m) {
-  const meta = el("span", { class: "meta" }, m.role === "user" ? (m.failed ? "Tú · no se pudo enviar" : "Tú") : `Eolfi${m.model ? ` · ${m.model}` : ""}`);
+  const meta = el("span", { class: "meta" }, m.role === "user" ? (m.failed ? "Tú · no se pudo enviar" : m.correccion ? "Tú · mientras trabajaba" : "Tú") : `Eolfi${m.model ? ` · ${m.model}` : ""}`);
   const node = el("div", { class: `msg ${m.role}` }, meta, ...(m.role === "assistant" ? richText(m.content) : [m.shown || m.content]));
   for (const t of m.tools || []) {
     node.append(el("span", { class: `analysis-chip${t.ok ? "" : " bad"}`, title: t.args || "" },
@@ -226,10 +226,40 @@ function renderAttachments() {
     el("button", { type: "button", "aria-label": `Quitar ${a.name}`, onclick: () => { chat.attachments.splice(i, 1); renderAttachments(); } }, "×"))));
 }
 
+// 21/11/2026 (titular: «que a Eolfi se le pueda dirigir el hilo»): mientras trabaja, el botón no se bloquea; lo que
+// escribas entra en el mismo hilo como corrección y Eolfi lo lee antes de su siguiente paso. «Parar» lo corta.
 function setBusy(busy) {
   chat.busy = busy;
-  $("#eolas-chat-send").disabled = busy || chat.uploading > 0;
-  $("#eolas-chat-send").textContent = busy ? "Eolfi trabajando…" : "Enviar";
+  if (!busy) { chat.jobId = null; chat.pendientes = []; }
+  $("#eolas-chat-send").disabled = chat.uploading > 0;
+  $("#eolas-chat-send").textContent = busy ? "Añadir al hilo" : "Enviar";
+  $("#eolas-chat-send").title = busy ? "Eolfi está trabajando: tu mensaje entra en el mismo hilo y lo tendrá en cuenta" : "";
+  const parar = $("#eolas-chat-stop");
+  if (parar) { parar.hidden = !busy; parar.disabled = false; }
+}
+
+async function corregir(text) {
+  if (!text) { $("#eolas-chat-input").focus(); return; }
+  $("#eolas-chat-input").value = "";
+  const nota = { role: "user", content: text, local: true, correccion: true };
+  chat.messages.push(nota);
+  render();
+  if (!chat.jobId) { chat.pendientes.push([text, nota]); return; }   // aún sin id: se manda al arrancar
+  await enviarCorreccion(text, nota);
+}
+
+async function enviarCorreccion(text, nota) {
+  try {
+    const r = await jobMessage(chat.jobId, text);
+    if (r.accion === "cancelar") nota.content += "  (parando…)";
+    else chat.actual?.extras.push(text);
+  } catch (err) {
+    // Ya había terminado o no llegó: el texto vuelve al editor para mandarlo como mensaje nuevo.
+    nota.failed = true;
+    nota.content += `  (no llegó: ${err.message})`;
+    if (!$("#eolas-chat-input").value.trim()) $("#eolas-chat-input").value = text;
+  }
+  render();
 }
 
 function renderProfiles(st) {
@@ -301,7 +331,8 @@ function adjuntosPrevios() {
 }
 
 async function send(text) {
-  if (chat.busy || chat.uploading) return;
+  if (chat.busy) return corregir(text);
+  if (chat.uploading) return;
   const kind = $("#eolas-chat-kind").value;
   const target = $("#eolas-chat-target").value.trim();
   const attachments = chat.attachments.slice();
@@ -320,6 +351,7 @@ async function send(text) {
   const steps = [];
   $("#eolas-chat-log").append(progress);
   setBusy(true);
+  chat.actual = { extras: [] };
   try {
     const asBinary = $("#eolas-chat-as-binary").checked;
     const history = chat.messages.filter((m) => !m.local && !m.failed).map(({ role, content }) => ({ role, content }));
@@ -334,7 +366,12 @@ async function send(text) {
       steps.push(...lines.map((l) => l?.msg || String(l)));
       progress.textContent = steps.slice(-8).join(String.fromCharCode(10));
       $("#eolas-chat-log").scrollTop = $("#eolas-chat-log").scrollHeight;
-    });
+    }, { onStart: (id) => {
+      chat.jobId = id;
+      for (const [t, nota] of chat.pendientes.splice(0)) enviarCorreccion(t, nota);
+    } });
+    // Lo añadido mientras trabajaba pasa a formar parte de tu mensaje en el historial que se manda al modelo.
+    if (chat.actual.extras.length) user.content += chat.actual.extras.map((x) => `\n\n[Añadido mientras trabajabas] ${x}`).join("");
     chat.messages.push({ role: "assistant", content: result.text, model: result.model, tools: result.tools });
     chat.attachments = [];
     emit("eolfi:chat-reply", { text: result.text });
@@ -348,7 +385,8 @@ async function send(text) {
     // 14/11/2026: antes se quitaba la pregunta y solo se veía el error. Ahora se queda a la vista, marcada como no
     // enviada; no entra en el historial que se manda al modelo y el texto vuelve al editor para reenviarlo.
     user.failed = true;
-    chat.messages.push({ role: "assistant", content: `No se pudo completar: ${err.message}`, local: true });
+    chat.messages.push({ role: "assistant", local: true,
+      content: err.status === "cancelled" ? "Parado a petición tuya. Tu mensaje vuelve al editor por si quieres retomarlo." : `No se pudo completar: ${err.message}` });
     $("#eolas-chat-input").value = text;
   } finally {
     progress.remove();
@@ -391,6 +429,12 @@ export function initEolasChat() {
     if (!target.hidden) target.focus();
   });
   $("#eolas-chat-tools").addEventListener("click", () => emit("eolfi:open-tools", {}));
+  $("#eolas-chat-stop").addEventListener("click", async (e) => {
+    if (!chat.jobId) return;
+    const b = e.currentTarget;
+    b.disabled = true;
+    try { await cancelJob(chat.jobId); } catch { b.disabled = false; }
+  });
   // El motor elegido aquí pasa a ser el de Eolas V2 en todo Eolfi; el modelo se cambia en la siguiente petición.
   $("#eolas-chat-profile").addEventListener("change", async (e) => {
     const pick = e.currentTarget;

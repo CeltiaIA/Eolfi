@@ -801,16 +801,21 @@ class EolfiApp:
         from eolfi import chat, eolas_v2
 
         estado = self._chat_estado()
+        # 21/11/2026: buzón de correcciones, «Parar» inmediato y plan interno con razonamiento.
+        dirigir = {"steer": self._job_inbox, "vigilar": self._progress_check, "en_hilo": self._en_hilo_del_trabajo}
         try:
             if remote:
                 self._progress(f"Consultando {remote['label']}…")
-                return {**chat.agent_turn(context, remote, mcp, self._progress, estado=estado), "model": remote["label"]}
+                return {**chat.agent_turn(context, remote, mcp, self._progress, estado=estado, **dirigir),
+                        "model": remote["label"]}
             profile = str(eolas_v2.load_config()["active_profile"])
             self._progress(f"Cargando el motor Eolas V2 ({profile})…")
             with self._eolas_en_turno(profile) as c:
                 engine = chat.local_engine(c)
                 self._progress(f"Eolas ({c['alias']}) está pensando…")
-                return {**chat.agent_turn(context, engine, mcp, self._progress, estado=estado), "model": engine["label"]}
+                return {**chat.agent_turn(context, engine, mcp, self._progress, estado=estado, **dirigir,
+                                          plan=lambda m: chat.planificar(engine, m)),
+                        "model": engine["label"]}
         except RuntimeError as exc:
             raise ApiError(502, str(exc)) from exc
 
@@ -1054,6 +1059,58 @@ class EolfiApp:
             conn.execute("DELETE FROM vscode_activity WHERE run_id IN "
                          "(SELECT run_id FROM vscode_activity ORDER BY updated DESC LIMIT -1 OFFSET 20)")
             return {"activity": run}
+
+    PALABRAS_PARAR = frozenset({"para", "parar", "detente", "stop", "cancela", "cancelar", "déjalo", "dejalo"})
+
+    def job_message(self, job_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/jobs/<id>/mensaje {"texto"} (21/11/2026, titular: «que a Eolfi se le pueda dirigir el hilo»):
+        un mensaje escrito mientras el chat trabaja entra en su buzón y el turno lo lee antes de la siguiente llamada
+        al motor, con prioridad sobre lo anterior. «para» (y sinónimos) cancela. Si el trabajo ya terminó, 409: el
+        cliente lo manda entonces como mensaje nuevo."""
+        from eolfi import chat
+
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise ApiError(404, "trabajo no encontrado")
+        texto = str(body.get("texto") or "").strip()
+        if not texto or len(texto) > chat.MAX_MESSAGE_CHARS:
+            raise ApiError(400, f"texto obligatorio y de como mucho {chat.MAX_MESSAGE_CHARS} caracteres")
+        if job["kind"] != "chat":
+            raise ApiError(409, "solo se puede escribir a un trabajo de chat")
+        if job["status"] not in ("queued", "running"):
+            raise ApiError(409, "el trabajo ya terminó; envíalo como mensaje nuevo", estado=job["status"])
+        if texto.lower().strip(" .!¡") in self.PALABRAS_PARAR:
+            job["cancel"] = True
+            return {"id": job_id, "accion": "cancelar", "status": job["status"]}
+        with self._jobs_guard:
+            buzon = job.setdefault("inbox", [])
+            if len(buzon) >= 20:
+                raise ApiError(429, "hay demasiados mensajes pendientes; espera a que los lea")
+            buzon.append(texto)
+            job["log"].append({"t": round(time.time() - job["started"], 1),
+                               "msg": "Mensaje tuyo en cola: lo leo antes del siguiente paso"})
+        return {"id": job_id, "accion": "recibido", "pendientes": len(buzon), "status": job["status"]}
+
+    def _job_inbox(self) -> list[str]:
+        """Vacía el buzón del trabajo en curso (lo llama el turno del chat)."""
+        job = getattr(self._tl, "job", None)
+        if job is None:
+            return []
+        with self._jobs_guard:
+            nuevos, job["inbox"] = list(job.get("inbox") or []), []
+        return nuevos
+
+    def _en_hilo_del_trabajo(self, fn: Callable[[], Any]) -> Callable[[], Any]:
+        """Para chat.vigilado: el hilo auxiliar hereda el trabajo en curso (progreso y cancelación)."""
+        job = getattr(self._tl, "job", None)
+
+        def correr() -> Any:
+            self._tl.job = job
+            try:
+                return fn()
+            finally:
+                self._tl.job = None
+        return correr
 
     def cancel_job(self, q: dict[str, str]) -> dict[str, Any]:
         job = self.jobs.get(q.get("id", ""))
@@ -2416,6 +2473,13 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         except _voz.VozError as exc:
                             raise ApiError(400, str(exc)) from exc
                         return self._json(200, _voz.estado())
+                    if path == "/api/tableta/chat/mensaje":
+                        try:
+                            return self._json(202, _tab.chat_mensaje(app, self._obj()))
+                        except KeyError as exc:
+                            raise ApiError(404, "trabajo no encontrado") from exc
+                        except ValueError as exc:
+                            raise ApiError(400, str(exc)) from exc
                     if path in ("/api/tableta/chat", "/api/tableta/diagnostico"):
                         try:
                             if path.endswith("chat"):
@@ -2443,6 +2507,9 @@ def make_handler(app: EolfiApp, allowed_hosts: set[str], token: str | None = Non
                         data = self._body()
                         return self._json(200, app.triage_upload(
                             data, q.get("name", "upload"), q.get("mode", "local"), q.get("providers")))
+                    m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/mensaje", path)
+                    if m:
+                        return self._json(202, app.job_message(m.group(1), self._obj()))
                     m = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/repeat", path)
                     if m:
                         return self._json(202, app.repeat_job(m.group(1), self._nivel()))

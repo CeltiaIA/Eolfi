@@ -248,6 +248,66 @@ test('el chat reenvía los adjuntos de mensajes anteriores', async () => {
   await page.click('#eolas-chat-clear');
 });
 
+// 21/11/2026 (titular: «que a Eolfi se le pueda dirigir el hilo»): mientras trabaja, lo escrito entra en el mismo
+// trabajo como corrección y queda en el historial; «Parar» corta el trabajo.
+test('el chat admite correcciones mientras trabaja y se puede parar', async () => {
+  const enviados = [], mensajes = [];
+  let cancelado = false;
+  await page.route('**/api/jobs**', async (route) => {
+    const req = route.request();
+    if (req.method() === 'POST' && /\/mensaje$/.test(req.url())) {
+      mensajes.push(JSON.parse(req.postData()).texto);
+      return route.fulfill({ status: 202, json: { accion: 'recibido', pendientes: 1, status: 'running' } });
+    }
+    if (req.method() === 'POST') {
+      enviados.push(JSON.parse(req.postData()));
+      return route.fulfill({ status: 202, json: { job_id: `dirigido${enviados.length}` } });
+    }
+    if (req.method() === 'DELETE') { cancelado = true; return route.fulfill({ json: { cancel_requested: true } }); }
+    if (/[?&]id=dirigido2/.test(req.url())) {
+      return route.fulfill({ json: cancelado
+        ? { status: 'cancelled', error: 'Cancelado por el usuario', code: 499, log: [], next: 0, elapsed: 1 }
+        : { status: 'running', log: [], next: 0, elapsed: 1 } });
+    }
+    if (/[?&]id=dirigido1/.test(req.url())) {
+      return route.fulfill({ json: mensajes.length
+        ? { status: 'done', log: [], next: 0, elapsed: 1, result: { text: 'Vale, en inglés.', model: 'simulado', tools: [] } }
+        : { status: 'running', log: [{ t: 0, msg: 'Pienso cómo abordarlo…' }], next: 1, elapsed: 0 } });
+    }
+    return route.continue();
+  });
+  try {
+    await page.goto(BASE + '/#chat');
+    await page.reload();
+    await page.waitForSelector('#eolas-chat-form[data-ready]', { state: 'attached' });
+    await page.click('#eolas-chat-clear');
+    await page.fill('#eolas-chat-input', 'Explícame la caché');
+    await page.click('#eolas-chat-send');
+    await page.locator('#eolas-chat-stop:not([hidden])').waitFor();
+    assert.equal(await page.textContent('#eolas-chat-send'), 'Añadir al hilo');
+    await page.fill('#eolas-chat-input', 'mejor en inglés');
+    await page.click('#eolas-chat-send');
+    await page.locator('#eolas-chat-log .msg', { hasText: 'Vale, en inglés.' }).first().waitFor();
+    assert.deepEqual(mensajes, ['mejor en inglés']);
+    assert.equal(enviados.length, 1);
+    // Segundo mensaje: el historial lleva la corrección dentro del primer mensaje del usuario.
+    await page.fill('#eolas-chat-input', 'y ahora para');
+    await page.click('#eolas-chat-send');
+    await expectEventually(() => enviados.length === 2);
+    const hist = enviados[1].body.messages;
+    assert.match(hist[0].content, /\[Añadido mientras trabajabas\] mejor en inglés/);
+    assert.equal(hist.filter((m) => m.role === 'user').length, 2);
+    await page.click('#eolas-chat-stop');
+    await page.locator('#eolas-chat-log .msg', { hasText: 'Parado a petición tuya' }).first().waitFor();
+    assert.ok(cancelado);
+    assert.equal(await page.textContent('#eolas-chat-send'), 'Enviar');
+    assert.ok(await page.locator('#eolas-chat-stop').isHidden());
+  } finally {
+    await page.unroute('**/api/jobs**');
+  }
+  await page.click('#eolas-chat-clear');
+});
+
 test('adjuntar antes de que cargue el módulo del chat no pierde los archivos', async () => {
   // Reproduce el runner lento: el módulo llega 1,5 s tarde y los archivos se eligen antes de que haya listener.
   await page.route('**/eolas-chat.js', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });

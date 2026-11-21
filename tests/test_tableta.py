@@ -206,3 +206,77 @@ def test_app_android_sin_google_ni_samsung():
         "android.permission.INTERNET", "android.permission.RECORD_AUDIO",
         "android.permission.WRITE_EXTERNAL_STORAGE"]  # Historial local en SD solicitado por Luis (API 16).
     assert "uses-library" not in construir
+
+
+# 21/11/2026: dirigir el hilo mientras el chat trabaja (panel y tableta) y «para» cancela.
+def _esperar(port, ident, tok, fin=("done", "error", "cancelled")):
+    for _ in range(200):
+        est = req(port, "GET", f"/api/tableta/chat?id={ident}", headers=_h(tok))[1]
+        if est.get("status") in fin:
+            return est
+        time.sleep(0.05)
+    raise AssertionError(est)
+
+
+def test_la_tableta_corrige_un_chat_en_marcha_y_luego_ya_no_puede(panel):
+    httpd, port, tmp = panel
+    tok = _vincular(port)["token"]
+    app = httpd.app
+
+    def chat_falso(body, nivel="usuario"):
+        for _ in range(200):
+            if nuevos := app._job_inbox():
+                return {"text": "Vale: " + nuevos[0], "tools": []}
+            app._progress_check()
+            time.sleep(0.02)
+        return {"text": "sin corrección", "tools": []}
+
+    app.chat = chat_falso
+    ident = req(port, "POST", "/api/tableta/chat", json.dumps({"texto": "hola"}), _h(tok))[1]["id"]
+    st, out, _ = req(port, "POST", "/api/tableta/chat/mensaje", json.dumps({"id": ident, "texto": "mejor en inglés"}),
+                     _h(tok))
+    assert st == 202 and out["accion"] == "recibido", out
+    assert _esperar(port, ident, tok)["texto"] == "Vale: mejor en inglés"
+    st, out, _ = req(port, "POST", "/api/tableta/chat/mensaje", json.dumps({"id": ident, "texto": "otra"}), _h(tok))
+    assert st == 409 and out["estado"] == "done"
+    # Las ids sobreviven a un reinicio: quedan en disco.
+    assert ident in json.loads((tmp / "tableta" / "trabajos.json").read_text(encoding="utf-8"))["ids"]
+
+
+def test_para_cancela_el_chat_en_marcha(panel):
+    httpd, port, _ = panel
+    tok = _vincular(port)["token"]
+    app = httpd.app
+
+    def chat_falso(body, nivel="usuario"):
+        while True:
+            app._progress_check()
+            time.sleep(0.02)
+
+    app.chat = chat_falso
+    ident = req(port, "POST", "/api/tableta/chat", json.dumps({"texto": "hola"}), _h(tok))[1]["id"]
+    st, out, _ = req(port, "POST", "/api/tableta/chat/mensaje", json.dumps({"id": ident, "texto": "¡Para!"}), _h(tok))
+    assert st == 202 and out["accion"] == "cancelar"
+    assert _esperar(port, ident, tok)["status"] == "cancelled"
+
+
+def test_mensaje_al_trabajo_valida_tipo_texto_y_dueno(panel):
+    httpd, port, _ = panel
+    tok = _vincular(port)["token"]
+    otro = req(port, "POST", "/api/jobs", json.dumps({"kind": "chat", "body": {"messages": [
+        {"role": "user", "content": "x"}]}}), X)[1]["job_id"]
+    assert req(port, "POST", "/api/tableta/chat/mensaje", json.dumps({"id": otro, "texto": "y"}), _h(tok))[0] == 404
+    assert req(port, "POST", f"/api/jobs/{otro}/mensaje", json.dumps({"texto": ""}), X)[0] == 400
+    assert req(port, "POST", "/api/jobs/0123456789abcdef/mensaje", json.dumps({"texto": "y"}), X)[0] == 404
+    # Solo los trabajos de chat admiten mensajes.
+    httpd.app.jobs[otro]["kind"] = "web"
+    assert req(port, "POST", f"/api/jobs/{otro}/mensaje", json.dumps({"texto": "y"}), X)[0] in (409,)
+
+
+def test_ids_de_la_tableta_se_recuperan_de_disco(tmp_path, monkeypatch):
+    monkeypatch.setenv("EOLFI_TABLETA_DIR", str(tmp_path))
+    (tmp_path / "trabajos.json").write_text(json.dumps({"ids": ["0123456789abcdef", "../x"]}), encoding="utf-8")
+
+    class App:
+        pass
+    assert tableta._ids(App()) == {"0123456789abcdef"}

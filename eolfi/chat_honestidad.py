@@ -136,10 +136,15 @@ def revisar(texto: str, llamadas: list[dict[str, Any]], ofrecidas: set[str] | fr
         if all(h["codigo"] != codigo for h in out):
             out.append({"codigo": codigo, "detalle": DESCRIPCION[codigo], "cita": cita.strip()[:160]})
 
-    if m := _afirmacion(EN_CURSO, plano):
+    # 21/11/2026 (titular: «no se cierre nada si puede hacerse en segundo plano»): si en este turno se lanzó de
+    # verdad un encargo (tiene id), decir que sigue en marcha o que puedes ver su avance es cierto y no se marca.
+    en_marcha = any(c.get("ok") and c.get("name") == "eolfi_vscode_encargo" and c.get("encargo") for c in llamadas)
+    if not en_marcha and (m := _afirmacion(EN_CURSO, plano)):
         add("accion_en_curso", m.group(0))
     for frase in _frases(plano):
-        if (m := _afirmacion(PROMESA, frase)) and not OFERTA.search(frase):
+        # «Te avisaré» sigue siendo falso aunque haya encargo: el chat no escribe después de responder.
+        if ((m := _afirmacion(PROMESA, frase)) and not OFERTA.search(frase)
+                and not (en_marcha and re.search(r"\bpodras\s+(?:seguir|ver)\b", m.group(0)))):
             add("accion_en_curso", m.group(0))
             break
     # La negación afecta solo a esta afirmación, no a otra posterior en la respuesta.
@@ -178,12 +183,13 @@ def correccion(hallazgos: list[dict[str, str]]) -> str:
     """Mensaje para la ronda de corrección (lo recibe el modelo, no el usuario)."""
     lineas = "\n".join(f"- {h['detalle']} (cita: «{h['cita']}»)" for h in hallazgos)
     return ("Revisión automática de Eolfi: tu respuesta contiene afirmaciones que no se sostienen:\n" + lineas +
-            "\nReescribe la respuesta COMPLETA corrigiendo eso: di solo lo que han devuelto las herramientas, lo que "
-            "no se puede hacer dilo claramente, y lo que se podría hacer después preséntalo como propuesta o pregunta. "
-            "No llames a más herramientas.")
+            "\nReescribe la respuesta COMPLETA corrigiendo solo eso y manteniendo un tono cercano: afirma únicamente lo "
+            "que han devuelto las herramientas, lo que no se puede hacer dilo claramente, y lo que se podría hacer "
+            "después preséntalo como propuesta o pregunta («¿quieres que lo lance ahora?»). No llames a más "
+            "herramientas.")
 
 
 def aviso(hallazgos: list[dict[str, str]]) -> str:
     """Aviso visible que Eolfi antepone si la respuesta corregida sigue fallando."""
-    return ("⚠ Aviso de Eolfi: la revisión automática detectó en esta respuesta: " +
-            "; ".join(h["detalle"] for h in hallazgos) + ". Trátala con cautela.\n\n")
+    return ("⚠ Ojo: al revisar mi respuesta he visto esto: " +
+            "; ".join(h["detalle"] for h in hallazgos) + ". Tómala con cautela.\n\n")

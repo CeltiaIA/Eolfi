@@ -8,6 +8,7 @@ Qué hace la tableta con ellas:
 - `GET  /api/tableta/estado`        comprobar el vínculo y qué hay disponible (voz, chat);
 - `POST /api/tableta/chat`          mandar un mensaje al chat de Eolas (trabajo «chat» normal del panel);
 - `GET  /api/tableta/chat?id=…`     leer el resultado, solo de trabajos que abrió una tableta;
+- `POST /api/tableta/chat/mensaje`  corregir o parar («para») un chat suyo que sigue en marcha;
 - `GET  /api/tableta/trabajos`      visor: trabajos y encargos de VS Code, resumidos y en solo lectura;
 - `POST /api/tableta/diagnostico`   la tableta informa de lo que midió en sí misma (TLS, WebView, micrófono);
 - `POST /api/voz/transcribir`       WAV del micrófono de la tableta → texto (rutas ya existentes de voz);
@@ -31,6 +32,7 @@ PERMITIDAS = frozenset({
     ("GET", "/api/tableta/chat"),
     ("GET", "/api/tableta/trabajos"),
     ("POST", "/api/tableta/chat"),
+    ("POST", "/api/tableta/chat/mensaje"),
     ("POST", "/api/tableta/diagnostico"),
     ("POST", "/api/voz/transcribir"),
     ("POST", "/api/voz/hablar"),
@@ -51,10 +53,31 @@ def carpeta() -> Path:
 
 
 def _ids(app: Any) -> set[str]:
+    """Trabajos abiertos por una tableta. 21/11/2026: se guardan en disco (antes solo en memoria: tras reiniciar el
+    servidor la tableta ya no podía leer la respuesta de un trabajo que seguía en el historial)."""
     with _ids_lock:
         if not hasattr(app, "_tableta_jobs"):
-            app._tableta_jobs = set()
+            try:
+                datos = json.loads((carpeta() / "trabajos.json").read_text(encoding="utf-8"))
+                app._tableta_jobs = {i for i in datos.get("ids", []) if isinstance(i, str)
+                                     and re.fullmatch(r"[0-9a-f]{16}", i)}
+            except (OSError, ValueError, AttributeError):
+                app._tableta_jobs = set()
         return app._tableta_jobs
+
+
+def _anotar_id(app: Any, ident: str) -> None:
+    ids = _ids(app)
+    with _ids_lock:
+        ids.add(ident)
+        ultimos = sorted(ids)[-200:] if len(ids) > 200 else sorted(ids)
+        try:
+            carpeta().mkdir(parents=True, exist_ok=True)
+            tmp = carpeta() / "trabajos.json.tmp"
+            tmp.write_text(json.dumps({"ids": ultimos}), encoding="utf-8")
+            os.replace(tmp, carpeta() / "trabajos.json")
+        except OSError:
+            pass   # sin disco escribible se sigue como antes: solo en memoria
 
 
 def estado(app: Any) -> dict[str, Any]:
@@ -101,8 +124,19 @@ NOTA_TABLETA = ("\n\n(Mensaje enviado desde la tableta satélite de Eolfi, por v
 def chat_iniciar(app: Any, body: dict[str, Any], nivel: str) -> dict[str, Any]:
     msgs = validar_mensajes(body)
     job = app.start_job({"kind": "chat", "body": {"messages": msgs, "name": "Tableta"}}, nivel)
-    _ids(app).add(job["job_id"])
+    _anotar_id(app, job["job_id"])
     return {"id": job["job_id"]}
+
+
+def chat_mensaje(app: Any, body: dict[str, Any]) -> dict[str, Any]:
+    """`{"id", "texto"}`: corrección para un chat de esta tableta que sigue en marcha; «para» lo cancela."""
+    ident = str(body.get("id") or "")
+    if not re.fullmatch(r"[0-9a-f]{16}", ident) or ident not in _ids(app):
+        raise KeyError("trabajo no encontrado")
+    texto = body.get("texto")
+    if not isinstance(texto, str) or len(texto) > MAX_TEXTO:
+        raise ValueError(f"texto de hasta {MAX_TEXTO} caracteres")
+    return app.job_message(ident, {"texto": texto})
 
 
 def chat_estado(app: Any, q: dict[str, str]) -> dict[str, Any]:
