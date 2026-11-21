@@ -21,6 +21,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -33,6 +34,7 @@ from urllib.parse import parse_qs, urlparse
 
 from eolfi import __version__
 from eolfi.core.evidence import EvidenceStore
+from eolfi.proyectos import carpeta as proyectos_carpeta
 from eolfi.core.models import Status
 
 WEB_DIR = Path(__file__).with_name("web")
@@ -754,9 +756,60 @@ class EolfiApp:
 
         try:
             ws = vscode_action("workspace", timeout=4)
-            return {"vscode": {"activo": True, "carpetas": [str(f) for f in (ws.get("folders") or [])][:5]}}
+            vs = {"activo": True, "carpetas": [str(f) for f in (ws.get("folders") or [])][:5]}
         except (LLMError, OSError, ValueError):
-            return {"vscode": {"activo": False}}
+            vs = {"activo": False}
+        return {"vscode": vs, "memoria": self._chat_memoria()}
+
+    def _chat_memoria(self) -> dict[str, list[dict[str, Any]]]:
+        """Lo que Eolfi ya ha hecho, con nombre (21/11/2026, titular: «tiene que poder recordar si hizo un proyecto con
+        nombre incluido»): los últimos encargos de aplicaciones con su estado REAL y los últimos casos. Sin esto, al
+        preguntar «¿cómo va el último proyecto?» el chat pedía aclaraciones o se inventaba el estado."""
+        from eolfi import encargos_vscode as enc
+
+        out: dict[str, list[dict[str, Any]]] = {"proyectos": [], "casos": []}
+        try:
+            for e in enc.listar()[:8]:
+                try:
+                    real = self._encargo_estado(e)
+                except Exception:   # noqa: BLE001 - un encargo roto no debe dejar al chat sin memoria
+                    real = e
+                verificado = (real.get("proyecto") or {}).get("verificado")
+                out["proyectos"].append({"nombre": e.get("nombre"), "estado": real.get("estado"),
+                                         "verificado": verificado, "carpeta": e.get("carpeta"),
+                                         "fecha": e.get("creado"), "encargo_id": e.get("id")})
+        except (OSError, ValueError):
+            pass
+        try:
+            def leer(c, _s):
+                filas = c.conn.execute("SELECT case_id, name, description, updated_at FROM cases "
+                                       "ORDER BY updated_at DESC, rowid DESC LIMIT 8").fetchall()
+                casos = []
+                for cid, nombre, desc, fecha in filas:
+                    # La carpeta del último proyecto generado en el caso (titular: «D:\Eolfi\generated\ilfy»).
+                    carpeta = None
+                    for (carga,) in c.conn.execute("SELECT payload FROM case_records WHERE case_id=? "
+                                                   "ORDER BY created_at DESC, rowid DESC LIMIT 20", (cid,)):
+                        try:
+                            arts = json.loads(carga).get("artifacts") or []
+                        except (ValueError, AttributeError):
+                            continue
+                        carpeta = next((a.removeprefix("proyecto:") for a in arts
+                                        if isinstance(a, str) and a.startswith("proyecto:")), None)
+                        if carpeta:
+                            # Proyectos antiguos de generated/ movidos a la carpeta de proyectos (21/11/2026).
+                            movida = proyectos_carpeta() / Path(carpeta).name
+                            if not Path(carpeta).exists() and movida.is_dir():
+                                carpeta = str(movida)
+                            break
+                    casos.append({"nombre": nombre, "descripcion": str(desc or "")[:140], "fecha": fecha,
+                                  **({"carpeta": carpeta} if carpeta else {})})
+                return casos
+
+            out["casos"] = self._cases(leer)
+        except (ApiError, sqlite3.Error):
+            pass
+        return out
 
     _dormir = staticmethod(time.sleep)      # sustituible en las pruebas
 
@@ -1632,7 +1685,7 @@ class EolfiApp:
         if not isinstance(sources, list) or not sources or not all(isinstance(x, str) and x.strip() for x in sources):
             raise ApiError(400, "'sources' debe ser una lista no vacía")
         name = str(body.get("name") or "Nuevo proyecto")[:80]
-        out = body.get("out") or str(Path("generated") / _folder_slug(name))
+        out = body.get("out") or str(proyectos_carpeta() / _folder_slug(name))
         self._check_root(out, "carpeta destino")
         for src in sources:
             self._check_local_source(src.strip())
@@ -2609,8 +2662,8 @@ def make_server(db: str, host: str = "127.0.0.1", port: int = 8777,
         token = secrets.token_urlsafe(24)   # fuera de loopback la API nunca queda abierta
     app = EolfiApp(db, samples_dir)
     if token and not app.roots:
-        # Modo remoto sin carpetas configuradas: solo las de Eolfi (muestras y proyectos generados).
-        app.roots = [Path(samples_dir).resolve(), Path("generated").resolve()]
+        # Modo remoto sin carpetas configuradas: solo las de Eolfi (muestras y proyectos generados, fuera del repo).
+        app.roots = [Path(samples_dir).resolve(), proyectos_carpeta()]
     httpd = _Server((host, port), make_handler(app, allowed, token))
     httpd.app = app
     httpd.token = token

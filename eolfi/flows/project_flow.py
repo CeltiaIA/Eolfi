@@ -22,6 +22,7 @@ from typing import Any, Callable
 
 from eolfi.core.cases import CaseStore
 from eolfi.core.evidence import EvidenceStore
+from eolfi.flows import rutas_descripcion
 
 PLAN_FORMAT = 1
 MODES = ("auto", "guided")
@@ -49,10 +50,13 @@ def _non_empty(p: Path) -> bool:
     return p.exists() and (not p.is_dir() or any(p.iterdir()))
 
 
-def default_out(name: str, base: str | Path = "generated") -> str:
-    """generated/<nombre>; si ya existe con contenido, <nombre>-2, -3…: un plan nuevo nunca pisa ni choca con otro."""
+def default_out(name: str, base: str | Path | None = None) -> str:
+    """<carpeta de proyectos>/<nombre> (fuera del repositorio de Eolfi, ver eolfi.proyectos); si ya existe con
+    contenido, <nombre>-2, -3…: un plan nuevo nunca pisa ni choca con otro."""
+    from eolfi import proyectos
     from eolfi.server import _folder_slug
 
+    base = proyectos.carpeta() if base is None else base
     slug = _folder_slug(name or "proyecto")
     cand, n = Path(base) / slug, 2
     while _non_empty(cand):
@@ -220,6 +224,13 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
                 raise PlanError(f"'{ref}' no es una URL, una ruta existente ni un objetivo ya analizado")
         srcs.append({"ref": ref, "kind": kind})
     explicit_out = bool(out)
+    if out:
+        from eolfi.proyectos import comprobar_fuera
+
+        try:
+            comprobar_fuera(out)
+        except ValueError as exc:
+            raise PlanError(str(exc)) from exc
     out = out or default_out(name)
     interp = interpret(description)
     cases = CaseStore(store)
@@ -233,6 +244,9 @@ def propose_plan(store: EvidenceStore, *, name: str, description: str, sources: 
                            "limits": "La conformidad técnica del proyecto se decide después de generar, compilar y ejecutar las pruebas."},
             "interpretation": {"directives": interp["directives"], "uninterpreted": interp["uninterpreted"]},
             "reasoning": _reasoning(srcs, interp) + (
+                [f"La descripción nombra {', '.join(str(r) for r in rd)}: al generar, Eolfi leerá sus datos (solo "
+                 "lectura, sin ejecutar nada) y se los dará a la IA para que no invente cifras ni arquitectura."]
+                if not srcs and (rd := rutas_descripcion.rutas(description)) else []) + (
                 [f"La carpeta destino {out} ya existe y no está vacía: generar fallará salvo que la vacíes o "
                  f"elijas otra."] if explicit_out and _non_empty(Path(out)) else []),
             "steps": _steps(srcs, interp, out), "proposed_at": time.time()}

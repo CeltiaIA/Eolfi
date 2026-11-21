@@ -46,7 +46,12 @@ public class Principal extends Activity {
     private TextView tituloConversacion;
     private ScrollView desplazable;
     private CheckBox leer, directo;
-    private Button hablar;
+    private Button hablar, botonEnviar, parar;
+    /** Chat en marcha (null si no hay o aún no tiene id); lo escrito antes de tener id espera en `enCola`. */
+    private volatile String idChat;
+    private final List<String> enCola = new ArrayList<String>();
+    private final List<String> anadidos = new ArrayList<String>();
+    private volatile boolean parando;
     private final Audio audio = new Audio();
     private Conversaciones conversaciones;
     private boolean historialProtegido;
@@ -150,16 +155,25 @@ public class Principal extends Activity {
         LinearLayout fila3 = horizontal();
         campoMensaje = campo("Escribe a Eolas…", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         fila3.addView(campoMensaje, peso(4));
-        fila3.addView(boton("Enviar", new View.OnClickListener() {
+        botonEnviar = boton("Enviar", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (ocupado) { decir("Aviso", "Espera a que Eolas termine la respuesta anterior"); return; }
                 String t = campoMensaje.getText().toString();
                 if (t.trim().isEmpty()) return;
                 campoMensaje.setText("");
-                enviar(t);
+                // Mientras trabaja, lo escrito entra en el mismo hilo como corrección (no hay que esperar).
+                if (ocupado) corregir(t); else enviar(t);
             }
-        }), peso(1));
+        });
+        fila3.addView(botonEnviar, peso(1));
+        parar = boton("Parar", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (ocupado && !parando) corregir("para");
+            }
+        });
+        parar.setVisibility(View.GONE);
+        fila3.addView(parar, peso(1));
         raiz.addView(fila3);
 
         LinearLayout filaChats = horizontal();
@@ -431,6 +445,10 @@ public class Principal extends Activity {
             return;
         }
         ocupado = true;
+        parando = false;
+        synchronized (enCola) { idChat = null; enCola.clear(); anadidos.clear(); }
+        botonEnviar.setText("Añadir");
+        parar.setVisibility(View.VISIBLE);
         final Conversaciones.Charla charla = conversaciones.activa();
         final List<String[]> contexto = charla.contexto();
         charla.pendiente = texto;
@@ -448,11 +466,24 @@ public class Principal extends Activity {
                         return;
                     }
                     String id = new JSONObject(r.texto()).getString("id");
+                    List<String> esperando;
+                    synchronized (enCola) { idChat = id; esperando = new ArrayList<String>(enCola); enCola.clear(); }
+                    for (String x : esperando) mandarCorreccion(id, x);
                     String ultimoAviso = "";
+                    int fallosRed = 0;
                     long limite = System.currentTimeMillis() + 15 * 60 * 1000L;
                     while (System.currentTimeMillis() < limite) {
                         Thread.sleep(1500);
-                        Cliente.Respuesta e = c.json("GET", "/api/tableta/chat?id=" + id, null, 20000);
+                        Cliente.Respuesta e;
+                        try {
+                            e = c.json("GET", "/api/tableta/chat?id=" + id, null, 20000);
+                            fallosRed = 0;
+                        } catch (java.io.IOException red) {
+                            // Un corte de wifi o datos pasajero no tira el trabajo: sigue en el equipo; se reintenta.
+                            if (++fallosRed > 10) throw red;
+                            ponerEstado("Sin conexión con Eolfi un momento… reintento " + fallosRed + " de 10");
+                            continue;
+                        }
                         if (!e.ok()) {
                             decir("Aviso", error(e));
                             return;
@@ -472,9 +503,11 @@ public class Principal extends Activity {
                         String st = o.optString("status");
                         if ("done".equals(st)) {
                             final String resp = o.optString("texto", "(sin texto)");
+                            final String pregunta;
+                            synchronized (enCola) { pregunta = Reglas.conAnadidos(texto, anadidos); }
                             ui(new Runnable() {
                                 @Override public void run() {
-                                    charla.respuesta(texto, resp);
+                                    charla.respuesta(pregunta, resp);
                                     tituloConversacion.setText(charla.titulo + " · " + lugarHistorial + " · máximo 8 MiB");
                                 }
                             });
@@ -483,7 +516,11 @@ public class Principal extends Activity {
                             if (leer.isChecked()) leerEnVoz(c, resp);
                             return;
                         }
-                        if ("error".equals(st) || "cancelled".equals(st)) {
+                        if ("cancelled".equals(st) && parando) {
+                            decir("Eolfi", "Parado a petición tuya. Tu mensaje vuelve a la caja por si quieres retomarlo.");
+                            return;
+                        }
+                        if ("error".equals(st) || "cancelled".equals(st) || "interrupted".equals(st)) {
                             decir("Aviso", Reglas.avisoChatFallido(o.optString("error")));
                             return;
                         }
@@ -500,6 +537,9 @@ public class Principal extends Activity {
                             pintarEstado();
                             if (recuperar) devolverACaja(texto);
                             if (recuperar) charla.pendiente = "";
+                            synchronized (enCola) { idChat = null; enCola.clear(); }
+                            botonEnviar.setText("Enviar");
+                            parar.setVisibility(View.GONE);
                             guardarConversaciones();
                             ocupado = false;
                         }
@@ -507,6 +547,50 @@ public class Principal extends Activity {
                 }
             }
         });
+    }
+
+    /** Lo escrito o dictado mientras Eolas trabaja: entra en el mismo hilo antes del siguiente paso. «para» lo corta. */
+    private void corregir(String t) {
+        final String limpio = t.trim();
+        if (limpio.isEmpty()) return;
+        decir("Tú · mientras trabajaba", limpio);
+        String id;
+        synchronized (enCola) {
+            id = idChat;
+            if (id == null) { enCola.add(limpio); return; }   // aún no tiene id: se manda en cuanto lo tenga
+        }
+        mandarCorreccion(id, limpio);
+    }
+
+    private void mandarCorreccion(final String id, final String t) {
+        enSegundoPlano("corrección", new Runnable() {
+            @Override
+            public void run() {
+                String fallo;
+                try {
+                    Cliente.Respuesta r = cliente().json("POST", "/api/tableta/chat/mensaje", Reglas.cuerpoMensaje(id, t), 15000);
+                    if (r.ok()) {
+                        if ("cancelar".equals(new JSONObject(r.texto()).optString("accion"))) {
+                            parando = true;
+                            ponerEstado("Parando…");
+                        } else {
+                            synchronized (enCola) { anadidos.add(t); }
+                            ponerEstado("Eolas lo leerá antes del siguiente paso");
+                        }
+                        return;
+                    }
+                    fallo = error(r);
+                } catch (Exception e) {
+                    fallo = e.getMessage();
+                }
+                decir("Aviso", "No llegó tu mensaje (" + fallo + "); vuelve a la caja.");
+                if (!"para".equals(t)) ui(new Runnable() { @Override public void run() { devolverACaja(t); } });
+            }
+        });
+    }
+
+    private void ponerEstado(final String s) {
+        ui(new Runnable() { @Override public void run() { estado.setText(s); } });
     }
 
     /** Pone el texto no respondido en la caja (delante de lo que ya hubiera escrito) para reenviarlo con «Enviar». */
@@ -624,7 +708,10 @@ public class Principal extends Activity {
                     ui(new Runnable() {
                         @Override
                         public void run() {
-                            if (directo.isChecked()) { enviar(dictado); return; }
+                            if (directo.isChecked()) {
+                                if (ocupado) corregir(dictado); else enviar(dictado);
+                                return;
+                            }
                             String previo = campoMensaje.getText().toString().trim();
                             campoMensaje.setText(previo.isEmpty() ? dictado : previo + " " + dictado);
                             campoMensaje.setSelection(campoMensaje.getText().length());

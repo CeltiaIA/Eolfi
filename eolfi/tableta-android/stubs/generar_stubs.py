@@ -97,7 +97,9 @@ public final class MotionEvent {
 import android.content.Context;
 public class View {
     public static final int FOCUS_DOWN = 130;
+    public static final int VISIBLE = 0, GONE = 8;
     public View(Context c) STUB
+    public void setVisibility(int v) STUB
     public interface OnClickListener { void onClick(View v); }
     public interface OnTouchListener { boolean onTouch(View v, MotionEvent e); }
     public void setPadding(int l, int t, int r, int b) STUB

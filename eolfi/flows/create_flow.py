@@ -149,6 +149,13 @@ def create_project(sources: list[str], store: EvidenceStore, out: str | Path, *,
     desde_descripcion = not sources and bool(description and description.strip())
     if desde_descripcion and not (ai_brief and ai_brief.strip()):
         ai_brief = str(description).strip()
+        # 21/11/2026 («ilfy»): las rutas que nombra la descripción se leen y sus datos reales van con el encargo.
+        from eolfi.flows.rutas_descripcion import bloque
+
+        if datos := bloque(ai_brief):
+            (progress or (lambda _m: None))("la descripción nombra rutas existentes: leo sus datos (solo lectura) "
+                                            "para que la IA no los invente")
+            ai_brief = f"{ai_brief}\n\n{datos}"
     params = {"sources": sources, "from_description": desde_descripcion, "out": str(out), "name": name, "target": target, "do_verify": do_verify,
               "force": force, "reanalyze": reanalyze, "db": db, "auth": auth, "ai": bool(ai_brief),
               "ai_provider": ai_provider if (ai_brief or autofix) else None, "autofix": autofix,
@@ -201,6 +208,9 @@ def _create_project(sources: list[str], store: EvidenceStore, out: str | Path, *
         raise ValueError(f"idioma del proyecto no admitido: {idioma!r} (usa {', '.join(IDIOMAS)})")
     if not sources and not description:
         raise ValueError("indica al menos una fuente (--from)")
+    from eolfi.proyectos import comprobar_fuera
+
+    comprobar_fuera(out)     # 21/11/2026: nunca dentro del repositorio de Eolfi
     if not sources:
         log("sin fuentes: la base sale de la descripción y lo pedido lo implementa la IA")
     subjects: list[str] = []

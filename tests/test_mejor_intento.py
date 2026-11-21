@@ -79,7 +79,8 @@ def test_si_deja_de_pasar_las_pruebas_tambien_se_vuelve_a_la_mejor(tmp_path, mon
     html = (out / "index.html").read_text(encoding="utf-8")
     rompe = {"summary": "rompe", "notes": [], "files": [
         {"path": "index.html", "content": html.replace("</main>", "<h1>otro h1</h1></main>")},
-        {"path": "nueva.html", "content": "<p>x</p>"}]}
+        # Página completa (21/11/2026: una sin cerrar ya la para antes el paso «HTML completo»).
+        {"path": "nueva.html", "content": "<!doctype html><html lang=\"es\"><body><p>x</p></body></html>"}]}
     cliente = FakeClient([_cambio(out, "uno"), rompe, rompe])
     r = assist(out, "Implementa la lista", provider=cliente)
     assert r["parcial"] and r["mejor_intento"]["ronda"] == 1

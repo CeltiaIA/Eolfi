@@ -158,8 +158,17 @@ public final class PruebasJvm {
                 && !Reglas.claveDiagnostico("1x") && !Reglas.claveDiagnostico(""), "claves de diagnóstico");
         // Semidúplex.
         ok(Reglas.motivoParaNoGrabar(false, false) == null, "semidúplex: libre");
-        ok(Reglas.motivoParaNoGrabar(true, false) != null && Reglas.motivoParaNoGrabar(false, true) != null,
-                "semidúplex: no graba mientras habla o espera");
+        ok(Reglas.motivoParaNoGrabar(true, false) != null, "semidúplex: no graba mientras habla");
+        ok(Reglas.motivoParaNoGrabar(false, true) == null, "semidúplex: graba mientras Eolas trabaja (corrección)");
+        // Corrección a mitad de trabajo (21/11).
+        ok(Reglas.cuerpoMensaje("0123456789abcdef", " en tres viñetas ").equals(
+                "{\"id\":\"0123456789abcdef\",\"texto\":\"en tres viñetas\"}"), "mensaje: cuerpo");
+        lanza(new Runnable() { public void run() { Reglas.cuerpoMensaje("../x", "hola"); } }, "mensaje: id inválido");
+        lanza(new Runnable() { public void run() { Reglas.cuerpoMensaje("0123456789abcdef", " "); } }, "mensaje: vacío");
+        ok(Reglas.cuerpoMensaje("0123456789abcdef", new String(new char[3000]).replace('\0', 'y')).length() < 2100,
+                "mensaje: recorta a 2000");
+        ok(Reglas.conAnadidos("Pregunta", Arrays.asList("más corto", " ")).equals(
+                "Pregunta\n\n[Añadido mientras trabajabas] más corto"), "mensaje: añadidos al historial");
         // Chat sin respuesta: el texto vuelve a la caja; si Eolas atendía otra petición se dice así (19/11, en vivo).
         String ocup = Reglas.avisoChatFallido("Eolas V2 está respondiendo una petición (PID 40136 desde 03:38:38); espera a que termine");
         ok(ocup.contains("ocupado") && ocup.contains("vuelve a la caja") && !ocup.contains("PID"), "chat: Eolas ocupado");
@@ -201,6 +210,9 @@ public final class PruebasJvm {
         ok(c.json("GET", "/api/subjects", null, 10000).estado == 403, "fuera de superficie: 403");
         Cliente.Respuesta d = c.json("POST", "/api/tableta/diagnostico", "{\"jvm.prueba\": true}", 10000);
         ok(d.ok(), "diagnóstico: " + d.estado);
+        // Corrección: la ruta está en su superficie (404 por id ajeno, no 403).
+        Cliente.Respuesta m = c.json("POST", "/api/tableta/chat/mensaje", Reglas.cuerpoMensaje("0123456789abcdef", "hola"), 10000);
+        ok(m.estado == 404, "mensaje: id ajeno 404 (" + m.estado + ")");
         // 4) Huella distinta: se corta la conexión aunque el token sea bueno.
         String otra = (huella.charAt(0) == 'a' ? "b" : "a") + huella.substring(1);
         try {

@@ -363,7 +363,8 @@ def test_remote_mode_defaults_to_eolfi_folders(tmp_path):
     from eolfi.server import make_server
     httpd = make_server(str(tmp_path / "r.db"), "127.0.0.1", 0, tmp_path / "s", token="t" * 32)
     try:
-        assert httpd.app.roots == [(tmp_path / "s").resolve(), Path("generated").resolve()]
+        from eolfi.proyectos import carpeta
+        assert httpd.app.roots == [(tmp_path / "s").resolve(), carpeta()]
     finally:
         httpd.server_close()
 

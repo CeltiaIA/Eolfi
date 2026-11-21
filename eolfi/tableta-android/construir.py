@@ -28,7 +28,7 @@ from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
 PAQUETE = "com.celtiaia.eolfi.tableta"
-VERSION = ("3", "0.3.0")
+VERSION = ("4", "0.4.0")
 # minSdk 16: la Galaxy Tab 2 (Android 4.1). targetSdk 28: Android 14 no instala apps con targetSdk < 23 (Redmi,
 # 20/11/2026); 28 evita el almacenamiento con ámbito (29+) y deja válida la firma v1 (la v2 se exige desde 30).
 TARGET_SDK = 28

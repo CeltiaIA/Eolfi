@@ -213,13 +213,14 @@ def test_el_servidor_pasa_al_chat_el_estado_de_vs_code(tmp_path, monkeypatch):
 
     app = server.EolfiApp(str(tmp_path / "c.db"))
     monkeypatch.setattr(vscode_tools, "vscode_action", lambda action, timeout=0, **kw: {"folders": ["D:/P", "E:/Q"]})
-    assert app._chat_estado() == {"vscode": {"activo": True, "carpetas": ["D:/P", "E:/Q"]}}
+    st = app._chat_estado()
+    assert st["vscode"] == {"activo": True, "carpetas": ["D:/P", "E:/Q"]} and set(st["memoria"]) == {"proyectos", "casos"}
 
     def caido(action, timeout=0, **kw):
         raise LLMError("El puente de VS Code no está activo")
 
     monkeypatch.setattr(vscode_tools, "vscode_action", caido)
-    assert app._chat_estado() == {"vscode": {"activo": False}}
+    assert app._chat_estado()["vscode"] == {"activo": False}
 
 
 def test_el_medidor_de_deriva_cuenta_defectos_y_variantes(tmp_path, monkeypatch):
@@ -264,3 +265,65 @@ def test_un_encargo_real_permite_decir_que_sigue_en_marcha(texto):
 def test_te_avisare_sigue_siendo_promesa_aunque_haya_encargo(encargo):
     assert [h["codigo"] for h in hon.revisar("Encargo lanzado. Te avisaré cuando termine.", [encargo], OFRECIDAS)] \
         == ["accion_en_curso"]
+
+
+def test_el_chat_recuerda_sus_proyectos_con_nombre(tmp_path, monkeypatch):
+    """21/11/2026, titular: «tiene que poder recordar si hizo un proyecto con nombre incluido». El estado del turno
+    lleva los encargos (con su estado real) y los casos; el contexto del sistema los nombra."""
+    from eolfi import encargos_vscode as enc, server, vscode_tools
+    from eolfi.generador.llm import LLMError
+
+    monkeypatch.setenv("EOLFI_ENCARGOS_VSCODE", str(tmp_path / "encargos.json"))
+    (tmp_path / "encargos.json").write_text(json.dumps([
+        {"id": "a" * 32, "nombre": "Notas rápidas", "estado": "rechazado", "carpeta": "D:/p/notas",
+         "creado": 1795061537.0, "case_id": "c1"},
+        {"id": "b" * 32, "nombre": "Tienda de tazas", "estado": "pendiente", "carpeta": "D:/p/tazas",
+         "creado": 1795209349.0, "case_id": "c2"}]), encoding="utf-8")
+    app = server.EolfiApp(str(tmp_path / "c.db"))
+    app.case_create({"name": "Auditoría del Kimi 72B", "description": "cabecera del GGUF"})
+
+    def caido(action, timeout=0, **kw):
+        raise LLMError("sin puente")
+
+    monkeypatch.setattr(vscode_tools, "vscode_action", caido)
+    st = app._chat_estado()
+    assert [p["nombre"] for p in st["memoria"]["proyectos"]] == ["Tienda de tazas", "Notas rápidas"]
+    assert st["memoria"]["casos"][0]["nombre"] == "Auditoría del Kimi 72B"
+    texto = hon.contexto(st)
+    assert "«Tienda de tazas» — pendiente de aprobación; carpeta D:/p/tazas" in texto
+    assert "«Notas rápidas» — rechazado" in texto and "«Auditoría del Kimi 72B»: cabecera del GGUF" in texto
+    assert "nunca inventes el estado" in texto
+    assert enc.listar()[0]["nombre"] == "Tienda de tazas"
+
+
+def test_sin_memoria_lo_dice_y_sin_estado_no_anade_nada():
+    vacio = hon.contexto({"vscode": {"activo": False}, "memoria": {"proyectos": [], "casos": []}})
+    assert vacio.count("ninguno todavía") == 2
+    assert "Proyectos y aplicaciones" not in hon.contexto({"vscode": {"activo": False}})
+
+
+MEM = {"memoria": {"proyectos": [{"nombre": "Notas rápidas"}], "casos": [{"nombre": "ilfy"}, {"nombre": "Auditoría del Kimi 72B"}]}}
+
+
+@pytest.mark.parametrize("mensaje, esperado", [
+    ("Hola, ¿cómo va el trabajo de Hilfee?", [("Hilfee", "ilfy", "caso")]),   # dictado real del Redmi (21/11)
+    ("dame el informe de Ilfi", [("Ilfi", "ilfy", "caso")]),
+    ("¿cómo va ilfy?", []),                     # ya lo nombra bien: sin nota
+    ("hola qué tal", []), ("filtro de imagen", []),
+])
+def test_nombres_dictados_se_asocian_al_proyecto_o_caso_real(mensaje, esperado):
+    assert hon.parecidos(mensaje, MEM) == esperado
+
+
+def test_la_nota_de_parecidos_llega_al_motor_sin_tocar_lo_dictado():
+    vistos = []
+
+    def request(c, messages, tools, *a, **k):
+        vistos.append([dict(m) for m in messages])
+        return {"content": "El caso «ilfy» es el análisis del modelo Dory.", "_fin": "stop"}
+
+    mensajes = [{"role": "user", "content": "¿cómo va el trabajo de Hilfee?"}]
+    out = chat.agent_turn(mensajes, {"alias": "x"}, type("M", (), {"tools": {}})(), lambda m: None,
+                          request=request, estado=MEM)
+    assert "«Hilfee» se parece al caso «ilfy»" in vistos[0][-1]["content"]
+    assert mensajes[0]["content"] == "¿cómo va el trabajo de Hilfee?" and "ilfy" in out["text"]

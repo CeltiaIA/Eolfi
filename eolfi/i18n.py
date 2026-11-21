@@ -529,8 +529,8 @@ CLI_EN: dict[str, str] = {
     "Carpeta donde guardar los archivos subidos": "Folder where uploaded files are stored",
     "Carpeta local o URL git": "Local folder or git URL",
     "Carpeta nueva; nunca sobrescribe una anterior": "New folder; never overwrites a previous one",
-    "Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; en modo remoto, solo samples/ y generated/":
-        "Allowed folder for local paths (repeatable). Without --root, no restriction locally; in remote mode, only samples/ and generated/",
+    "Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; en modo remoto, solo samples/ y la carpeta de proyectos (Eolfi-proyectos)":
+        "Allowed folder for local paths (repeatable). Without --root, no restriction locally; in remote mode, only samples/ and the projects folder (Eolfi-proyectos)",
     "Dónde escucha el puente (la tableta llega por la red)": "Where the bridge listens (the tablet comes over the network)",
     "IP de loopback del Eolfi en vivo (nunca un nombre)": "Loopback IP of the live Eolfi (never a hostname)",
     "Certificado cuya huella fija la app de la tableta": "Certificate whose fingerprint the tablet app pins",

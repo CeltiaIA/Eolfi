@@ -28,7 +28,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--size', choices=BRIEFS, default='small')
     args = parser.parse_args()
-    root = Path('generated') / ('nemo-benchmark-'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+    from eolfi.proyectos import carpeta   # fuera del repositorio de Eolfi (21/11/2026)
+    root = carpeta() / ('nemo-benchmark-'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
     root.mkdir(parents=True)
     source = root / 'source.html'
     source.write_text('<!doctype html><html lang="es"><title>Banco de creación</title><h1>Aplicación de prueba</h1></html>', encoding='utf-8')

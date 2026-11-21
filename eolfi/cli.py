@@ -823,7 +823,7 @@ def _parser() -> argparse.ArgumentParser:
                          "Android 4.1-4.4 (p. ej. la tableta satélite)")
     sv.add_argument("--root", action="append", default=[], metavar="CARPETA",
                     help="Carpeta permitida para rutas locales (repetible). Sin --root, sin restricción en local; "
-                         "en modo remoto, solo samples/ y generated/")
+                         "en modo remoto, solo samples/ y la carpeta de proyectos (Eolfi-proyectos)")
     tp = sub.add_parser("tableta-puente",
                         help="Puente TLS de la tableta satélite hacia el Eolfi en vivo (127.0.0.1:8777)")
     tp.add_argument("--host", default="0.0.0.0", help="Dónde escucha el puente (la tableta llega por la red)")

@@ -165,12 +165,12 @@ def test_plan_texts_distinguish_local_and_remote_sources(store, tmp_path):
 
 
 def test_default_out_never_collides_and_explicit_existing_out_is_warned(store, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EOLFI_PROYECTOS", str(tmp_path / "generated"))
     site = build_site(tmp_path / "sitio")
     (tmp_path / "generated" / "demo").mkdir(parents=True)
     (tmp_path / "generated" / "demo" / "x.txt").write_text("x", encoding="utf-8")
     st = pf.propose_plan(store, name="Demo", description="", sources=[str(site)])
-    assert st["plan"]["out"].replace("\\", "/") == "generated/demo-2"
+    assert st["plan"]["out"] == str((tmp_path / "generated" / "demo-2").resolve())
     st2 = pf.propose_plan(store, name="Demo", description="", sources=[str(site)], out=str(tmp_path / "generated" / "demo"))
     assert any("ya existe y no está vacía" in r for r in st2["plan"]["reasoning"])
 
@@ -295,3 +295,23 @@ def test_interpretation_keeps_extra_orders_and_dotted_names():
     assert r["target"] == "next" and r["options"]["sqlite"] is True
     assert r["uninterpreted"] == ["Reconstruir la app con Next.js y base de datos, manteniendo sus páginas y su API."]
     assert pf.interpret("web estática")["uninterpreted"] == []
+
+
+def test_los_proyectos_generados_van_fuera_del_repositorio(store, tmp_path, monkeypatch):
+    """21/11/2026, titular: «los proyectos generados tienen que quedar siempre fuera; después, si son válidos,
+    tendrán su repo propio»."""
+    from eolfi import proyectos
+    from eolfi.flows.create_flow import create_project
+
+    monkeypatch.delenv("EOLFI_PROYECTOS", raising=False)
+    assert proyectos.carpeta() == (proyectos.REPO.parent / "Eolfi-proyectos").resolve()
+    assert not proyectos.dentro_del_repo(proyectos.carpeta())
+    site = build_site(tmp_path / "sitio")
+    st = pf.propose_plan(store, name="Demo fuera", description="", sources=[str(site)])
+    assert not proyectos.dentro_del_repo(st["plan"]["out"])
+    dentro = proyectos.REPO / "generated" / "zz-prueba-no-crear"
+    with pytest.raises(pf.PlanError, match="fuera del repositorio de Eolfi"):
+        pf.propose_plan(store, name="x", description="", sources=[str(site)], out=str(dentro))
+    with pytest.raises(ValueError, match="fuera del repositorio de Eolfi"):
+        create_project([str(site)], store, dentro, name="x", do_verify=False)
+    assert not dentro.exists()

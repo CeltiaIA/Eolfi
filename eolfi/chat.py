@@ -66,6 +66,20 @@ SYSTEM_PROMPT = (
     "charlan, contesto con naturalidad y sin herramientas. Si algo falla, lo digo con una frase breve y sigo con la "
     "solución o con lo que haría falta. Pienso antes de responder: qué me piden, qué dato necesito y qué herramienta "
     "lo da; y contesto primero a la pregunta, sin rodeos ni plantillas.\n\n"
+    # 21/11/2026, titular: «dale más contexto a las respuestas para que no queden tan cortas y cortadas». En la
+    # tableta y el Redmi el dictado convierte «Eolfi» en «Hilfee», «ilfy», «Elfi»…: el chat preguntaba qué era eso o
+    # se inventaba el estado de un proyecto «Hilfee».
+    "Me llamo Eolfi (mi motor local es Eolas). Muchos mensajes llegan dictados por voz y el dictado escribe mal los "
+    "nombres propios: un proyecto «ilfy» puede llegar como «Hilfee» o «Ilfi». Recuerdo lo que he hecho: el estado de "
+    "este turno lista mis proyectos y casos reales con nombre, estado, carpeta y fecha, y si un nombre del mensaje se "
+    "parece a uno de ellos, Eolfi lo anota al final del mensaje. Con eso contesto: si me preguntan por el último "
+    "proyecto o por uno con nombre (aunque esté mal escrito), digo cuál entiendo que es y doy sus datos, en vez de "
+    "pedir aclaraciones; solo pregunto si de verdad hay dos candidatos. Nunca invento cómo va algo que no aparece "
+    "ahí ni en una herramienta.\n\n"
+    "Mis respuestas tienen contexto: no contesto con una sola frase seca salvo a un saludo. Explico lo que sé, de "
+    "dónde sale (herramienta, memoria o conocimiento general), lo que significa para el usuario y el siguiente paso "
+    "razonable; normalmente de 2 a 5 párrafos cortos o una lista breve con una frase de cierre. Termino siempre las "
+    "frases y las listas: si me queda mucho, resumo antes que cortar.\n\n"
     "Tengo herramientas REALES de Eolfi y las uso para obtener los datos en vez de suponerlos: eolfi_triage para "
     "archivos y binarios; eolfi_modelos_auditar para modelos GGUF sin cargarlos (un hash no acredita seguridad de los "
     "pesos; con una carpeta lista sus .gguf para auditarlos uno a uno). Al informar de un GGUF distingo la estructura "
@@ -561,6 +575,8 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
              for n, (t, _f) in mcp.tools.items() if n in CHAT_TOOLS or n in APP_TOOLS or n.startswith("rea_")] + [PYTHON_TOOL]
     convo: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT + "\n\n" + hon.contexto(estado)},
                                    *messages]
+    if messages and messages[-1].get("role") == "user" and (nota := hon.nota_parecidos(messages[-1]["content"], estado)):
+        convo[-1] = {**convo[-1], "content": convo[-1]["content"] + nota}
     calls: list[dict[str, Any]] = []
     ofrecidas = {t["function"]["name"] for t in tools}
     recuperado = False
@@ -586,6 +602,21 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
             convo.append({"role": "user", "content": "[Mensaje nuevo del usuario mientras trabajabas; tiene prioridad "
                                                      "sobre lo anterior] " + m})
         return len(nuevos)
+
+    def completar(msg: dict[str, Any], text: str) -> str:
+        """21/11/2026 (titular: respuestas «cortadas»): si el motor se quedó sin tokens a mitad, una vuelta más sin
+        herramientas para que termine donde lo dejó. El hilo queda como estaba."""
+        if not text or msg.get("_fin") != "length":
+            return text
+        progress("Se me ha quedado larga la respuesta; la termino…")
+        convo.extend([{"role": "assistant", "content": text},
+                      {"role": "user", "content": "Te has quedado a mitad. Sigue justo donde lo dejaste, sin repetir "
+                                                  "nada, y cierra en pocas frases."}])
+        try:
+            resto = str(motor(Ninguna(tools)).get("content") or "").strip()
+        finally:
+            del convo[-2:]
+        return f"{text}{'' if text[-1].isspace() else ' '}{resto}" if resto else text
 
     def final(text: str) -> dict[str, Any]:
         hallazgos = hon.revisar(text, calls, ofrecidas, estado)
@@ -647,6 +678,7 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
                 continue
             if not text:
                 raise RuntimeError("el motor terminó sin respuesta de texto")
+            text = completar(msg, text)
             if orden and not calls:
                 text = ("(No he llegado a ejecutar ninguna herramienta en esta petición; te cuento lo que puedo "
                         "sin datos.)\n\n" + text)
@@ -683,5 +715,5 @@ def agent_turn(messages: list[dict[str, str]], c: dict[str, Any], mcp: Any, prog
     leer_buzon()
     convo.append({"role": "user", "content": "Responde ya con lo que has obtenido, sin llamar a más herramientas."})
     msg = motor(Ninguna(tools))
-    return final(str(msg.get("content") or "").strip()
+    return final(completar(msg, str(msg.get("content") or "").strip())
                  or "No he conseguido una respuesta con las herramientas disponibles; dime si probamos por otra vía.")

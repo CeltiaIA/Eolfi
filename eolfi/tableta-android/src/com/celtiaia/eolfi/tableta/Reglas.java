@@ -134,11 +134,29 @@ public final class Reglas {
         return true;
     }
 
-    /** Semidúplex: no se graba mientras suena la respuesta ni mientras Eolas responde. null = se puede grabar. */
+    /**
+     * Semidúplex: no se graba mientras suena la respuesta (el micrófono se oiría a sí mismo). Mientras Eolas trabaja
+     * sí se graba (21/11): lo dictado entra en el mismo hilo como corrección. null = se puede grabar.
+     */
     public static String motivoParaNoGrabar(boolean hablando, boolean ocupado) {
         if (hablando) return "Espera a que termine de leer la respuesta";
-        if (ocupado) return "Espera a que Eolas termine la respuesta anterior";
         return null;
+    }
+
+    /** Cuerpo de POST /api/tableta/chat/mensaje: corrección (o «para») para el chat `id` que sigue en marcha. */
+    public static String cuerpoMensaje(String id, String texto) {
+        if (id == null || !id.matches("[0-9a-f]{16}")) throw new IllegalArgumentException("id de trabajo inválido");
+        String t = texto == null ? "" : texto.trim();
+        if (t.isEmpty()) throw new IllegalArgumentException("mensaje vacío");
+        if (t.length() > MAX_TEXTO) t = t.substring(0, MAX_TEXTO);
+        return "{\"id\":" + json(id) + ",\"texto\":" + json(t) + "}";
+    }
+
+    /** Lo que se guarda como mensaje del usuario: la pregunta más lo que añadió mientras Eolas trabajaba. */
+    public static String conAnadidos(String texto, java.util.List<String> anadidos) {
+        StringBuilder sb = new StringBuilder(texto == null ? "" : texto);
+        for (String x : anadidos) if (x != null && !x.trim().isEmpty()) sb.append("\n\n[Añadido mientras trabajabas] ").append(x.trim());
+        return sb.toString();
     }
 
     /** Aviso para un chat que terminó sin respuesta. Si Eolas estaba atendiendo otra petición, se dice que el mensaje

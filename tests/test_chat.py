@@ -640,3 +640,20 @@ def test_request_traduce_ninguna_a_tool_choice_none(monkeypatch):
 def test_planificar_prefiere_el_razonamiento_y_descarta_respuestas_cortadas(respuesta, esperado):
     assert chat.planificar({"kind": "eolas-v2"}, [{"role": "user", "content": "x"}],
                            request=lambda *a, **k: respuesta) == esperado
+
+
+def test_una_respuesta_cortada_por_el_tope_se_termina():
+    """21/11/2026, titular: respuestas «cortas y cortadas». Si el motor se queda sin tokens, una vuelta más sin
+    herramientas para que termine; el hilo no se queda con la petición de continuar."""
+    vistos = []
+
+    def request(c, messages, tools, *a, **k):
+        vistos.append((len(messages), isinstance(tools, chat.Ninguna)))
+        if len(vistos) == 1:
+            return {"content": "El caso ilfy analiza el modelo Dory y tiene dos informes: el de", "_fin": "length"}
+        return {"content": "funcionalidades y el de mejoras.", "_fin": "stop"}
+
+    out = chat.agent_turn([{"role": "user", "content": "hola"}], {"alias": "x"}, type("M", (), {"tools": {}})(),
+                          lambda m: None, request=request)
+    assert out["text"] == "El caso ilfy analiza el modelo Dory y tiene dos informes: el de funcionalidades y el de mejoras."
+    assert vistos[1][1] is True and vistos[1][0] == vistos[0][0] + 2

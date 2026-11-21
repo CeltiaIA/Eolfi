@@ -7,6 +7,10 @@ mantiene «Mantén para hablar» (por reflexión: la app sigue compilándose con
 app llega a `eolfi tableta-puente` por una VPN privada (Tailscale) usando la IP 100.x del PC; no se abre ningún puerto
 del router.
 
+Desde la 0.4.0 (21/11/2026) se puede dirigir a Eolas mientras trabaja: lo que escribes o dictas con «Añadir» entra
+en el mismo hilo antes del siguiente paso (`POST /api/tableta/chat/mensaje`), y **Parar** lo corta en el acto. Un
+corte pasajero de wifi o datos ya no abandona la respuesta: la consulta se reintenta hasta 10 veces.
+
 Satélite de voz y terminal del chat de Eolas para la Galaxy Tab 2 (GT-P3100). La app usa el micrófono y el altavoz
 de la tableta, y el trabajo pesado (whisper, Gemma, voz) lo hace el panel de Eolfi en el PC, por la red local.
 

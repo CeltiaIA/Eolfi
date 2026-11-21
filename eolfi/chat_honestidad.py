@@ -19,6 +19,7 @@ Es un filtro de patrones: reduce y mide estos defectos concretos, no garantiza q
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from typing import Any
 
@@ -58,7 +59,86 @@ def contexto(estado: dict[str, Any] | None) -> str:
     else:
         linea = ("- VS Code: el puente de la extensión @eolfi NO responde ahora. Dilo así y explica que se activa "
                  "abriendo VS Code con la extensión de Eolfi; no inventes otra vía.")
-    return "Estado real comprobado por Eolfi al empezar este turno:\n" + linea + "\n" + LIMITES
+    return "Estado real comprobado por Eolfi al empezar este turno:\n" + linea + "\n" + memoria(estado) + LIMITES
+
+
+def _fecha(ts: Any) -> str:
+    try:
+        return time.strftime("%d/%m/%Y %H:%M", time.localtime(float(ts)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return "fecha desconocida"
+
+
+ESTADOS_ENCARGO = {"hecho": "terminado", "en_curso": "en curso", "fallido": "fallido o sin verificar",
+                   "pendiente": "pendiente de aprobación", "rechazado": "rechazado", "aprobado": "aprobado"}
+
+
+def parecidos(texto: str, estado: dict[str, Any] | None) -> list[tuple[str, str, str]]:
+    """Palabras del mensaje que se parecen al nombre de un proyecto o caso conocido: (palabra, nombre, tipo).
+
+    21/11/2026, Redmi: el dictado escribió «Hilfee» por el caso «ilfy» y el chat preguntó qué era o se inventó su
+    estado. No se reescribe lo dictado (podría ser otra cosa); se le dice al modelo qué nombre real se parece."""
+    import difflib
+
+    mem = (estado or {}).get("memoria") or {}
+    nombres = [(str(p.get("nombre") or ""), "proyecto") for p in mem.get("proyectos") or []]
+    nombres += [(str(c.get("nombre") or ""), "caso") for c in mem.get("casos") or []]
+    palabras = re.findall(r"[^\W\d_]{3,}", texto)
+    out: list[tuple[str, str, str]] = []
+    for nombre, tipo in nombres:
+        clave = _plano(nombre).strip()
+        if not clave or any(n == nombre for _p, n, _t in out):
+            continue
+        n = len(clave.split())
+        for i in range(len(palabras)):
+            trozo = " ".join(palabras[i:i + n])
+            plano = _plano(trozo)
+            if plano == clave:
+                break   # ya lo nombra tal cual: no hace falta nota
+            # Sin la «h» muda inicial del dictado («Hilfee» → «ilfee»).
+            ratio = max(difflib.SequenceMatcher(None, plano, clave).ratio(),
+                        difflib.SequenceMatcher(None, plano.removeprefix("h"), clave).ratio())
+            if ratio >= 0.6 and len(clave) >= 3:
+                out.append((trozo, nombre, tipo))
+                break
+    return out[:3]
+
+
+def nota_parecidos(texto: str, estado: dict[str, Any] | None) -> str:
+    pares = parecidos(texto, estado)
+    if not pares:
+        return ""
+    return "\n\n[Nota de Eolfi: el mensaje puede venir de un dictado. " + "; ".join(
+        f"«{p}» se parece al {t} «{n}»" for p, n, t in pares) + ". Si encaja con la pregunta, es ese.]"
+
+
+def memoria(estado: dict[str, Any] | None) -> str:
+    """21/11/2026 (titular: «tiene que poder recordar si hizo un proyecto con nombre incluido»): lo que Eolfi YA ha
+    hecho, con nombre, para que «¿cómo va el último proyecto?» se conteste con datos y no con una pregunta o un
+    estado inventado. Viene de `_chat_memoria` del servidor (encargos y casos reales)."""
+    mem = (estado or {}).get("memoria")
+    if mem is None:
+        return ""
+    lineas = ["- Proyectos y aplicaciones que Eolfi ha creado o tiene encargados (del más reciente al más antiguo):"]
+    for p in (mem.get("proyectos") or [])[:8]:
+        est = ESTADOS_ENCARGO.get(str(p.get("estado")), str(p.get("estado") or "desconocido"))
+        ver = {True: ", verificado", False: ", NO verificado"}.get(p.get("verificado"), "")
+        lineas.append(f"  · «{p.get('nombre')}» — {est}{ver}; carpeta {p.get('carpeta')}; {_fecha(p.get('fecha'))}"
+                      f" (encargo {p.get('encargo_id')})")
+    if len(lineas) == 1:
+        lineas.append("  · ninguno todavía")
+    lineas.append("- Casos de trabajo recientes (análisis y proyectos):")
+    for c in (mem.get("casos") or [])[:8]:
+        desc = f": {c.get('descripcion')}" if c.get("descripcion") else ""
+        carpeta = f"; proyecto generado en {c.get('carpeta')}" if c.get("carpeta") else ""
+        lineas.append(f"  · «{c.get('nombre')}»{desc} ({_fecha(c.get('fecha'))}{carpeta})")
+    if not mem.get("casos"):
+        lineas.append("  · ninguno todavía")
+    lineas.append("  Si el usuario pregunta por «el último proyecto» o por uno con nombre, contesta con ESTOS datos "
+                  "(nombre, estado, carpeta y fecha) y, para el detalle, llama a eolfi_vscode_encargo_estado con su "
+                  "encargo. Si el nombre que dice no aparece, dilo y enséñale los que sí hay; nunca inventes el estado "
+                  "de un proyecto.")
+    return "\n".join(lineas) + "\n"
 
 
 def _plano(texto: str) -> str:
